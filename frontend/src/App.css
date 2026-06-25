@@ -1,59 +1,62 @@
-#app {
+#App {
+    display: flex;
     height: 100vh;
-    text-align: center;
+    text-align: left;
 }
 
-#logo {
-    display: block;
-    width: 50%;
-    height: 50%;
-    margin: auto;
-    padding: 10% 0 0;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-origin: content-box;
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background-color: rgba(18, 26, 38, 1);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
 }
 
-.result {
-    height: 20px;
-    line-height: 20px;
-    margin: 1.5rem auto;
+.sidebar-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    padding: 8px 20px 16px;
 }
 
-.input-box .btn {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    border-radius: 3px;
+.sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 12px;
+}
+
+.nav-item {
+    width: 100%;
+    text-align: left;
+    background: none;
     border: none;
-    margin: 0 0 0 20px;
-    padding: 0 8px;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.95rem;
+    padding: 10px 12px;
+    border-radius: 6px;
     cursor: pointer;
 }
 
-.input-box .btn:hover {
-    background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-    color: #333333;
+.nav-item:hover {
+    background-color: rgba(255, 255, 255, 0.06);
+    color: white;
 }
 
-.input-box .input {
-    border: none;
-    border-radius: 3px;
-    outline: none;
-    height: 30px;
-    line-height: 30px;
-    padding: 0 10px;
-    background-color: rgba(240, 240, 240, 1);
-    -webkit-font-smoothing: antialiased;
+.nav-item.active {
+    background-color: rgba(255, 255, 255, 0.12);
+    color: white;
 }
 
-.input-box .input:hover {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+.content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
 }
 
-.input-box .input:focus {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+.placeholder {
+    color: rgba(255, 255, 255, 0.5);
 }

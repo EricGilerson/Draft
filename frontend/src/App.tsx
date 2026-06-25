@@ -1,28 +1,29 @@
 import {useState} from 'react';
-import logo from './assets/images/logo-universal.png';
 import './App.css';
-import {Greet} from "../wailsjs/go/main/App";
 
 function App() {
-    const [resultText, setResultText] = useState("Please enter your name below 👇");
-    const [name, setName] = useState('');
-    const updateName = (e: any) => setName(e.target.value);
-    const updateResultText = (result: string) => setResultText(result);
-
-    function greet() {
-        Greet(name).then(updateResultText);
-    }
+    const [activeView, setActiveView] = useState<string | null>(null);
 
     return (
         <div id="App">
-            <img src={logo} id="logo" alt="logo"/>
-            <div id="result" className="result">{resultText}</div>
-            <div id="input" className="input-box">
-                <input id="name" className="input" onChange={updateName} autoComplete="off" name="input" type="text"/>
-                <button className="btn" onClick={greet}>Greet</button>
-            </div>
+            <aside className="sidebar">
+                <div className="sidebar-title">Draft</div>
+                <nav className="sidebar-nav">
+                    <button
+                        className={"nav-item" + (activeView === 'dashboard' ? ' active' : '')}
+                        onClick={() => setActiveView('dashboard')}
+                    >
+                        Dashboard
+                    </button>
+                </nav>
+            </aside>
+            <main className="content">
+                {activeView === 'dashboard'
+                    ? <h1>Hi 👋</h1>
+                    : <p className="placeholder">Select an item from the panel.</p>}
+            </main>
         </div>
-    )
+    );
 }
 
 export default App
