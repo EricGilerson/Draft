@@ -50,6 +50,7 @@
 }
 
 .content {
+    position: relative;
     flex: 1;
     display: flex;
     align-items: center;
@@ -59,4 +60,48 @@
 
 .placeholder {
     color: rgba(255, 255, 255, 0.5);
+}
+
+.docker-indicator {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.75);
+    user-select: none;
+}
+
+.docker-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.4);
+    flex-shrink: 0;
+}
+
+.docker-indicator.running .docker-dot {
+    background-color: #2ecc71;
+    box-shadow: 0 0 6px rgba(46, 204, 113, 0.8);
+}
+
+.docker-indicator.stopped .docker-dot {
+    background-color: #e74c3c;
+    box-shadow: 0 0 6px rgba(231, 76, 60, 0.7);
+}
+
+.docker-indicator.checking .docker-dot {
+    background-color: #f1c40f;
+    animation: docker-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes docker-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
 }
