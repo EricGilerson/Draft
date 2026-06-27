@@ -1,12 +1,12 @@
-export namespace main {
+export namespace dockerwatch {
 	
-	export class DockerStatus {
+	export class DaemonStatus {
 	    state: string;
 	    apiVersion?: string;
 	    error?: string;
 	
 	    static createFrom(source: any = {}) {
-	        return new DockerStatus(source);
+	        return new DaemonStatus(source);
 	    }
 	
 	    constructor(source: any = {}) {

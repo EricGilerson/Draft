@@ -1,6 +1,8 @@
 import {useEffect, useState} from 'react';
 import './App.css';
 import {CheckDocker} from '../wailsjs/go/main/App';
+import {EventsOn} from '../wailsjs/runtime/runtime';
+import {dockerwatch} from '../wailsjs/go/models';
 
 type DockerState = 'checking' | 'running' | 'stopped';
 
@@ -9,31 +11,30 @@ function DockerIndicator() {
     const [detail, setDetail] = useState<string>('');
 
     useEffect(() => {
-        let cancelled = false;
-
-        const poll = async () => {
-            try {
-                const status = await CheckDocker();
-                if (cancelled) return;
-                if (status.state === 'running') {
-                    setState('running');
-                    setDetail(status.apiVersion ? `Docker API v${status.apiVersion}` : 'Docker running');
-                } else {
-                    setState('stopped');
-                    setDetail(status.error || 'Docker daemon not reachable');
-                }
-            } catch (e) {
-                if (cancelled) return;
+        const apply = (status?: dockerwatch.DaemonStatus) => {
+            if (!status || !status.state) return;
+            if (status.state === 'running') {
+                setState('running');
+                setDetail(status.apiVersion ? `Docker API v${status.apiVersion}` : 'Docker running');
+            } else {
                 setState('stopped');
-                setDetail(String(e));
+                setDetail(status.error || 'Docker daemon not reachable');
             }
         };
 
-        poll();
-        const id = setInterval(poll, 3000);
+        // Subscribe first so no change is missed, then fetch the current value
+        // once. After that the backend pushes updates only when state changes —
+        // no polling.
+        const unsubscribe = EventsOn('docker:status', (status: dockerwatch.DaemonStatus) => apply(status));
+        CheckDocker()
+            .then(apply)
+            .catch((e) => {
+                setState('stopped');
+                setDetail(String(e));
+            });
+
         return () => {
-            cancelled = true;
-            clearInterval(id);
+            unsubscribe();
         };
     }, []);
 
