@@ -27,6 +27,14 @@ import (
 // detect the daemon coming back (nothing emits events while it is off).
 const reconnectDelay = 3 * time.Second
 
+// keepaliveInterval bounds how long a silently-dead connection can masquerade
+// as "running". The event stream has no heartbeat, so a dropped connection that
+// never signals the error channel (machine sleep/resume, pipe weirdness) would
+// otherwise leave a stale "running" status. We issue one cheap ping per interval
+// purely as a liveness probe — still ~20x less traffic than a 3s status poll,
+// and only while the daemon is up.
+const keepaliveInterval = 30 * time.Second
+
 // DaemonStatus describes the reachability of the local Docker daemon.
 type DaemonStatus struct {
 	// State is one of: "running" | "stopped".
@@ -145,8 +153,12 @@ func (h *Hub) connectAndStream(ctx context.Context) {
 	h.setDaemon(DaemonStatus{State: "running", APIVersion: ping.APIVersion})
 
 	// Long-lived push connection. Blocks here with no polling until the daemon
-	// emits an event, the connection drops, or ctx is cancelled.
+	// emits an event, the connection drops, or ctx is cancelled. The keepalive
+	// ticker is the only periodic work, guarding against a silently-dead stream.
 	msgs, errs := cli.Events(ctx, events.ListOptions{})
+	keepalive := time.NewTicker(keepaliveInterval)
+	defer keepalive.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -161,6 +173,16 @@ func (h *Hub) connectAndStream(ctx context.Context) {
 			}
 			h.setDaemon(st)
 			return
+		case <-keepalive.C:
+			pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err := cli.Ping(pingCtx)
+			cancel()
+			if err != nil {
+				// Connection is dead but the error channel never fired; treat
+				// as down and let Run reconnect.
+				h.setDaemon(DaemonStatus{State: "stopped", Error: err.Error()})
+				return
+			}
 		}
 	}
 }
