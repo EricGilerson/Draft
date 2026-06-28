@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -647,7 +648,10 @@ func (e *Engine) emitStatus(nodeID string, ev StatusEvent) {
 	e.emit("deploy:status", map[string]any{"nodeId": nodeID, "event": ev})
 }
 
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
 func (e *Engine) emitBuildLog(nodeID string, line string) {
+	line = ansiRe.ReplaceAllString(line, "")
 	ll := LogLine{Line: line, Stream: "build"}
 	e.emit("build:log:"+nodeID, ll)
 	e.emit("build:log", map[string]any{"nodeId": nodeID, "line": ll})
