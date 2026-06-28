@@ -1,0 +1,46 @@
+.resizable-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.resizable-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    z-index: 10;
+    cursor: col-resize;
+}
+
+.resizable-handle::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: transparent;
+    transition: background-color 0.15s ease;
+}
+
+.resizable-handle:hover::after,
+.resizable-handle:active::after {
+    background: var(--accent);
+}
+
+.resizable-handle--left {
+    left: -3px;
+}
+
+.resizable-handle--left::after {
+    left: 3px;
+}
+
+.resizable-handle--right {
+    right: -3px;
+}
+
+.resizable-handle--right::after {
+    right: 3px;
+}

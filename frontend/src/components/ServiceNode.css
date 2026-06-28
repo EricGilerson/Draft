@@ -67,15 +67,3 @@
 .service-node--starting .service-node-status {
     color: var(--yellow);
 }
-
-.service-handle {
-    width: 8px;
-    height: 8px;
-    background: var(--border-strong);
-    border: 2px solid var(--surface);
-    border-radius: 50%;
-}
-
-.service-handle:hover {
-    background: var(--accent);
-}

@@ -1,4 +1,4 @@
-import {Handle, Position, type NodeProps} from '@xyflow/react';
+import {type NodeProps} from '@xyflow/react';
 import {Box} from 'lucide-react';
 import './ServiceNode.css';
 
@@ -8,7 +8,6 @@ export default function ServiceNode({data}: NodeProps) {
 
     return (
         <div className={`service-node service-node--${status}`}>
-            <Handle type="target" position={Position.Left} className="service-handle"/>
             <div className="service-node-icon">
                 <Box size={14}/>
             </div>
@@ -16,7 +15,6 @@ export default function ServiceNode({data}: NodeProps) {
                 <span className="service-node-name">{label}</span>
                 <span className="service-node-status">{status}</span>
             </div>
-            <Handle type="source" position={Position.Right} className="service-handle"/>
         </div>
     );
 }

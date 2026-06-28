@@ -5,10 +5,18 @@ import {store} from '../models';
 
 export function CheckDocker():Promise<dockerwatch.DaemonStatus>;
 
+export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<store.CanvasNode>;
+
 export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store.Project>;
 
+export function DeleteNode(arg1:string):Promise<void>;
+
 export function Greet(arg1:string):Promise<string>;
+
+export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListProjects():Promise<Array<store.Project>>;
 
 export function SelectFolder():Promise<string>;
+
+export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;

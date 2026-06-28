@@ -26,6 +26,7 @@ import (
 // here as the schema is designed.
 var registeredModels = []any{
 	&Project{},
+	&CanvasNode{},
 }
 
 // Store wraps the GORM handle to the local database.

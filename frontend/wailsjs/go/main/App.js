@@ -6,12 +6,24 @@ export function CheckDocker() {
   return window['go']['main']['App']['CheckDocker']();
 }
 
+export function CreateNode(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['CreateNode'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function CreateProject(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3);
 }
 
+export function DeleteNode(arg1) {
+  return window['go']['main']['App']['DeleteNode'](arg1);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
+}
+
+export function ListNodes(arg1) {
+  return window['go']['main']['App']['ListNodes'](arg1);
 }
 
 export function ListProjects() {
@@ -20,4 +32,8 @@ export function ListProjects() {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function UpdateNode(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateNode'](arg1, arg2, arg3, arg4);
 }
