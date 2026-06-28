@@ -1,5 +1,6 @@
 import {Play, Square, RotateCcw, ExternalLink, AlertCircle} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
+import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
     GetNodeSettings,
     DeployService, StopService, RestartService,
@@ -76,16 +77,27 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
     const status = deployment?.status || 'stopped';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
+    const deploymentURL = deployment?.hostname ? `http://${deployment.hostname}` : '';
+
+    const handleOpenDeployment = () => {
+        if (!deploymentURL) return;
+        BrowserOpenURL(deploymentURL);
+    };
 
     return (
         <div className="overview-tab">
             <div className="overview-status-row">
                 <StatusBadge status={status} />
                 {deployment?.hostname && isRunning && (
-                    <span className="overview-hostname" title={deployment.hostname}>
+                    <button
+                        type="button"
+                        className="overview-hostname"
+                        title={deploymentURL}
+                        onClick={handleOpenDeployment}
+                    >
                         <ExternalLink size={11} />
                         {deployment.hostname}
-                    </span>
+                    </button>
                 )}
             </div>
 
