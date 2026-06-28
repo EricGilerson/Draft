@@ -7,34 +7,36 @@ import (
 	"strings"
 )
 
-type Pattern struct {
-	pattern  string
+type pattern struct {
+	raw      string
 	negate   bool
 	dirOnly  bool
-	anchored bool // contains a slash → only matches from the base dir
+	anchored bool
 }
 
+type rule struct {
+	base    string // directory containing the ignore file, relative to tar root
+	pattern pattern
+}
+
+// Matcher evaluates .gitignore / .dockerignore patterns against paths.
 type Matcher struct {
 	rules []rule
 }
 
-type rule struct {
-	base    string // directory containing the ignore file, relative to tar root ("" = root)
-	pattern Pattern
-}
-
+// New creates an empty Matcher.
 func New() *Matcher {
 	return &Matcher{}
 }
 
+// Empty reports whether the matcher has any rules loaded.
 func (m *Matcher) Empty() bool {
 	return len(m.rules) == 0
 }
 
-// AddFile parses an ignore file (.gitignore or .dockerignore) and registers
-// its patterns. base is the directory containing the file relative to the tar
-// root; patterns are matched relative to it. Use "" for the tar root itself or
-// for parent directories (their patterns apply everywhere).
+// AddFile parses an ignore file and registers its patterns. base is the
+// directory containing the file relative to the tar root; use "" for the tar
+// root itself or for parent directories (patterns apply everywhere).
 func (m *Matcher) AddFile(path, base string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -44,8 +46,7 @@ func (m *Matcher) AddFile(path, base string) error {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		p := parseLine(line)
+		p := parseLine(scanner.Text())
 		if p == nil {
 			continue
 		}
@@ -54,9 +55,8 @@ func (m *Matcher) AddFile(path, base string) error {
 	return scanner.Err()
 }
 
-// Match returns true if the given path (forward-slash separated, relative to
-// the tar root) should be ignored. isDir indicates whether the path is a
-// directory.
+// Match returns true if rel (forward-slash-separated, relative to the tar
+// root) should be excluded. isDir indicates whether the entry is a directory.
 func (m *Matcher) Match(rel string, isDir bool) bool {
 	matched := false
 	for _, r := range m.rules {
@@ -64,7 +64,6 @@ func (m *Matcher) Match(rel string, isDir bool) bool {
 			continue
 		}
 
-		// The path to test against this rule is relative to the rule's base.
 		testPath := rel
 		if r.base != "" && r.base != "." {
 			if !strings.HasPrefix(rel, r.base+"/") {
@@ -80,98 +79,228 @@ func (m *Matcher) Match(rel string, isDir bool) bool {
 	return matched
 }
 
-func parseLine(line string) *Pattern {
-	line = strings.TrimRight(line, " \t\r")
-	trimmed := strings.TrimLeft(line, " \t")
-	if trimmed == "" || trimmed[0] == '#' {
+// ---- parsing ----
+
+func parseLine(line string) *pattern {
+	// Trailing whitespace is stripped unless escaped with \.
+	line = trimTrailingUnescapedSpaces(line)
+
+	line = strings.TrimLeft(line, " \t")
+	if line == "" || line[0] == '#' {
 		return nil
 	}
-	line = trimmed
 
-	p := Pattern{}
+	p := &pattern{}
+
 	if line[0] == '!' {
 		p.negate = true
 		line = line[1:]
 	}
-	if strings.HasPrefix(line, `\#`) || strings.HasPrefix(line, `\!`) {
+
+	// Leading \# or \! escapes.
+	if len(line) >= 2 && line[0] == '\\' && (line[1] == '#' || line[1] == '!') {
 		line = line[1:]
 	}
+
 	if strings.HasSuffix(line, "/") {
 		p.dirOnly = true
 		line = strings.TrimRight(line, "/")
 	}
+
+	// A pattern containing a slash (other than a trailing one, already
+	// stripped above) is anchored to the base directory.
 	if strings.Contains(line, "/") {
 		p.anchored = true
 		line = strings.TrimPrefix(line, "/")
 	}
 
-	p.pattern = line
-	return &p
+	p.raw = line
+	return p
 }
 
-func matchPattern(p Pattern, path string) bool {
-	pattern := p.pattern
+func trimTrailingUnescapedSpaces(s string) string {
+	end := len(s)
+	for end > 0 && s[end-1] == ' ' {
+		if end >= 2 && s[end-2] == '\\' {
+			// escaped space — replace the backslash-space with just a space
+			s = s[:end-2] + " "
+			end--
+			break
+		}
+		end--
+	}
+	return s[:end]
+}
+
+// ---- matching ----
+
+func matchPattern(p pattern, path string) bool {
+	pat := p.raw
 
 	if p.anchored {
-		return matchGlob(pattern, path)
+		return globMatch(pat, path)
 	}
 
-	// Unanchored patterns match against the full path or the basename.
-	if matchGlob(pattern, path) {
+	// Unanchored: try matching against every suffix of the path.
+	// "foo" matches "foo", "a/foo", "a/b/foo".
+	// "*.txt" matches "a.txt", "dir/b.txt".
+	if globMatch(pat, path) {
 		return true
 	}
-	base := path
-	if idx := strings.LastIndex(path, "/"); idx >= 0 {
-		base = path[idx+1:]
-	}
-	return matchGlob(pattern, base)
-}
-
-func matchGlob(pattern, name string) bool {
-	if strings.Contains(pattern, "**") {
-		return matchDoublestar(pattern, name)
-	}
-	matched, _ := filepath.Match(pattern, name)
-	return matched
-}
-
-func matchDoublestar(pattern, name string) bool {
-	parts := strings.SplitN(pattern, "**", 2)
-	prefix := parts[0]
-	suffix := ""
-	if len(parts) > 1 {
-		suffix = strings.TrimPrefix(parts[1], "/")
-	}
-
-	if prefix != "" {
-		prefix = strings.TrimSuffix(prefix, "/")
-		if !strings.HasPrefix(name, prefix) {
-			return false
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' {
+			if globMatch(pat, path[i+1:]) {
+				return true
+			}
 		}
-		if len(name) == len(prefix) {
-			name = ""
-		} else if name[len(prefix)] == '/' {
-			name = name[len(prefix)+1:]
+	}
+	return false
+}
+
+// globMatch matches a gitignore glob pattern against a forward-slash path.
+// Unlike filepath.Match, * never matches /, and ** is supported.
+func globMatch(pat, name string) bool {
+	// Fast-path for trivial patterns.
+	if pat == "" {
+		return name == ""
+	}
+
+	for len(pat) > 0 {
+		switch pat[0] {
+		case '*':
+			if len(pat) >= 2 && pat[1] == '*' {
+				return matchDoublestar(pat, name)
+			}
+			// Single * — match any characters except /.
+			pat = pat[1:]
+			// If nothing left in pattern, * must match the rest (which must
+			// not contain /).
+			if pat == "" {
+				return !strings.Contains(name, "/")
+			}
+			// Try every position in name (up to the next /) as the end of
+			// the * match.
+			for i := 0; i <= len(name); i++ {
+				if i > 0 && name[i-1] == '/' {
+					return false
+				}
+				if globMatch(pat, name[i:]) {
+					return true
+				}
+			}
+			return false
+
+		case '?':
+			if len(name) == 0 || name[0] == '/' {
+				return false
+			}
+			pat = pat[1:]
+			name = name[1:]
+
+		case '[':
+			if len(name) == 0 || name[0] == '/' {
+				return false
+			}
+			ok, width := matchCharClass(pat, name[0])
+			if width == 0 {
+				return false // malformed class
+			}
+			if !ok {
+				return false
+			}
+			pat = pat[width:]
+			name = name[1:]
+
+		case '\\':
+			// Escape next character (treat as literal).
+			pat = pat[1:]
+			if len(pat) == 0 {
+				return false
+			}
+			if len(name) == 0 || name[0] != pat[0] {
+				return false
+			}
+			pat = pat[1:]
+			name = name[1:]
+
+		default:
+			if len(name) == 0 || name[0] != pat[0] {
+				return false
+			}
+			pat = pat[1:]
+			name = name[1:]
+		}
+	}
+	return name == ""
+}
+
+// matchCharClass parses a [...] bracket expression starting at pat[0]=='['
+// and checks whether ch is in the class. Returns (matched, patternWidth).
+// patternWidth is 0 on malformed input.
+func matchCharClass(pat string, ch byte) (bool, int) {
+	if len(pat) < 2 || pat[0] != '[' {
+		return false, 0
+	}
+	i := 1
+	negate := false
+	if i < len(pat) && (pat[i] == '!' || pat[i] == '^') {
+		negate = true
+		i++
+	}
+	matched := false
+	first := true
+	for i < len(pat) {
+		if pat[i] == ']' && !first {
+			i++
+			return matched != negate, i
+		}
+		first = false
+
+		lo := pat[i]
+		i++
+		if i+1 < len(pat) && pat[i] == '-' && pat[i+1] != ']' {
+			hi := pat[i+1]
+			i += 2
+			if lo <= ch && ch <= hi {
+				matched = true
+			}
 		} else {
-			return false
+			if ch == lo {
+				matched = true
+			}
 		}
 	}
+	return false, 0 // no closing ]
+}
 
-	if suffix == "" {
+// matchDoublestar handles ** which matches zero or more complete path segments.
+func matchDoublestar(pat, name string) bool {
+	// Consume the **.
+	pat = pat[2:]
+
+	// ** at end of pattern matches everything.
+	if pat == "" {
 		return true
 	}
 
-	for {
-		if matchGlob(suffix, name) {
-			return true
-		}
-		idx := strings.Index(name, "/")
-		if idx < 0 {
-			return false
-		}
-		name = name[idx+1:]
+	// Strip the / after ** (e.g. **/ or a/**/b).
+	pat = strings.TrimPrefix(pat, "/")
+
+	// Try matching the remainder against every suffix of name.
+	if globMatch(pat, name) {
+		return true
 	}
+	for i := 0; i < len(name); i++ {
+		if name[i] == '/' {
+			if globMatch(pat, name[i+1:]) {
+				return true
+			}
+		}
+	}
+	return false
 }
+
+// ---- scanning ----
 
 // ScanDir walks scanRoot looking for files named target (e.g. ".gitignore" or
 // ".dockerignore") and adds each one to m. tarRoot is the directory that will
@@ -190,38 +319,30 @@ func (m *Matcher) ScanDir(scanRoot, tarRoot, target string) (int, error) {
 		if err != nil {
 			return nil
 		}
-		name := info.Name()
 
 		if info.IsDir() {
-			switch name {
+			switch info.Name() {
 			case ".git", "node_modules", ".next", "__pycache__", ".venv":
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		if name != target {
+		if info.Name() != target {
 			return nil
 		}
 
 		ignoreDir := filepath.Clean(filepath.Dir(path))
-		var base string
-
-		// Determine the base relative to tarRoot.
 		rel, relErr := filepath.Rel(tarRoot, ignoreDir)
 		if relErr != nil {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
 
-		if rel == "." {
-			// Ignore file is in the tar root itself.
-			base = ""
-		} else if strings.HasPrefix(rel, "..") {
-			// Ignore file is in a parent of tarRoot — patterns apply globally.
+		var base string
+		if rel == "." || strings.HasPrefix(rel, "..") {
 			base = ""
 		} else {
-			// Ignore file is inside tarRoot.
 			base = rel
 		}
 

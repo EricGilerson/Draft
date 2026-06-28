@@ -16,31 +16,52 @@ func TestParseLineSkipsBlanksAndComments(t *testing.T) {
 
 func TestParseLineNegate(t *testing.T) {
 	p := parseLine("!important.txt")
-	if p == nil || !p.negate || p.pattern != "important.txt" {
+	if p == nil || !p.negate || p.raw != "important.txt" {
 		t.Fatalf("unexpected: %+v", p)
 	}
 }
 
 func TestParseLineDirOnly(t *testing.T) {
 	p := parseLine("build/")
-	if p == nil || !p.dirOnly || p.pattern != "build" {
+	if p == nil || !p.dirOnly || p.raw != "build" {
 		t.Fatalf("unexpected: %+v", p)
 	}
 }
 
 func TestParseLineAnchored(t *testing.T) {
 	p := parseLine("foo/bar")
-	if p == nil || !p.anchored || p.pattern != "foo/bar" {
+	if p == nil || !p.anchored || p.raw != "foo/bar" {
 		t.Fatalf("unexpected: %+v", p)
+	}
+}
+
+func TestParseLineEscapedHash(t *testing.T) {
+	p := parseLine(`\#not-a-comment`)
+	if p == nil || p.raw != "#not-a-comment" {
+		t.Fatalf("unexpected: %+v", p)
+	}
+}
+
+func TestParseLineTrailingSpace(t *testing.T) {
+	p := parseLine(`foo\ `)
+	if p == nil || p.raw != "foo " {
+		t.Fatalf("expected raw='foo ', got %+v", p)
+	}
+}
+
+func TestParseLineTrailingSpaceStripped(t *testing.T) {
+	p := parseLine("foo   ")
+	if p == nil || p.raw != "foo" {
+		t.Fatalf("expected raw='foo', got %+v", p)
 	}
 }
 
 func TestMatchBasic(t *testing.T) {
 	m := New()
 	m.rules = []rule{
-		{base: "", pattern: Pattern{pattern: "*.log"}},
-		{base: "", pattern: Pattern{pattern: "dist", dirOnly: true}},
-		{base: "", pattern: Pattern{pattern: "node_modules"}},
+		{base: "", pattern: pattern{raw: "*.log"}},
+		{base: "", pattern: pattern{raw: "dist", dirOnly: true}},
+		{base: "", pattern: pattern{raw: "node_modules"}},
 	}
 
 	tests := []struct {
@@ -68,8 +89,8 @@ func TestMatchBasic(t *testing.T) {
 func TestMatchNegate(t *testing.T) {
 	m := New()
 	m.rules = []rule{
-		{base: "", pattern: Pattern{pattern: "*.log"}},
-		{base: "", pattern: Pattern{pattern: "important.log", negate: true}},
+		{base: "", pattern: pattern{raw: "*.log"}},
+		{base: "", pattern: pattern{raw: "important.log", negate: true}},
 	}
 
 	if !m.Match("debug.log", false) {
@@ -83,7 +104,7 @@ func TestMatchNegate(t *testing.T) {
 func TestMatchWithBase(t *testing.T) {
 	m := New()
 	m.rules = []rule{
-		{base: "frontend", pattern: Pattern{pattern: "dist", dirOnly: true}},
+		{base: "frontend", pattern: pattern{raw: "dist", dirOnly: true}},
 	}
 
 	if m.Match("dist", true) {
@@ -97,7 +118,7 @@ func TestMatchWithBase(t *testing.T) {
 func TestMatchDoublestar(t *testing.T) {
 	m := New()
 	m.rules = []rule{
-		{base: "", pattern: Pattern{pattern: "**/*.test.js", anchored: true}},
+		{base: "", pattern: pattern{raw: "**/*.test.js", anchored: true}},
 	}
 
 	if !m.Match("src/foo.test.js", false) {
@@ -111,11 +132,108 @@ func TestMatchDoublestar(t *testing.T) {
 	}
 }
 
+func TestGlobStarDoesNotMatchSlash(t *testing.T) {
+	if globMatch("*.log", "src/debug.log") {
+		t.Error("single * should not match /")
+	}
+	if !globMatch("*.log", "debug.log") {
+		t.Error("single * should match flat filename")
+	}
+}
+
+func TestGlobQuestion(t *testing.T) {
+	if !globMatch("?.txt", "a.txt") {
+		t.Error("? should match single char")
+	}
+	if globMatch("?.txt", "ab.txt") {
+		t.Error("? should not match two chars")
+	}
+	if globMatch("?", "/") {
+		t.Error("? should not match /")
+	}
+}
+
+func TestGlobCharClass(t *testing.T) {
+	if !globMatch("[abc].txt", "a.txt") {
+		t.Error("[abc] should match a")
+	}
+	if globMatch("[abc].txt", "d.txt") {
+		t.Error("[abc] should not match d")
+	}
+	if !globMatch("[a-z].txt", "m.txt") {
+		t.Error("[a-z] should match m")
+	}
+	if globMatch("[!a-z].txt", "m.txt") {
+		t.Error("[!a-z] should not match m")
+	}
+	if !globMatch("[!a-z].txt", "1.txt") {
+		t.Error("[!a-z] should match 1")
+	}
+}
+
+func TestGlobBackslashEscape(t *testing.T) {
+	if !globMatch(`\*.txt`, "*.txt") {
+		t.Error(`\* should match literal *`)
+	}
+	if globMatch(`\*.txt`, "a.txt") {
+		t.Error(`\* should not match a`)
+	}
+}
+
+func TestGlobDoublestarMiddle(t *testing.T) {
+	if !globMatch("a/**/b.txt", "a/b.txt") {
+		t.Error("a/**/b.txt should match a/b.txt (zero dirs)")
+	}
+	if !globMatch("a/**/b.txt", "a/x/b.txt") {
+		t.Error("a/**/b.txt should match a/x/b.txt")
+	}
+	if !globMatch("a/**/b.txt", "a/x/y/b.txt") {
+		t.Error("a/**/b.txt should match a/x/y/b.txt")
+	}
+	if globMatch("a/**/b.txt", "c/x/b.txt") {
+		t.Error("a/**/b.txt should not match c/x/b.txt")
+	}
+}
+
+func TestGlobDoublestarTrailing(t *testing.T) {
+	if !globMatch("src/**", "src/a.go") {
+		t.Error("src/** should match src/a.go")
+	}
+	if !globMatch("src/**", "src/sub/a.go") {
+		t.Error("src/** should match nested")
+	}
+}
+
+func TestGlobDoublestarLeading(t *testing.T) {
+	if !globMatch("**/test", "test") {
+		t.Error("**/test should match root")
+	}
+	if !globMatch("**/test", "a/test") {
+		t.Error("**/test should match nested")
+	}
+	if !globMatch("**/test", "a/b/test") {
+		t.Error("**/test should match deeply nested")
+	}
+}
+
+func TestUnanchoredMultiComponent(t *testing.T) {
+	m := New()
+	m.rules = []rule{
+		{base: "", pattern: pattern{raw: "foo/bar"}},
+	}
+
+	if !m.Match("foo/bar", false) {
+		t.Error("foo/bar should match at root")
+	}
+	if !m.Match("x/foo/bar", false) {
+		t.Error("foo/bar unanchored should match x/foo/bar")
+	}
+	if m.Match("foo/baz", false) {
+		t.Error("foo/baz should not match")
+	}
+}
+
 func TestScanDirFindsIgnoreFiles(t *testing.T) {
-	// Create:
-	//   repo/.gitignore        (contains "*.log")
-	//   repo/backend/.gitignore (contains "tmp/")
-	//   repo/backend/src/app.go
 	root := t.TempDir()
 	backend := filepath.Join(root, "backend")
 	os.MkdirAll(filepath.Join(backend, "src"), 0755)
@@ -132,32 +250,24 @@ func TestScanDirFindsIgnoreFiles(t *testing.T) {
 		t.Fatalf("expected 2 .gitignore files, found %d", n)
 	}
 
-	// *.log from repo root should apply (parent → base "")
 	if !m.Match("error.log", false) {
 		t.Error("*.log should match in tar root")
 	}
 	if !m.Match("src/debug.log", false) {
 		t.Error("*.log should match nested")
 	}
-
-	// tmp/ from backend/.gitignore should apply (base "")
 	if !m.Match("tmp", true) {
 		t.Error("tmp/ should match as dir")
 	}
 	if m.Match("tmp", false) {
 		t.Error("tmp should not match as file (dirOnly)")
 	}
-
-	// Non-ignored file
 	if m.Match("src/app.go", false) {
 		t.Error("app.go should not be ignored")
 	}
 }
 
 func TestScanDirSubdirIgnore(t *testing.T) {
-	// repo/backend/sub/.gitignore with "*.tmp"
-	// tarRoot = repo/backend
-	// Pattern should only apply under sub/
 	root := t.TempDir()
 	backend := filepath.Join(root, "backend")
 	sub := filepath.Join(backend, "sub")
