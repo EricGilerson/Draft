@@ -1,0 +1,81 @@
+.service-node {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    min-width: 160px;
+    border-radius: 10px;
+    border: 1px solid var(--border-strong);
+    background:
+        linear-gradient(180deg, rgba(244, 226, 188, 0.04), transparent 60%),
+        var(--surface);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    cursor: grab;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.service-node:hover {
+    border-color: var(--accent-border);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--accent-soft);
+}
+
+.service-node-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    flex-shrink: 0;
+}
+
+.service-node-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.service-node-name {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.service-node-status {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+}
+
+.service-node--running .service-node-status {
+    color: var(--green);
+}
+
+.service-node--error .service-node-status {
+    color: var(--red);
+}
+
+.service-node--starting .service-node-status {
+    color: var(--yellow);
+}
+
+.service-handle {
+    width: 8px;
+    height: 8px;
+    background: var(--border-strong);
+    border: 2px solid var(--surface);
+    border-radius: 50%;
+}
+
+.service-handle:hover {
+    background: var(--accent);
+}

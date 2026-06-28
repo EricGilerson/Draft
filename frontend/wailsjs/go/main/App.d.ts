@@ -10,3 +10,5 @@ export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store
 export function Greet(arg1:string):Promise<string>;
 
 export function ListProjects():Promise<Array<store.Project>>;
+
+export function SelectFolder():Promise<string>;

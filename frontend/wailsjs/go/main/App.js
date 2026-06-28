@@ -17,3 +17,7 @@ export function Greet(arg1) {
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
+
+export function SelectFolder() {
+  return window['go']['main']['App']['SelectFolder']();
+}

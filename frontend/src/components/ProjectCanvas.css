@@ -90,6 +90,47 @@
     font-size: 0.62rem;
 }
 
+.canvas-add-wrapper {
+    position: absolute;
+    z-index: 5;
+    top: 22px;
+    right: 24px;
+}
+
+.canvas-add-btn {
+    font-size: 0.74rem;
+}
+
+.canvas-add-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 260px;
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    background: var(--bg-elevated);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.52);
+    overflow: hidden;
+}
+
+.canvas-add-popover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: var(--text-muted);
+}
+
+.canvas-add-popover-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+}
+
 .canvas-lane-label {
     position: absolute;
     z-index: 2;

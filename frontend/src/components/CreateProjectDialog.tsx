@@ -1,5 +1,6 @@
 import {useState} from 'react';
-import {CreateProject} from '../../wailsjs/go/main/App';
+import {FolderOpen} from 'lucide-react';
+import {CreateProject, SelectFolder} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 
@@ -59,12 +60,21 @@ export default function CreateProjectDialog({onClose, onCreated}: CreateProjectD
                 </div>
                 <div className="form-field">
                     <label className="form-label">Local path</label>
-                    <input
-                        className="input"
-                        value={path}
-                        onChange={(e) => setPath(e.target.value)}
-                        placeholder="/Users/me/code/my-app"
-                    />
+                    <div className="input-with-action">
+                        <input
+                            className="input"
+                            value={path}
+                            onChange={(e) => setPath(e.target.value)}
+                            placeholder="C:\Users\me\code\my-app"
+                        />
+                        <button
+                            type="button"
+                            className="btn btn-ghost input-action-btn"
+                            onClick={() => SelectFolder().then((p) => { if (p) setPath(p); })}
+                        >
+                            <FolderOpen size={15}/>
+                        </button>
+                    </div>
                 </div>
                 <div className="form-field">
                     <label className="form-label">

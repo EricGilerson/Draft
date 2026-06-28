@@ -53,6 +53,13 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
+// SelectFolder opens a native directory-picker dialog and returns the chosen path.
+func (a *App) SelectFolder() (string, error) {
+	return wruntime.OpenDirectoryDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title: "Select project folder",
+	})
+}
+
 // Greet returns a greeting for the given name
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
