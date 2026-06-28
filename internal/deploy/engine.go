@@ -294,11 +294,15 @@ func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFil
 		}
 		if json.Unmarshal([]byte(line), &msg) == nil {
 			if msg.Error != "" {
-				e.emit("build:log:"+nodeID, LogLine{Line: msg.Error, Stream: "build"})
+				logLine := LogLine{Line: msg.Error, Stream: "build"}
+				e.emit("build:log:"+nodeID, logLine)
+				e.emit("build:log", map[string]any{"nodeId": nodeID, "line": logLine})
 				return fmt.Errorf("%s", msg.Error)
 			}
 			if msg.Stream != "" {
-				e.emit("build:log:"+nodeID, LogLine{Line: strings.TrimRight(msg.Stream, "\n"), Stream: "build"})
+				logLine := LogLine{Line: strings.TrimRight(msg.Stream, "\n"), Stream: "build"}
+				e.emit("build:log:"+nodeID, logLine)
+				e.emit("build:log", map[string]any{"nodeId": nodeID, "line": logLine})
 			}
 		}
 	}
@@ -542,6 +546,7 @@ func (e *Engine) logPath(deploymentID uint) string {
 
 func (e *Engine) emitStatus(nodeID string, ev StatusEvent) {
 	e.emit("deploy:status:"+nodeID, ev)
+	e.emit("deploy:status", map[string]any{"nodeId": nodeID, "event": ev})
 }
 
 func (e *Engine) failDeployment(dep *store.Deployment, nodeID, errMsg string) {

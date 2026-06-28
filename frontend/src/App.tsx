@@ -5,6 +5,7 @@ import {ListProjects} from '../wailsjs/go/main/App';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
 import ActivityTicker from './components/ActivityTicker';
+import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
@@ -48,6 +49,7 @@ function App() {
     };
 
     return (
+        <BuildLogProvider>
         <div className="app-shell">
             <Sidebar active={view} onSelect={handleSelectView}/>
             <div className="app-main">
@@ -101,6 +103,7 @@ function App() {
                 />
             )}
         </div>
+        </BuildLogProvider>
     );
 }
 

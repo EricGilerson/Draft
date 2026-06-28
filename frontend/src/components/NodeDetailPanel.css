@@ -171,6 +171,12 @@
     color: var(--text-faint);
 }
 
+.overview-build-log {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
 .overview-details {
     display: flex;
     flex-direction: column;
@@ -358,6 +364,11 @@
 
 .log-viewer--history {
     max-height: 300px;
+}
+
+.log-viewer--build {
+    max-height: 220px;
+    min-height: 80px;
 }
 
 .log-viewer--full {

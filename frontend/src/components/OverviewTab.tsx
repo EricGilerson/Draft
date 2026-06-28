@@ -1,19 +1,21 @@
 import {Play, Square, RotateCcw, ExternalLink, AlertCircle} from 'lucide-react';
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {
     GetNodeSettings,
     DeployService, StopService, RestartService,
     GetActiveDeployment,
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
-import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime';
+import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
 export default function OverviewTab({nodeId}: {nodeId: string}) {
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
-    const [deploying, setDeploying] = useState(false);
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
+    const buildLogRef = useRef<HTMLDivElement>(null);
+    const autoScroll = useRef(true);
+    const {lines: buildLines, deploying, version} = useBuildLog(nodeId);
 
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
@@ -21,29 +23,37 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
     }, [nodeId]);
 
     useEffect(() => {
-        const eventName = 'deploy:status:' + nodeId;
-        EventsOn(eventName, (ev: any) => {
-            setDeploying(ev.status === 'building' || ev.status === 'starting');
-            if (ev.status === 'failed') {
-                setError(ev.error || 'Deployment failed');
+        if (version === 0) return;
+        GetActiveDeployment(nodeId).then(d => {
+            setDeployment(d || null);
+            if (d?.status === 'failed') {
+                setError(d.error || 'Deployment failed');
             } else {
                 setError('');
             }
-            GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
         });
-        return () => { EventsOff(eventName); };
-    }, [nodeId]);
+    }, [nodeId, version]);
+
+    useEffect(() => {
+        if (autoScroll.current && buildLogRef.current) {
+            buildLogRef.current.scrollTop = buildLogRef.current.scrollHeight;
+        }
+    }, [buildLines]);
+
+    const handleBuildLogScroll = () => {
+        if (!buildLogRef.current) return;
+        const {scrollTop, scrollHeight, clientHeight} = buildLogRef.current;
+        autoScroll.current = scrollHeight - scrollTop - clientHeight < 40;
+    };
 
     const canDeploy = settings.dockerfile && settings.service_port;
 
     const handleDeploy = async () => {
         setError('');
-        setDeploying(true);
         try {
             await DeployService(nodeId);
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Deploy failed');
-            setDeploying(false);
         }
     };
 
@@ -119,6 +129,26 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
                     </>
                 )}
             </div>
+
+            {(deploying || buildLines.length > 0) && (
+                <div className="overview-build-log">
+                    <h4 className="deploy-log-title">
+                        {deploying ? 'Build output' : 'Last build output'}
+                    </h4>
+                    <div
+                        className="log-viewer log-viewer--build"
+                        ref={buildLogRef}
+                        onScroll={handleBuildLogScroll}
+                    >
+                        {buildLines.length === 0 && deploying && (
+                            <span className="deploy-empty">Waiting for build output...</span>
+                        )}
+                        {buildLines.map((line, i) => (
+                            <div key={i} className="log-line">{line}</div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {!canDeploy && (
                 <span className="overview-hint">

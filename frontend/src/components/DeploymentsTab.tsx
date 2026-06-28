@@ -2,44 +2,32 @@ import {ChevronDown, ChevronRight, AlertCircle} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetDeployments, GetBuildLog} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
-import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime';
+import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
 export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     const [deployments, setDeployments] = useState<store.Deployment[]>([]);
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [buildLog, setBuildLog] = useState('');
-    const [liveBuildLines, setLiveBuildLines] = useState<string[]>([]);
     const buildLogRef = useRef<HTMLDivElement>(null);
+    const {lines: liveBuildLines, deploying, version} = useBuildLog(nodeId);
 
     useEffect(() => {
         GetDeployments(nodeId).then(d => setDeployments(d || []));
     }, [nodeId]);
 
     useEffect(() => {
-        const statusEvent = 'deploy:status:' + nodeId;
-        EventsOn(statusEvent, () => {
-            GetDeployments(nodeId).then(d => setDeployments(d || []));
-        });
-        return () => { EventsOff(statusEvent); };
-    }, [nodeId]);
-
-    useEffect(() => {
-        const buildEvent = 'build:log:' + nodeId;
-        EventsOn(buildEvent, (ev: any) => {
-            setLiveBuildLines(prev => [...prev, ev.line]);
-        });
-        return () => {
-            EventsOff(buildEvent);
-            setLiveBuildLines([]);
-        };
-    }, [nodeId]);
+        if (version === 0) return;
+        GetDeployments(nodeId).then(d => setDeployments(d || []));
+    }, [nodeId, version]);
 
     useEffect(() => {
         if (buildLogRef.current) {
             buildLogRef.current.scrollTop = buildLogRef.current.scrollHeight;
         }
     }, [liveBuildLines]);
+
+    const isBuilding = deploying || deployments.some(d => d.status === 'building');
 
     const toggleExpand = async (dep: store.Deployment) => {
         if (expandedId === dep.id) {
@@ -54,8 +42,6 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
             setBuildLog(log);
         }
     };
-
-    const isBuilding = deployments.some(d => d.status === 'building');
 
     return (
         <div className="deployments-tab">
