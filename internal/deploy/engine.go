@@ -84,6 +84,9 @@ func (e *Engine) Deploy(ctx context.Context, nodeID string) error {
 }
 
 func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
+	e.emitBuildLog(nodeID, "==> Initializing deployment...")
+	e.emitBuildLog(nodeID, "    Loading node settings")
+
 	settings, err := e.store.GetNodeSettings(nodeID)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to read settings: " + err.Error()})
@@ -129,6 +132,10 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	relDockerfile = filepath.ToSlash(relDockerfile)
 
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Dockerfile: %s", relDockerfile))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Service port: %s", portStr))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Build context: %s", serviceRoot))
+
 	dep := &store.Deployment{
 		NodeID:    nodeID,
 		ProjectID: node.ProjectID,
@@ -146,14 +153,24 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	dep.ImageTag = imageTag
 	e.store.UpdateDeployment(dep)
 
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Image tag: %s", imageTag))
+
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "building"})
 
+	e.emitBuildLog(nodeID, "==> Connecting to Docker daemon...")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		e.failDeployment(dep, nodeID, "cannot connect to Docker: "+err.Error())
 		return
 	}
 	defer cli.Close()
+
+	ping, pingErr := cli.Ping(ctx)
+	if pingErr != nil {
+		e.failDeployment(dep, nodeID, "Docker daemon not reachable: "+pingErr.Error())
+		return
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Connected (API v%s)", ping.APIVersion))
 
 	logFile, err := os.Create(e.logPath(dep.ID))
 	if err != nil {
@@ -162,12 +179,20 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer logFile.Close()
 
-	buildContext, err := tarDirectory(serviceRoot)
+	e.emitBuildLog(nodeID, "==> Packaging build context...")
+	packStart := time.Now()
+	buildContext, fileCount, totalBytes, err := tarDirectoryWithProgress(serviceRoot, func(files int, bytes int64) {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Packaged %d files (%.1f MB)", files, float64(bytes)/(1024*1024)))
+	})
 	if err != nil {
 		e.failDeployment(dep, nodeID, "cannot create build context: "+err.Error())
 		return
 	}
 	defer buildContext.Close()
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Done: %d files, %.1f MB in %s", fileCount, float64(totalBytes)/(1024*1024), time.Since(packStart).Round(time.Millisecond)))
+
+	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
+	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, relDockerfile))
 
 	resp, err := cli.ImageBuild(ctx, buildContext, build.ImageBuildOptions{
 		Tags:       []string{imageTag},
@@ -180,6 +205,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer resp.Body.Close()
 
+	buildStart := time.Now()
 	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, dep.ID)
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
@@ -191,21 +217,29 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
+
 	now := time.Now()
 	dep.Status = "built"
 	dep.FinishedAt = &now
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "built"})
 
+	e.emitBuildLog(nodeID, "==> Stopping previous deployment...")
 	if err := e.stopPrevious(ctx, cli, nodeID, dep.ID); err != nil {
 		log.Printf("[deploy] warning: stop previous: %v", err)
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
+	} else {
+		e.emitBuildLog(nodeID, "    Done")
 	}
 
+	e.emitBuildLog(nodeID, "==> Creating container...")
 	dep.Status = "starting"
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
 
 	containerPort := nat.Port(portStr + "/tcp")
+	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.ID)
 	createResp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: imageTag,
 		Labels: map[string]string{
@@ -218,7 +252,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		PortBindings: nat.PortMap{
 			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "0"}},
 		},
-	}, nil, nil, fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.ID))
+	}, nil, nil, containerName)
 	if err != nil {
 		e.failDeployment(dep, nodeID, "container create failed: "+err.Error())
 		return
@@ -226,7 +260,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	dep.ContainerID = createResp.ID
 	e.store.UpdateDeployment(dep)
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Container: %s (%s)", containerName, createResp.ID[:12]))
 
+	e.emitBuildLog(nodeID, "==> Starting container...")
 	if err := cli.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
 		e.failDeployment(dep, nodeID, "container start failed: "+err.Error())
 		return
@@ -243,7 +279,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	if len(bindings) > 0 {
 		fmt.Sscanf(bindings[0].HostPort, "%d", &hostPort)
 	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Listening on 127.0.0.1:%d (container port %s)", hostPort, portStr))
 
+	e.emitBuildLog(nodeID, "==> Registering route...")
 	uid := networking.GenerateUID()
 	regResult, err := e.router.Register(networking.RegisterRequest{
 		Service:    serviceName,
@@ -257,6 +295,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	})
 	if err != nil {
 		log.Printf("[deploy] route registration failed (non-fatal): %v", err)
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
+	} else if regResult != nil {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Route: %s → 127.0.0.1:%d", regResult.Hostname, hostPort))
 	}
 
 	dep.Status = "running"
@@ -265,6 +306,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		dep.Hostname = regResult.Hostname
 	}
 	e.store.UpdateDeployment(dep)
+	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
 	e.emitStatus(nodeID, StatusEvent{
 		DeploymentID: dep.ID,
@@ -549,6 +591,12 @@ func (e *Engine) emitStatus(nodeID string, ev StatusEvent) {
 	e.emit("deploy:status", map[string]any{"nodeId": nodeID, "event": ev})
 }
 
+func (e *Engine) emitBuildLog(nodeID string, line string) {
+	ll := LogLine{Line: line, Stream: "build"}
+	e.emit("build:log:"+nodeID, ll)
+	e.emit("build:log", map[string]any{"nodeId": nodeID, "line": ll})
+}
+
 func (e *Engine) failDeployment(dep *store.Deployment, nodeID, errMsg string) {
 	dep.Status = "failed"
 	dep.Error = errMsg
@@ -569,7 +617,53 @@ func sanitize(name string) string {
 	return strings.Trim(s, "-")
 }
 
-func tarDirectory(dir string) (io.ReadCloser, error) {
+type tarResult struct {
+	reader    io.ReadCloser
+	fileCount int
+	bytes     int64
+	err       error
+}
+
+func tarDirectoryWithProgress(dir string, progress func(files int, bytes int64)) (io.ReadCloser, int, int64, error) {
+	var fileCount int
+	var totalBytes int64
+
+	// First pass: walk to count files (stat only, no file reads). This is
+	// fast even for large trees and lets us report the total before Docker
+	// starts reading.
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if shouldSkip(rel) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.IsDir() {
+			fileCount++
+			totalBytes += info.Size()
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	if progress != nil {
+		progress(fileCount, totalBytes)
+	}
+
+	// Second pass: build the tar archive.
 	pr, pw := io.Pipe()
 	go func() {
 		gw := gzip.NewWriter(pw)
@@ -618,7 +712,7 @@ func tarDirectory(dir string) (io.ReadCloser, error) {
 		gw.Close()
 		pw.CloseWithError(err)
 	}()
-	return pr, nil
+	return pr, fileCount, totalBytes, nil
 }
 
 func shouldSkip(rel string) bool {

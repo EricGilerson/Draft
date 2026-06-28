@@ -104,15 +104,19 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
             )}
 
             <div className="overview-actions">
-                {!isActive && (
+                {!isActive && !deploying && (
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
-                        disabled={!canDeploy || deploying}
+                        disabled={!canDeploy}
                         title={!canDeploy ? 'Set Dockerfile and Port in Settings first' : 'Deploy service'}
                     >
-                        <Play size={13} />
-                        {deploying ? 'Deploying...' : 'Deploy'}
+                        <Play size={13} /> Deploy
+                    </button>
+                )}
+                {deploying && (
+                    <button className="btn btn-ghost" onClick={handleStop}>
+                        <Square size={13} /> Cancel Build
                     </button>
                 )}
                 {isActive && !deploying && (

@@ -121,7 +121,7 @@ func TestTarDirectory(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "src"), 0755)
 	os.WriteFile(filepath.Join(dir, "src", "app.go"), []byte("package src"), 0644)
 
-	rc, err := tarDirectory(dir)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestTarDirectorySkipsGitAndNodeModules(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
 	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte(""), 0644)
 
-	rc, err := tarDirectory(dir)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestTarDirectorySkipsGitAndNodeModules(t *testing.T) {
 
 func TestTarDirectoryEmpty(t *testing.T) {
 	dir := t.TempDir()
-	rc, err := tarDirectory(dir)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,14 +219,16 @@ func TestStreamBuildOutputSuccess(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	events := col.get()
-	if len(events) != 3 {
-		t.Fatalf("expected 3 log events, got %d", len(events))
-	}
-	for _, ev := range events {
-		if ev.Name != "build:log:test-node" {
-			t.Errorf("unexpected event name: %s", ev.Name)
+	var nodeEvents []emittedEvent
+	for _, ev := range col.get() {
+		if ev.Name == "build:log:test-node" {
+			nodeEvents = append(nodeEvents, ev)
 		}
+	}
+	if len(nodeEvents) != 3 {
+		t.Fatalf("expected 3 per-node log events, got %d", len(nodeEvents))
+	}
+	for _, ev := range nodeEvents {
 		ll := ev.Data.(LogLine)
 		if ll.Stream != "build" {
 			t.Errorf("expected stream=build, got %s", ll.Stream)
@@ -262,9 +264,14 @@ func TestStreamBuildOutputError(t *testing.T) {
 		t.Errorf("error should contain build error, got: %v", err)
 	}
 
-	events := col.get()
-	if len(events) != 2 {
-		t.Fatalf("expected 2 log events (1 stream + 1 error), got %d", len(events))
+	var nodeEvents []emittedEvent
+	for _, ev := range col.get() {
+		if ev.Name == "build:log:test-node" {
+			nodeEvents = append(nodeEvents, ev)
+		}
+	}
+	if len(nodeEvents) != 2 {
+		t.Fatalf("expected 2 per-node log events (1 stream + 1 error), got %d", len(nodeEvents))
 	}
 }
 
