@@ -22,28 +22,42 @@
 .brand-mark {
     display: block;
     flex-shrink: 0;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.28));
 }
 
-.brand-mark-frame {
-    stroke: rgba(232, 211, 168, 0.3);
-    stroke-width: 1.2;
+.brand-mark-tile {
+    fill: rgba(24, 26, 18, 0.94);
+    stroke: rgba(255, 195, 107, 0.42);
+    stroke-width: 1.15;
 }
 
 .brand-mark-route {
     stroke: var(--accent-text);
-    stroke-width: 1.65;
+    stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
 }
 
-.brand-mark-cursor {
-    fill: var(--accent);
+.brand-mark-route-secondary {
+    stroke: rgba(123, 216, 143, 0.86);
 }
 
-.brand-mark-port {
+.brand-mark-node {
     fill: var(--bg-elevated);
     stroke: var(--accent-text);
-    stroke-width: 1.3;
+    stroke-width: 1.45;
+}
+
+.brand-mark-node-primary {
+    fill: rgba(240, 138, 36, 0.18);
+    stroke: var(--accent);
+}
+
+.brand-mark-launch {
+    stroke: var(--accent);
+    stroke-width: 1.65;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .brand-name {
