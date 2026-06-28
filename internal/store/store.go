@@ -14,6 +14,7 @@
 package store
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -42,7 +43,10 @@ type Store struct {
 // dsn with FileDSN (or MemoryDSN in tests) so the standard pragmas are set.
 func Open(dsn string) (*Store, error) {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		Logger: logger.New(log.New(os.Stderr, "\r\n", log.LstdFlags), logger.Config{
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		}),
 	})
 	if err != nil {
 		return nil, err
