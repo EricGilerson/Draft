@@ -2,7 +2,11 @@ import {X, Box} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import OverviewTab from './OverviewTab';
 import DeploymentsTab from './DeploymentsTab';
+import VariablesTab from './VariablesTab';
+import NetworkingTab from './NetworkingTab';
 import LogsTab from './LogsTab';
+import MetricsTab from './MetricsTab';
+import DockerTab from './DockerTab';
 import SettingsTab from './SettingsTab';
 import './NodeDetailPanel.css';
 
@@ -14,7 +18,11 @@ type Tab = {
 const TABS: Tab[] = [
     {id: 'overview', label: 'Overview'},
     {id: 'deployments', label: 'Deployments'},
+    {id: 'variables', label: 'Variables'},
+    {id: 'networking', label: 'Networking'},
     {id: 'logs', label: 'Logs'},
+    {id: 'metrics', label: 'Metrics'},
+    {id: 'docker', label: 'Docker'},
     {id: 'settings', label: 'Settings'},
 ];
 
@@ -101,7 +109,11 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
             <div className="node-detail-body">
                 {activeTab === 'overview' && <OverviewTab nodeId={nodeId} />}
                 {activeTab === 'deployments' && <DeploymentsTab nodeId={nodeId} />}
+                {activeTab === 'variables' && <VariablesTab />}
+                {activeTab === 'networking' && <NetworkingTab />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
+                {activeTab === 'metrics' && <MetricsTab />}
+                {activeTab === 'docker' && <DockerTab />}
                 {activeTab === 'settings' && <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
             </div>
         </div>
