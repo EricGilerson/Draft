@@ -1,32 +1,52 @@
 .project-canvas {
-    display: flex;
-    flex-direction: column;
     height: 100%;
+    min-height: 100%;
+    border-top: 1px solid var(--border);
+    background:
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.032) 1px, transparent 0),
+        linear-gradient(180deg, rgba(11, 13, 28, 0.98), rgba(15, 18, 32, 0.98));
+    background-size: 22px 22px, 100% 100%;
 }
 
-.canvas-header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    flex-shrink: 0;
-    padding: 10px 16px;
+.project-canvas .react-flow {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+}
+
+.project-canvas .react-flow__background-pattern {
+    fill: rgba(255, 255, 255, 0.06);
+}
+
+.canvas-controls {
+    margin: 16px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: rgba(17, 20, 35, 0.96);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+}
+
+.canvas-controls .react-flow__controls-button {
+    width: 38px;
+    height: 38px;
+    border: 0;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-elevated);
+    background: transparent;
+    color: var(--text-muted);
+    transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.canvas-back {
-    padding: 5px 10px;
-    font-size: 0.8rem;
+.canvas-controls .react-flow__controls-button:last-child {
+    border-bottom: 0;
 }
 
-.canvas-project-name {
-    font-size: 0.9rem;
-    font-weight: 700;
-    color: var(--text);
+.canvas-controls .react-flow__controls-button:hover {
+    background: rgba(14, 165, 201, 0.08);
+    color: var(--accent-text);
 }
 
-.canvas-flow {
-    flex: 1;
-    min-height: 0;
-    position: relative;
+.canvas-controls .react-flow__controls-button svg {
+    max-width: 15px;
+    max-height: 15px;
 }

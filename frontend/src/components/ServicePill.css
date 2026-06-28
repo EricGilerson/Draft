@@ -1,0 +1,34 @@
+.service-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+}
+
+.service-pill-icon {
+    flex-shrink: 0;
+}
+
+.service-pill-name {
+    font-size: 0.73rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.service-pill-port {
+    font-size: 0.69rem;
+    line-height: 1;
+    color: var(--text-faint);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.service-pill-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+

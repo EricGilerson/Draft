@@ -47,6 +47,7 @@ export default function DockerIndicator() {
         <div className={'docker-indicator ' + state} title={detail || label}>
             <span className="docker-dot"/>
             <span className="docker-label">{label}</span>
+            {state === 'running' && detail && <span className="docker-detail">{detail.replace('Docker API ', '')}</span>}
         </div>
     );
 }

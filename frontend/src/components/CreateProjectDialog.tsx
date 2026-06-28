@@ -63,7 +63,7 @@ export default function CreateProjectDialog({onClose, onCreated}: CreateProjectD
                         className="input"
                         value={path}
                         onChange={(e) => setPath(e.target.value)}
-                        placeholder="C:\code\my-app"
+                        placeholder="/Users/me/code/my-app"
                     />
                 </div>
                 <div className="form-field">

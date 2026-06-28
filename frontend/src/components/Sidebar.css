@@ -1,18 +1,18 @@
 .sidebar {
     width: var(--sidebar-w);
     flex-shrink: 0;
-    background: var(--bg-elevated);
+    background: #111423;
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    padding: 14px 12px;
+    padding: 0;
 }
 
 .brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 6px 8px 18px;
+    padding: 16px 16px 14px;
 }
 
 .brand-mark {
@@ -22,10 +22,24 @@
 }
 
 .brand-name {
-    font-size: 1.05rem;
+    font-size: 0.875rem;
     font-weight: 700;
-    letter-spacing: 0.2px;
+    letter-spacing: 0;
     color: var(--text);
+}
+
+.brand-badge {
+    margin-left: auto;
+    padding: 3px 6px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.56rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    opacity: 0.8;
 }
 
 .nav {
@@ -33,15 +47,16 @@
     flex-direction: column;
     gap: 2px;
     flex: 1;
+    padding: 4px 8px 0;
 }
 
 .nav-section-label {
-    font-size: 0.68rem;
+    font-size: 0.625rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-faint);
+    letter-spacing: 0.12em;
+    color: rgba(143, 147, 173, 0.4);
     font-weight: 700;
-    padding: 8px 10px 6px;
+    padding: 0 12px 8px;
 }
 
 .nav-item {
@@ -53,18 +68,17 @@
     background: none;
     border: none;
     cursor: pointer;
-    color: var(--text-muted);
-    font-size: 0.875rem;
+    color: #72759a;
+    font-size: 0.8125rem;
     font-weight: 500;
-    padding: 8px 10px;
-    border-radius: var(--radius);
+    padding: 7px 12px;
+    border-radius: 6px;
     position: relative;
-    transition: background-color 0.12s ease, color 0.12s ease;
+    transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .nav-item:hover {
-    background: var(--surface-hover);
-    color: var(--text);
+    color: #8b90ba;
 }
 
 .nav-item.active {
@@ -75,12 +89,12 @@
 .nav-item.active::before {
     content: '';
     position: absolute;
-    left: -12px;
+    left: 0;
     top: 50%;
     transform: translateY(-50%);
     width: 3px;
-    height: 18px;
-    border-radius: 0 3px 3px 0;
+    height: 16px;
+    border-radius: 999px;
     background: var(--accent);
 }
 
@@ -92,7 +106,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding-top: 10px;
-    margin-top: 10px;
+    padding: 10px 8px 12px;
+    margin-top: 8px;
     border-top: 1px solid var(--border);
 }

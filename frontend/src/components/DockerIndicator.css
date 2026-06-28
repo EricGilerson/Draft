@@ -1,8 +1,8 @@
 .docker-indicator {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    font-size: 0.78rem;
+    gap: 8px;
+    font-size: 0.75rem;
     color: var(--text-muted);
     user-select: none;
 }
@@ -28,6 +28,16 @@
 .docker-indicator.checking .docker-dot {
     background-color: var(--yellow);
     animation: docker-pulse 1.2s ease-in-out infinite;
+}
+
+.docker-label {
+    color: var(--text-muted);
+}
+
+.docker-detail {
+    color: rgba(143, 147, 173, 0.45);
+    font-size: 0.7rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @keyframes docker-pulse {

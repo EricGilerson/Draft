@@ -1,7 +1,8 @@
 .app-shell {
     display: flex;
-    height: 100vh;
+    height: 100%;
     width: 100%;
+    overflow: hidden;
     background: var(--bg);
 }
 
@@ -17,16 +18,9 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
+    justify-content: flex-end;
+    padding: 0 24px;
     border-bottom: 1px solid var(--border);
-}
-
-.topbar-title {
-    font-size: 0.95rem;
-    font-weight: 600;
-    margin: 0;
-    color: var(--text);
 }
 
 .app-content {
@@ -34,15 +28,26 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    /* Soft accent glow at the top for depth */
-    background: radial-gradient(1100px 380px at 50% -12%, rgba(124, 108, 255, 0.06), transparent 70%);
 }
 
-/* Centers simple views (empty states) within the content area. */
-.view-center {
+.app-content-glow {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 224px;
+    pointer-events: none;
+    background: radial-gradient(ellipse 65% 100% at 50% 0, rgba(14, 165, 201, 0.06), transparent 100%);
+}
+
+.app-content-scroll {
+    position: relative;
     height: 100%;
+    overflow: auto;
+}
+
+.view-center {
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 100%;
     padding: 24px;
 }

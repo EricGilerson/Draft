@@ -1,81 +1,193 @@
 .projects-view {
-    height: 100%;
-    overflow: auto;
+    min-height: 100%;
 }
 
-.projects-loading {
-    height: 100%;
+.projects-layout {
+    max-width: 768px;
+    padding: 0 32px 32px;
+}
+
+.projects-loading,
+.projects-empty {
+    min-height: 260px;
     display: flex;
     align-items: center;
     justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(16, 21, 34, 0.92);
+}
+
+.projects-loading {
     color: var(--text-muted);
     font-size: 0.9rem;
 }
 
 .projects-empty {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 20px;
+    gap: 14px;
     padding: 24px;
-}
-
-.projects-list {
-    padding: 20px 24px;
-}
-
-.projects-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 18px;
-}
-
-.projects-count {
-    font-size: 0.82rem;
     color: var(--text-muted);
 }
 
-.projects-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 14px;
+.projects-empty-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 420px;
+}
+
+.projects-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 .project-card {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    text-align: left;
-    padding: 16px;
-    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    cursor: pointer;
-    transition: border-color 0.12s ease, background-color 0.12s ease;
+    background: rgba(16, 21, 34, 0.92);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    overflow: hidden;
 }
 
-.project-card:hover {
-    border-color: var(--accent-border);
-    background: var(--bg-elevated);
+.project-card-header {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    gap: 16px;
+    padding: 14px 16px;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+}
+
+.project-card-header:hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.project-card-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    margin-top: 5px;
+}
+
+.project-card-copy {
+    min-width: 0;
+    flex: 1;
+}
+
+.project-card-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
 }
 
 .project-card-name {
-    font-size: 0.95rem;
-    font-weight: 700;
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1;
+    font-weight: 600;
     color: var(--text);
 }
 
+.project-card-inline-desc {
+    font-size: 0.6875rem;
+    color: rgba(143, 147, 173, 0.6);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .project-card-path {
-    font-size: 0.78rem;
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.45;
     color: var(--text-muted);
     word-break: break-all;
 }
 
-.project-card-desc {
-    font-size: 0.8rem;
-    color: var(--text-faint);
-    margin-top: 2px;
+.project-card-meta {
+    margin-top: 6px;
+    font-size: 0.6875rem;
+    color: rgba(143, 147, 173, 0.75);
+}
+
+.project-card-services,
+.project-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.project-meta-divider {
+    margin: 0 2px;
+    color: rgba(143, 147, 173, 0.25);
+}
+
+.project-card-badges {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.project-chip {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.625rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 600;
+}
+
+.project-chip-up {
+    background: rgba(52, 211, 153, 0.11);
+    color: #34d399;
+}
+
+.project-chip-down {
+    background: rgba(46, 49, 80, 0.6);
+    color: #5a5f8a;
+}
+
+.project-card-chevron {
+    color: rgba(143, 147, 173, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.project-card-chevron.open {
+    transform: rotate(90deg);
+}
+
+.project-card-body {
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.project-card-actions {
+    padding-top: 8px;
+}
+
+.project-card-open {
+    margin-left: auto;
+}
+
+@media (max-width: 840px) {
+    .projects-layout {
+        padding: 0 20px 24px;
+    }
+
+    .project-card-header {
+        flex-wrap: wrap;
+    }
+
+    .project-card-open {
+        margin-left: 0;
+    }
 }
