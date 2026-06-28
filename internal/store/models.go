@@ -57,3 +57,19 @@ type NodeSetting struct {
 	Key    string `gorm:"primaryKey;not null" json:"key"`
 	Value  string `gorm:"not null" json:"value"`
 }
+
+// Deployment tracks a single build+run cycle for a service node.
+type Deployment struct {
+	ID          uint       `gorm:"primaryKey" json:"id"`
+	NodeID      string     `gorm:"index;not null" json:"nodeId"`
+	ProjectID   uint       `gorm:"index;not null" json:"projectId"`
+	ImageTag    string     `json:"imageTag"`
+	ContainerID string     `json:"containerId"`
+	Status      string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
+	Hostname    string     `json:"hostname"`
+	HostPort    int        `json:"hostPort"`
+	Error       string     `json:"error"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	FinishedAt  *time.Time `json:"finishedAt"`
+}

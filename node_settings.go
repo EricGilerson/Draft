@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"Draft/internal/dockerfile"
 )
 
 // GetNodeSettings returns all settings for a node as a map.
@@ -91,6 +93,32 @@ func (a *App) SelectServiceRoot(projectID uint) (string, error) {
 	}
 
 	return selected, nil
+}
+
+// ParseDockerfileExpose reads a Dockerfile and returns its EXPOSE ports.
+// The Dockerfile path is resolved relative to the project root if not absolute.
+func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint) ([]dockerfile.ExposePort, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+
+	absPath := dockerfilePath
+	if !filepath.IsAbs(dockerfilePath) {
+		project, err := a.store.GetProject(projectID)
+		if err != nil {
+			return nil, fmt.Errorf("project not found: %w", err)
+		}
+		absPath = filepath.Join(project.Path, dockerfilePath)
+	}
+
+	ports, err := dockerfile.ParseExposePorts(absPath)
+	if err != nil {
+		return nil, err
+	}
+	if ports == nil {
+		return []dockerfile.ExposePort{}, nil
+	}
+	return ports, nil
 }
 
 func validateInsideProject(projectPath, targetPath string) error {

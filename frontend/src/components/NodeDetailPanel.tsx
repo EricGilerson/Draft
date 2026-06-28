@@ -1,23 +1,21 @@
-import {X, Box, FolderOpen, FileSearch} from 'lucide-react';
-import {useCallback, useEffect, useRef, useState} from 'react';
-import {GetServiceRoot, SetServiceRoot, SelectServiceRoot, GetNodeSettings, SetNodeSetting, SelectFile} from '../../wailsjs/go/main/App';
+import {X, Box} from 'lucide-react';
+import {useEffect, useRef, useState} from 'react';
+import OverviewTab from './OverviewTab';
+import DeploymentsTab from './DeploymentsTab';
+import LogsTab from './LogsTab';
+import SettingsTab from './SettingsTab';
 import './NodeDetailPanel.css';
 
 type Tab = {
     id: string;
     label: string;
-    description: string;
 };
 
 const TABS: Tab[] = [
-    {id: 'overview', label: 'Overview', description: 'Service summary, status, and image info'},
-    {id: 'deployments', label: 'Deployments', description: 'Build and deploy history'},
-    {id: 'variables', label: 'Variables', description: 'Environment variables and linked references'},
-    {id: 'networking', label: 'Networking', description: 'Ports, domains, and service connections'},
-    {id: 'logs', label: 'Logs', description: 'Live container output'},
-    {id: 'metrics', label: 'Metrics', description: 'CPU, memory, and network usage'},
-    {id: 'docker', label: 'Docker', description: 'Container config, image, and Dockerfile'},
-    {id: 'settings', label: 'Settings', description: 'Rename, delete, and service options'},
+    {id: 'overview', label: 'Overview'},
+    {id: 'deployments', label: 'Deployments'},
+    {id: 'logs', label: 'Logs'},
+    {id: 'settings', label: 'Settings'},
 ];
 
 type NodeDetailPanelProps = {
@@ -34,7 +32,6 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(nodeLabel);
     const editRef = useRef<HTMLInputElement>(null);
-    const current = TABS.find((t) => t.id === activeTab)!;
 
     useEffect(() => {
         setEditValue(nodeLabel);
@@ -102,188 +99,10 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
             </nav>
 
             <div className="node-detail-body">
-                {activeTab === 'settings' ? (
-                    <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />
-                ) : (
-                    <div className="node-detail-placeholder">
-                        <span className="node-detail-placeholder-title">{current.label}</span>
-                        <span className="node-detail-placeholder-desc">{current.description}</span>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-type SettingsTabProps = {
-    nodeId: string;
-    projectId: number;
-    projectPath: string;
-};
-
-function SettingsTab({nodeId, projectId, projectPath}: SettingsTabProps) {
-    const [rootPath, setRootPath] = useState('');
-    const [inputValue, setInputValue] = useState('');
-    const [error, setError] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [dockerfile, setDockerfile] = useState('');
-    const [dockerfileInput, setDockerfileInput] = useState('');
-
-    useEffect(() => {
-        GetServiceRoot(nodeId, projectId).then((path) => {
-            setRootPath(path || '');
-            setInputValue(path || '');
-        });
-        GetNodeSettings(nodeId).then((settings) => {
-            const df = settings?.dockerfile || '';
-            setDockerfile(df);
-            setDockerfileInput(df);
-        });
-    }, [nodeId, projectId]);
-
-    const saveRoot = useCallback(async (absolutePath: string) => {
-        setError('');
-        setSaving(true);
-        try {
-            await SetServiceRoot(nodeId, projectId, absolutePath);
-            setRootPath(absolutePath);
-            setInputValue(absolutePath);
-        } catch (e: any) {
-            const msg = typeof e === 'string' ? e : e?.message || 'Failed to set service root';
-            setError(msg);
-            setInputValue(rootPath);
-        } finally {
-            setSaving(false);
-        }
-    }, [nodeId, projectId, rootPath]);
-
-    const handleInputCommit = useCallback(() => {
-        const trimmed = inputValue.trim();
-        if (!trimmed) {
-            setInputValue(rootPath);
-            return;
-        }
-        if (trimmed === rootPath) return;
-
-        const sep = projectPath.includes('\\') ? '\\' : '/';
-        const isAbsolute = /^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.startsWith('/');
-        const absolutePath = isAbsolute ? trimmed : projectPath + sep + trimmed;
-
-        saveRoot(absolutePath);
-    }, [inputValue, rootPath, projectPath, saveRoot]);
-
-    const handleBrowse = useCallback(async () => {
-        setError('');
-        try {
-            const selected = await SelectServiceRoot(projectId);
-            if (selected) {
-                await saveRoot(selected);
-            }
-        } catch (e: any) {
-            const msg = typeof e === 'string' ? e : e?.message || 'Failed to select folder';
-            setError(msg);
-        }
-    }, [projectId, saveRoot]);
-
-    const commitDockerfile = useCallback((value?: string) => {
-        const trimmed = (value ?? dockerfileInput).trim();
-        if (trimmed === dockerfile) return;
-        SetNodeSetting(nodeId, 'dockerfile', trimmed).then(() => {
-            setDockerfile(trimmed);
-            setDockerfileInput(trimmed);
-        });
-    }, [nodeId, dockerfileInput, dockerfile]);
-
-    const browseDockerfile = useCallback(async () => {
-        const selected = await SelectFile('Select Dockerfile', projectPath);
-        if (selected) {
-            setDockerfileInput(selected);
-            commitDockerfile(selected);
-        }
-    }, [projectPath, commitDockerfile]);
-
-    const displayPath = rootPath
-        ? (rootPath.toLowerCase().startsWith(projectPath.toLowerCase())
-            ? '.' + rootPath.slice(projectPath.length)
-            : rootPath)
-        : '';
-
-    return (
-        <div className="settings-tab">
-            <div className="settings-section">
-                <h3 className="settings-section-title">Source</h3>
-                <div className="form-field">
-                    <label className="form-label">
-                        Root Directory
-                    </label>
-                    <span className="settings-hint">
-                        Path to the service source code, relative to the project root.
-                        Must be inside <span className="settings-mono">{projectPath}</span>
-                    </span>
-                    <div className="input-with-action">
-                        <input
-                            className="input"
-                            value={inputValue}
-                            onChange={(e) => {
-                                setInputValue(e.target.value);
-                                setError('');
-                            }}
-                            onBlur={handleInputCommit}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleInputCommit();
-                                if (e.key === 'Escape') setInputValue(rootPath);
-                            }}
-                            placeholder={projectPath}
-                            disabled={saving}
-                        />
-                        <button
-                            className="btn btn-ghost input-action-btn"
-                            onClick={handleBrowse}
-                            disabled={saving}
-                            title="Browse for folder"
-                        >
-                            <FolderOpen size={14} />
-                        </button>
-                    </div>
-                    {error && <p className="form-error">{error}</p>}
-                    {displayPath && !error && (
-                        <span className="settings-resolved">
-                            {displayPath}
-                        </span>
-                    )}
-                </div>
-            </div>
-
-            <div className="settings-section">
-                <h3 className="settings-section-title">Docker</h3>
-                <div className="form-field">
-                    <label className="form-label">
-                        Dockerfile
-                    </label>
-                    <span className="settings-hint">
-                        Path to the Dockerfile used to build this service.
-                    </span>
-                    <div className="input-with-action">
-                        <input
-                            className="input"
-                            value={dockerfileInput}
-                            onChange={(e) => setDockerfileInput(e.target.value)}
-                            onBlur={() => commitDockerfile()}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitDockerfile();
-                                if (e.key === 'Escape') setDockerfileInput(dockerfile);
-                            }}
-                            placeholder="Dockerfile"
-                        />
-                        <button
-                            className="btn btn-ghost input-action-btn"
-                            onClick={browseDockerfile}
-                            title="Browse for Dockerfile"
-                        >
-                            <FileSearch size={14} />
-                        </button>
-                    </div>
-                </div>
+                {activeTab === 'overview' && <OverviewTab nodeId={nodeId} />}
+                {activeTab === 'deployments' && <DeploymentsTab nodeId={nodeId} />}
+                {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
+                {activeTab === 'settings' && <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
             </div>
         </div>
     );

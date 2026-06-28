@@ -3,17 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"Draft/internal/deploy"
 	"Draft/internal/dockerwatch"
+	"Draft/internal/networking"
 	"Draft/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-	ctx   context.Context
-	hub   *dockerwatch.Hub
-	store *store.Store
+	ctx    context.Context
+	hub    *dockerwatch.Hub
+	store  *store.Store
+	router *networking.Router
+	engine *deploy.Engine
 }
 
 // NewApp creates a new App application struct
@@ -36,6 +42,21 @@ func (a *App) startup(ctx context.Context) {
 		a.store = s
 	}
 
+	if a.store != nil {
+		a.router = networking.NewRouter(a.store, "127.0.0.1:0")
+		if err := a.router.Start(); err != nil {
+			fmt.Println("router: start:", err)
+		}
+
+		logDir := filepath.Join(os.TempDir(), "draft", "logs")
+		if cfgDir, err := os.UserConfigDir(); err == nil {
+			logDir = filepath.Join(cfgDir, "Draft", "logs")
+		}
+		a.engine = deploy.New(a.store, a.router, logDir, func(event string, data any) {
+			wruntime.EventsEmit(a.ctx, event, data)
+		})
+	}
+
 	// Bridge Docker daemon status changes to the frontend over a Wails event.
 	// The hub broadcasts only on change, so this emits nothing in steady state.
 	a.hub.Subscribe(func(ev dockerwatch.Event) {
@@ -48,6 +69,9 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown is called when the app closes; release the database connection.
 func (a *App) shutdown(ctx context.Context) {
+	if a.router != nil {
+		_ = a.router.Stop()
+	}
 	if a.store != nil {
 		_ = a.store.Close()
 	}

@@ -30,6 +30,7 @@ var registeredModels = []any{
 	&Route{},
 	&PortLease{},
 	&NodeSetting{},
+	&Deployment{},
 }
 
 // Store wraps the GORM handle to the local database.

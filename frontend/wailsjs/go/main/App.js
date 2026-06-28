@@ -18,6 +18,22 @@ export function DeleteNode(arg1) {
   return window['go']['main']['App']['DeleteNode'](arg1);
 }
 
+export function DeployService(arg1) {
+  return window['go']['main']['App']['DeployService'](arg1);
+}
+
+export function GetActiveDeployment(arg1) {
+  return window['go']['main']['App']['GetActiveDeployment'](arg1);
+}
+
+export function GetBuildLog(arg1) {
+  return window['go']['main']['App']['GetBuildLog'](arg1);
+}
+
+export function GetDeployments(arg1) {
+  return window['go']['main']['App']['GetDeployments'](arg1);
+}
+
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
@@ -38,6 +54,14 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ParseDockerfileExpose(arg1, arg2) {
+  return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+}
+
+export function RestartService(arg1) {
+  return window['go']['main']['App']['RestartService'](arg1);
+}
+
 export function SelectFile(arg1, arg2) {
   return window['go']['main']['App']['SelectFile'](arg1, arg2);
 }
@@ -56,6 +80,18 @@ export function SetNodeSetting(arg1, arg2, arg3) {
 
 export function SetServiceRoot(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetServiceRoot'](arg1, arg2, arg3);
+}
+
+export function StartLogStream(arg1) {
+  return window['go']['main']['App']['StartLogStream'](arg1);
+}
+
+export function StopLogStream(arg1) {
+  return window['go']['main']['App']['StopLogStream'](arg1);
+}
+
+export function StopService(arg1) {
+  return window['go']['main']['App']['StopService'](arg1);
 }
 
 export function UpdateNode(arg1, arg2, arg3, arg4) {
