@@ -3,58 +3,89 @@ package main
 import "Draft/internal/store"
 
 func (a *App) DeployService(nodeID string) error {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
 		return errNoStore
 	}
-	return a.engine.Deploy(a.ctx, nodeID)
+	return c.Deploy(a.ctx, nodeID)
 }
 
 func (a *App) StopService(nodeID string) error {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
 		return errNoStore
 	}
-	return a.engine.Stop(a.ctx, nodeID)
+	return c.Stop(a.ctx, nodeID)
 }
 
 func (a *App) RestartService(nodeID string) error {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
 		return errNoStore
 	}
-	return a.engine.Restart(a.ctx, nodeID)
+	return c.Restart(a.ctx, nodeID)
 }
 
 func (a *App) GetDeployments(nodeID string) ([]store.Deployment, error) {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
 		return nil, errNoStore
 	}
-	return a.engine.GetDeployments(nodeID)
+	return c.GetDeployments(a.ctx, nodeID)
 }
 
 func (a *App) GetActiveDeployment(nodeID string) (*store.Deployment, error) {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
 		return nil, errNoStore
 	}
-	return a.engine.GetActiveDeployment(nodeID)
+	return c.GetActiveDeployment(a.ctx, nodeID)
 }
 
 func (a *App) GetBuildLog(deploymentID uint) (string, error) {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
 		return "", errNoStore
 	}
-	return a.engine.GetBuildLog(deploymentID)
+	return c.GetBuildLog(a.ctx, deploymentID)
 }
 
 func (a *App) StartLogStream(nodeID string) error {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
 		return errNoStore
 	}
-	return a.engine.StartLogStream(a.ctx, nodeID)
+	return c.StartLogStream(a.ctx, nodeID)
 }
 
 func (a *App) StopLogStream(nodeID string) error {
-	if a.engine == nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
 		return errNoStore
 	}
-	a.engine.StopLogStream(nodeID)
-	return nil
+	return c.StopLogStream(a.ctx, nodeID)
 }

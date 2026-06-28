@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -139,9 +141,13 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Build context: %s", serviceRoot))
 
 	dep := &store.Deployment{
-		NodeID:    nodeID,
-		ProjectID: node.ProjectID,
-		Status:    "building",
+		NodeID:     nodeID,
+		ProjectID:  node.ProjectID,
+		Status:     "building",
+		JobID:      fmt.Sprintf("%d-%s", time.Now().UnixNano(), nodeID),
+		WorkerPID:  os.Getpid(),
+		StartedAt:  ptrTime(time.Now()),
+		LastSeenAt: ptrTime(time.Now()),
 	}
 	dep, err = e.store.CreateDeployment(dep)
 	if err != nil {
@@ -153,6 +159,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	projectName := sanitize(project.Name)
 	imageTag := fmt.Sprintf("draft-%s-%s:%d", projectName, serviceName, dep.ID)
 	dep.ImageTag = imageTag
+	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
 
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Image tag: %s", imageTag))
@@ -247,6 +254,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	now := time.Now()
 	dep.Status = "built"
 	dep.FinishedAt = &now
+	dep.LastSeenAt = &now
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "built"})
 
@@ -260,6 +268,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	e.emitBuildLog(nodeID, "==> Creating container...")
 	dep.Status = "starting"
+	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
 
@@ -284,6 +293,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 
 	dep.ContainerID = createResp.ID
+	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Container: %s (%s)", containerName, createResp.ID[:12]))
 
@@ -327,6 +337,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	dep.Status = "running"
 	dep.HostPort = hostPort
+	dep.LastSeenAt = ptrTime(time.Now())
 	if regResult != nil {
 		dep.Hostname = regResult.Hostname
 	}
@@ -340,7 +351,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		HostPort:     hostPort,
 	})
 
-	go e.watchContainer(context.Background(), cli, dep, nodeID)
+	go e.watchContainer(context.Background(), dep, nodeID)
 }
 
 type uploadTracker struct {
@@ -408,7 +419,18 @@ func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFil
 	return scanner.Err()
 }
 
-func (e *Engine) watchContainer(ctx context.Context, cli *client.Client, dep *store.Deployment, nodeID string) {
+func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, nodeID string) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		dep.Status = "failed"
+		dep.Error = "container watch error: " + err.Error()
+		dep.FinishedAt = ptrTime(time.Now())
+		e.store.UpdateDeployment(dep)
+		e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
+		return
+	}
+	defer cli.Close()
+
 	statusCh, errCh := cli.ContainerWait(ctx, dep.ContainerID, container.WaitConditionNotRunning)
 	select {
 	case result := <-statusCh:
@@ -620,6 +642,93 @@ func (e *Engine) StopLogStream(nodeID string) {
 	e.logsMu.Unlock()
 }
 
+func (e *Engine) Reconcile(ctx context.Context) error {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+
+	args := filters.NewArgs()
+	args.Add("label", "draft.deployment")
+	containers, err := cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: args,
+	})
+	if err != nil {
+		return err
+	}
+
+	seen := make(map[uint]struct{}, len(containers))
+	for _, c := range containers {
+		idStr := c.Labels["draft.deployment"]
+		id, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil || id == 0 {
+			continue
+		}
+		dep, err := e.store.GetDeployment(uint(id))
+		if err != nil {
+			continue
+		}
+		seen[dep.ID] = struct{}{}
+
+		inspect, err := cli.ContainerInspect(ctx, c.ID)
+		if err != nil {
+			continue
+		}
+
+		dep.ContainerID = c.ID
+		dep.LastSeenAt = ptrTime(time.Now())
+		if inspect.State != nil && inspect.State.Running {
+			dep.Status = "running"
+			dep.Error = ""
+			dep.FinishedAt = nil
+			if dep.HostPort == 0 {
+				dep.HostPort = firstHostPort(inspect.NetworkSettings.Ports)
+			}
+			if dep.Hostname != "" && dep.HostPort > 0 {
+				e.restoreRoute(dep)
+			}
+			e.emitStatus(dep.NodeID, StatusEvent{
+				DeploymentID: dep.ID,
+				Status:       "running",
+				Hostname:     dep.Hostname,
+				HostPort:     dep.HostPort,
+			})
+		} else if inspect.State != nil && inspect.State.ExitCode != 0 {
+			dep.Status = "failed"
+			dep.Error = fmt.Sprintf("container exited with code %d", inspect.State.ExitCode)
+			dep.FinishedAt = ptrTime(time.Now())
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
+		} else {
+			dep.Status = "stopped"
+			dep.FinishedAt = ptrTime(time.Now())
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
+		}
+		e.store.UpdateDeployment(dep)
+	}
+
+	deployments, err := e.store.ListAllDeployments()
+	if err != nil {
+		return err
+	}
+	for i := range deployments {
+		dep := &deployments[i]
+		if _, ok := seen[dep.ID]; ok {
+			continue
+		}
+		switch dep.Status {
+		case "building", "built", "starting":
+			dep.Status = "failed"
+			dep.Error = "deployment was interrupted before the daemon could recover it"
+			dep.FinishedAt = ptrTime(time.Now())
+			e.store.UpdateDeployment(dep)
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
+		}
+	}
+	return nil
+}
+
 func (e *Engine) GetBuildLog(deploymentID uint) (string, error) {
 	data, err := os.ReadFile(e.logPath(deploymentID))
 	if err != nil {
@@ -662,8 +771,32 @@ func (e *Engine) failDeployment(dep *store.Deployment, nodeID, errMsg string) {
 	dep.Error = errMsg
 	now := time.Now()
 	dep.FinishedAt = &now
+	dep.LastSeenAt = &now
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: errMsg})
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
+func firstHostPort(ports nat.PortMap) int {
+	for _, bindings := range ports {
+		if len(bindings) == 0 {
+			continue
+		}
+		var hostPort int
+		fmt.Sscanf(bindings[0].HostPort, "%d", &hostPort)
+		return hostPort
+	}
+	return 0
+}
+
+func (e *Engine) restoreRoute(dep *store.Deployment) {
+	if e.router == nil || dep.Hostname == "" || dep.HostPort == 0 {
+		return
+	}
+	_ = e.router.RestoreHTTPRoute(dep.Hostname, dep.ProjectID, dep.NodeID, "127.0.0.1", dep.HostPort)
 }
 
 func sanitize(name string) string {

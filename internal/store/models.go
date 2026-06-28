@@ -69,6 +69,10 @@ type Deployment struct {
 	Hostname    string     `json:"hostname"`
 	HostPort    int        `json:"hostPort"`
 	Error       string     `json:"error"`
+	JobID       string     `gorm:"index" json:"jobId"`
+	WorkerPID   int        `json:"workerPid"`
+	StartedAt   *time.Time `json:"startedAt"`
+	LastSeenAt  *time.Time `json:"lastSeenAt"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	FinishedAt  *time.Time `json:"finishedAt"`

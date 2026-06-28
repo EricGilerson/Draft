@@ -1,11 +1,14 @@
 package networking
 
 import (
+	"errors"
 	"fmt"
 	"log"
 
 	"Draft/internal/store"
 )
+
+var ErrInvalidRestoreRoute = errors.New("restore route requires hostname, project ID, node ID, and target port")
 
 // Router is the high-level coordinator for Draft's local networking. It owns
 // the reverse proxy, manages port leases, generates hostnames, and keeps the
@@ -127,6 +130,32 @@ func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 		Hostname: hostname,
 		HostPort: hostPort,
 	}, nil
+}
+
+// RestoreHTTPRoute recreates a known HTTP route from durable deployment state.
+// It is used during daemon startup reconciliation when Docker still has the
+// container but the in-memory proxy table needs to be rebuilt.
+func (r *Router) RestoreHTTPRoute(hostname string, projectID uint, nodeID string, targetHost string, targetPort int) error {
+	if hostname == "" || projectID == 0 || nodeID == "" || targetPort == 0 {
+		return ErrInvalidRestoreRoute
+	}
+	if _, err := r.store.GetRoute(hostname); err != nil {
+		if _, createErr := r.store.CreateRoute(&store.Route{
+			Hostname:   hostname,
+			ProjectID:  projectID,
+			NodeID:     nodeID,
+			Protocol:   "http",
+			TargetHost: targetHost,
+			TargetPort: targetPort,
+		}); createErr != nil {
+			return createErr
+		}
+	}
+	r.proxy.SetRoute(hostname, ProxyTarget{Host: targetHost, Port: targetPort})
+	if err := r.syncHosts(); err != nil {
+		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
+	}
+	return nil
 }
 
 // Unregister removes a service's route, frees its port lease, and updates the

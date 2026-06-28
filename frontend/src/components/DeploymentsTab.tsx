@@ -37,10 +37,8 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
         }
         setExpandedId(dep.id);
         setBuildLog('');
-        if (dep.status !== 'building') {
-            const log = await GetBuildLog(dep.id);
-            setBuildLog(log);
-        }
+        const log = await GetBuildLog(dep.id);
+        setBuildLog(log);
     };
 
     return (

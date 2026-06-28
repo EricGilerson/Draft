@@ -94,6 +94,12 @@ export namespace store {
 	    hostname: string;
 	    hostPort: number;
 	    error: string;
+	    jobId: string;
+	    workerPid: number;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    lastSeenAt?: any;
 	    // Go type: time
 	    createdAt: any;
 	    // Go type: time
@@ -116,6 +122,10 @@ export namespace store {
 	        this.hostname = source["hostname"];
 	        this.hostPort = source["hostPort"];
 	        this.error = source["error"];
+	        this.jobId = source["jobId"];
+	        this.workerPid = source["workerPid"];
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.lastSeenAt = this.convertValues(source["lastSeenAt"], null);
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	        this.finishedAt = this.convertValues(source["finishedAt"], null);

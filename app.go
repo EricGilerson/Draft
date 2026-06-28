@@ -3,28 +3,24 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"time"
 
-	"Draft/internal/deploy"
-	"Draft/internal/dockerwatch"
-	"Draft/internal/networking"
+	"Draft/internal/daemon"
 	"Draft/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-	ctx    context.Context
-	hub    *dockerwatch.Hub
-	store  *store.Store
-	router *networking.Router
-	engine *deploy.Engine
+	ctx        context.Context
+	eventsDone context.CancelFunc
+	store      *store.Store
+	daemon     *daemon.Client
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{hub: dockerwatch.New()}
+	return &App{}
 }
 
 // startup is called when the app starts. The context is saved
@@ -43,47 +39,67 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	if a.store != nil {
-		a.router = networking.NewRouter(a.store, "127.0.0.1:0")
-		if err := a.router.Start(); err != nil {
-			fmt.Println("router: start:", err)
+		if c, err := daemon.Ensure(ctx); err != nil {
+			fmt.Println("daemon: start:", err)
+		} else {
+			a.daemon = c
+			a.startDaemonEvents()
 		}
-
-		logDir := filepath.Join(os.TempDir(), "draft", "logs")
-		if cfgDir, err := os.UserConfigDir(); err == nil {
-			logDir = filepath.Join(cfgDir, "Draft", "logs")
-		}
-		a.engine = deploy.New(a.store, a.router, logDir, func(event string, data any) {
-			wruntime.EventsEmit(a.ctx, event, data)
-		})
 	}
-
-	// Bridge Docker daemon status changes to the frontend over a Wails event.
-	// The hub broadcasts only on change, so this emits nothing in steady state.
-	a.hub.Subscribe(func(ev dockerwatch.Event) {
-		if ev.Kind == "daemon" && ev.Daemon != nil {
-			wruntime.EventsEmit(a.ctx, "docker:status", ev.Daemon)
-		}
-		if ev.Raw != nil {
-			wruntime.EventsEmit(a.ctx, "docker:activity", map[string]string{
-				"type":   string(ev.Raw.Type),
-				"action": string(ev.Raw.Action),
-				"actor":  ev.Raw.Actor.ID,
-				"name":   ev.Raw.Actor.Attributes["name"],
-				"image":  ev.Raw.Actor.Attributes["image"],
-			})
-		}
-	})
-	go a.hub.Run(ctx)
 }
 
 // shutdown is called when the app closes; release the database connection.
 func (a *App) shutdown(ctx context.Context) {
-	if a.router != nil {
-		_ = a.router.Stop()
+	if a.eventsDone != nil {
+		a.eventsDone()
 	}
 	if a.store != nil {
 		_ = a.store.Close()
 	}
+}
+
+func (a *App) startDaemonEvents() {
+	if a.eventsDone != nil {
+		a.eventsDone()
+	}
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.eventsDone = cancel
+	go func() {
+		for ctx.Err() == nil {
+			if a.daemon == nil {
+				return
+			}
+			err := a.daemon.SubscribeEvents(ctx, func(event string, data any) {
+				wruntime.EventsEmit(a.ctx, event, data)
+			})
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				fmt.Println("daemon events:", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+		}
+	}()
+}
+
+func (a *App) ensureDaemon() (*daemon.Client, error) {
+	if a.daemon != nil {
+		if err := a.daemon.Ping(a.ctx); err == nil {
+			return a.daemon, nil
+		}
+	}
+	c, err := daemon.Ensure(a.ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.daemon = c
+	a.startDaemonEvents()
+	return c, nil
 }
 
 // SelectFolder opens a native directory-picker dialog and returns the chosen path.

@@ -45,3 +45,22 @@ func (s *Store) ListDeployments(nodeID string) ([]Deployment, error) {
 	}
 	return deployments, nil
 }
+
+func (s *Store) ListAllDeployments() ([]Deployment, error) {
+	var deployments []Deployment
+	if err := s.DB.Order("created_at desc").Find(&deployments).Error; err != nil {
+		return nil, err
+	}
+	return deployments, nil
+}
+
+func (s *Store) ListActiveDeployments() ([]Deployment, error) {
+	var deployments []Deployment
+	if err := s.DB.
+		Where("status NOT IN ?", []string{"stopped", "failed"}).
+		Order("created_at desc").
+		Find(&deployments).Error; err != nil {
+		return nil, err
+	}
+	return deployments, nil
+}

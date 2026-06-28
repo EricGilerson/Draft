@@ -1,4 +1,5 @@
 import {createContext, useContext, useEffect, useRef, useState, type ReactNode} from 'react';
+import {GetBuildLog} from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 
 type NodeBuildState = {
@@ -62,6 +63,22 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
                 s.lines = [];
             }
             notify();
+            if ((ev.status === 'building' || ev.status === 'starting') && ev.deploymentId) {
+                GetBuildLog(ev.deploymentId).then(log => {
+                    const current = getOrCreate(nodeId);
+                    if (current.lines.length > 0) return;
+                    const lines = log.split('\n').filter(Boolean).map(line => {
+                        try {
+                            const obj = JSON.parse(line);
+                            return (obj.error || obj.stream || obj.status || line).replace(/\n$/, '');
+                        } catch {
+                            return line;
+                        }
+                    });
+                    current.lines = lines.slice(-1500);
+                    notify();
+                }).catch(() => {});
+            }
         });
 
         const unsubBuild = EventsOn('build:log', (payload: any) => {
