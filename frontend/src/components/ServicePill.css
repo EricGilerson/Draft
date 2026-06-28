@@ -1,34 +1,49 @@
 .service-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     min-height: 28px;
-    padding: 0 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-}
-
-.service-pill-icon {
-    flex-shrink: 0;
+    padding: 0 9px;
+    border: 1px solid rgba(232, 211, 168, 0.11);
+    border-left-color: color-mix(in srgb, var(--service-color) 45%, rgba(232, 211, 168, 0.11));
+    border-radius: 7px;
+    background: rgba(244, 226, 188, 0.025);
 }
 
 .service-pill-name {
-    font-size: 0.73rem;
-    font-weight: 600;
+    color: var(--text);
+    font-size: 0.76rem;
+    font-weight: 900;
     line-height: 1;
+    white-space: nowrap;
 }
 
 .service-pill-port {
-    font-size: 0.69rem;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
     color: var(--text-faint);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1;
+}
+
+.service-pill-port-prefix {
+    color: color-mix(in srgb, var(--service-color) 60%, var(--text-faint));
+    margin-right: 2px;
 }
 
 .service-pill-status {
     width: 6px;
     height: 6px;
     border-radius: 999px;
+    background: var(--service-status);
     flex-shrink: 0;
 }
 
+@supports not (color: color-mix(in srgb, red, transparent)) {
+    .service-pill {
+        border-color: var(--border);
+    }
+}

@@ -1,11 +1,37 @@
 .project-canvas {
+    position: relative;
     height: 100%;
     min-height: 100%;
     border-top: 1px solid var(--border);
     background:
-        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.032) 1px, transparent 0),
-        linear-gradient(180deg, rgba(11, 13, 28, 0.98), rgba(15, 18, 32, 0.98));
-    background-size: 22px 22px, 100% 100%;
+        linear-gradient(rgba(232, 211, 168, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(232, 211, 168, 0.045) 1px, transparent 1px),
+        linear-gradient(rgba(232, 211, 168, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(232, 211, 168, 0.025) 1px, transparent 1px),
+        radial-gradient(circle at 72% 0, rgba(240, 138, 36, 0.12), transparent 30%),
+        linear-gradient(180deg, #13140f, #10110d 62%, #0d0e0b);
+    background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px, 100% 100%, 100% 100%;
+    overflow: hidden;
+}
+
+.project-canvas::before,
+.project-canvas::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.project-canvas::before {
+    inset: 88px 0 auto;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(240, 138, 36, 0.3), transparent);
+}
+
+.project-canvas::after {
+    inset: 0 auto 0 34%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(232, 211, 168, 0.14), transparent);
 }
 
 .project-canvas .react-flow {
@@ -15,15 +41,85 @@
 }
 
 .project-canvas .react-flow__background-pattern {
-    fill: rgba(255, 255, 255, 0.06);
+    fill: rgba(232, 211, 168, 0.07);
+}
+
+.canvas-workspace-label {
+    position: absolute;
+    z-index: 4;
+    top: 22px;
+    left: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: min(440px, calc(100% - 48px));
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(17, 18, 15, 0.76);
+    box-shadow: var(--inset-line), 0 18px 42px rgba(0, 0, 0, 0.22);
+    backdrop-filter: blur(10px);
+}
+
+.canvas-workspace-label strong {
+    color: var(--text);
+    font-size: 0.96rem;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+}
+
+.canvas-kicker,
+.canvas-path,
+.canvas-lane-label {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+.canvas-kicker {
+    color: var(--accent-text);
+    font-size: 0.58rem;
+    font-weight: 800;
+}
+
+.canvas-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-faint);
+    font-size: 0.62rem;
+}
+
+.canvas-lane-label {
+    position: absolute;
+    z-index: 2;
+    color: rgba(169, 156, 125, 0.38);
+    font-size: 0.58rem;
+    font-weight: 900;
+    pointer-events: none;
+}
+
+.canvas-lane-label-services {
+    left: 24px;
+    bottom: 24px;
+}
+
+.canvas-lane-label-ports {
+    left: 36%;
+    bottom: 24px;
+}
+
+.canvas-lane-label-env {
+    right: 24px;
+    bottom: 24px;
 }
 
 .canvas-controls {
     margin: 16px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 9px;
     overflow: hidden;
-    background: rgba(17, 20, 35, 0.96);
+    background: rgba(17, 18, 15, 0.9);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
 }
 
@@ -42,7 +138,7 @@
 }
 
 .canvas-controls .react-flow__controls-button:hover {
-    background: rgba(14, 165, 201, 0.08);
+    background: var(--accent-soft);
     color: var(--accent-text);
 }
 

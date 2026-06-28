@@ -39,17 +39,17 @@ export type ActivityPreview = {
 };
 
 export const SERVICE_COLORS: Record<ServiceType, string> = {
-    web: '#38bdf8',
-    database: '#818cf8',
-    cache: '#34d399',
-    worker: '#fbbf24',
+    web: '#62b8ff',
+    database: '#b9a0ff',
+    cache: '#7bd88f',
+    worker: '#f2bd4b',
 };
 
 export const STATUS_COLORS: Record<ServiceStatus, string> = {
-    running: '#34d399',
-    stopped: '#3c4560',
-    error: '#f87171',
-    starting: '#fbbf24',
+    running: '#7bd88f',
+    stopped: '#5c5749',
+    error: '#ff675f',
+    starting: '#f2bd4b',
 };
 
 const SERVICE_LIBRARY: Array<{type: ServiceType; name: string; image: string; port: number}> = [
@@ -219,4 +219,3 @@ export function projectStatusColor(status: ProjectStatus) {
     if (status === 'partial') return STATUS_COLORS.starting;
     return STATUS_COLORS.stopped;
 }
-

@@ -3,7 +3,7 @@
 }
 
 .projects-layout {
-    max-width: 768px;
+    max-width: 920px;
     padding: 0 32px 32px;
 }
 
@@ -14,8 +14,11 @@
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(16, 21, 34, 0.92);
+    border-radius: var(--radius-lg);
+    background:
+        linear-gradient(135deg, rgba(244, 226, 188, 0.04), transparent 42%),
+        var(--surface);
+    box-shadow: var(--inset-line), var(--shadow-panel);
 }
 
 .projects-loading {
@@ -39,23 +42,25 @@
 .projects-stack {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
 .project-card {
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(16, 21, 34, 0.92);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    border-radius: var(--radius-lg);
+    background:
+        linear-gradient(180deg, rgba(244, 226, 188, 0.045), transparent 36%),
+        var(--surface);
+    box-shadow: var(--inset-line), 0 20px 50px rgba(0, 0, 0, 0.18);
     overflow: hidden;
 }
 
 .project-card-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     width: 100%;
-    gap: 16px;
-    padding: 14px 16px;
+    gap: 14px;
+    padding: 15px 16px;
     background: transparent;
     border: 0;
     color: inherit;
@@ -65,15 +70,15 @@
 }
 
 .project-card-header:hover {
-    background: rgba(255, 255, 255, 0.025);
+    background: var(--surface-hover);
 }
 
 .project-card-status {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 34px;
     border-radius: 999px;
     flex-shrink: 0;
-    margin-top: 5px;
+    margin-top: 0;
 }
 
 .project-card-copy {
@@ -84,14 +89,14 @@
 .project-card-title-row {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: 12px;
 }
 
 .project-card-name {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: 0.98rem;
     line-height: 1;
-    font-weight: 600;
+    font-weight: 900;
     color: var(--text);
 }
 
@@ -113,16 +118,21 @@
 
 .project-card-meta {
     margin-top: 6px;
-    font-size: 0.6875rem;
-    color: rgba(143, 147, 173, 0.75);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-family: var(--mono);
 }
 
 .project-card-services,
 .project-card-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
     flex-wrap: wrap;
+}
+
+.project-card-services {
+    padding: 2px 0 4px;
 }
 
 .project-meta-divider {
@@ -138,25 +148,28 @@
 }
 
 .project-chip {
-    padding: 2px 6px;
+    padding: 3px 7px;
     border-radius: 4px;
     font-size: 0.625rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-weight: 600;
+    font-family: var(--mono);
+    font-weight: 800;
+    letter-spacing: 0.02em;
 }
 
 .project-chip-up {
-    background: rgba(52, 211, 153, 0.11);
-    color: #34d399;
+    background: rgba(123, 216, 143, 0.1);
+    border: 1px solid rgba(123, 216, 143, 0.2);
+    color: var(--green);
 }
 
 .project-chip-down {
-    background: rgba(46, 49, 80, 0.6);
-    color: #5a5f8a;
+    background: rgba(92, 87, 73, 0.22);
+    border: 1px solid rgba(232, 211, 168, 0.08);
+    color: var(--text-faint);
 }
 
 .project-card-chevron {
-    color: rgba(143, 147, 173, 0.3);
+    color: rgba(169, 156, 125, 0.45);
     transition: transform 0.2s ease;
 }
 
@@ -165,13 +178,15 @@
 }
 
 .project-card-body {
-    padding: 14px 16px;
+    padding: 14px 16px 15px 40px;
     border-top: 1px solid var(--border);
-    background: rgba(0, 0, 0, 0.2);
+    background:
+        linear-gradient(90deg, rgba(240, 138, 36, 0.05), transparent 24%),
+        rgba(0, 0, 0, 0.16);
 }
 
 .project-card-actions {
-    padding-top: 8px;
+    padding-top: 10px;
 }
 
 .project-card-open {

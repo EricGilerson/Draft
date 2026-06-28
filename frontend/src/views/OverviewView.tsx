@@ -19,7 +19,7 @@ const ACTIVITY_COLORS: Record<ActivityPreview['type'], string> = {
     stop: STATUS_COLORS.stopped,
     port: STATUS_COLORS.starting,
     env: SERVICE_COLORS.web,
-    sandbox: '#22d3ee',
+    sandbox: SERVICE_COLORS.worker,
     error: STATUS_COLORS.error,
 };
 
@@ -65,7 +65,7 @@ function CanvasPreview({project}: {project?: ProjectSummary}) {
                             left: x,
                             top: y,
                             borderTopColor: color,
-                            background: `linear-gradient(160deg, ${color}14 0%, rgba(20, 25, 38, 0.96) 58%)`,
+                            background: `linear-gradient(160deg, ${color}14 0%, rgba(18, 19, 15, 0.96) 58%)`,
                         }}
                     >
                         <div className="canvas-preview-node-title">
@@ -245,4 +245,3 @@ export default function OverviewView({
         </div>
     );
 }
-

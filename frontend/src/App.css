@@ -3,7 +3,10 @@
     height: 100%;
     width: 100%;
     overflow: hidden;
-    background: var(--bg);
+    background:
+        linear-gradient(90deg, rgba(8, 9, 7, 0.6), transparent 34%),
+        radial-gradient(circle at 76% -12%, rgba(240, 138, 36, 0.11), transparent 28%),
+        var(--bg);
 }
 
 .app-main {
@@ -19,8 +22,11 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    padding: 0 24px;
+    padding: 0 22px;
     border-bottom: 1px solid var(--border);
+    background:
+        linear-gradient(90deg, rgba(232, 211, 168, 0.025), rgba(232, 211, 168, 0.008)),
+        rgba(17, 18, 15, 0.84);
 }
 
 .app-content {
@@ -33,9 +39,11 @@
 .app-content-glow {
     position: absolute;
     inset: 0 0 auto;
-    height: 224px;
+    height: 260px;
     pointer-events: none;
-    background: radial-gradient(ellipse 65% 100% at 50% 0, rgba(14, 165, 201, 0.06), transparent 100%);
+    background:
+        radial-gradient(ellipse 62% 88% at 62% 0, rgba(240, 138, 36, 0.08), transparent 72%),
+        linear-gradient(180deg, rgba(232, 211, 168, 0.035), transparent 74%);
 }
 
 .app-content-scroll {

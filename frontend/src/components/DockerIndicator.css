@@ -2,7 +2,13 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.75rem;
+    min-height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-size: 0.74rem;
     color: var(--text-muted);
     user-select: none;
 }
@@ -17,12 +23,12 @@
 
 .docker-indicator.running .docker-dot {
     background-color: var(--green);
-    box-shadow: 0 0 6px rgba(46, 204, 113, 0.8);
+    box-shadow: 0 0 9px rgba(123, 216, 143, 0.82);
 }
 
 .docker-indicator.stopped .docker-dot {
     background-color: var(--red);
-    box-shadow: 0 0 6px rgba(231, 76, 60, 0.7);
+    box-shadow: 0 0 8px rgba(255, 103, 95, 0.7);
 }
 
 .docker-indicator.checking .docker-dot {
@@ -32,12 +38,13 @@
 
 .docker-label {
     color: var(--text-muted);
+    font-weight: 800;
 }
 
 .docker-detail {
-    color: rgba(143, 147, 173, 0.45);
+    color: var(--text-faint);
     font-size: 0.7rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--mono);
 }
 
 @keyframes docker-pulse {

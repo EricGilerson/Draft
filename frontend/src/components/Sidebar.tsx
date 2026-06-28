@@ -30,12 +30,12 @@ type SidebarProps = {
 
 function BrandMark() {
     return (
-        <svg className="brand-mark" width="20" height="20" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-            <circle cx="5.5" cy="11" r="3.5" fill="currentColor"/>
-            <circle cx="17" cy="5.5" r="2.8" fill="currentColor" opacity="0.6"/>
-            <circle cx="17" cy="16.5" r="2.8" fill="currentColor" opacity="0.6"/>
-            <line x1="9" y1="9.3" x2="14.3" y2="7.1" stroke="currentColor" strokeWidth="1.3" opacity="0.38" strokeLinecap="round"/>
-            <line x1="9" y1="12.7" x2="14.3" y2="14.9" stroke="currentColor" strokeWidth="1.3" opacity="0.38" strokeLinecap="round"/>
+        <svg className="brand-mark" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <path className="brand-mark-frame" d="M4.5 5.5h19v17h-19z"/>
+            <path className="brand-mark-route" d="M8 18.5V10h6.2v8.5H20"/>
+            <path className="brand-mark-cursor" d="M13.4 8.2 20.8 5.6l-2.8 7.3-1.5-3.1-3.1-1.6Z"/>
+            <circle className="brand-mark-port" cx="8" cy="18.5" r="1.8"/>
+            <circle className="brand-mark-port" cx="20" cy="18.5" r="1.8"/>
         </svg>
     );
 }

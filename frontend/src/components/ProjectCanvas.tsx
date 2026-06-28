@@ -35,6 +35,14 @@ function CanvasControls() {
 export default function ProjectCanvas({project}: ProjectCanvasProps) {
     return (
         <div className="project-canvas" aria-label={`${project.name} canvas`}>
+            <div className="canvas-workspace-label" aria-hidden="true">
+                <span className="canvas-kicker">Local topology</span>
+                <strong>{project.name}</strong>
+                <span className="canvas-path">{project.path}</span>
+            </div>
+            <div className="canvas-lane-label canvas-lane-label-services" aria-hidden="true">services</div>
+            <div className="canvas-lane-label canvas-lane-label-ports" aria-hidden="true">ports</div>
+            <div className="canvas-lane-label canvas-lane-label-env" aria-hidden="true">env sync</div>
             <ReactFlow
                 colorMode="dark"
                 nodes={[]}

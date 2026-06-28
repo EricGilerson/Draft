@@ -1,8 +1,10 @@
 .dialog-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(5, 8, 13, 0.6);
-    backdrop-filter: blur(2px);
+    background:
+        radial-gradient(circle at 50% 36%, rgba(240, 138, 36, 0.1), transparent 34%),
+        rgba(8, 9, 7, 0.68);
+    backdrop-filter: blur(3px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -13,10 +15,12 @@
 .dialog {
     width: 100%;
     max-width: 440px;
-    background: var(--bg-elevated);
+    background:
+        linear-gradient(180deg, rgba(244, 226, 188, 0.045), transparent 34%),
+        var(--bg-elevated);
     border: 1px solid var(--border-strong);
-    border-radius: 12px;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 26px 72px rgba(0, 0, 0, 0.58);
     overflow: hidden;
 }
 
@@ -31,7 +35,7 @@
 .dialog-title {
     margin: 0;
     font-size: 1rem;
-    font-weight: 700;
+    font-weight: 900;
     color: var(--text);
 }
 
