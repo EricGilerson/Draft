@@ -1,0 +1,32 @@
+.project-canvas {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.canvas-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+}
+
+.canvas-back {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+}
+
+.canvas-project-name {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.canvas-flow {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+}

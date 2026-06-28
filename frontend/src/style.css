@@ -16,6 +16,7 @@
 
     /* Accent */
     --accent: #7c6cff;
+    --accent-hover: #6a59f0;
     --accent-soft: rgba(124, 108, 255, 0.14);
     --accent-border: rgba(124, 108, 255, 0.22);
     --accent-text: #b3a8ff;
@@ -62,6 +63,96 @@ body {
 
 button {
     font-family: inherit;
+}
+
+/* Buttons */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+}
+
+.btn-primary:not(:disabled):hover {
+    background: var(--accent-hover);
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--border);
+}
+
+.btn-ghost:not(:disabled):hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+/* Inputs */
+.input {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 11px;
+    color: var(--text);
+    font-size: 0.875rem;
+}
+
+.input::placeholder {
+    color: var(--text-faint);
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Form fields */
+.form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-field + .form-field {
+    margin-top: 14px;
+}
+
+.form-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.form-optional {
+    font-weight: 500;
+    color: var(--text-faint);
+}
+
+.form-error {
+    margin: 14px 0 0;
+    font-size: 0.8rem;
+    color: var(--red);
 }
 
 /* Themed scrollbars for the dark UI */

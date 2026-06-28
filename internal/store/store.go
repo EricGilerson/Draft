@@ -24,7 +24,9 @@ import (
 
 // registeredModels lists every model AutoMigrate manages. Add new model structs
 // here as the schema is designed.
-var registeredModels = []any{}
+var registeredModels = []any{
+	&Project{},
+}
 
 // Store wraps the GORM handle to the local database.
 type Store struct {

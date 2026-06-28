@@ -30,12 +30,19 @@
 }
 
 .app-content {
+    position: relative;
     flex: 1;
-    padding: 24px;
-    overflow: auto;
+    min-height: 0;
+    overflow: hidden;
+    /* Soft accent glow at the top for depth */
+    background: radial-gradient(1100px 380px at 50% -12%, rgba(124, 108, 255, 0.06), transparent 70%);
+}
+
+/* Centers simple views (empty states) within the content area. */
+.view-center {
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Soft accent glow at the top for depth */
-    background: radial-gradient(1100px 380px at 50% -12%, rgba(124, 108, 255, 0.06), transparent 70%);
+    padding: 24px;
 }

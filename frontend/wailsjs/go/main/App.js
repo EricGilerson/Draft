@@ -6,6 +6,14 @@ export function CheckDocker() {
   return window['go']['main']['App']['CheckDocker']();
 }
 
+export function CreateProject(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
+}
+
+export function ListProjects() {
+  return window['go']['main']['App']['ListProjects']();
 }

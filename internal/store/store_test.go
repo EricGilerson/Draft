@@ -45,11 +45,11 @@ func TestOpenAppliesPragmas(t *testing.T) {
 	}
 }
 
-func TestMigrateWithNoModelsIsNoop(t *testing.T) {
-	// With no registered models, Open + Migrate must succeed and create nothing.
+func TestMigrateIsIdempotent(t *testing.T) {
+	// Open already migrated once; running it again must be a safe no-op.
 	s := openTemp(t)
 	if err := s.Migrate(); err != nil {
-		t.Fatalf("Migrate (no models): %v", err)
+		t.Fatalf("Migrate (second run): %v", err)
 	}
 }
 

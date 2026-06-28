@@ -6,6 +6,7 @@ import './App.css';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
 import EmptyState from './components/EmptyState';
+import ProjectsView from './views/ProjectsView';
 
 type ViewMeta = {
     title: string;
@@ -49,12 +50,18 @@ function App() {
                     <DockerIndicator/>
                 </header>
                 <main className="app-content">
-                    <EmptyState
-                        icon={meta.icon}
-                        title={meta.title}
-                        description={meta.description}
-                        chip="Coming soon"
-                    />
+                    {view === 'projects' ? (
+                        <ProjectsView/>
+                    ) : (
+                        <div className="view-center">
+                            <EmptyState
+                                icon={meta.icon}
+                                title={meta.title}
+                                description={meta.description}
+                                chip="Coming soon"
+                            />
+                        </div>
+                    )}
                 </main>
             </div>
         </div>
