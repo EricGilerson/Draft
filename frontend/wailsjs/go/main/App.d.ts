@@ -21,6 +21,8 @@ export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListProjects():Promise<Array<store.Project>>;
 
+export function SelectFile(arg1:string,arg2:string):Promise<string>;
+
 export function SelectFolder():Promise<string>;
 
 export function SelectServiceRoot(arg1:number):Promise<string>;

@@ -38,6 +38,10 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function SelectFile(arg1, arg2) {
+  return window['go']['main']['App']['SelectFile'](arg1, arg2);
+}
+
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
 }

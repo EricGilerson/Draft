@@ -65,6 +65,14 @@ func (a *App) selectFolder(defaultDir string) (string, error) {
 	})
 }
 
+// SelectFile opens a native file-picker dialog and returns the chosen path.
+func (a *App) SelectFile(title string, defaultDir string) (string, error) {
+	return wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title:            title,
+		DefaultDirectory: defaultDir,
+	})
+}
+
 // Greet returns a greeting for the given name
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)

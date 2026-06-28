@@ -1,6 +1,6 @@
-import {X, Box, FolderOpen} from 'lucide-react';
+import {X, Box, FolderOpen, FileSearch} from 'lucide-react';
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {GetServiceRoot, SetServiceRoot, SelectServiceRoot} from '../../wailsjs/go/main/App';
+import {GetServiceRoot, SetServiceRoot, SelectServiceRoot, GetNodeSettings, SetNodeSetting, SelectFile} from '../../wailsjs/go/main/App';
 import './NodeDetailPanel.css';
 
 type Tab = {
@@ -126,11 +126,18 @@ function SettingsTab({nodeId, projectId, projectPath}: SettingsTabProps) {
     const [inputValue, setInputValue] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
+    const [dockerfile, setDockerfile] = useState('');
+    const [dockerfileInput, setDockerfileInput] = useState('');
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
             setRootPath(path || '');
             setInputValue(path || '');
+        });
+        GetNodeSettings(nodeId).then((settings) => {
+            const df = settings?.dockerfile || '';
+            setDockerfile(df);
+            setDockerfileInput(df);
         });
     }, [nodeId, projectId]);
 
@@ -177,6 +184,23 @@ function SettingsTab({nodeId, projectId, projectPath}: SettingsTabProps) {
             setError(msg);
         }
     }, [projectId, saveRoot]);
+
+    const commitDockerfile = useCallback((value?: string) => {
+        const trimmed = (value ?? dockerfileInput).trim();
+        if (trimmed === dockerfile) return;
+        SetNodeSetting(nodeId, 'dockerfile', trimmed).then(() => {
+            setDockerfile(trimmed);
+            setDockerfileInput(trimmed);
+        });
+    }, [nodeId, dockerfileInput, dockerfile]);
+
+    const browseDockerfile = useCallback(async () => {
+        const selected = await SelectFile('Select Dockerfile', projectPath);
+        if (selected) {
+            setDockerfileInput(selected);
+            commitDockerfile(selected);
+        }
+    }, [projectPath, commitDockerfile]);
 
     const displayPath = rootPath
         ? (rootPath.toLowerCase().startsWith(projectPath.toLowerCase())
@@ -227,6 +251,38 @@ function SettingsTab({nodeId, projectId, projectPath}: SettingsTabProps) {
                             {displayPath}
                         </span>
                     )}
+                </div>
+            </div>
+
+            <div className="settings-section">
+                <h3 className="settings-section-title">Docker</h3>
+                <div className="form-field">
+                    <label className="form-label">
+                        Dockerfile
+                    </label>
+                    <span className="settings-hint">
+                        Path to the Dockerfile used to build this service.
+                    </span>
+                    <div className="input-with-action">
+                        <input
+                            className="input"
+                            value={dockerfileInput}
+                            onChange={(e) => setDockerfileInput(e.target.value)}
+                            onBlur={() => commitDockerfile()}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitDockerfile();
+                                if (e.key === 'Escape') setDockerfileInput(dockerfile);
+                            }}
+                            placeholder="Dockerfile"
+                        />
+                        <button
+                            className="btn btn-ghost input-action-btn"
+                            onClick={browseDockerfile}
+                            title="Browse for Dockerfile"
+                        >
+                            <FileSearch size={14} />
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
