@@ -194,7 +194,17 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
 	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, relDockerfile))
 
-	resp, err := cli.ImageBuild(ctx, buildContext, build.ImageBuildOptions{
+	uploadStart := time.Now()
+	tracker := &uploadTracker{
+		reader:     buildContext,
+		totalBytes: totalBytes,
+		onProgress: func(sent int64, total int64) {
+			pct := float64(sent) / float64(total) * 100
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Uploading: %.0f%% (%.1f / %.1f MB)", pct, float64(sent)/(1024*1024), float64(total)/(1024*1024)))
+		},
+	}
+
+	resp, err := cli.ImageBuild(ctx, tracker, build.ImageBuildOptions{
 		Tags:       []string{imageTag},
 		Dockerfile: relDockerfile,
 		Remove:     true,
@@ -204,6 +214,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 	defer resp.Body.Close()
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Upload complete in %s", time.Since(uploadStart).Round(time.Millisecond)))
 
 	buildStart := time.Now()
 	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, dep.ID)
@@ -318,9 +329,36 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	go e.watchContainer(context.Background(), cli, dep, nodeID)
 }
 
+type uploadTracker struct {
+	reader     io.Reader
+	totalBytes int64
+	sent       int64
+	lastPct    int
+	onProgress func(sent int64, total int64)
+}
+
+func (u *uploadTracker) Read(p []byte) (int, error) {
+	n, err := u.reader.Read(p)
+	u.sent += int64(n)
+	if u.totalBytes > 0 {
+		pct := int(float64(u.sent) / float64(u.totalBytes) * 100)
+		// Report at every 10% increment
+		step := pct / 10
+		if step > u.lastPct/10 {
+			u.lastPct = pct
+			if u.onProgress != nil {
+				u.onProgress(u.sent, u.totalBytes)
+			}
+		}
+	}
+	return n, err
+}
+
 func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFile *os.File, nodeID string, deploymentID uint) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	e.emitBuildLog(nodeID, "==> Building image...")
 
 	for scanner.Scan() {
 		if ctx.Err() != nil {
@@ -333,18 +371,23 @@ func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFil
 		var msg struct {
 			Stream string `json:"stream"`
 			Error  string `json:"error"`
+			Status string `json:"status"`
+			ID     string `json:"id"`
 		}
 		if json.Unmarshal([]byte(line), &msg) == nil {
 			if msg.Error != "" {
-				logLine := LogLine{Line: msg.Error, Stream: "build"}
-				e.emit("build:log:"+nodeID, logLine)
-				e.emit("build:log", map[string]any{"nodeId": nodeID, "line": logLine})
+				e.emitBuildLog(nodeID, msg.Error)
 				return fmt.Errorf("%s", msg.Error)
 			}
 			if msg.Stream != "" {
-				logLine := LogLine{Line: strings.TrimRight(msg.Stream, "\n"), Stream: "build"}
-				e.emit("build:log:"+nodeID, logLine)
-				e.emit("build:log", map[string]any{"nodeId": nodeID, "line": logLine})
+				e.emitBuildLog(nodeID, strings.TrimRight(msg.Stream, "\n"))
+			}
+			if msg.Status != "" {
+				text := msg.Status
+				if msg.ID != "" {
+					text = msg.ID + ": " + text
+				}
+				e.emitBuildLog(nodeID, text)
 			}
 		}
 	}

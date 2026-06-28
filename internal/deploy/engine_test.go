@@ -225,8 +225,9 @@ func TestStreamBuildOutputSuccess(t *testing.T) {
 			nodeEvents = append(nodeEvents, ev)
 		}
 	}
-	if len(nodeEvents) != 3 {
-		t.Fatalf("expected 3 per-node log events, got %d", len(nodeEvents))
+	// 1 "Building image..." + 3 stream lines = 4
+	if len(nodeEvents) != 4 {
+		t.Fatalf("expected 4 per-node log events, got %d", len(nodeEvents))
 	}
 	for _, ev := range nodeEvents {
 		ll := ev.Data.(LogLine)
@@ -270,8 +271,9 @@ func TestStreamBuildOutputError(t *testing.T) {
 			nodeEvents = append(nodeEvents, ev)
 		}
 	}
-	if len(nodeEvents) != 2 {
-		t.Fatalf("expected 2 per-node log events (1 stream + 1 error), got %d", len(nodeEvents))
+	// 1 "Building image..." + 1 stream + 1 error = 3
+	if len(nodeEvents) != 3 {
+		t.Fatalf("expected 3 per-node log events, got %d", len(nodeEvents))
 	}
 }
 
