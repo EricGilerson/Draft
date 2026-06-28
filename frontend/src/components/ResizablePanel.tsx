@@ -7,8 +7,17 @@ type ResizablePanelProps = {
     defaultWidth: number;
     minWidth?: number;
     maxWidth?: number;
+    storageKey?: string;
     className?: string;
 };
+
+function readStored(key: string | undefined, fallback: number, min: number, max: number): number {
+    if (!key) return fallback;
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
 
 export default function ResizablePanel({
     children,
@@ -16,9 +25,10 @@ export default function ResizablePanel({
     defaultWidth,
     minWidth = 280,
     maxWidth = 700,
+    storageKey,
     className = '',
 }: ResizablePanelProps) {
-    const [width, setWidth] = useState(defaultWidth);
+    const [width, setWidth] = useState(() => readStored(storageKey, defaultWidth, minWidth, maxWidth));
     const dragging = useRef(false);
     const startX = useRef(0);
     const startWidth = useRef(0);
@@ -59,6 +69,10 @@ export default function ResizablePanel({
             window.removeEventListener('mouseup', onMouseUp);
         };
     }, [side, minWidth, maxWidth]);
+
+    useEffect(() => {
+        if (storageKey) localStorage.setItem(storageKey, String(width));
+    }, [width, storageKey]);
 
     const handlePosition = side === 'right' ? 'resizable-handle--left' : 'resizable-handle--right';
 

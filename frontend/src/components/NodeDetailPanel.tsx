@@ -1,5 +1,5 @@
 import {X, Box} from 'lucide-react';
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import './NodeDetailPanel.css';
 
 type Tab = {
@@ -23,11 +23,35 @@ type NodeDetailPanelProps = {
     nodeId: string;
     nodeLabel: string;
     onClose: () => void;
+    onRename: (nodeId: string, newLabel: string) => void;
 };
 
-export default function NodeDetailPanel({nodeLabel, onClose}: NodeDetailPanelProps) {
+export default function NodeDetailPanel({nodeId, nodeLabel, onClose, onRename}: NodeDetailPanelProps) {
     const [activeTab, setActiveTab] = useState('overview');
+    const [editing, setEditing] = useState(false);
+    const [editValue, setEditValue] = useState(nodeLabel);
+    const editRef = useRef<HTMLInputElement>(null);
     const current = TABS.find((t) => t.id === activeTab)!;
+
+    useEffect(() => {
+        setEditValue(nodeLabel);
+    }, [nodeLabel]);
+
+    const startEditing = () => {
+        setEditValue(nodeLabel);
+        setEditing(true);
+        setTimeout(() => editRef.current?.select(), 0);
+    };
+
+    const commitRename = () => {
+        setEditing(false);
+        const trimmed = editValue.trim();
+        if (trimmed && trimmed !== nodeLabel) {
+            onRename(nodeId, trimmed);
+        } else {
+            setEditValue(nodeLabel);
+        }
+    };
 
     return (
         <div className="node-detail-panel">
@@ -36,7 +60,26 @@ export default function NodeDetailPanel({nodeLabel, onClose}: NodeDetailPanelPro
                     <div className="node-detail-icon">
                         <Box size={14}/>
                     </div>
-                    <h2 className="node-detail-title">{nodeLabel}</h2>
+                    {editing ? (
+                        <input
+                            ref={editRef}
+                            className="node-detail-title-input"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onBlur={commitRename}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitRename();
+                                if (e.key === 'Escape') {
+                                    setEditValue(nodeLabel);
+                                    setEditing(false);
+                                }
+                            }}
+                        />
+                    ) : (
+                        <h2 className="node-detail-title" onClick={startEditing} title="Click to rename">
+                            {nodeLabel}
+                        </h2>
+                    )}
                 </div>
                 <button className="dialog-close" onClick={onClose} aria-label="Close">
                     <X size={16}/>

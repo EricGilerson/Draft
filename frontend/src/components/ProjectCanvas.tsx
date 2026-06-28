@@ -126,6 +126,16 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
         setShowAddPopover(false);
     }, [newNodeName, setNodes, project.id]);
 
+    const renameNode = useCallback((nodeId: string, newLabel: string) => {
+        setNodes((prev) =>
+            prev.map((n) =>
+                n.id === nodeId ? {...n, data: {...n.data, label: newLabel}} : n,
+            ),
+        );
+        const node = nodes.find((n) => n.id === nodeId);
+        UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel);
+    }, [setNodes, nodes]);
+
     const openPopover = () => {
         setShowAddPopover(true);
         setNewNodeName('');
@@ -193,11 +203,12 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
             </div>
 
             {selectedNode && (
-                <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640}>
+                <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640} storageKey="draft:node-detail-width">
                     <NodeDetailPanel
                         nodeId={selectedNode.id}
                         nodeLabel={(selectedNode.data.label as string) || selectedNode.id}
                         onClose={() => setSelectedNodeId(null)}
+                        onRename={renameNode}
                     />
                 </ResizablePanel>
             )}

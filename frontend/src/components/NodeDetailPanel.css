@@ -46,6 +46,30 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: text;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    transition: background-color 0.12s ease;
+}
+
+.node-detail-title:hover {
+    background: var(--surface-hover);
+}
+
+.node-detail-title-input {
+    font-size: 0.9rem;
+    font-weight: 900;
+    font-family: inherit;
+    color: var(--text);
+    background: rgba(8, 9, 7, 0.72);
+    border: 1px solid var(--accent-border);
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    outline: none;
+    min-width: 0;
+    box-shadow: 0 0 0 2px rgba(240, 138, 36, 0.08);
 }
 
 .node-detail-tabs {
