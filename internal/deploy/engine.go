@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"Draft/internal/ignore"
 	"Draft/internal/networking"
 	"Draft/internal/store"
 
@@ -179,9 +180,21 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer logFile.Close()
 
+	matcher := ignore.New()
+	if settings["use_dockerignore"] == "true" {
+		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
+		n, _ := matcher.ScanDir(project.Path, serviceRoot, ".dockerignore")
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .dockerignore file(s)", n))
+	}
+	if settings["use_gitignore"] == "true" {
+		e.emitBuildLog(nodeID, "==> Scanning for .gitignore files...")
+		n, _ := matcher.ScanDir(project.Path, serviceRoot, ".gitignore")
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .gitignore file(s)", n))
+	}
+
 	e.emitBuildLog(nodeID, "==> Packaging build context...")
 	packStart := time.Now()
-	buildContext, fileCount, totalBytes, err := tarDirectoryWithProgress(serviceRoot, func(files int, bytes int64) {
+	buildContext, fileCount, totalBytes, err := tarDirectoryWithProgress(serviceRoot, matcher, func(files int, bytes int64) {
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Packaged %d files (%.1f MB)", files, float64(bytes)/(1024*1024)))
 	})
 	if err != nil {
@@ -660,20 +673,21 @@ func sanitize(name string) string {
 	return strings.Trim(s, "-")
 }
 
-type tarResult struct {
-	reader    io.ReadCloser
-	fileCount int
-	bytes     int64
-	err       error
-}
+func tarDirectoryWithProgress(dir string, matcher *ignore.Matcher, progress func(files int, bytes int64)) (io.ReadCloser, int, int64, error) {
+	skipEntry := func(rel string, isDir bool) bool {
+		if shouldSkip(rel) {
+			return true
+		}
+		if matcher != nil && matcher.Match(rel, isDir) {
+			return true
+		}
+		return false
+	}
 
-func tarDirectoryWithProgress(dir string, progress func(files int, bytes int64)) (io.ReadCloser, int, int64, error) {
 	var fileCount int
 	var totalBytes int64
 
-	// First pass: walk to count files (stat only, no file reads). This is
-	// fast even for large trees and lets us report the total before Docker
-	// starts reading.
+	// First pass: stat-only walk to count files and bytes.
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -686,7 +700,7 @@ func tarDirectoryWithProgress(dir string, progress func(files int, bytes int64))
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if shouldSkip(rel) {
+		if skipEntry(rel, info.IsDir()) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -724,7 +738,7 @@ func tarDirectoryWithProgress(dir string, progress func(files int, bytes int64))
 			}
 			rel = filepath.ToSlash(rel)
 
-			if shouldSkip(rel) {
+			if skipEntry(rel, info.IsDir()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}

@@ -22,6 +22,8 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
     const [port, setPort] = useState('');
     const [portInput, setPortInput] = useState('');
     const [exposePorts, setExposePorts] = useState<dockerfile.ExposePort[]>([]);
+    const [useDockerignore, setUseDockerignore] = useState(false);
+    const [useGitignore, setUseGitignore] = useState(false);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
@@ -35,6 +37,8 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
             const p = settings?.service_port || '';
             setPort(p);
             setPortInput(p);
+            setUseDockerignore(settings?.use_dockerignore === 'true');
+            setUseGitignore(settings?.use_gitignore === 'true');
             if (df) {
                 ParseDockerfileExpose(df, projectId).then(setExposePorts).catch(() => setExposePorts([]));
             }
@@ -116,6 +120,18 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
             setPortInput(trimmed);
         });
     }, [nodeId, portInput, port]);
+
+    const toggleDockerignore = useCallback(() => {
+        const next = !useDockerignore;
+        setUseDockerignore(next);
+        SetNodeSetting(nodeId, 'use_dockerignore', next ? 'true' : 'false');
+    }, [nodeId, useDockerignore]);
+
+    const toggleGitignore = useCallback(() => {
+        const next = !useGitignore;
+        setUseGitignore(next);
+        SetNodeSetting(nodeId, 'use_gitignore', next ? 'true' : 'false');
+    }, [nodeId, useGitignore]);
 
     const applyExposePort = useCallback((exposePort: number) => {
         const val = String(exposePort);
@@ -206,6 +222,40 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
                             <FileSearch size={14} />
                         </button>
                     </div>
+                </div>
+            </div>
+
+            <div className="settings-section">
+                <h3 className="settings-section-title">Build Context</h3>
+
+                <div className="settings-toggle-row">
+                    <div className="settings-toggle-label">
+                        <span className="settings-toggle-name">.dockerignore</span>
+                        <span className="settings-toggle-desc">
+                            Exclude files matched by .dockerignore patterns found in the service root.
+                        </span>
+                    </div>
+                    <button
+                        className={`toggle-switch${useDockerignore ? ' toggle-switch--on' : ''}`}
+                        onClick={toggleDockerignore}
+                        role="switch"
+                        aria-checked={useDockerignore}
+                    />
+                </div>
+
+                <div className="settings-toggle-row">
+                    <div className="settings-toggle-label">
+                        <span className="settings-toggle-name">.gitignore</span>
+                        <span className="settings-toggle-desc">
+                            Exclude files matched by .gitignore patterns found anywhere in the service root.
+                        </span>
+                    </div>
+                    <button
+                        className={`toggle-switch${useGitignore ? ' toggle-switch--on' : ''}`}
+                        onClick={toggleGitignore}
+                        role="switch"
+                        aria-checked={useGitignore}
+                    />
                 </div>
             </div>
 

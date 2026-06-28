@@ -121,7 +121,7 @@ func TestTarDirectory(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "src"), 0755)
 	os.WriteFile(filepath.Join(dir, "src", "app.go"), []byte("package src"), 0644)
 
-	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestTarDirectorySkipsGitAndNodeModules(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "node_modules", "express"), 0755)
 	os.WriteFile(filepath.Join(dir, "node_modules", "express", "index.js"), []byte(""), 0644)
 
-	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestTarDirectorySkipsGitAndNodeModules(t *testing.T) {
 
 func TestTarDirectoryEmpty(t *testing.T) {
 	dir := t.TempDir()
-	rc, _, _, err := tarDirectoryWithProgress(dir, nil)
+	rc, _, _, err := tarDirectoryWithProgress(dir, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
