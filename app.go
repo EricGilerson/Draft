@@ -63,6 +63,15 @@ func (a *App) startup(ctx context.Context) {
 		if ev.Kind == "daemon" && ev.Daemon != nil {
 			wruntime.EventsEmit(a.ctx, "docker:status", ev.Daemon)
 		}
+		if ev.Raw != nil {
+			wruntime.EventsEmit(a.ctx, "docker:activity", map[string]string{
+				"type":   string(ev.Raw.Type),
+				"action": string(ev.Raw.Action),
+				"actor":  ev.Raw.Actor.ID,
+				"name":   ev.Raw.Actor.Attributes["name"],
+				"image":  ev.Raw.Actor.Attributes["image"],
+			})
+		}
 	})
 	go a.hub.Run(ctx)
 }

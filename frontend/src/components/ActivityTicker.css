@@ -1,0 +1,36 @@
+.activity-ticker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, #000 80%, transparent 100%);
+    -webkit-mask-image: linear-gradient(90deg, #000 80%, transparent 100%);
+}
+
+.ticker-entry {
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    font-family: var(--mono);
+    color: var(--text-faint);
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    animation: ticker-slide-in 0.3s ease-out;
+    transition: opacity 0.5s ease;
+}
+
+.ticker-entry--fade {
+    opacity: 0;
+}
+
+@keyframes ticker-slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

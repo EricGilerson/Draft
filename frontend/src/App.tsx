@@ -4,6 +4,7 @@ import './App.css';
 import {ListProjects} from '../wailsjs/go/main/App';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
+import ActivityTicker from './components/ActivityTicker';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
@@ -51,6 +52,7 @@ function App() {
             <Sidebar active={view} onSelect={handleSelectView}/>
             <div className="app-main">
                 <header className="topbar">
+                    <ActivityTicker/>
                     <DockerIndicator/>
                 </header>
                 <main className="app-content">
