@@ -29,6 +29,7 @@ var registeredModels = []any{
 	&CanvasNode{},
 	&Route{},
 	&PortLease{},
+	&NodeSetting{},
 }
 
 // Store wraps the GORM handle to the local database.

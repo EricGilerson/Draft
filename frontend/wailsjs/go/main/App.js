@@ -18,6 +18,14 @@ export function DeleteNode(arg1) {
   return window['go']['main']['App']['DeleteNode'](arg1);
 }
 
+export function GetNodeSettings(arg1) {
+  return window['go']['main']['App']['GetNodeSettings'](arg1);
+}
+
+export function GetServiceRoot(arg1, arg2) {
+  return window['go']['main']['App']['GetServiceRoot'](arg1, arg2);
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -32,6 +40,18 @@ export function ListProjects() {
 
 export function SelectFolder() {
   return window['go']['main']['App']['SelectFolder']();
+}
+
+export function SelectServiceRoot(arg1) {
+  return window['go']['main']['App']['SelectServiceRoot'](arg1);
+}
+
+export function SetNodeSetting(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
+}
+
+export function SetServiceRoot(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetServiceRoot'](arg1, arg2, arg3);
 }
 
 export function UpdateNode(arg1, arg2, arg3, arg4) {

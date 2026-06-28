@@ -23,6 +23,15 @@ func (s *Store) CreateProject(name, path, description string) (*Project, error) 
 	return p, nil
 }
 
+// GetProject returns a single project by ID.
+func (s *Store) GetProject(id uint) (*Project, error) {
+	var p Project
+	if err := s.DB.First(&p, id).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // ListProjects returns all projects, newest first.
 func (s *Store) ListProjects() ([]Project, error) {
 	var projects []Project

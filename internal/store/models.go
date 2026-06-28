@@ -48,3 +48,12 @@ type PortLease struct {
 	NodeID    string    `gorm:"index;not null" json:"nodeId"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+
+// NodeSetting is a key-value pair scoped to a canvas node. Using a KV model
+// lets settings grow over time without schema migrations — new features just
+// introduce new keys.
+type NodeSetting struct {
+	NodeID string `gorm:"primaryKey;not null" json:"nodeId"`
+	Key    string `gorm:"primaryKey;not null" json:"key"`
+	Value  string `gorm:"not null" json:"value"`
+}

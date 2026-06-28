@@ -140,3 +140,41 @@
     color: var(--text-faint);
     max-width: 220px;
 }
+
+/* Settings tab */
+.settings-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.settings-section-title {
+    margin: 0 0 14px;
+    font-size: 0.78rem;
+    font-weight: 900;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.settings-hint {
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--text-faint);
+}
+
+.settings-mono {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--text-muted);
+}
+
+.settings-resolved {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--draft-green);
+    opacity: 0.8;
+}

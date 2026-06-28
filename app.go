@@ -55,8 +55,13 @@ func (a *App) shutdown(ctx context.Context) {
 
 // SelectFolder opens a native directory-picker dialog and returns the chosen path.
 func (a *App) SelectFolder() (string, error) {
+	return a.selectFolder("")
+}
+
+func (a *App) selectFolder(defaultDir string) (string, error) {
 	return wruntime.OpenDirectoryDialog(a.ctx, wruntime.OpenDialogOptions{
-		Title: "Select project folder",
+		Title:            "Select folder",
+		DefaultDirectory: defaultDir,
 	})
 }
 

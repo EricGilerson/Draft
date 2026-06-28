@@ -11,6 +11,10 @@ export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store
 
 export function DeleteNode(arg1:string):Promise<void>;
 
+export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
+
+export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
@@ -18,5 +22,11 @@ export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 export function ListProjects():Promise<Array<store.Project>>;
 
 export function SelectFolder():Promise<string>;
+
+export function SelectServiceRoot(arg1:number):Promise<string>;
+
+export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;

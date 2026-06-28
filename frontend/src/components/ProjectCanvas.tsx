@@ -207,6 +207,8 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
                     <NodeDetailPanel
                         nodeId={selectedNode.id}
                         nodeLabel={(selectedNode.data.label as string) || selectedNode.id}
+                        projectId={project.id}
+                        projectPath={project.path}
                         onClose={() => setSelectedNodeId(null)}
                         onRename={renameNode}
                     />
