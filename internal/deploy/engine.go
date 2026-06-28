@@ -20,6 +20,7 @@ import (
 
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -353,6 +354,9 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 			cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
 			cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
 		}
+		if d.ImageTag != "" {
+			cli.ImageRemove(ctx, d.ImageTag, image.RemoveOptions{})
+		}
 		if d.Hostname != "" {
 			e.router.Unregister(d.Hostname)
 		}
@@ -390,6 +394,10 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 		timeout := 10
 		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
 		cli.ContainerRemove(ctx, dep.ContainerID, container.RemoveOptions{})
+	}
+
+	if dep.ImageTag != "" {
+		cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
 	}
 
 	if dep.Hostname != "" {
