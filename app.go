@@ -5,13 +5,15 @@ import (
 	"fmt"
 
 	"Draft/internal/dockerwatch"
+	"Draft/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App struct
 type App struct {
-	ctx context.Context
-	hub *dockerwatch.Hub
+	ctx   context.Context
+	hub   *dockerwatch.Hub
+	store *store.Store
 }
 
 // NewApp creates a new App application struct
@@ -24,6 +26,16 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	// Open the local database (dev-time AutoMigrate). Non-fatal if it fails so
+	// the rest of the app still runs; surface the error in the log.
+	if path, err := store.DefaultPath(); err != nil {
+		fmt.Println("store: resolve path:", err)
+	} else if s, err := store.Open(store.FileDSN(path)); err != nil {
+		fmt.Println("store: open:", err)
+	} else {
+		a.store = s
+	}
+
 	// Bridge Docker daemon status changes to the frontend over a Wails event.
 	// The hub broadcasts only on change, so this emits nothing in steady state.
 	a.hub.Subscribe(func(ev dockerwatch.Event) {
@@ -32,6 +44,13 @@ func (a *App) startup(ctx context.Context) {
 		}
 	})
 	go a.hub.Run(ctx)
+}
+
+// shutdown is called when the app closes; release the database connection.
+func (a *App) shutdown(ctx context.Context) {
+	if a.store != nil {
+		_ = a.store.Close()
+	}
 }
 
 // Greet returns a greeting for the given name
