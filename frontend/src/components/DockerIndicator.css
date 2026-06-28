@@ -1,12 +1,8 @@
 .docker-indicator {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    border-radius: 999px;
+    gap: 7px;
     font-size: 0.78rem;
-    background-color: var(--surface);
-    border: 1px solid var(--border);
     color: var(--text-muted);
     user-select: none;
 }
