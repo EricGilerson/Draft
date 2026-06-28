@@ -27,6 +27,8 @@ import (
 var registeredModels = []any{
 	&Project{},
 	&CanvasNode{},
+	&Route{},
+	&PortLease{},
 }
 
 // Store wraps the GORM handle to the local database.

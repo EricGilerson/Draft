@@ -1,0 +1,234 @@
+package networking
+
+import (
+	"fmt"
+	"log"
+
+	"Draft/internal/store"
+)
+
+// Router is the high-level coordinator for Draft's local networking. It owns
+// the reverse proxy, manages port leases, generates hostnames, and keeps the
+// hosts file in sync. Consumers call Register/Unregister and the Router handles
+// the rest.
+type Router struct {
+	store       *store.Store
+	proxy       *Proxy
+	syncHostsTo func([]HostsEntry) error
+}
+
+// NewRouter creates a Router backed by the given store. The proxy listens on
+// proxyAddr (e.g. "127.0.0.1:8080").
+func NewRouter(s *store.Store, proxyAddr string) *Router {
+	return &Router{
+		store:       s,
+		proxy:       NewProxy(proxyAddr),
+		syncHostsTo: SyncHostsFile,
+	}
+}
+
+// Start boots the reverse proxy and reloads persisted routes into memory.
+func (r *Router) Start() error {
+	if err := r.proxy.Start(); err != nil {
+		return err
+	}
+	return r.reloadRoutes()
+}
+
+// Stop shuts down the proxy gracefully.
+func (r *Router) Stop() error {
+	return r.proxy.Stop()
+}
+
+// RegisterRequest describes a service that needs a hostname and (for TCP) a
+// host port.
+type RegisterRequest struct {
+	Service     string
+	Project     string
+	ProjectID   uint
+	NodeID      string
+	Environment string
+	UID         string // 4-char hex, generated at project creation
+	Protocol    string // "http" or "tcp"
+	TargetHost  string // container-reachable host (e.g. "127.0.0.1")
+	TargetPort  int    // port inside the container
+	PreferPort  int    // preferred host port for TCP (0 = auto-assign)
+}
+
+// RegisterResult is returned after a successful registration.
+type RegisterResult struct {
+	Hostname string
+	HostPort int // 0 for HTTP services (they go through the proxy)
+}
+
+// Register creates a route for a service: generates the hostname, allocates a
+// host port (TCP only), persists to the database, updates the proxy routing
+// table, and syncs the hosts file.
+func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
+	env := req.Environment
+	if env == "" {
+		env = "default"
+	}
+	protocol := req.Protocol
+	if protocol == "" {
+		protocol = "http"
+	}
+
+	hostname := Hostname(req.Service, req.Project, env, req.UID)
+
+	var hostPort int
+	if protocol == "tcp" {
+		excluded, err := r.leasedPorts()
+		if err != nil {
+			return nil, fmt.Errorf("list leased ports: %w", err)
+		}
+
+		port, err := FindFreePortNear(req.PreferPort, excluded)
+		if err != nil {
+			return nil, err
+		}
+		hostPort = port
+
+		if _, err := r.store.CreatePortLease(&store.PortLease{
+			Port:      port,
+			ProjectID: req.ProjectID,
+			NodeID:    req.NodeID,
+		}); err != nil {
+			return nil, fmt.Errorf("create port lease: %w", err)
+		}
+	}
+
+	route := &store.Route{
+		Hostname:    hostname,
+		ProjectID:   req.ProjectID,
+		NodeID:      req.NodeID,
+		Environment: env,
+		Protocol:    protocol,
+		TargetHost:  req.TargetHost,
+		TargetPort:  req.TargetPort,
+		HostPort:    hostPort,
+	}
+	if _, err := r.store.CreateRoute(route); err != nil {
+		return nil, fmt.Errorf("create route: %w", err)
+	}
+
+	if protocol == "http" {
+		r.proxy.SetRoute(hostname, ProxyTarget{
+			Host: req.TargetHost,
+			Port: req.TargetPort,
+		})
+	}
+
+	if err := r.syncHosts(); err != nil {
+		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
+	}
+
+	return &RegisterResult{
+		Hostname: hostname,
+		HostPort: hostPort,
+	}, nil
+}
+
+// Unregister removes a service's route, frees its port lease, and updates the
+// hosts file.
+func (r *Router) Unregister(hostname string) error {
+	route, err := r.store.GetRoute(hostname)
+	if err != nil {
+		return fmt.Errorf("get route: %w", err)
+	}
+
+	if route.Protocol == "tcp" && route.HostPort > 0 {
+		if err := r.store.DeletePortLease(route.HostPort); err != nil {
+			log.Printf("[draft-router] delete port lease %d: %v", route.HostPort, err)
+		}
+	}
+
+	r.proxy.RemoveRoute(hostname)
+
+	if err := r.store.DeleteRoute(hostname); err != nil {
+		return fmt.Errorf("delete route: %w", err)
+	}
+
+	if err := r.syncHosts(); err != nil {
+		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
+	}
+	return nil
+}
+
+// UnregisterNode removes all routes and port leases for a given node.
+func (r *Router) UnregisterNode(nodeID string) error {
+	routes, err := r.store.ListRoutesByNode(nodeID)
+	if err != nil {
+		return fmt.Errorf("list routes for node: %w", err)
+	}
+
+	for _, route := range routes {
+		r.proxy.RemoveRoute(route.Hostname)
+	}
+
+	if err := r.store.DeleteRoutesByNode(nodeID); err != nil {
+		return fmt.Errorf("delete routes: %w", err)
+	}
+	if err := r.store.DeletePortLeasesByNode(nodeID); err != nil {
+		return fmt.Errorf("delete port leases: %w", err)
+	}
+
+	if err := r.syncHosts(); err != nil {
+		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
+	}
+	return nil
+}
+
+// Lookup returns the route for a hostname, or nil if not found.
+func (r *Router) Lookup(hostname string) (*store.Route, error) {
+	return r.store.GetRoute(hostname)
+}
+
+// reloadRoutes loads persisted routes from the database into the proxy's
+// in-memory routing table. Called on startup.
+func (r *Router) reloadRoutes() error {
+	routes, err := r.store.ListAllRoutes()
+	if err != nil {
+		return fmt.Errorf("reload routes: %w", err)
+	}
+	for _, route := range routes {
+		if route.Protocol == "http" {
+			r.proxy.SetRoute(route.Hostname, ProxyTarget{
+				Host: route.TargetHost,
+				Port: route.TargetPort,
+			})
+		}
+	}
+	log.Printf("[draft-router] loaded %d routes from database", len(routes))
+	return nil
+}
+
+// syncHosts writes the current set of Draft hostnames to the system hosts file.
+func (r *Router) syncHosts() error {
+	routes, err := r.store.ListAllRoutes()
+	if err != nil {
+		return err
+	}
+
+	entries := make([]HostsEntry, len(routes))
+	for i, route := range routes {
+		entries[i] = HostsEntry{
+			IP:       "127.0.0.1",
+			Hostname: route.Hostname,
+		}
+	}
+	return r.syncHostsTo(entries)
+}
+
+// leasedPorts returns a set of all currently leased ports.
+func (r *Router) leasedPorts() (map[int]bool, error) {
+	leases, err := r.store.ListAllPortLeases()
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int]bool, len(leases))
+	for _, l := range leases {
+		m[l.Port] = true
+	}
+	return m, nil
+}

@@ -23,3 +23,28 @@ type CanvasNode struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// Route maps a Draft-managed hostname to a container target. HTTP services
+// are proxied by the built-in reverse proxy; TCP services use the hostname
+// as a friendly alias that resolves to 127.0.0.1 via the hosts file.
+type Route struct {
+	Hostname    string    `gorm:"primaryKey" json:"hostname"`
+	ProjectID   uint      `gorm:"index;not null" json:"projectId"`
+	NodeID      string    `gorm:"index;not null" json:"nodeId"`
+	Environment string    `gorm:"not null;default:'default'" json:"environment"`
+	Protocol    string    `gorm:"not null;default:'http'" json:"protocol"` // "http" or "tcp"
+	TargetHost  string    `gorm:"not null" json:"targetHost"`              // container host (e.g. "localhost" or docker network name)
+	TargetPort  int       `gorm:"not null" json:"targetPort"`              // container port
+	HostPort    int       `json:"hostPort"`                                // mapped host port (TCP services only; 0 for proxied HTTP)
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// PortLease is a cross-project record of which host port is assigned to which
+// service. Draft is the single authority on host port allocation.
+type PortLease struct {
+	Port      int       `gorm:"primaryKey" json:"port"`
+	ProjectID uint      `gorm:"index;not null" json:"projectId"`
+	NodeID    string    `gorm:"index;not null" json:"nodeId"`
+	CreatedAt time.Time `json:"createdAt"`
+}
