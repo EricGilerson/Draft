@@ -160,6 +160,7 @@
     width: 100%;
     height: 96px;
     border-radius: var(--radius);
+    cursor: crosshair;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.01), rgba(255, 255, 255, 0)),
         linear-gradient(180deg, rgba(255,255,255,0.03) 1px, transparent 1px);
@@ -191,6 +192,31 @@
 .metrics-chart--network .metrics-chart-area {
     stroke: var(--draft-green);
     fill: var(--draft-green);
+}
+
+.metrics-chart-crosshair {
+    stroke: rgba(255, 255, 255, 0.3);
+    stroke-width: 1;
+    stroke-dasharray: 3 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.metrics-chart-dot {
+    fill: var(--bg);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.metrics-chart-dot--cpu {
+    stroke: var(--draft-amber);
+}
+
+.metrics-chart-dot--memory {
+    stroke: var(--draft-teal);
+}
+
+.metrics-chart-dot--network {
+    stroke: var(--draft-green);
 }
 
 .metrics-chart-empty,

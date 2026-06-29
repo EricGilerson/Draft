@@ -1,5 +1,5 @@
 import {Activity, AlertCircle, Clock3, HeartPulse, Package, RotateCcw, ServerCrash, Wifi} from 'lucide-react';
-import {useEffect, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useRef, useState, type ReactNode} from 'react';
 import {GetServiceMetrics} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import StatusBadge from './StatusBadge';
@@ -142,6 +142,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     value={metrics.latestPoint ? formatPercent(metrics.latestPoint.cpuPercent) : 'No live CPU data'}
                     points={metrics.livePoints}
                     pickValue={(point) => point.cpuPercent}
+                    formatValue={formatPercent}
                     tone="cpu"
                 />
                 <MetricChart
@@ -149,6 +150,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     value={metrics.latestPoint ? formatBytes(metrics.latestPoint.memoryBytes) : 'No live memory data'}
                     points={metrics.livePoints}
                     pickValue={(point) => point.memoryBytes}
+                    formatValue={formatBytes}
                     tone="memory"
                 />
                 <MetricChart
@@ -156,6 +158,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     value={metrics.latestPoint ? `${formatRate(metrics.latestPoint.networkRxRateBps)} in · ${formatRate(metrics.latestPoint.networkTxRateBps)} out` : 'No live network data'}
                     points={metrics.livePoints}
                     pickValue={(point) => point.networkRxRateBps + point.networkTxRateBps}
+                    formatValue={formatRate}
                     tone="network"
                 />
             </div>
@@ -281,33 +284,85 @@ function MetricChart({
     value,
     points,
     pickValue,
+    formatValue,
     tone,
 }: {
     title: string;
     value: string;
     points: deploy.MetricPoint[];
     pickValue: (point: deploy.MetricPoint) => number;
+    formatValue: (v: number) => string;
     tone: 'cpu' | 'memory' | 'network';
 }) {
     const chartPoints = points.map((point) => pickValue(point));
     const path = toSparkline(chartPoints, 260, 96);
+    const svgRef = useRef<SVGSVGElement>(null);
+    const [hover, setHover] = useState<{x: number; index: number} | null>(null);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+        const svg = svgRef.current;
+        if (!svg || chartPoints.length < 2) return;
+        const rect = svg.getBoundingClientRect();
+        const relX = (e.clientX - rect.left) / rect.width;
+        const index = Math.round(relX * (chartPoints.length - 1));
+        const clampedIndex = Math.max(0, Math.min(chartPoints.length - 1, index));
+        const x = (clampedIndex / (chartPoints.length - 1)) * 260;
+        setHover({x, index: clampedIndex});
+    }, [chartPoints.length]);
+
+    const handleMouseLeave = useCallback(() => setHover(null), []);
+
+    const hoveredValue = hover !== null ? chartPoints[hover.index] : null;
 
     return (
         <section className="metrics-panel metrics-panel--chart">
             <div className="metrics-panel-header">
                 <span>{title}</span>
-                <span className="metrics-chart-value">{value}</span>
+                <span className="metrics-chart-value">
+                    {hoveredValue !== null ? formatValue(hoveredValue) : value}
+                </span>
             </div>
             {path ? (
-                <svg className={`metrics-chart metrics-chart--${tone}`} viewBox="0 0 260 96" preserveAspectRatio="none">
+                <svg
+                    ref={svgRef}
+                    className={`metrics-chart metrics-chart--${tone}`}
+                    viewBox="0 0 260 96"
+                    preserveAspectRatio="none"
+                    onMouseMove={handleMouseMove}
+                    onMouseLeave={handleMouseLeave}
+                >
                     <path className="metrics-chart-area" d={`${path} L260 96 L0 96 Z`} />
                     <path className="metrics-chart-line" d={path} />
+                    {hover !== null && (
+                        <line
+                            className="metrics-chart-crosshair"
+                            x1={hover.x}
+                            y1={0}
+                            x2={hover.x}
+                            y2={96}
+                        />
+                    )}
+                    {hover !== null && (
+                        <circle
+                            className={`metrics-chart-dot metrics-chart-dot--${tone}`}
+                            cx={hover.x}
+                            cy={getYForIndex(chartPoints, hover.index, 260, 96)}
+                            r={4}
+                        />
+                    )}
                 </svg>
             ) : (
                 <div className="metrics-chart-empty">Live metrics appear while the container is running.</div>
             )}
         </section>
     );
+}
+
+function getYForIndex(values: number[], index: number, _width: number, height: number): number {
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    return height - ((values[index] - min) / range) * (height - 6) - 3;
 }
 
 function FactRow({label, value, mono = false}: {label: string; value: string; mono?: boolean}) {

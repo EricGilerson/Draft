@@ -1,4 +1,4 @@
-import {Play, Square, RotateCcw, ExternalLink, AlertCircle} from 'lucide-react';
+import {Play, Square, RotateCcw, ExternalLink, AlertCircle, Loader2} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
@@ -20,6 +20,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
+    const [pendingAction, setPendingAction] = useState<'stopping' | 'restarting' | 'deploying' | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {lines: buildLines, deploying, version} = useBuildLog(nodeId);
@@ -34,6 +35,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         if (version === 0) return;
         GetActiveDeployment(nodeId).then(d => {
             setDeployment(d || null);
+            setPendingAction(null);
             GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
             if (d?.status === 'failed') {
                 setError(d.error || 'Deployment failed');
@@ -59,28 +61,34 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     const handleDeploy = async () => {
         setError('');
+        setPendingAction('deploying');
         try {
             await DeployService(nodeId);
             onServicesChanged?.();
         } catch (e: any) {
+            setPendingAction(null);
             setError(typeof e === 'string' ? e : e?.message || 'Deploy failed');
         }
     };
 
     const handleStop = async () => {
+        setPendingAction('stopping');
         try {
             await StopService(nodeId);
             onServicesChanged?.();
         } catch (e: any) {
+            setPendingAction(null);
             setError(typeof e === 'string' ? e : e?.message || 'Stop failed');
         }
     };
 
     const handleRestart = async () => {
+        setPendingAction('restarting');
         try {
             await RestartService(nodeId);
             onServicesChanged?.();
         } catch (e: any) {
+            setPendingAction(null);
             setError(typeof e === 'string' ? e : e?.message || 'Restart failed');
         }
     };
@@ -131,27 +139,32 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
-                        disabled={!canDeploy}
+                        disabled={!canDeploy || !!pendingAction}
                         title={!canDeploy ? 'Set Dockerfile and Port in Settings first' : 'Deploy service'}
                     >
-                        <Play size={13} /> Deploy
+                        {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+                        {pendingAction === 'deploying' ? 'Deploying…' : 'Deploy'}
                     </button>
                 )}
                 {deploying && (
-                    <button className="btn btn-ghost" onClick={handleStop}>
-                        <Square size={13} /> Cancel Build
+                    <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
+                        {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
+                        {pendingAction === 'stopping' ? 'Cancelling…' : 'Cancel Build'}
                     </button>
                 )}
                 {isActive && !deploying && (
                     <>
-                        <button className="btn btn-ghost" onClick={handleStop}>
-                            <Square size={13} /> Stop
+                        <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
+                            {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
+                            {pendingAction === 'stopping' ? 'Stopping…' : 'Stop'}
                         </button>
-                        <button className="btn btn-ghost" onClick={handleRestart}>
-                            <RotateCcw size={13} /> Restart
+                        <button className="btn btn-ghost" onClick={handleRestart} disabled={!!pendingAction}>
+                            {pendingAction === 'restarting' ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />}
+                            {pendingAction === 'restarting' ? 'Restarting…' : 'Restart'}
                         </button>
-                        <button className="btn btn-primary" onClick={handleDeploy}>
-                            <Play size={13} /> Rebuild
+                        <button className="btn btn-primary" onClick={handleDeploy} disabled={!!pendingAction}>
+                            {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+                            {pendingAction === 'deploying' ? 'Rebuilding…' : 'Rebuild'}
                         </button>
                     </>
                 )}

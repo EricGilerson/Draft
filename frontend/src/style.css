@@ -218,3 +218,12 @@ button {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(232, 211, 168, 0.32);
 }
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
