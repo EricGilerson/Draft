@@ -937,6 +937,14 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 		Status:       dep.Status,
 		Error:        dep.Error,
 	})
+
+	// Clean up the stopped container and its image to reclaim disk space.
+	if dep.ContainerID != "" {
+		cli.ContainerRemove(ctx, dep.ContainerID, container.RemoveOptions{})
+	}
+	if dep.ImageTag != "" {
+		cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+	}
 }
 
 func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID string, currentID uint) error {
@@ -949,24 +957,31 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 		if d.ID == currentID {
 			continue
 		}
-		if d.Status == "stopped" || d.Status == "failed" || d.Status == "interrupted" {
-			continue
+
+		if d.Status != "stopped" && d.Status != "failed" && d.Status != "interrupted" {
+			if d.ContainerID != "" {
+				timeout := 10
+				cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
+				cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
+			}
+			if d.Hostname != "" {
+				e.router.Unregister(d.Hostname)
+			}
+			d.Status = "stopped"
+			now := time.Now()
+			d.FinishedAt = &now
+			e.store.UpdateDeployment(&d)
+		} else {
+			// Already terminal — clean up leftover container if still present.
+			if d.ContainerID != "" {
+				cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
+			}
 		}
-		if d.ContainerID != "" {
-			timeout := 10
-			cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
-			cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
-		}
+
+		// Always remove old images from previous deployments.
 		if d.ImageTag != "" {
 			cli.ImageRemove(ctx, d.ImageTag, image.RemoveOptions{})
 		}
-		if d.Hostname != "" {
-			e.router.Unregister(d.Hostname)
-		}
-		d.Status = "stopped"
-		now := time.Now()
-		d.FinishedAt = &now
-		e.store.UpdateDeployment(&d)
 	}
 	return nil
 }
@@ -1199,6 +1214,10 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			dep.ExitCode = &exitCode
 			dep.OOMKilled = inspect.State.OOMKilled
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
+			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
+			if dep.ImageTag != "" {
+				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+			}
 		} else {
 			dep.Status = "stopped"
 			dep.FinishedAt = ptrTime(time.Now())
@@ -1209,6 +1228,10 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 				dep.OOMKilled = inspect.State.OOMKilled
 			}
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
+			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
+			if dep.ImageTag != "" {
+				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+			}
 		}
 		e.store.UpdateDeployment(dep)
 	}
@@ -1229,10 +1252,16 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			dep.FinishedAt = ptrTime(time.Now())
 			e.store.UpdateDeployment(dep)
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "interrupted", Error: dep.Error})
+			if dep.ImageTag != "" {
+				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+			}
 		case "failed":
 			if strings.Contains(dep.Error, "interrupted") {
 				dep.Status = "interrupted"
 				e.store.UpdateDeployment(dep)
+			}
+			if dep.ImageTag != "" {
+				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
 			}
 		}
 	}

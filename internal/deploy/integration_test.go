@@ -608,6 +608,228 @@ CMD ["sh", "-c", "echo stdout-marker; echo stderr-marker >&2; sleep 3600"]
 	})
 }
 
+// TestIntegrationRedeployCleansOldImage verifies that a redeploy removes the
+// previous deployment's Docker image to reclaim disk space.
+func TestIntegrationRedeployCleansOldImage(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	// First deploy
+	e.Deploy(context.Background(), "svc1")
+	running1 := waitForStatus(col, "svc1", "running", 60*time.Second)
+	if running1 == nil {
+		t.Fatal("expected first deploy to reach running")
+	}
+
+	dep1, _ := s.ActiveDeployment("svc1")
+	firstImage := dep1.ImageTag
+	firstDeployID := dep1.ID
+
+	// Second deploy
+	e.Deploy(context.Background(), "svc1")
+
+	deadline := time.Now().Add(60 * time.Second)
+	var secondRunning *StatusEvent
+	for time.Now().Before(deadline) {
+		for _, ev := range col.get() {
+			if ev.Name == "deploy:status:svc1" {
+				se := ev.Data.(StatusEvent)
+				if se.Status == "running" && se.DeploymentID != firstDeployID {
+					secondRunning = &se
+				}
+			}
+		}
+		if secondRunning != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if secondRunning == nil {
+		t.Fatal("expected second deploy to reach running")
+	}
+
+	// Old image should have been removed
+	_, _, err := cli.ImageInspectWithRaw(context.Background(), firstImage)
+	if err == nil {
+		t.Errorf("expected old image %s to be removed after redeploy", firstImage)
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
+// TestIntegrationStopCleansImage verifies that stopping a deployment removes
+// its container and image.
+func TestIntegrationStopCleansImage(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	e.Deploy(context.Background(), "svc1")
+	running := waitForStatus(col, "svc1", "running", 60*time.Second)
+	if running == nil {
+		t.Fatal("expected running")
+	}
+
+	dep, _ := s.ActiveDeployment("svc1")
+	imageTag := dep.ImageTag
+
+	if err := e.Stop(context.Background(), "svc1"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	stopped := waitForStatus(col, "svc1", "stopped", 15*time.Second)
+	if stopped == nil {
+		t.Fatal("expected stopped")
+	}
+
+	_, _, err := cli.ImageInspectWithRaw(context.Background(), imageTag)
+	if err == nil {
+		t.Errorf("expected image %s to be removed after stop", imageTag)
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
+// TestIntegrationCrashCleansImage verifies that when a container exits on its
+// own, the watcher removes the container and image.
+func TestIntegrationCrashCleansImage(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sh\", \"-c\", \"sleep 1; exit 1\"]\n")
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	e.Deploy(context.Background(), "svc1")
+
+	// Wait for the crash to be detected
+	failed := waitForStatus(col, "svc1", "failed", 60*time.Second)
+	if failed == nil {
+		t.Fatal("expected failed status after crash")
+	}
+
+	dep, _ := s.GetDeployment(failed.DeploymentID)
+	if dep == nil {
+		t.Fatal("deployment not found in store")
+	}
+
+	// Give the watcher goroutine a moment to finish cleanup
+	time.Sleep(2 * time.Second)
+
+	_, _, err := cli.ImageInspectWithRaw(context.Background(), dep.ImageTag)
+	if err == nil {
+		t.Errorf("expected image %s to be removed after container crash", dep.ImageTag)
+	}
+
+	if dep.ContainerID != "" {
+		_, inspectErr := cli.ContainerInspect(context.Background(), dep.ContainerID)
+		if inspectErr == nil {
+			t.Errorf("expected container %s to be removed after crash", dep.ContainerID)
+		}
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
+// TestIntegrationRedeployCleansStaleImages verifies that when a redeploy happens
+// and there are old stopped/failed deployments with images still on disk,
+// those images are cleaned up too.
+func TestIntegrationRedeployCleansStaleImages(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	// First deploy
+	e.Deploy(context.Background(), "svc1")
+	running1 := waitForStatus(col, "svc1", "running", 60*time.Second)
+	if running1 == nil {
+		t.Fatal("first deploy did not reach running")
+	}
+	dep1, _ := s.ActiveDeployment("svc1")
+	firstImage := dep1.ImageTag
+
+	// Stop the first deploy (leaves image on disk in the old code)
+	if err := e.Stop(context.Background(), "svc1"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	waitForStatus(col, "svc1", "stopped", 15*time.Second)
+
+	// Manually re-pull/re-tag the image so it exists again for the test,
+	// simulating the "old code" behavior where Stop didn't remove images.
+	// (Our new Stop does remove, so we rebuild the same tag to test
+	// that stopPrevious also cleans stale ones.)
+	_, err := cli.ImagePull(context.Background(), "alpine:3.20", image.PullOptions{})
+	if err == nil {
+		// Tag it as the first deployment's image
+		cli.ImageTag(context.Background(), "alpine:3.20", firstImage)
+	}
+
+	// Second deploy — stopPrevious should clean the stale first image
+	e.Deploy(context.Background(), "svc1")
+
+	deadline := time.Now().Add(60 * time.Second)
+	var secondRunning *StatusEvent
+	firstDeployID := dep1.ID
+	for time.Now().Before(deadline) {
+		for _, ev := range col.get() {
+			if ev.Name == "deploy:status:svc1" {
+				se := ev.Data.(StatusEvent)
+				if se.Status == "running" && se.DeploymentID != firstDeployID {
+					secondRunning = &se
+				}
+			}
+		}
+		if secondRunning != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if secondRunning == nil {
+		t.Fatal("second deploy did not reach running")
+	}
+
+	_, _, err = cli.ImageInspectWithRaw(context.Background(), firstImage)
+	if err == nil {
+		t.Errorf("expected stale image %s to be removed by stopPrevious", firstImage)
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
 // TestIntegrationImageTag verifies the image tag naming convention.
 func TestIntegrationImageTag(t *testing.T) {
 	cli := requireDocker(t)
