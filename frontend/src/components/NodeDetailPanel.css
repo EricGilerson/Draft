@@ -30,8 +30,9 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
-    background: var(--accent-soft);
+    border-radius: var(--radius);
+    background: transparent;
+    border: 1px solid var(--border);
     color: var(--accent-text);
     flex-shrink: 0;
 }
@@ -39,7 +40,7 @@
 .node-detail-title {
     margin: 0;
     font-size: 0.9rem;
-    font-weight: 900;
+    font-weight: 700;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
@@ -57,7 +58,7 @@
 
 .node-detail-title-input {
     font-size: 0.9rem;
-    font-weight: 900;
+    font-weight: 700;
     font-family: inherit;
     color: var(--text);
     background: rgba(8, 9, 7, 0.72);
@@ -81,7 +82,7 @@
     display: inline-flex;
     align-items: center;
     padding: 6px 10px;
-    border: none;
+    border: 1px solid transparent;
     border-radius: var(--radius);
     background: transparent;
     color: var(--text-muted);
@@ -98,12 +99,13 @@
 }
 
 .node-detail-tab--active {
-    background: var(--accent-soft);
+    background: rgba(140, 150, 144, 0.08);
+    border-color: var(--accent-border);
     color: var(--accent-text);
 }
 
 .node-detail-tab--active:hover {
-    background: var(--accent-soft);
+    background: rgba(140, 150, 144, 0.08);
     color: var(--accent-text);
 }
 
@@ -219,37 +221,38 @@
     display: inline-flex;
     align-items: center;
     padding: 3px 8px;
-    border-radius: 10px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
     font-size: 0.65rem;
-    font-weight: 800;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
 
 .status-badge--running {
-    background: rgba(104, 189, 120, 0.12);
+    background: transparent;
     color: var(--green);
 }
 
 .status-badge--building,
 .status-badge--starting {
-    background: rgba(216, 183, 92, 0.12);
+    background: transparent;
     color: var(--yellow);
 }
 
 .status-badge--stopped,
 .status-badge--pending {
-    background: var(--surface-2);
+    background: transparent;
     color: var(--text-muted);
 }
 
 .status-badge--failed {
-    background: rgba(239, 111, 104, 0.12);
+    background: transparent;
     color: var(--red);
 }
 
 .status-badge--built {
-    background: rgba(140, 150, 144, 0.13);
+    background: transparent;
     color: var(--draft-teal);
 }
 
@@ -271,7 +274,7 @@
 .deploy-history-title {
     margin: 0;
     font-size: 0.74rem;
-    font-weight: 900;
+    font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -427,7 +430,7 @@
 .settings-section-title {
     margin: 0 0 14px;
     font-size: 0.78rem;
-    font-weight: 900;
+    font-weight: 700;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -500,7 +503,7 @@
 
 .settings-expose-port--active {
     border-color: var(--accent-border);
-    background: var(--accent-soft);
+    background: rgba(140, 150, 144, 0.08);
     color: var(--accent-text);
 }
 

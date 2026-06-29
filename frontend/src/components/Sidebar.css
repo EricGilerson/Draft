@@ -15,14 +15,14 @@
     display: flex;
     align-items: center;
     gap: 11px;
-    padding: 15px 14px 15px;
+    padding: 14px 14px;
     border-bottom: 1px solid var(--border);
 }
 
 .brand-mark {
     display: block;
     flex-shrink: 0;
-    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.28));
+    filter: none;
 }
 
 .brand-mark-tile {
@@ -62,22 +62,22 @@
 
 .brand-name {
     font-size: 0.94rem;
-    font-weight: 900;
+    font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--text);
 }
 
 .brand-badge {
     margin-left: auto;
-    padding: 3px 6px;
-    border-radius: 4px;
-    background: var(--accent-soft);
-    border: 1px solid var(--accent-border);
-    color: var(--accent-text);
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    color: var(--text-faint);
     font-size: 0.56rem;
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    font-weight: 700;
+    font-weight: 600;
     font-family: var(--mono);
     opacity: 0.8;
 }
@@ -95,7 +95,7 @@
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: rgba(169, 156, 125, 0.54);
-    font-weight: 900;
+    font-weight: 700;
     padding: 0 10px 8px;
     font-family: var(--mono);
 }
@@ -111,7 +111,7 @@
     cursor: pointer;
     color: var(--text-faint);
     font-size: 0.8125rem;
-    font-weight: 800;
+    font-weight: 700;
     padding: 8px 10px;
     border-radius: 6px;
     position: relative;
@@ -120,11 +120,11 @@
 
 .nav-item:hover {
     color: var(--text-muted);
-    background: rgba(244, 226, 188, 0.025);
+    background: rgba(224, 218, 204, 0.025);
 }
 
 .nav-item.active {
-    background: var(--accent-soft);
+    background: rgba(140, 150, 144, 0.095);
     border-color: var(--accent-border);
     color: var(--accent-text);
 }

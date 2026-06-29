@@ -18,7 +18,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 4px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
     overflow: hidden;
 }
 
@@ -35,7 +35,7 @@
 .dialog-title {
     margin: 0;
     font-size: 1rem;
-    font-weight: 900;
+    font-weight: 700;
     color: var(--text);
 }
 

@@ -2,21 +2,23 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 16px;
+    padding: 10px 14px;
     min-width: 160px;
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--border-strong);
+    border-left: 2px solid var(--accent);
     background:
-        linear-gradient(180deg, rgba(244, 226, 188, 0.04), transparent 60%),
+        linear-gradient(180deg, rgba(224, 218, 204, 0.025), transparent 60%),
         var(--surface);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    box-shadow: var(--inset-line), 0 7px 16px rgba(0, 0, 0, 0.22);
     cursor: grab;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
 .service-node:hover {
     border-color: var(--accent-border);
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.36), 0 0 0 1px var(--accent-soft);
+    border-left-color: var(--accent-hover);
+    box-shadow: var(--inset-line), 0 9px 18px rgba(0, 0, 0, 0.28);
 }
 
 .service-node-icon {
@@ -25,8 +27,9 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    border-radius: 6px;
-    background: var(--accent-soft);
+    border-radius: var(--radius);
+    background: transparent;
+    border: 1px solid var(--border);
     color: var(--accent-text);
     flex-shrink: 0;
 }
@@ -40,7 +43,7 @@
 
 .service-node-name {
     font-size: 0.78rem;
-    font-weight: 800;
+    font-weight: 700;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;

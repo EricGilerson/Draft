@@ -6,14 +6,14 @@
     padding: 0 9px;
     border: 1px solid rgba(232, 211, 168, 0.11);
     border-left-color: color-mix(in srgb, var(--service-color) 45%, rgba(232, 211, 168, 0.11));
-    border-radius: 7px;
-    background: rgba(244, 226, 188, 0.025);
+    border-radius: 4px;
+    background: transparent;
 }
 
 .service-pill-name {
     color: var(--text);
     font-size: 0.76rem;
-    font-weight: 900;
+    font-weight: 700;
     line-height: 1;
     white-space: nowrap;
 }
@@ -24,7 +24,7 @@
     color: var(--text-faint);
     font-family: var(--mono);
     font-size: 0.7rem;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: 0.02em;
     line-height: 1;
 }
