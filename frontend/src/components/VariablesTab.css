@@ -109,6 +109,26 @@
     flex: 0 0 24px;
 }
 
+.var-scope-toggle {
+    width: 36px;
+    height: 27px;
+    flex: 0 0 36px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.var-scope-toggle--active {
+    color: var(--accent-text);
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+}
+
 .variables-empty {
     font-size: 0.72rem;
     color: var(--text-faint);

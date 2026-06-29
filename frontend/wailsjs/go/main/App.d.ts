@@ -53,6 +53,8 @@ export function SelectServiceRoot(arg1:number):Promise<string>;
 
 export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;

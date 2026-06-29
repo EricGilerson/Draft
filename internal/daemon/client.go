@@ -200,6 +200,10 @@ func (c *Client) SetEnvVar(ctx context.Context, nodeID, key, value string) error
 	return nil
 }
 
+func (c *Client) SetEnvVarScope(ctx context.Context, nodeID, key, scope string) error {
+	return c.postJSON(ctx, "/env/scope", map[string]string{"nodeId": nodeID, "key": key, "scope": scope}, nil)
+}
+
 func (c *Client) ImportEnvFile(ctx context.Context, nodeID, path string) (store.EnvFileSyncResult, error) {
 	var out store.EnvFileSyncResult
 	err := c.postJSON(ctx, "/env/import", map[string]string{"nodeId": nodeID, "path": path}, &out)

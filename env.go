@@ -2,7 +2,7 @@ package main
 
 import "Draft/internal/store"
 
-// GetEnvVars reads the .env file for a node's service root.
+// GetEnvVars returns Draft-managed environment variables for a node.
 func (a *App) GetEnvVars(nodeID string) ([]store.EnvVar, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -14,7 +14,7 @@ func (a *App) GetEnvVars(nodeID string) ([]store.EnvVar, error) {
 	return c.GetEnvVars(a.ctx, nodeID)
 }
 
-// SetEnvVar writes or updates a key in the .env file.
+// SetEnvVar writes or updates a Draft-managed environment variable.
 func (a *App) SetEnvVar(nodeID, key, value string) error {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -24,6 +24,17 @@ func (a *App) SetEnvVar(nodeID, key, value string) error {
 		return errNoStore
 	}
 	return c.SetEnvVar(a.ctx, nodeID, key, value)
+}
+
+func (a *App) SetEnvVarScope(nodeID, key, scope string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.SetEnvVarScope(a.ctx, nodeID, key, scope)
 }
 
 func (a *App) ImportEnvFile(nodeID, path string) (store.EnvFileSyncResult, error) {

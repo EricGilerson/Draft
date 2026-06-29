@@ -143,6 +143,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/docker", s.handleDocker)
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
+	mux.HandleFunc("/env/scope", s.handleSetEnvScope)
 	mux.HandleFunc("/env/suggest", s.handleSuggestEnv)
 	mux.HandleFunc("/env/import", s.handleImportEnv)
 	mux.HandleFunc("/env/refresh", s.handleRefreshEnv)
@@ -437,6 +438,23 @@ func (s *Server) handleSetEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.setEnvVar(req.NodeID, req.Key, req.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleSetEnvScope(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Key    string `json:"key"`
+		Scope  string `json:"scope"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetEnvVarScope(req.NodeID, req.Key, req.Scope); err != nil {
 		writeError(w, err)
 		return
 	}

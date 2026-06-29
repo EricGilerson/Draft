@@ -98,6 +98,10 @@ export function SetEnvVar(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVar'](arg1, arg2, arg3);
 }
 
+export function SetEnvVarScope(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetEnvVarScope'](arg1, arg2, arg3);
+}
+
 export function SetNodeSetting(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
 }

@@ -157,12 +157,30 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	serviceName := sanitize(node.Label)
 	projectName := sanitize(project.Name)
+	environment := "default"
+	uid := networking.GenerateUID()
+	hostname := networking.Hostname(serviceName, projectName, environment, uid)
+	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
+		NodeID:      nodeID,
+		ServiceName: serviceName,
+		ProjectName: projectName,
+		Environment: environment,
+		Port:        portStr,
+		Hostname:    hostname,
+	})
+	if err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve environment: " + err.Error()})
+		return
+	}
+
 	imageTag := fmt.Sprintf("draft-%s-%s:%d", projectName, serviceName, dep.ID)
 	dep.ImageTag = imageTag
 	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
 
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Image tag: %s", imageTag))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Runtime variables: %d", len(deployEnv.RuntimeEnv)))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Build args: %d", len(deployEnv.BuildArgs)))
 
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "building"})
 
@@ -229,6 +247,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		Tags:       []string{imageTag},
 		Dockerfile: relDockerfile,
 		Remove:     true,
+		BuildArgs:  deployEnv.BuildArgs,
 	})
 	if err != nil {
 		e.failDeployment(dep, nodeID, "docker build failed: "+err.Error())
@@ -276,6 +295,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.ID)
 	createResp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: imageTag,
+		Env:   deployEnv.RuntimeEnv,
 		Labels: map[string]string{
 			"draft.project":    fmt.Sprintf("%d", node.ProjectID),
 			"draft.node":       nodeID,
@@ -317,16 +337,16 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Listening on 127.0.0.1:%d (container port %s)", hostPort, portStr))
 
 	e.emitBuildLog(nodeID, "==> Registering route...")
-	uid := networking.GenerateUID()
 	regResult, err := e.router.Register(networking.RegisterRequest{
-		Service:    serviceName,
-		Project:    projectName,
-		ProjectID:  node.ProjectID,
-		NodeID:     nodeID,
-		UID:        uid,
-		Protocol:   "http",
-		TargetHost: "127.0.0.1",
-		TargetPort: hostPort,
+		Service:     serviceName,
+		Project:     projectName,
+		ProjectID:   node.ProjectID,
+		NodeID:      nodeID,
+		UID:         uid,
+		Environment: environment,
+		Protocol:    "http",
+		TargetHost:  "127.0.0.1",
+		TargetPort:  hostPort,
 	})
 	if err != nil {
 		log.Printf("[deploy] route registration failed (non-fatal): %v", err)

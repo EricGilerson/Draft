@@ -2,7 +2,7 @@ import {useEffect, useState} from 'react';
 import {Download, Eye, EyeOff, FileSearch, Plus, RefreshCw, Upload} from 'lucide-react';
 import {
     GetEnvVars, SetEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
-    GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
+    GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
@@ -134,6 +134,19 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
+    const toggleBuildArg = async (variable: store.EnvVar) => {
+        const isBuildArg = variable.scope === 'build' || variable.scope === 'both';
+        const nextScope = isBuildArg ? 'runtime' : 'both';
+        try {
+            await SetEnvVarScope(nodeId, variable.key, nextScope);
+            setVars(prev => prev.map(v =>
+                v.key === variable.key ? store.EnvVar.createFrom({...v, scope: nextScope}) : v,
+            ));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const persistEnvPath = async () => {
         await SetNodeSetting(nodeId, 'env_file', envFile.trim());
     };
@@ -233,7 +246,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         <div className="var-key-cell">
                             <div className="var-key" title={v.key}>{v.key}</div>
                             <div className={`var-source var-source--${v.source || 'manual'}`}>
-                                {v.source || 'manual'} · {v.scope || 'runtime'}
+                                {v.source || 'manual'}
                             </div>
                         </div>
                         <div className="var-value">
@@ -263,6 +276,13 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             )}
                             <button className="var-toggle" onClick={() => toggle(v.key)}>
                                 {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
+                            </button>
+                            <button
+                                className={`var-scope-toggle ${v.scope === 'build' || v.scope === 'both' ? 'var-scope-toggle--active' : ''}`}
+                                onClick={() => toggleBuildArg(v)}
+                                title={v.scope === 'build' || v.scope === 'both' ? 'Included in Docker build args' : 'Runtime only'}
+                            >
+                                ARG
                             </button>
                         </div>
                     </div>

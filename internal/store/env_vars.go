@@ -40,6 +40,30 @@ func (s *Store) SetEnvVar(nodeID, key, value string) error {
 	})
 }
 
+func (s *Store) SetEnvVarScope(nodeID, key, scope string) error {
+	nodeID = strings.TrimSpace(nodeID)
+	key = strings.TrimSpace(key)
+	scope = strings.TrimSpace(scope)
+	if nodeID == "" {
+		return ErrInvalidNode
+	}
+	if err := validateEnvKey(key); err != nil {
+		return err
+	}
+	switch scope {
+	case EnvScopeRuntime, EnvScopeBuild, EnvScopeBoth:
+	default:
+		return fmt.Errorf("invalid env scope %q", scope)
+	}
+
+	var existing EnvVar
+	if err := s.DB.Where("node_id = ? AND key = ?", nodeID, key).First(&existing).Error; err != nil {
+		return err
+	}
+	existing.Scope = scope
+	return s.DB.Save(&existing).Error
+}
+
 func (s *Store) UpsertEnvVar(v EnvVar) error {
 	normalized, err := normalizeEnvVar(v)
 	if err != nil {
