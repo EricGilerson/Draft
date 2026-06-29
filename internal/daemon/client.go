@@ -132,8 +132,48 @@ func (c *Client) GetBuildLog(ctx context.Context, deploymentID uint) (string, er
 
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
-	err := c.get(ctx, "/docker", &out)
-	return out, err
+	return out, c.get(ctx, "/docker", &out)
+}
+
+func (c *Client) GetEnvVars(ctx context.Context, nodeID string) ([]store.EnvVar, error) {
+	var out []store.EnvVar
+	body, _ := json.Marshal(map[string]string{"nodeId": nodeID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/env"), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(tokenHeader, c.state.Token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
+	return out, json.NewDecoder(resp.Body).Decode(&out)
+}
+
+func (c *Client) SetEnvVar(ctx context.Context, nodeID, key, value string) error {
+	body, _ := json.Marshal(map[string]string{"nodeId": nodeID, "key": key, "value": value})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/env/set"), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(tokenHeader, c.state.Token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
+	return nil
 }
 
 func (c *Client) SubscribeEvents(ctx context.Context, fn func(string, any)) error {

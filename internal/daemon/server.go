@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -12,7 +14,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"Draft/internal/deploy"
@@ -139,6 +143,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/active-deployment", s.handleActiveDeployment)
 	mux.HandleFunc("/build-log", s.handleBuildLog)
 	mux.HandleFunc("/docker", s.handleDocker)
+	mux.HandleFunc("/env", s.handleGetEnv)
+	mux.HandleFunc("/env/set", s.handleSetEnv)
 	return s.auth(mux)
 }
 
@@ -385,4 +391,135 @@ func writeError(w http.ResponseWriter, err error) {
 
 type nodeRequest struct {
 	NodeID string `json:"nodeId"`
+}
+
+func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	vars, err := s.getEnvVars(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, vars)
+}
+
+func (s *Server) handleSetEnv(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Key    string `json:"key"`
+		Value  string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.setEnvVar(req.NodeID, req.Key, req.Value); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {
+	node, err := s.store.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := s.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.store.GetProject(node.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	root := project.Path
+	if rel := settings["service_root"]; rel != "" {
+		root = filepath.Join(project.Path, rel)
+	}
+	envPath := filepath.Join(root, ".env")
+	f, err := os.Open(envPath)
+	if os.IsNotExist(err) {
+		return []store.EnvVar{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var vars []store.EnvVar
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if idx := strings.Index(line, "="); idx != -1 {
+			key := strings.TrimSpace(line[:idx])
+			val := strings.TrimSpace(line[idx+1:])
+			if key != "" {
+				vars = append(vars, store.EnvVar{Key: key, Value: val})
+			}
+		}
+	}
+	return vars, scanner.Err()
+}
+
+func (s *Server) setEnvVar(nodeID, key, value string) error {
+	node, err := s.store.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+	settings, err := s.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return err
+	}
+	project, err := s.store.GetProject(node.ProjectID)
+	if err != nil {
+		return err
+	}
+	root := project.Path
+	if rel := settings["service_root"]; rel != "" {
+		root = filepath.Join(project.Path, rel)
+	}
+	envPath := filepath.Join(root, ".env")
+
+	// read existing
+	existing := map[string]string{}
+	if f, err := os.Open(envPath); err == nil {
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if idx := strings.Index(line, "="); idx != -1 {
+				k := strings.TrimSpace(line[:idx])
+				v := strings.TrimSpace(line[idx+1:])
+				if k != "" {
+					existing[k] = v
+				}
+			}
+		}
+		f.Close()
+	}
+
+	existing[key] = value
+
+	// write back sorted
+	keys := make([]string, 0, len(existing))
+	for k := range existing {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var b bytes.Buffer
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s=%s\n", k, existing[k])
+	}
+	return os.WriteFile(envPath, b.Bytes(), 0o644)
 }

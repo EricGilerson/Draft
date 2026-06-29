@@ -34,6 +34,10 @@ export function GetDeployments(arg1) {
   return window['go']['main']['App']['GetDeployments'](arg1);
 }
 
+export function GetEnvVars(arg1) {
+  return window['go']['main']['App']['GetEnvVars'](arg1);
+}
+
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
@@ -76,6 +80,10 @@ export function SelectFolder() {
 
 export function SelectServiceRoot(arg1) {
   return window['go']['main']['App']['SelectServiceRoot'](arg1);
+}
+
+export function SetEnvVar(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetEnvVar'](arg1, arg2, arg3);
 }
 
 export function SetNodeSetting(arg1, arg2, arg3) {

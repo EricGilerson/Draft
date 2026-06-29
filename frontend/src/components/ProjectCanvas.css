@@ -10,36 +10,11 @@
     min-width: 0;
     height: 100%;
     border-top: 1px solid var(--border);
-    background:
-        linear-gradient(rgba(232, 211, 168, 0.045) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(232, 211, 168, 0.045) 1px, transparent 1px),
-        linear-gradient(rgba(232, 211, 168, 0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(232, 211, 168, 0.025) 1px, transparent 1px),
-        radial-gradient(circle at 72% 0, rgba(240, 138, 36, 0.12), transparent 30%),
-        linear-gradient(180deg, #13140f, #10110d 62%, #0d0e0b);
-    background-size: 96px 96px, 96px 96px, 24px 24px, 24px 24px, 100% 100%, 100% 100%;
+    background: #0f1115;
     overflow: hidden;
 }
 
-.project-canvas::before,
-.project-canvas::after {
-    content: '';
-    position: absolute;
-    pointer-events: none;
-    z-index: 1;
-}
 
-.project-canvas::before {
-    inset: 88px 0 auto;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(240, 138, 36, 0.3), transparent);
-}
-
-.project-canvas::after {
-    inset: 0 auto 0 34%;
-    width: 1px;
-    background: linear-gradient(180deg, transparent, rgba(232, 211, 168, 0.14), transparent);
-}
 
 .project-canvas .react-flow {
     width: 100%;
@@ -62,10 +37,8 @@
     max-width: min(440px, calc(100% - 48px));
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(17, 18, 15, 0.76);
-    box-shadow: var(--inset-line), 0 18px 42px rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(10px);
+    border-radius: 4px;
+    background: #16181f;
 }
 
 .canvas-workspace-label strong {
@@ -112,10 +85,9 @@
     top: calc(100% + 8px);
     right: 0;
     width: 260px;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
-    background: var(--bg-elevated);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.52);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: #16181f;
     overflow: hidden;
 }
 
@@ -141,10 +113,9 @@
 .canvas-controls {
     margin: 16px;
     border: 1px solid var(--border);
-    border-radius: 9px;
+    border-radius: 4px;
     overflow: hidden;
-    background: rgba(17, 18, 15, 0.9);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+    background: #16181f;
 }
 
 .canvas-controls .react-flow__controls-button {

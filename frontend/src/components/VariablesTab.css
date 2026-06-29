@@ -1,0 +1,90 @@
+.variables-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.variables-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.var-row {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.76rem;
+}
+
+.var-key {
+    font-family: var(--mono);
+    font-weight: 700;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.var-value {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.var-value input {
+    flex: 1;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: var(--text);
+}
+
+.var-value input:focus {
+    outline: none;
+    border-color: var(--accent-border);
+}
+
+.var-toggle {
+    background: transparent;
+    border: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+}
+
+.variables-empty {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}
+
+.var-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.var-add input {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: var(--text);
+}
+
+.var-add input:first-child {
+    width: 140px;
+}
+
+.variables-loading {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}

@@ -77,3 +77,9 @@ type Deployment struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	FinishedAt  *time.Time `json:"finishedAt"`
 }
+
+// EnvVar represents a single environment variable key/value pair.
+type EnvVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}

@@ -24,9 +24,7 @@
 .settings-section-body {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background:
-        linear-gradient(180deg, rgba(244, 226, 188, 0.04), transparent 38%),
-        var(--surface);
+    background: var(--surface);
     box-shadow: var(--inset-line), 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
@@ -73,9 +71,7 @@
 }
 
 .panel-emphasis {
-    background:
-        linear-gradient(180deg, rgba(240, 138, 36, 0.08), transparent 34%),
-        var(--surface);
+    background: var(--surface);
 }
 
 .panel-header {
@@ -237,19 +233,12 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background:
-        linear-gradient(rgba(232, 211, 168, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(232, 211, 168, 0.04) 1px, transparent 1px),
-        linear-gradient(180deg, #13140f, #10110d);
+    background: #0f1115;
     background-size: 24px 24px, 24px 24px, 100% 100%;
 }
 
 .canvas-preview-glow {
-    position: absolute;
-    inset: 0 0 auto;
-    height: 120px;
-    pointer-events: none;
-    background: radial-gradient(ellipse 52% 100% at 50% 0, rgba(240, 138, 36, 0.1), transparent 78%);
+    display: none;
 }
 
 .canvas-preview-edges {

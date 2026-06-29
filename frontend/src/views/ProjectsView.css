@@ -15,7 +15,7 @@
     justify-content: center;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: rgba(16, 17, 14, 0.72);
+    background: #16181f;
 }
 
 .projects-loading {
@@ -51,7 +51,7 @@
 .project-card {
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: rgba(19, 20, 17, 0.86);
+    background: #16181f;
     overflow: hidden;
 }
 
@@ -188,8 +188,8 @@
 
 .project-card-body {
     padding: 12px 14px 14px 36px;
-    border-top: 1px solid rgba(232, 211, 168, 0.08);
-    background: rgba(8, 9, 7, 0.18);
+    border-top: 1px solid var(--border);
+    background: #0f1115;
 }
 
 .project-card-actions {

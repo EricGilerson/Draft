@@ -207,6 +207,20 @@ export namespace store {
 		    return a;
 		}
 	}
+	export class EnvVar {
+	    key: string;
+	    value: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvVar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	    }
+	}
 	export class Project {
 	    id: number;
 	    name: string;

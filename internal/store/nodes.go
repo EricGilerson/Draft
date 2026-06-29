@@ -38,3 +38,11 @@ func (s *Store) ListNodes(projectID uint) ([]CanvasNode, error) {
 	}
 	return nodes, nil
 }
+
+func (s *Store) GetNode(id string) (*CanvasNode, error) {
+	var n CanvasNode
+	if err := s.DB.First(&n, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &n, nil
+}

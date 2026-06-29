@@ -21,6 +21,8 @@ export function GetBuildLog(arg1:number):Promise<string>;
 
 export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
+export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
+
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
@@ -42,6 +44,8 @@ export function SelectFile(arg1:string,arg2:string):Promise<string>;
 export function SelectFolder():Promise<string>;
 
 export function SelectServiceRoot(arg1:number):Promise<string>;
+
+export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 
