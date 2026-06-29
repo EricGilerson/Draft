@@ -14,7 +14,7 @@ import (
 
 const (
 	Suffix       = "draft.local"
-	PublicSuffix = "127-0-0-1.sslip.io"
+	PublicSuffix = "draft.resolv.sh"
 )
 
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
@@ -78,6 +78,9 @@ func InternalURL(hostname, port string) string {
 func PublicURL(hostname string, proxyPort int) string {
 	if hostname == "" || proxyPort <= 0 {
 		return ""
+	}
+	if proxyPort == 80 {
+		return fmt.Sprintf("http://%s", PublicHostname(hostname))
 	}
 	return fmt.Sprintf("http://%s:%d", PublicHostname(hostname), proxyPort)
 }

@@ -40,7 +40,7 @@ func TestHostnameSpecialChars(t *testing.T) {
 
 func TestPublicHostname(t *testing.T) {
 	h := PublicHostname("api.myapp.default.a3f2.draft.local")
-	want := "api.myapp.default.a3f2.127-0-0-1.sslip.io"
+	want := "api.myapp.default.a3f2.draft.resolv.sh"
 	if h != want {
 		t.Errorf("PublicHostname = %q, want %q", h, want)
 	}
@@ -51,7 +51,14 @@ func TestInternalAndPublicURL(t *testing.T) {
 	if got := InternalURL(hostname, "3000"); got != "http://api.myapp.default.a3f2.draft.local:3000" {
 		t.Errorf("InternalURL = %q", got)
 	}
-	if got := PublicURL(hostname, 53888); got != "http://api.myapp.default.a3f2.127-0-0-1.sslip.io:53888" {
+	if got := PublicURL(hostname, 53888); got != "http://api.myapp.default.a3f2.draft.resolv.sh:53888" {
+		t.Errorf("PublicURL = %q", got)
+	}
+}
+
+func TestPublicURLOmitsDefaultHTTPPort(t *testing.T) {
+	hostname := "api.myapp.default.a3f2.draft.local"
+	if got := PublicURL(hostname, 80); got != "http://api.myapp.default.a3f2.draft.resolv.sh" {
 		t.Errorf("PublicURL = %q", got)
 	}
 }
@@ -64,7 +71,7 @@ func TestHostAliases(t *testing.T) {
 	if aliases[0] != "api.myapp.default.a3f2.draft.local" {
 		t.Errorf("primary alias = %q", aliases[0])
 	}
-	if aliases[1] != "api.myapp.default.a3f2.127-0-0-1.sslip.io" {
+	if aliases[1] != "api.myapp.default.a3f2.draft.resolv.sh" {
 		t.Errorf("public alias = %q", aliases[1])
 	}
 }

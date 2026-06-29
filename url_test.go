@@ -21,7 +21,7 @@ func TestBestDeploymentURL(t *testing.T) {
 		{
 			name: "public hostname with proxy port",
 			mode: networking.LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
-			want: "http://api.app.default.abcd.127-0-0-1.sslip.io:53888",
+			want: "http://api.app.default.abcd.draft.resolv.sh:53888",
 		},
 		{
 			name: "localhost port fallback without proxy",

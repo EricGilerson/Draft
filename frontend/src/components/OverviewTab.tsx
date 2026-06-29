@@ -223,7 +223,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     )}
                     {localDomain?.hostsError && (
                         <div className="overview-domain-note">
-                            Internal Draft names are not host-resolved. Public access uses a no-setup loopback hostname with the proxy port.
+                            Internal Draft names are not host-resolved. Public access uses the configured Draft public hostname with the proxy port.
                         </div>
                     )}
                 </div>
@@ -243,6 +243,9 @@ function bestPublicDeploymentURL(
             localDomain.publicSuffix || localDomain.loopbackSuffix,
         );
         if (publicHostname) {
+            if (localDomain.proxyPort === 80) {
+                return `http://${publicHostname}`;
+            }
             return `http://${publicHostname}:${localDomain.proxyPort}`;
         }
     }

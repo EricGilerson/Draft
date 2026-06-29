@@ -25,8 +25,8 @@ func TestResolveDeploymentEnvRuntimeBuildArgsAndGenerated(t *testing.T) {
 		ServicePort:      "3000",
 		InternalHostname: "web.draft.default.abcd.draft.local",
 		InternalURL:      "http://web.draft.default.abcd.draft.local:3000",
-		PublicHostname:   "web.draft.default.abcd.127-0-0-1.sslip.io",
-		PublicURL:        "http://web.draft.default.abcd.127-0-0-1.sslip.io:53888",
+		PublicHostname:   "web.draft.default.abcd.draft.resolv.sh",
+		PublicURL:        "http://web.draft.default.abcd.draft.resolv.sh:53888",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +47,8 @@ func TestResolveDeploymentEnvRuntimeBuildArgsAndGenerated(t *testing.T) {
 	if runtime["DRAFT_SERVICE_PORT"] != "3000" ||
 		runtime["DRAFT_INTERNAL_HOSTNAME"] != "web.draft.default.abcd.draft.local" ||
 		runtime["DRAFT_INTERNAL_URL"] != "http://web.draft.default.abcd.draft.local:3000" ||
-		runtime["DRAFT_PUBLIC_HOSTNAME"] != "web.draft.default.abcd.127-0-0-1.sslip.io" ||
-		runtime["DRAFT_PUBLIC_URL"] != "http://web.draft.default.abcd.127-0-0-1.sslip.io:53888" {
+		runtime["DRAFT_PUBLIC_HOSTNAME"] != "web.draft.default.abcd.draft.resolv.sh" ||
+		runtime["DRAFT_PUBLIC_URL"] != "http://web.draft.default.abcd.draft.resolv.sh:53888" {
 		t.Fatalf("generated env = %+v", runtime)
 	}
 	if _, ok := resolved.BuildArgs["RUNTIME_ONLY"]; ok {

@@ -12,7 +12,7 @@ const DRAFT_RUNTIME_VARS = [
     {key: 'DRAFT_SERVICE_PORT', description: 'The port this service listens on inside the container'},
     {key: 'DRAFT_INTERNAL_HOSTNAME', description: 'The canonical Draft hostname for service-to-service traffic'},
     {key: 'DRAFT_INTERNAL_URL', description: 'The internal service URL using the service port'},
-    {key: 'DRAFT_PUBLIC_HOSTNAME', description: 'The host/browser-facing loopback hostname'},
+    {key: 'DRAFT_PUBLIC_HOSTNAME', description: 'The host/browser-facing Draft hostname'},
     {key: 'DRAFT_PUBLIC_URL', description: 'The host/browser-facing URL using the Draft proxy port'},
     {key: 'DRAFT_SERVICE_NAME', description: 'The sanitized service/node label'},
     {key: 'DRAFT_PROJECT_NAME', description: 'The sanitized project name'},
