@@ -96,6 +96,33 @@ export namespace main {
 
 }
 
+export namespace networking {
+	
+	export class LocalDomainStatus {
+	    proxyAddr: string;
+	    proxyPort: number;
+	    proxyOnDefault: boolean;
+	    hostsConfigured: boolean;
+	    hostsError: string;
+	    mode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalDomainStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.proxyAddr = source["proxyAddr"];
+	        this.proxyPort = source["proxyPort"];
+	        this.proxyOnDefault = source["proxyOnDefault"];
+	        this.hostsConfigured = source["hostsConfigured"];
+	        this.hostsError = source["hostsError"];
+	        this.mode = source["mode"];
+	    }
+	}
+
+}
+
 export namespace store {
 	
 	export class CanvasNode {

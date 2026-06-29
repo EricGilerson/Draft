@@ -42,6 +42,10 @@ export function GetEnvVars(arg1) {
   return window['go']['main']['App']['GetEnvVars'](arg1);
 }
 
+export function GetLocalDomainStatus() {
+  return window['go']['main']['App']['GetLocalDomainStatus']();
+}
+
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }

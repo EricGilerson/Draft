@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"Draft/internal/dockerwatch"
+	"Draft/internal/networking"
 	"Draft/internal/store"
 )
 
@@ -133,6 +134,11 @@ func (c *Client) GetBuildLog(ctx context.Context, deploymentID uint) (string, er
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)
+}
+
+func (c *Client) LocalDomainStatus(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	return out, c.get(ctx, "/local-domain", &out)
 }
 
 func (c *Client) SuggestEnvFile(ctx context.Context, nodeID string, projectID uint) (string, error) {

@@ -4,9 +4,9 @@ import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
     GetNodeSettings,
     DeployService, StopService, RestartService,
-    GetActiveDeployment,
+    GetActiveDeployment, GetLocalDomainStatus,
 } from '../../wailsjs/go/main/App';
-import {store} from '../../wailsjs/go/models';
+import {networking, store} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
@@ -19,6 +19,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
+    const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {lines: buildLines, deploying, version} = useBuildLog(nodeId);
@@ -26,12 +27,14 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
         GetNodeSettings(nodeId).then(s => setSettings(s || {}));
+        GetLocalDomainStatus().then(setLocalDomain).catch(() => setLocalDomain(null));
     }, [nodeId]);
 
     useEffect(() => {
         if (version === 0) return;
         GetActiveDeployment(nodeId).then(d => {
             setDeployment(d || null);
+            GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
             if (d?.status === 'failed') {
                 setError(d.error || 'Deployment failed');
             } else {
@@ -85,7 +88,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const status = deployment?.status || 'stopped';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
-    const deploymentURL = deployment?.hostPort ? `http://127.0.0.1:${deployment.hostPort}` : '';
+    const deploymentURL = bestDeploymentURL(deployment, localDomain);
 
     const handleOpenDeployment = () => {
         if (!deploymentURL) return;
@@ -206,8 +209,36 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                             <span className="overview-detail-value mono">{deployment.hostname}</span>
                         </div>
                     )}
+                    {localDomain?.mode && (
+                        <div className="overview-detail-row">
+                            <span className="overview-detail-label">Local Domain Mode</span>
+                            <span className="overview-detail-value mono">{localDomain.mode}</span>
+                        </div>
+                    )}
+                    {localDomain?.hostsError && (
+                        <div className="overview-domain-note">
+                            Local domain names need host-file setup. Falling back to the mapped localhost port.
+                        </div>
+                    )}
                 </div>
             )}
         </div>
     );
+}
+
+function bestDeploymentURL(
+    deployment: store.Deployment | null,
+    localDomain: networking.LocalDomainStatus | null,
+): string {
+    if (!deployment) return '';
+    if (deployment.hostname && localDomain?.mode === 'full') {
+        return `http://${deployment.hostname}`;
+    }
+    if (deployment.hostname && localDomain?.mode === 'hostname-port' && localDomain.proxyPort) {
+        return `http://${deployment.hostname}:${localDomain.proxyPort}`;
+    }
+    if (deployment.hostPort > 0) {
+        return `http://127.0.0.1:${deployment.hostPort}`;
+    }
+    return '';
 }

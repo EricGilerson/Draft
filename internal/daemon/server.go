@@ -56,9 +56,13 @@ func RunProcess(ctx context.Context) error {
 	}
 	defer s.Close()
 
-	router := networking.NewRouter(s, "127.0.0.1:0")
+	router := networking.NewRouter(s, "127.0.0.1:80")
 	if err := router.Start(); err != nil {
-		return err
+		log.Printf("[draft-daemon] local domain proxy on port 80 unavailable, falling back to random port: %v", err)
+		router = networking.NewRouter(s, "127.0.0.1:0")
+		if err := router.Start(); err != nil {
+			return err
+		}
 	}
 	defer router.Stop()
 
@@ -141,6 +145,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/active-deployment", s.handleActiveDeployment)
 	mux.HandleFunc("/build-log", s.handleBuildLog)
 	mux.HandleFunc("/docker", s.handleDocker)
+	mux.HandleFunc("/local-domain", s.handleLocalDomain)
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/scope", s.handleSetEnvScope)
@@ -238,6 +243,14 @@ func (s *Server) handleBuildLog(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.watch.CurrentDaemon())
+}
+
+func (s *Server) handleLocalDomain(w http.ResponseWriter, r *http.Request) {
+	if s.router == nil {
+		writeJSON(w, networking.LocalDomainStatus{Mode: "localhost-port"})
+		return
+	}
+	writeJSON(w, s.router.LocalDomainStatus())
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

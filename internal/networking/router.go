@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
+	"sync"
 
 	"Draft/internal/store"
 )
@@ -18,6 +21,17 @@ type Router struct {
 	store       *store.Store
 	proxy       *Proxy
 	syncHostsTo func([]HostsEntry) error
+	mu          sync.RWMutex
+	hostsError  string
+}
+
+type LocalDomainStatus struct {
+	ProxyAddr       string `json:"proxyAddr"`
+	ProxyPort       int    `json:"proxyPort"`
+	ProxyOnDefault  bool   `json:"proxyOnDefault"`
+	HostsConfigured bool   `json:"hostsConfigured"`
+	HostsError      string `json:"hostsError"`
+	Mode            string `json:"mode"` // full|hostname-port|localhost-port
 }
 
 // NewRouter creates a Router backed by the given store. The proxy listens on
@@ -35,7 +49,13 @@ func (r *Router) Start() error {
 	if err := r.proxy.Start(); err != nil {
 		return err
 	}
-	return r.reloadRoutes()
+	if err := r.reloadRoutes(); err != nil {
+		return err
+	}
+	if err := r.syncHosts(); err != nil {
+		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
+	}
+	return nil
 }
 
 // Stop shuts down the proxy gracefully.
@@ -213,6 +233,32 @@ func (r *Router) Lookup(hostname string) (*store.Route, error) {
 	return r.store.GetRoute(hostname)
 }
 
+func (r *Router) LocalDomainStatus() LocalDomainStatus {
+	addr := r.proxy.Addr()
+	port := parsePort(addr)
+
+	r.mu.RLock()
+	hostsError := r.hostsError
+	r.mu.RUnlock()
+
+	hostsConfigured := hostsError == ""
+	mode := "localhost-port"
+	if hostsConfigured && port == 80 {
+		mode = "full"
+	} else if hostsConfigured && port > 0 {
+		mode = "hostname-port"
+	}
+
+	return LocalDomainStatus{
+		ProxyAddr:       addr,
+		ProxyPort:       port,
+		ProxyOnDefault:  port == 80,
+		HostsConfigured: hostsConfigured,
+		HostsError:      hostsError,
+		Mode:            mode,
+	}
+}
+
 // reloadRoutes loads persisted routes from the database into the proxy's
 // in-memory routing table. Called on startup.
 func (r *Router) reloadRoutes() error {
@@ -236,6 +282,7 @@ func (r *Router) reloadRoutes() error {
 func (r *Router) syncHosts() error {
 	routes, err := r.store.ListAllRoutes()
 	if err != nil {
+		r.setHostsError(err)
 		return err
 	}
 
@@ -246,7 +293,28 @@ func (r *Router) syncHosts() error {
 			Hostname: route.Hostname,
 		}
 	}
-	return r.syncHostsTo(entries)
+	err = r.syncHostsTo(entries)
+	r.setHostsError(err)
+	return err
+}
+
+func (r *Router) setHostsError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err == nil {
+		r.hostsError = ""
+		return
+	}
+	r.hostsError = err.Error()
+}
+
+func parsePort(addr string) int {
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	port, _ := strconv.Atoi(portStr)
+	return port
 }
 
 // leasedPorts returns a set of all currently leased ports.

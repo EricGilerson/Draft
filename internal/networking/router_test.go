@@ -350,6 +350,29 @@ func TestRouterHostsFileSync(t *testing.T) {
 	}
 }
 
+func TestRouterLocalDomainStatusModes(t *testing.T) {
+	s := openTestStore(t)
+
+	full := NewRouter(s, "127.0.0.1:80")
+	status := full.LocalDomainStatus()
+	if status.Mode != "full" || status.ProxyPort != 80 || !status.ProxyOnDefault || !status.HostsConfigured {
+		t.Fatalf("full status = %+v", status)
+	}
+
+	hostnamePort := NewRouter(s, "127.0.0.1:54321")
+	status = hostnamePort.LocalDomainStatus()
+	if status.Mode != "hostname-port" || status.ProxyPort != 54321 || status.ProxyOnDefault || !status.HostsConfigured {
+		t.Fatalf("hostname-port status = %+v", status)
+	}
+
+	hostsFailed := NewRouter(s, "127.0.0.1:80")
+	hostsFailed.setHostsError(os.ErrPermission)
+	status = hostsFailed.LocalDomainStatus()
+	if status.Mode != "localhost-port" || status.HostsConfigured || status.HostsError == "" {
+		t.Fatalf("hosts failure status = %+v", status)
+	}
+}
+
 func TestRouterMultipleProjectsIsolated(t *testing.T) {
 	s := openTestStore(t)
 	r := newTestRouter(t, s)

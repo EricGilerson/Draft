@@ -211,6 +211,12 @@
     word-break: break-all;
 }
 
+.overview-domain-note {
+    color: var(--text-faint);
+    font-size: 0.7rem;
+    line-height: 1.45;
+}
+
 .mono {
     font-family: var(--mono);
 }

@@ -120,6 +120,25 @@ func TestClientDeploymentAndBuildLogEndpoints(t *testing.T) {
 	}
 }
 
+func TestClientLocalDomainStatusEndpoint(t *testing.T) {
+	srv, s, _ := newTestServer(t)
+	srv.router = networking.NewRouter(s, "127.0.0.1:54321")
+	ts := httptest.NewServer(srv.routes())
+	defer ts.Close()
+	c := clientForHTTPServer(t, ts, srv.state.Token)
+
+	status, err := c.LocalDomainStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Mode != "hostname-port" {
+		t.Fatalf("Mode = %q, want hostname-port; status = %+v", status.Mode, status)
+	}
+	if status.ProxyPort != 54321 {
+		t.Fatalf("ProxyPort = %d, want 54321; status = %+v", status.ProxyPort, status)
+	}
+}
+
 func TestClientCommandsReachServer(t *testing.T) {
 	srv, s, _ := newTestServer(t)
 	ts := httptest.NewServer(srv.routes())
