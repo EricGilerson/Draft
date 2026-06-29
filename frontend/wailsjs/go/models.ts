@@ -5,6 +5,7 @@ export namespace deploy {
 	    recentWindow: number;
 	    successCount: number;
 	    failureCount: number;
+	    interruptedCount: number;
 	    // Go type: time
 	    lastDeployAt?: any;
 	    // Go type: time
@@ -24,6 +25,7 @@ export namespace deploy {
 	        this.recentWindow = source["recentWindow"];
 	        this.successCount = source["successCount"];
 	        this.failureCount = source["failureCount"];
+	        this.interruptedCount = source["interruptedCount"];
 	        this.lastDeployAt = this.convertValues(source["lastDeployAt"], null);
 	        this.lastFailureAt = this.convertValues(source["lastFailureAt"], null);
 	        this.lastFailureReason = source["lastFailureReason"];

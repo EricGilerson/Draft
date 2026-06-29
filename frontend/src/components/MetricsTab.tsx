@@ -57,8 +57,9 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
     }
 
     const summary = metrics.deploymentSummary;
-    const successRate = summary.recentWindow > 0
-        ? Math.round((summary.successCount / Math.max(1, summary.successCount + summary.failureCount)) * 100)
+    const meaningful = summary.successCount + summary.failureCount;
+    const successRate = meaningful > 0
+        ? Math.round((summary.successCount / meaningful) * 100)
         : 0;
 
     return (
@@ -126,7 +127,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     icon={<RotateCcw size={14} />}
                     label="Recent Success"
                     value={`${successRate}%`}
-                    note={`${summary.successCount} succeeded / ${summary.failureCount} failed in last ${summary.recentWindow}`}
+                    note={`${summary.successCount} succeeded / ${summary.failureCount} failed${summary.interruptedCount ? ` / ${summary.interruptedCount} interrupted` : ''} in last ${summary.recentWindow}`}
                 />
                 <MetricCard
                     icon={<Package size={14} />}

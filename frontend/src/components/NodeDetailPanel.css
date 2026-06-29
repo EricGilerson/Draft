@@ -257,6 +257,11 @@
     color: var(--red);
 }
 
+.status-badge--interrupted {
+    background: transparent;
+    color: var(--text-muted);
+}
+
 .status-badge--built {
     background: transparent;
     color: var(--draft-teal);

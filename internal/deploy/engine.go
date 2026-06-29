@@ -949,7 +949,7 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 		if d.ID == currentID {
 			continue
 		}
-		if d.Status == "stopped" || d.Status == "failed" {
+		if d.Status == "stopped" || d.Status == "failed" || d.Status == "interrupted" {
 			continue
 		}
 		if d.ContainerID != "" {
@@ -1224,11 +1224,16 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 		}
 		switch dep.Status {
 		case "building", "built", "starting":
-			dep.Status = "failed"
-			dep.Error = "deployment was interrupted before the daemon could recover it"
+			dep.Status = "interrupted"
+			dep.Error = "deployment was interrupted by an app restart"
 			dep.FinishedAt = ptrTime(time.Now())
 			e.store.UpdateDeployment(dep)
-			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "interrupted", Error: dep.Error})
+		case "failed":
+			if strings.Contains(dep.Error, "interrupted") {
+				dep.Status = "interrupted"
+				e.store.UpdateDeployment(dep)
+			}
 		}
 	}
 	return nil

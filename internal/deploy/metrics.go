@@ -47,6 +47,7 @@ type DeploymentHistorySummary struct {
 	RecentWindow        int        `json:"recentWindow"`
 	SuccessCount        int        `json:"successCount"`
 	FailureCount        int        `json:"failureCount"`
+	InterruptedCount    int        `json:"interruptedCount"`
 	LastDeployAt        *time.Time `json:"lastDeployAt"`
 	LastFailureAt       *time.Time `json:"lastFailureAt"`
 	LastFailureReason   string     `json:"lastFailureReason"`
@@ -311,6 +312,9 @@ func summarizeDeploymentHistory(deployments []store.Deployment) DeploymentHistor
 				summary.LastFailureReason = dep.Error
 			}
 		}
+		if dep.Status == "interrupted" {
+			summary.InterruptedCount++
+		}
 		if summary.LastBuildDurationMs == 0 {
 			summary.LastBuildDurationMs = durationMillis(dep.BuildStartedAt, dep.BuildFinishedAt)
 		}
@@ -385,6 +389,17 @@ func buildRuntimeEvents(deployments []store.Deployment) []RuntimeEvent {
 				Severity: "error",
 				At:       at,
 				Summary:  summary,
+			})
+		} else if dep.Status == "interrupted" {
+			at := dep.UpdatedAt
+			if dep.FinishedAt != nil {
+				at = *dep.FinishedAt
+			}
+			events = append(events, RuntimeEvent{
+				Kind:     "interrupted",
+				Severity: "warning",
+				At:       at,
+				Summary:  "Deployment interrupted by app restart",
 			})
 		} else if dep.Status == "stopped" && dep.ContainerStoppedAt != nil {
 			events = append(events, RuntimeEvent{
