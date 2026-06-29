@@ -135,6 +135,11 @@
     padding: 2px 0 4px;
 }
 
+.project-card-services-empty {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}
+
 .project-meta-divider {
     margin: 0 2px;
     color: rgba(143, 147, 173, 0.25);

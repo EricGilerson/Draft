@@ -1,4 +1,4 @@
-import {store} from '../../wailsjs/go/models';
+import {main, store} from '../../wailsjs/go/models';
 
 export type ServiceType = 'web' | 'database' | 'cache' | 'worker';
 export type ServiceStatus = 'running' | 'stopped' | 'error' | 'starting';
@@ -52,13 +52,6 @@ export const STATUS_COLORS: Record<ServiceStatus, string> = {
     starting: '#f2bd4b',
 };
 
-const SERVICE_LIBRARY: Array<{type: ServiceType; name: string; image: string; port: number}> = [
-    {type: 'web', name: 'web', image: 'node:20-alpine', port: 3000},
-    {type: 'database', name: 'postgres', image: 'postgres:16', port: 5432},
-    {type: 'cache', name: 'redis', image: 'redis:7-alpine', port: 6379},
-    {type: 'worker', name: 'worker', image: 'node:20-alpine', port: 4100},
-];
-
 const SANDBOX_BRANCHES = [
     'feature/auth-flow',
     'fix/port-collision',
@@ -68,68 +61,68 @@ const SANDBOX_BRANCHES = [
 
 const ELAPSED_LABELS = ['2m ago', '12m ago', '48m ago', '2h ago', 'Yesterday'];
 
-function hashString(value: string): number {
-    let hash = 0;
-    for (let i = 0; i < value.length; i += 1) {
-        hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-    }
-    return hash;
+function coerceServiceType(type: string): ServiceType {
+    if (type === 'database' || type === 'cache' || type === 'worker') return type;
+    return 'web';
 }
 
-function titleSlug(value: string) {
-    return value
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '') || 'project';
+function coerceServiceStatus(status: string): ServiceStatus {
+    if (status === 'running' || status === 'starting' || status === 'error') return status;
+    return 'stopped';
 }
 
-function primaryLabel(project: store.Project) {
-    return titleSlug(project.name).replace(/-service$/, '') || 'app';
+function asDate(value: any): Date | null {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function buildServiceSet(project: store.Project, hash: number): ServicePreview[] {
-    const includeCache = hash % 2 === 0;
-    const includeWorker = hash % 3 === 0;
-    const base = SERVICE_LIBRARY.filter((service) => {
-        if (service.type === 'cache') return includeCache;
-        if (service.type === 'worker') return includeWorker;
-        return true;
-    });
+function relativeLabel(value: any): string {
+    const date = asDate(value);
+    if (!date) return 'No activity yet';
+    const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'Yesterday';
+    return `${days}d ago`;
+}
 
-    const statuses: ServiceStatus[] = ['running', 'running', 'starting', 'stopped'];
-    return base.map((service, index) => {
-        const portOffset = (hash % 120) + index * 17;
-        const status = statuses[(hash + index) % statuses.length];
-        const name = service.type === 'web' ? primaryLabel(project) : service.name;
-
-        return {
-            id: `${project.id}-${service.type}`,
-            name,
-            type: service.type,
-            image: service.image,
-            port: service.port + portOffset,
-            status,
-        };
-    });
+function servicePreview(service: main.ProjectService): ServicePreview {
+    return {
+        id: service.id,
+        name: service.name || service.id,
+        type: coerceServiceType(service.type),
+        image: service.image || service.dockerfile || 'unconfigured',
+        port: service.port || undefined,
+        status: coerceServiceStatus(service.status),
+    };
 }
 
 function summarizeStatus(services: ServicePreview[]): ProjectStatus {
+    if (services.length === 0) return 'stopped';
     const running = services.filter((service) => service.status === 'running').length;
     if (running === 0) return 'stopped';
     if (running === services.length) return 'active';
     return 'partial';
 }
 
-export function decorateProjects(projects: store.Project[]): ProjectSummary[] {
-    return projects.map((project, index) => {
-        const hash = hashString(`${project.name}:${project.path}:${project.description}:${index}`);
-        const services = buildServiceSet(project, hash);
+export function decorateProjects(projects: store.Project[], servicesByProject: Record<number, main.ProjectService[]> = {}): ProjectSummary[] {
+    return projects.map((project) => {
+        const rawServices = servicesByProject[project.id] ?? [];
+        const services = rawServices.map(servicePreview);
+        const latestServiceUpdate = rawServices
+            .map((service) => asDate(service.updatedAt))
+            .filter((date): date is Date => Boolean(date))
+            .sort((a, b) => b.getTime() - a.getTime())[0];
         return {
             project,
             services,
             status: summarizeStatus(services),
-            lastActive: ELAPSED_LABELS[hash % ELAPSED_LABELS.length],
+            lastActive: services.length === 0 ? 'No services' : relativeLabel(latestServiceUpdate ?? project.updatedAt),
         };
     });
 }

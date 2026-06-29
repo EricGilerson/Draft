@@ -10,7 +10,12 @@ import {store} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
-export default function OverviewTab({nodeId}: {nodeId: string}) {
+type OverviewTabProps = {
+    nodeId: string;
+    onServicesChanged?: () => void;
+};
+
+export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProps) {
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
@@ -53,6 +58,7 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
         setError('');
         try {
             await DeployService(nodeId);
+            onServicesChanged?.();
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Deploy failed');
         }
@@ -61,6 +67,7 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
     const handleStop = async () => {
         try {
             await StopService(nodeId);
+            onServicesChanged?.();
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Stop failed');
         }
@@ -69,6 +76,7 @@ export default function OverviewTab({nodeId}: {nodeId: string}) {
     const handleRestart = async () => {
         try {
             await RestartService(nodeId);
+            onServicesChanged?.();
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Restart failed');
         }

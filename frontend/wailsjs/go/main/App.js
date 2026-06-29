@@ -50,6 +50,10 @@ export function ListNodes(arg1) {
   return window['go']['main']['App']['ListNodes'](arg1);
 }
 
+export function ListProjectServices(arg1) {
+  return window['go']['main']['App']['ListProjectServices'](arg1);
+}
+
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }

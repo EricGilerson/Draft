@@ -1,7 +1,8 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {FlaskConical, LayoutDashboard} from 'lucide-react';
 import './App.css';
-import {ListProjects} from '../wailsjs/go/main/App';
+import {ListProjects, ListProjectServices} from '../wailsjs/go/main/App';
+import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
 import ActivityTicker from './components/ActivityTicker';
@@ -12,32 +13,77 @@ import {decorateProjects} from './lib/dashboardData';
 import ProjectCanvas from './components/ProjectCanvas';
 import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
-import {store} from '../wailsjs/go/models';
+import {main, store} from '../wailsjs/go/models';
 
 function App() {
     const [view, setView] = useState<NavId>('overview');
     const [projects, setProjects] = useState<store.Project[]>([]);
+    const [servicesByProject, setServicesByProject] = useState<Record<number, main.ProjectService[]>>({});
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
+    const projectsRef = useRef<store.Project[]>([]);
 
-    useEffect(() => {
-        ListProjects()
-            .then((items) => setProjects(items ?? []))
-            .catch(() => setProjects([]))
-            .finally(() => setLoading(false));
+    const refreshProjectServices = useCallback(async (items: store.Project[]) => {
+        if (items.length === 0) {
+            setServicesByProject({});
+            return;
+        }
+        const entries = await Promise.all(
+            items.map(async (project) => {
+                const services = await ListProjectServices(project.id).catch(() => []);
+                return [project.id, services ?? []] as const;
+            }),
+        );
+        setServicesByProject(Object.fromEntries(entries));
     }, []);
 
-    const summaries = useMemo(() => decorateProjects(projects), [projects]);
+    const refreshProjects = useCallback(async () => {
+        setLoading(true);
+        try {
+            const items = await ListProjects();
+            const nextProjects = items ?? [];
+            projectsRef.current = nextProjects;
+            setProjects(nextProjects);
+            await refreshProjectServices(nextProjects);
+        } catch {
+            projectsRef.current = [];
+            setProjects([]);
+            setServicesByProject({});
+        } finally {
+            setLoading(false);
+        }
+    }, [refreshProjectServices]);
+
+    useEffect(() => {
+        refreshProjects();
+    }, [refreshProjects]);
+
+    useEffect(() => {
+        const unsubscribe = EventsOn('deploy:status', () => {
+            refreshProjectServices(projectsRef.current);
+        });
+        return unsubscribe;
+    }, [refreshProjectServices]);
+
+    const summaries = useMemo(() => decorateProjects(projects, servicesByProject), [projects, servicesByProject]);
     const handleSelectView = (next: NavId) => {
         setView(next);
+        if (next === 'projects') {
+            refreshProjectServices(projectsRef.current);
+        }
         if (next !== 'projects') {
             setSelectedProject(null);
         }
     };
 
     const handleProjectCreated = (project: store.Project) => {
-        setProjects((prev) => [project, ...prev]);
+        setProjects((prev) => {
+            const nextProjects = [project, ...prev];
+            projectsRef.current = nextProjects;
+            return nextProjects;
+        });
+        setServicesByProject((prev) => ({...prev, [project.id]: []}));
         setDialogOpen(false);
         setSelectedProject(project);
         setView('projects');
@@ -63,6 +109,7 @@ function App() {
                         {selectedProject ? (
                             <ProjectCanvas
                                 project={selectedProject}
+                                onServicesChanged={() => refreshProjectServices(projectsRef.current)}
                             />
                         ) : view === 'overview' ? (
                             <div className="view-center">

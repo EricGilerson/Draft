@@ -83,9 +83,13 @@ export default function ProjectsView({loading, projects, onCreateProject, onOpen
                                     {isOpen && (
                                         <div className="project-card-body">
                                             <div className="project-card-services">
-                                                {project.services.map((service) => (
-                                                    <ServicePill key={service.id} service={service}/>
-                                                ))}
+                                                {project.services.length === 0 ? (
+                                                    <span className="project-card-services-empty">No services on the canvas yet.</span>
+                                                ) : (
+                                                    project.services.map((service) => (
+                                                        <ServicePill key={service.id} service={service}/>
+                                                    ))
+                                                )}
                                             </div>
                                             <div className="project-card-actions">
                                                 <button className="btn btn-ghost">

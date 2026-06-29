@@ -10,9 +10,10 @@ type SettingsTabProps = {
     nodeId: string;
     projectId: number;
     projectPath: string;
+    onServicesChanged?: () => void;
 };
 
-export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTabProps) {
+export default function SettingsTab({nodeId, projectId, projectPath, onServicesChanged}: SettingsTabProps) {
     const [rootPath, setRootPath] = useState('');
     const [inputValue, setInputValue] = useState('');
     const [error, setError] = useState('');
@@ -52,6 +53,7 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
             await SetServiceRoot(nodeId, projectId, absolutePath);
             setRootPath(absolutePath);
             setInputValue(absolutePath);
+            onServicesChanged?.();
         } catch (e: any) {
             const msg = typeof e === 'string' ? e : e?.message || 'Failed to set service root';
             setError(msg);
@@ -59,7 +61,7 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
         } finally {
             setSaving(false);
         }
-    }, [nodeId, projectId, rootPath]);
+    }, [nodeId, projectId, rootPath, onServicesChanged]);
 
     const handleInputCommit = useCallback(() => {
         const trimmed = inputValue.trim();
@@ -100,8 +102,9 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
             } else {
                 setExposePorts([]);
             }
+            onServicesChanged?.();
         });
-    }, [nodeId, projectId, dockerfileInput, dockerfilePath]);
+    }, [nodeId, projectId, dockerfileInput, dockerfilePath, onServicesChanged]);
 
     const browseDockerfile = useCallback(async () => {
         const selected = await SelectFile('Select Dockerfile', projectPath);
@@ -118,8 +121,9 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
         SetNodeSetting(nodeId, 'service_port', trimmed).then(() => {
             setPort(trimmed);
             setPortInput(trimmed);
+            onServicesChanged?.();
         });
-    }, [nodeId, portInput, port]);
+    }, [nodeId, portInput, port, onServicesChanged]);
 
     const toggleDockerignore = useCallback(() => {
         const next = !useDockerignore;
@@ -138,8 +142,9 @@ export default function SettingsTab({nodeId, projectId, projectPath}: SettingsTa
         setPortInput(val);
         SetNodeSetting(nodeId, 'service_port', val).then(() => {
             setPort(val);
+            onServicesChanged?.();
         });
-    }, [nodeId]);
+    }, [nodeId, onServicesChanged]);
 
     const displayPath = rootPath
         ? (rootPath.toLowerCase().startsWith(projectPath.toLowerCase())

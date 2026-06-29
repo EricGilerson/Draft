@@ -23,6 +23,7 @@ import './ProjectCanvas.css';
 
 type ProjectCanvasProps = {
     project: store.Project;
+    onServicesChanged?: () => void;
 };
 
 function CanvasControls() {
@@ -58,7 +59,7 @@ function generateId(): string {
     return `svc-${hex}-${rand}`;
 }
 
-export default function ProjectCanvas({project}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, _setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [showAddPopover, setShowAddPopover] = useState(false);
@@ -98,12 +99,12 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
                     UpdateNode(change.id, change.position.x, change.position.y, label);
                 }
                 if (change.type === 'remove') {
-                    DeleteNode(change.id);
+                    DeleteNode(change.id).then(() => onServicesChanged?.());
                     if (selectedNodeId === change.id) setSelectedNodeId(null);
                 }
             }
         },
-        [onNodesChange, nodes, selectedNodeId],
+        [onNodesChange, nodes, onServicesChanged, selectedNodeId],
     );
 
     const addNode = useCallback(() => {
@@ -120,11 +121,12 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
                 data: {label, status: 'stopped'},
             };
             setNodes((prev) => [...prev, node]);
+            onServicesChanged?.();
         });
 
         setNewNodeName('');
         setShowAddPopover(false);
-    }, [newNodeName, setNodes, project.id]);
+    }, [newNodeName, onServicesChanged, setNodes, project.id]);
 
     const renameNode = useCallback((nodeId: string, newLabel: string) => {
         setNodes((prev) =>
@@ -133,8 +135,8 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
             ),
         );
         const node = nodes.find((n) => n.id === nodeId);
-        UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel);
-    }, [setNodes, nodes]);
+        UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel).then(() => onServicesChanged?.());
+    }, [onServicesChanged, setNodes, nodes]);
 
     const openPopover = () => {
         setShowAddPopover(true);
@@ -211,6 +213,7 @@ export default function ProjectCanvas({project}: ProjectCanvasProps) {
                         projectPath={project.path}
                         onClose={() => setSelectedNodeId(null)}
                         onRename={renameNode}
+                        onServicesChanged={onServicesChanged}
                     />
                 </ResizablePanel>
             )}
