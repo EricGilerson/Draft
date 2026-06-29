@@ -3,7 +3,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 20px;
-    padding: 34px 32px 24px;
+    padding: 28px 32px 18px;
 }
 
 .page-header-copy {
@@ -12,16 +12,16 @@
 
 .page-header-title {
     margin: 0 0 6px;
-    font-size: 25px;
-    line-height: 1;
-    font-weight: 900;
-    letter-spacing: -0.02em;
+    font-size: 22px;
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: 0;
     color: var(--text);
 }
 
 .page-header-description {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: 0.82rem;
     color: var(--text-muted);
 }
 

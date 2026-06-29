@@ -3,64 +3,65 @@
 }
 
 .projects-layout {
-    max-width: 920px;
+    max-width: 860px;
     padding: 0 32px 32px;
 }
 
 .projects-loading,
 .projects-empty {
-    min-height: 260px;
+    min-height: 220px;
     display: flex;
     align-items: center;
     justify-content: center;
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background:
-        linear-gradient(135deg, rgba(244, 226, 188, 0.04), transparent 42%),
-        var(--surface);
-    box-shadow: var(--inset-line), var(--shadow-panel);
+    border-radius: 4px;
+    background: rgba(16, 17, 14, 0.72);
 }
 
 .projects-loading {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: 0.84rem;
 }
 
 .projects-empty {
-    gap: 14px;
-    padding: 24px;
+    gap: 12px;
+    padding: 22px;
     color: var(--text-muted);
 }
 
 .projects-empty-copy {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     max-width: 420px;
+    font-size: 0.82rem;
+}
+
+.projects-empty-copy strong {
+    color: var(--text);
+    font-weight: 700;
 }
 
 .projects-stack {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
 .project-card {
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background:
-        linear-gradient(180deg, rgba(244, 226, 188, 0.045), transparent 36%),
-        var(--surface);
-    box-shadow: var(--inset-line), 0 20px 50px rgba(0, 0, 0, 0.18);
+    border-radius: 4px;
+    background: rgba(19, 20, 17, 0.86);
     overflow: hidden;
 }
 
 .project-card-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
     align-items: center;
     width: 100%;
     gap: 14px;
-    padding: 15px 16px;
+    padding: 12px 14px;
     background: transparent;
     border: 0;
     color: inherit;
@@ -70,54 +71,59 @@
 }
 
 .project-card-header:hover {
-    background: var(--surface-hover);
+    background: rgba(244, 226, 188, 0.025);
 }
 
 .project-card-status {
-    width: 10px;
-    height: 34px;
-    border-radius: 999px;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
     flex-shrink: 0;
-    margin-top: 0;
 }
 
 .project-card-copy {
     min-width: 0;
-    flex: 1;
 }
 
 .project-card-title-row {
     display: flex;
     align-items: baseline;
-    gap: 12px;
+    gap: 10px;
+    min-width: 0;
 }
 
 .project-card-name {
     margin: 0;
-    font-size: 0.98rem;
-    line-height: 1;
-    font-weight: 900;
+    font-size: 0.94rem;
+    line-height: 1.2;
+    font-weight: 700;
     color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .project-card-inline-desc {
-    font-size: 0.6875rem;
-    color: rgba(143, 147, 173, 0.6);
+    min-width: 0;
+    font-size: 0.74rem;
+    color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .project-card-path {
-    margin: 0;
-    font-size: 0.75rem;
+    margin: 12px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid rgba(232, 211, 168, 0.08);
+    font-size: 0.73rem;
     line-height: 1.45;
-    color: var(--text-muted);
+    color: var(--text-faint);
     word-break: break-all;
 }
 
 .project-card-meta {
-    margin-top: 6px;
+    margin-top: 4px;
     font-size: 0.72rem;
     color: var(--text-muted);
     font-family: var(--mono);
@@ -127,12 +133,12 @@
 .project-card-actions {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     flex-wrap: wrap;
 }
 
 .project-card-services {
-    padding: 2px 0 4px;
+    padding: 0;
 }
 
 .project-card-services-empty {
@@ -142,40 +148,38 @@
 
 .project-meta-divider {
     margin: 0 2px;
-    color: rgba(143, 147, 173, 0.25);
+    color: rgba(143, 147, 173, 0.35);
 }
 
 .project-card-badges {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     flex-shrink: 0;
 }
 
 .project-chip {
-    padding: 3px 7px;
-    border-radius: 4px;
-    font-size: 0.625rem;
+    padding: 2px 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    font-size: 0.7rem;
     font-family: var(--mono);
-    font-weight: 800;
-    letter-spacing: 0.02em;
+    font-weight: 600;
+    letter-spacing: 0;
 }
 
 .project-chip-up {
-    background: rgba(123, 216, 143, 0.1);
-    border: 1px solid rgba(123, 216, 143, 0.2);
     color: var(--green);
 }
 
 .project-chip-down {
-    background: rgba(92, 87, 73, 0.22);
-    border: 1px solid rgba(232, 211, 168, 0.08);
     color: var(--text-faint);
 }
 
 .project-card-chevron {
-    color: rgba(169, 156, 125, 0.45);
-    transition: transform 0.2s ease;
+    color: var(--text-faint);
+    transition: transform 0.16s ease;
 }
 
 .project-card-chevron.open {
@@ -183,19 +187,37 @@
 }
 
 .project-card-body {
-    padding: 14px 16px 15px 40px;
-    border-top: 1px solid var(--border);
-    background:
-        linear-gradient(90deg, rgba(240, 138, 36, 0.05), transparent 24%),
-        rgba(0, 0, 0, 0.16);
+    padding: 12px 14px 14px 36px;
+    border-top: 1px solid rgba(232, 211, 168, 0.08);
+    background: rgba(8, 9, 7, 0.18);
 }
 
 .project-card-actions {
-    padding-top: 10px;
+    padding-top: 12px;
+    justify-content: flex-end;
 }
 
 .project-card-open {
     margin-left: auto;
+}
+
+.projects-view .service-pill {
+    min-height: 24px;
+    gap: 7px;
+    padding: 0 8px;
+    border-radius: 3px;
+    background: rgba(244, 226, 188, 0.018);
+}
+
+.projects-view .service-pill-name {
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.projects-view .service-pill-port {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0;
 }
 
 @media (max-width: 840px) {
@@ -204,7 +226,22 @@
     }
 
     .project-card-header {
-        flex-wrap: wrap;
+        grid-template-columns: 8px minmax(0, 1fr);
+    }
+
+    .project-card-badges {
+        grid-column: 2;
+        justify-content: flex-start;
+    }
+
+    .project-card-title-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+    }
+
+    .project-card-body {
+        padding-left: 14px;
     }
 
     .project-card-open {

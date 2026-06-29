@@ -1,9 +1,9 @@
-import {ArrowRight, Boxes, ChevronRight, FolderPlus, Play, Square} from 'lucide-react';
+import {ArrowRight, Boxes, ChevronRight, FolderPlus} from 'lucide-react';
 import {useState} from 'react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import ServicePill from '../components/ServicePill';
-import {ProjectSummary, projectStatusColor, STATUS_COLORS} from '../lib/dashboardData';
+import {ProjectSummary, projectStatusColor} from '../lib/dashboardData';
 import './ProjectsView.css';
 
 type ProjectsViewProps = {
@@ -57,7 +57,6 @@ export default function ProjectsView({loading, projects, onCreateProject, onOpen
                                             className="project-card-status"
                                             style={{
                                                 background: statusColor,
-                                                boxShadow: project.status === 'active' ? `0 0 7px ${statusColor}88` : 'none',
                                             }}
                                         />
                                         <div className="project-card-copy">
@@ -92,12 +91,6 @@ export default function ProjectsView({loading, projects, onCreateProject, onOpen
                                                 )}
                                             </div>
                                             <div className="project-card-actions">
-                                                <button className="btn btn-ghost">
-                                                    <Play size={14}/> Start all
-                                                </button>
-                                                <button className="btn btn-ghost">
-                                                    <Square size={14}/> Stop all
-                                                </button>
                                                 <button className="btn btn-ghost project-card-open" onClick={() => onOpenProject(project.project)}>
                                                     Open canvas <ArrowRight size={14}/>
                                                 </button>
