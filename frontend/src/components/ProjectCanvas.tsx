@@ -14,7 +14,8 @@ import {
 import '@xyflow/react/dist/style.css';
 import {Maximize2, Minus, Plus, PlusCircle, X} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {CreateNode, DeleteNode, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
+import {EventsOn} from '../../wailsjs/runtime/runtime';
+import {CreateNode, DeleteNode, GetActiveDeployment, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
 import NodeDetailPanel from './NodeDetailPanel';
@@ -50,6 +51,22 @@ function CanvasControls() {
     );
 }
 
+function serviceStatusFromDeployment(status: string): string {
+    switch (status) {
+        case 'running':
+            return 'running';
+        case 'failed':
+            return 'error';
+        case 'building':
+        case 'built':
+        case 'starting':
+        case 'pending':
+            return 'starting';
+        default:
+            return 'stopped';
+    }
+}
+
 let nodeCounter = 0;
 
 function generateId(): string {
@@ -75,18 +92,43 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     );
 
     useEffect(() => {
-        ListNodes(project.id).then((saved) => {
+        ListNodes(project.id).then(async (saved) => {
             if (!saved || saved.length === 0) return;
-            setNodes(
-                saved.map((n) => ({
-                    id: n.id,
-                    type: 'service',
-                    position: {x: n.x, y: n.y},
-                    data: {label: n.label, status: 'stopped'},
-                })),
+            const flowNodes = await Promise.all(
+                saved.map(async (n) => {
+                    let status = 'stopped';
+                    try {
+                        const dep = await GetActiveDeployment(n.id);
+                        if (dep?.status) {
+                            status = serviceStatusFromDeployment(dep.status);
+                        }
+                    } catch { /* no active deployment */ }
+                    return {
+                        id: n.id,
+                        type: 'service' as const,
+                        position: {x: n.x, y: n.y},
+                        data: {label: n.label, status},
+                    };
+                }),
             );
+            setNodes(flowNodes);
         });
     }, [project.id, setNodes]);
+
+    useEffect(() => {
+        const unsubscribe = EventsOn('deploy:status', (payload: any) => {
+            const nodeId: string = payload.nodeId;
+            const deployStatus: string = payload.event?.status;
+            if (!nodeId || !deployStatus) return;
+            const uiStatus = serviceStatusFromDeployment(deployStatus);
+            setNodes((prev) =>
+                prev.map((n) =>
+                    n.id === nodeId ? {...n, data: {...n.data, status: uiStatus}} : n,
+                ),
+            );
+        });
+        return unsubscribe;
+    }, [setNodes]);
 
     const handleNodesChange = useCallback(
         (changes: NodeChange[]) => {
