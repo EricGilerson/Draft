@@ -38,11 +38,21 @@ func TestHostnameSpecialChars(t *testing.T) {
 	}
 }
 
-func TestLoopbackHostname(t *testing.T) {
-	h := LoopbackHostname("api.myapp.default.a3f2.draft.local")
+func TestPublicHostname(t *testing.T) {
+	h := PublicHostname("api.myapp.default.a3f2.draft.local")
 	want := "api.myapp.default.a3f2.127-0-0-1.sslip.io"
 	if h != want {
-		t.Errorf("LoopbackHostname = %q, want %q", h, want)
+		t.Errorf("PublicHostname = %q, want %q", h, want)
+	}
+}
+
+func TestInternalAndPublicURL(t *testing.T) {
+	hostname := "api.myapp.default.a3f2.draft.local"
+	if got := InternalURL(hostname, "3000"); got != "http://api.myapp.default.a3f2.draft.local:3000" {
+		t.Errorf("InternalURL = %q", got)
+	}
+	if got := PublicURL(hostname, 53888); got != "http://api.myapp.default.a3f2.127-0-0-1.sslip.io:53888" {
+		t.Errorf("PublicURL = %q", got)
 	}
 }
 
@@ -55,7 +65,7 @@ func TestHostAliases(t *testing.T) {
 		t.Errorf("primary alias = %q", aliases[0])
 	}
 	if aliases[1] != "api.myapp.default.a3f2.127-0-0-1.sslip.io" {
-		t.Errorf("loopback alias = %q", aliases[1])
+		t.Errorf("public alias = %q", aliases[1])
 	}
 }
 

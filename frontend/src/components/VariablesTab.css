@@ -276,3 +276,52 @@
     font-size: 0.68rem;
     line-height: 1.4;
 }
+
+.runtime-vars-section {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+}
+
+.runtime-vars-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.runtime-vars-toggle:hover {
+    color: var(--text);
+}
+
+.runtime-vars-list {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.runtime-vars-hint {
+    margin: 0 0 6px;
+    color: var(--text-faint);
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
+.runtime-var-row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 0.72rem;
+}
+
+.runtime-var-desc {
+    color: var(--text-faint);
+    font-size: 0.68rem;
+}

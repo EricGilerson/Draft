@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	Suffix         = "draft.local"
-	LoopbackSuffix = "127-0-0-1.sslip.io"
+	Suffix       = "draft.local"
+	PublicSuffix = "127-0-0-1.sslip.io"
 )
 
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
@@ -52,20 +52,34 @@ func Hostname(service, project, environment, uid string) string {
 	)
 }
 
-func LoopbackHostname(hostname string) string {
+func PublicHostname(hostname string) string {
 	hostname = strings.TrimSuffix(hostname, ".")
 	if strings.HasSuffix(hostname, "."+Suffix) {
-		return strings.TrimSuffix(hostname, "."+Suffix) + "." + LoopbackSuffix
+		return strings.TrimSuffix(hostname, "."+Suffix) + "." + PublicSuffix
 	}
 	return hostname
 }
 
 func HostAliases(hostname string) []string {
-	loopback := LoopbackHostname(hostname)
-	if loopback == hostname {
+	public := PublicHostname(hostname)
+	if public == hostname {
 		return []string{hostname}
 	}
-	return []string{hostname, loopback}
+	return []string{hostname, public}
+}
+
+func InternalURL(hostname, port string) string {
+	if hostname == "" || port == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%s", hostname, port)
+}
+
+func PublicURL(hostname string, proxyPort int) string {
+	if hostname == "" || proxyPort <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", PublicHostname(hostname), proxyPort)
 }
 
 // ParsedHostname holds the decoded parts of a Draft hostname.

@@ -8,11 +8,19 @@ import (
 )
 
 var generatedEnvKeys = map[string]struct{}{
-	"DRAFT_PORT":         {},
-	"DRAFT_HOSTNAME":     {},
-	"DRAFT_SERVICE_NAME": {},
-	"DRAFT_PROJECT_NAME": {},
-	"DRAFT_ENVIRONMENT":  {},
+	"DRAFT_SERVICE_PORT":      {},
+	"DRAFT_INTERNAL_HOSTNAME": {},
+	"DRAFT_INTERNAL_URL":      {},
+	"DRAFT_PUBLIC_HOSTNAME":   {},
+	"DRAFT_PUBLIC_URL":        {},
+	"DRAFT_SERVICE_NAME":      {},
+	"DRAFT_PROJECT_NAME":      {},
+	"DRAFT_ENVIRONMENT":       {},
+
+	// Deprecated generated names remain reserved so user-managed variables
+	// cannot silently reintroduce the old ambiguous contract.
+	"DRAFT_PORT":     {},
+	"DRAFT_HOSTNAME": {},
 }
 
 type deploymentEnv struct {
@@ -21,12 +29,15 @@ type deploymentEnv struct {
 }
 
 type deploymentEnvInput struct {
-	NodeID      string
-	ServiceName string
-	ProjectName string
-	Environment string
-	Port        string
-	Hostname    string
+	NodeID           string
+	ServiceName      string
+	ProjectName      string
+	Environment      string
+	ServicePort      string
+	InternalHostname string
+	InternalURL      string
+	PublicHostname   string
+	PublicURL        string
 }
 
 func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, error) {
@@ -52,8 +63,11 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	if environment == "" {
 		environment = "default"
 	}
-	runtimeValues["DRAFT_PORT"] = in.Port
-	runtimeValues["DRAFT_HOSTNAME"] = in.Hostname
+	runtimeValues["DRAFT_SERVICE_PORT"] = in.ServicePort
+	runtimeValues["DRAFT_INTERNAL_HOSTNAME"] = in.InternalHostname
+	runtimeValues["DRAFT_INTERNAL_URL"] = in.InternalURL
+	runtimeValues["DRAFT_PUBLIC_HOSTNAME"] = in.PublicHostname
+	runtimeValues["DRAFT_PUBLIC_URL"] = in.PublicURL
 	runtimeValues["DRAFT_SERVICE_NAME"] = in.ServiceName
 	runtimeValues["DRAFT_PROJECT_NAME"] = in.ProjectName
 	runtimeValues["DRAFT_ENVIRONMENT"] = environment

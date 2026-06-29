@@ -247,7 +247,11 @@ func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLocalDomain(w http.ResponseWriter, r *http.Request) {
 	if s.router == nil {
-		writeJSON(w, networking.LocalDomainStatus{Mode: "localhost-port"})
+		writeJSON(w, networking.LocalDomainStatus{
+			Mode:           "localhost-port",
+			PublicSuffix:   networking.PublicSuffix,
+			LoopbackSuffix: networking.PublicSuffix,
+		})
 		return
 	}
 	writeJSON(w, s.router.LocalDomainStatus())

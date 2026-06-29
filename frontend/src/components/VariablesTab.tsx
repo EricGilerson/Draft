@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {Download, Eye, EyeOff, FileSearch, Plus, RefreshCw, Upload} from 'lucide-react';
+import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Plus, RefreshCw, Upload} from 'lucide-react';
 import {
     GetEnvVars, SetEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
@@ -8,11 +8,47 @@ import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import './VariablesTab.css';
 
+const DRAFT_RUNTIME_VARS = [
+    {key: 'DRAFT_SERVICE_PORT', description: 'The port this service listens on inside the container'},
+    {key: 'DRAFT_INTERNAL_HOSTNAME', description: 'The canonical Draft hostname for service-to-service traffic'},
+    {key: 'DRAFT_INTERNAL_URL', description: 'The internal service URL using the service port'},
+    {key: 'DRAFT_PUBLIC_HOSTNAME', description: 'The host/browser-facing loopback hostname'},
+    {key: 'DRAFT_PUBLIC_URL', description: 'The host/browser-facing URL using the Draft proxy port'},
+    {key: 'DRAFT_SERVICE_NAME', description: 'The sanitized service/node label'},
+    {key: 'DRAFT_PROJECT_NAME', description: 'The sanitized project name'},
+    {key: 'DRAFT_ENVIRONMENT', description: 'The environment name (defaults to "default")'},
+];
+
 type VariablesTabProps = {
     nodeId: string;
     projectId: number;
     projectPath: string;
 };
+
+function RuntimeVarsSection() {
+    const [expanded, setExpanded] = useState(false);
+    return (
+        <div className="runtime-vars-section">
+            <button className="runtime-vars-toggle" onClick={() => setExpanded(!expanded)}>
+                {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                <span>Runtime variables injected by Draft</span>
+            </button>
+            {expanded && (
+                <div className="runtime-vars-list">
+                    <p className="runtime-vars-hint">
+                        Draft injects internal service identity separately from the host/browser public URL. These variables cannot be overridden.
+                    </p>
+                    {DRAFT_RUNTIME_VARS.map(v => (
+                        <div key={v.key} className="runtime-var-row">
+                            <span className="var-key">{v.key}</span>
+                            <span className="runtime-var-desc">{v.description}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
     const [vars, setVars] = useState<store.EnvVar[]>([]);
@@ -304,6 +340,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <Plus size={14}/> Add
                 </button>
             </div>
+
+            <RuntimeVarsSection />
 
             {Object.keys(edits).length > 0 && (
                 <button className="btn btn-primary save-btn" onClick={() => setShowConfirm(true)}>

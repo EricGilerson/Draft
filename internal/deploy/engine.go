@@ -25,7 +25,9 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 )
@@ -160,13 +162,21 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	environment := "default"
 	uid := networking.GenerateUID()
 	hostname := networking.Hostname(serviceName, projectName, environment, uid)
+	publicHostname := networking.PublicHostname(hostname)
+	publicURL := ""
+	if e.router != nil {
+		publicURL = networking.PublicURL(hostname, e.router.LocalDomainStatus().ProxyPort)
+	}
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      nodeID,
-		ServiceName: serviceName,
-		ProjectName: projectName,
-		Environment: environment,
-		Port:        portStr,
-		Hostname:    hostname,
+		NodeID:           nodeID,
+		ServiceName:      serviceName,
+		ProjectName:      projectName,
+		Environment:      environment,
+		ServicePort:      portStr,
+		InternalHostname: hostname,
+		InternalURL:      networking.InternalURL(hostname, portStr),
+		PublicHostname:   publicHostname,
+		PublicURL:        publicURL,
 	})
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve environment: " + err.Error()})
@@ -293,6 +303,13 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	containerPort := nat.Port(portStr + "/tcp")
 	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.ID)
+	networkName := draftNetworkName(node.ProjectID, projectName, environment)
+	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
+		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())
+		return
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
+
 	createResp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: imageTag,
 		Env:   deployEnv.RuntimeEnv,
@@ -306,7 +323,13 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		PortBindings: nat.PortMap{
 			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "0"}},
 		},
-	}, nil, nil, containerName)
+	}, &dockernetwork.NetworkingConfig{
+		EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
+			networkName: {
+				Aliases: internalNetworkAliases(serviceName, hostname),
+			},
+		},
+	}, nil, containerName)
 	if err != nil {
 		e.failDeployment(dep, nodeID, "container create failed: "+err.Error())
 		return
@@ -372,6 +395,43 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	})
 
 	go e.watchContainer(context.Background(), dep, nodeID)
+}
+
+func draftNetworkName(projectID uint, projectName, environment string) string {
+	env := sanitize(environment)
+	if env == "" {
+		env = "default"
+	}
+	return fmt.Sprintf("draft-%d-%s-%s", projectID, sanitize(projectName), env)
+}
+
+func ensureDraftNetwork(ctx context.Context, cli *client.Client, name string, projectID uint, projectName, environment string) error {
+	if _, err := cli.NetworkInspect(ctx, name, dockernetwork.InspectOptions{}); err == nil {
+		return nil
+	} else if !errdefs.IsNotFound(err) {
+		return err
+	}
+	_, err := cli.NetworkCreate(ctx, name, dockernetwork.CreateOptions{
+		Driver: "bridge",
+		Labels: map[string]string{
+			"draft.managed":     "true",
+			"draft.project":     fmt.Sprintf("%d", projectID),
+			"draft.projectName": projectName,
+			"draft.environment": environment,
+		},
+	})
+	if err != nil && !errdefs.IsConflict(err) {
+		return err
+	}
+	return nil
+}
+
+func internalNetworkAliases(serviceName, hostname string) []string {
+	aliases := []string{serviceName}
+	if hostname != "" && hostname != serviceName {
+		aliases = append(aliases, hostname)
+	}
+	return aliases
 }
 
 type uploadTracker struct {

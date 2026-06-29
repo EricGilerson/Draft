@@ -15,8 +15,8 @@ var ErrInvalidRestoreRoute = errors.New("restore route requires hostname, projec
 
 // Router is the high-level coordinator for Draft's local networking. It owns
 // the reverse proxy, manages port leases, generates hostnames, and keeps the
-// hosts file in sync. Consumers call Register/Unregister and the Router handles
-// the rest.
+// host-facing route table. Consumers call Register/Unregister and the Router
+// handles the rest.
 type Router struct {
 	store       *store.Store
 	proxy       *Proxy
@@ -31,8 +31,9 @@ type LocalDomainStatus struct {
 	ProxyOnDefault  bool   `json:"proxyOnDefault"`
 	HostsConfigured bool   `json:"hostsConfigured"`
 	HostsError      string `json:"hostsError"`
-	Mode            string `json:"mode"` // full|hostname-port|loopback-hostname-port|localhost-port
-	LoopbackSuffix  string `json:"loopbackSuffix"`
+	Mode            string `json:"mode"` // public-hostname-port|localhost-port
+	PublicSuffix    string `json:"publicSuffix"`
+	LoopbackSuffix  string `json:"loopbackSuffix"` // Deprecated: use PublicSuffix.
 }
 
 // NewRouter creates a Router backed by the given store. The proxy listens on
@@ -52,9 +53,6 @@ func (r *Router) Start() error {
 	}
 	if err := r.reloadRoutes(); err != nil {
 		return err
-	}
-	if err := r.syncHosts(); err != nil {
-		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
 	}
 	return nil
 }
@@ -85,9 +83,9 @@ type RegisterResult struct {
 	HostPort int // 0 for HTTP services (they go through the proxy)
 }
 
-// Register creates a route for a service: generates the hostname, allocates a
-// host port (TCP only), persists to the database, updates the proxy routing
-// table, and syncs the hosts file.
+// Register creates a route for a service: generates the internal hostname,
+// allocates a host port (TCP only), persists to the database, and updates the
+// proxy routing table.
 func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 	env := req.Environment
 	if env == "" {
@@ -140,10 +138,6 @@ func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 		r.setHTTPRouteAliases(hostname, ProxyTarget{Host: req.TargetHost, Port: req.TargetPort})
 	}
 
-	if err := r.syncHosts(); err != nil {
-		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
-	}
-
 	return &RegisterResult{
 		Hostname: hostname,
 		HostPort: hostPort,
@@ -170,14 +164,10 @@ func (r *Router) RestoreHTTPRoute(hostname string, projectID uint, nodeID string
 		}
 	}
 	r.setHTTPRouteAliases(hostname, ProxyTarget{Host: targetHost, Port: targetPort})
-	if err := r.syncHosts(); err != nil {
-		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
-	}
 	return nil
 }
 
-// Unregister removes a service's route, frees its port lease, and updates the
-// hosts file.
+// Unregister removes a service's route and frees its port lease.
 func (r *Router) Unregister(hostname string) error {
 	route, err := r.store.GetRoute(hostname)
 	if err != nil {
@@ -196,9 +186,6 @@ func (r *Router) Unregister(hostname string) error {
 		return fmt.Errorf("delete route: %w", err)
 	}
 
-	if err := r.syncHosts(); err != nil {
-		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
-	}
 	return nil
 }
 
@@ -220,9 +207,6 @@ func (r *Router) UnregisterNode(nodeID string) error {
 		return fmt.Errorf("delete port leases: %w", err)
 	}
 
-	if err := r.syncHosts(); err != nil {
-		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
-	}
 	return nil
 }
 
@@ -239,24 +223,20 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 	hostsError := r.hostsError
 	r.mu.RUnlock()
 
-	hostsConfigured := hostsError == ""
 	mode := "localhost-port"
-	if hostsConfigured && port == 80 {
-		mode = "full"
-	} else if hostsConfigured && port > 0 {
-		mode = "hostname-port"
-	} else if port > 0 {
-		mode = "loopback-hostname-port"
+	if port > 0 {
+		mode = "public-hostname-port"
 	}
 
 	return LocalDomainStatus{
 		ProxyAddr:       addr,
 		ProxyPort:       port,
 		ProxyOnDefault:  port == 80,
-		HostsConfigured: hostsConfigured,
+		HostsConfigured: false,
 		HostsError:      hostsError,
 		Mode:            mode,
-		LoopbackSuffix:  LoopbackSuffix,
+		PublicSuffix:    PublicSuffix,
+		LoopbackSuffix:  PublicSuffix,
 	}
 }
 
@@ -277,6 +257,8 @@ func (r *Router) reloadRoutes() error {
 }
 
 // syncHosts writes the current set of Draft hostnames to the system hosts file.
+// It is intentionally not called by default; clean .draft.local host resolution
+// should be enabled only by an explicit privileged setup flow.
 func (r *Router) syncHosts() error {
 	routes, err := r.store.ListAllRoutes()
 	if err != nil {

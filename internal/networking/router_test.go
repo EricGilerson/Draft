@@ -65,9 +65,9 @@ func TestRouterRegisterHTTP(t *testing.T) {
 	if result.HostPort != 0 {
 		t.Errorf("HostPort = %d, want 0 for HTTP", result.HostPort)
 	}
-	loopbackHostname := LoopbackHostname(wantHostname)
-	if !r.proxy.HasRoute(loopbackHostname) {
-		t.Errorf("proxy should route loopback alias %q", loopbackHostname)
+	publicHostname := PublicHostname(wantHostname)
+	if !r.proxy.HasRoute(publicHostname) {
+		t.Errorf("proxy should route public alias %q", publicHostname)
 	}
 
 	// Verify the proxy actually routes to the upstream
@@ -85,15 +85,15 @@ func TestRouterRegisterHTTP(t *testing.T) {
 	}
 
 	req, _ = http.NewRequest("GET", "http://"+r.proxy.Addr()+"/", nil)
-	req.Host = loopbackHostname
+	req.Host = publicHostname
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("loopback proxy request: %v", err)
+		t.Fatalf("public proxy request: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ = io.ReadAll(resp.Body)
 	if string(body) != "ok" {
-		t.Errorf("loopback proxy response = %q, want 'ok'", body)
+		t.Errorf("public proxy response = %q, want 'ok'", body)
 	}
 
 	// Verify the route is persisted in the database
@@ -328,7 +328,7 @@ func TestRouterDefaultEnvironment(t *testing.T) {
 	}
 }
 
-func TestRouterHostsFileSync(t *testing.T) {
+func TestRouterHostsFileSyncExplicit(t *testing.T) {
 	s := openTestStore(t)
 	r := NewRouter(s, "127.0.0.1:0")
 
@@ -348,6 +348,9 @@ func TestRouterHostsFileSync(t *testing.T) {
 		Service: "api", Project: "myapp", ProjectID: 1, NodeID: "n1", UID: "a3f2",
 		Protocol: "http", TargetHost: "127.0.0.1", TargetPort: 3000,
 	})
+	if err := r.syncHosts(); err != nil {
+		t.Fatal(err)
+	}
 
 	data, _ := os.ReadFile(hostsPath)
 	content := string(data)
@@ -359,6 +362,9 @@ func TestRouterHostsFileSync(t *testing.T) {
 	}
 
 	r.Unregister("api.myapp.default.a3f2.draft.local")
+	if err := r.syncHosts(); err != nil {
+		t.Fatal(err)
+	}
 	data, _ = os.ReadFile(hostsPath)
 	content = string(data)
 	if strings.Contains(content, "api.myapp.default.a3f2.draft.local") {
@@ -369,23 +375,19 @@ func TestRouterHostsFileSync(t *testing.T) {
 func TestRouterLocalDomainStatusModes(t *testing.T) {
 	s := openTestStore(t)
 
-	full := NewRouter(s, "127.0.0.1:80")
-	status := full.LocalDomainStatus()
-	if status.Mode != "full" || status.ProxyPort != 80 || !status.ProxyOnDefault || !status.HostsConfigured {
-		t.Fatalf("full status = %+v", status)
+	publicPort := NewRouter(s, "127.0.0.1:54321")
+	status := publicPort.LocalDomainStatus()
+	if status.Mode != "public-hostname-port" || status.ProxyPort != 54321 || status.ProxyOnDefault || status.HostsConfigured {
+		t.Fatalf("public-hostname-port status = %+v", status)
+	}
+	if status.PublicSuffix != PublicSuffix || status.LoopbackSuffix != PublicSuffix {
+		t.Fatalf("public suffix status = %+v", status)
 	}
 
-	hostnamePort := NewRouter(s, "127.0.0.1:54321")
-	status = hostnamePort.LocalDomainStatus()
-	if status.Mode != "hostname-port" || status.ProxyPort != 54321 || status.ProxyOnDefault || !status.HostsConfigured {
-		t.Fatalf("hostname-port status = %+v", status)
-	}
-
-	hostsFailed := NewRouter(s, "127.0.0.1:80")
-	hostsFailed.setHostsError(os.ErrPermission)
-	status = hostsFailed.LocalDomainStatus()
-	if status.Mode != "loopback-hostname-port" || status.HostsConfigured || status.HostsError == "" {
-		t.Fatalf("hosts failure status = %+v", status)
+	noPort := NewRouter(s, "127.0.0.1")
+	status = noPort.LocalDomainStatus()
+	if status.Mode != "localhost-port" || status.ProxyPort != 0 || status.HostsConfigured {
+		t.Fatalf("localhost-port status = %+v", status)
 	}
 }
 

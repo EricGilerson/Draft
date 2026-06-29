@@ -18,12 +18,15 @@ func TestResolveDeploymentEnvRuntimeBuildArgsAndGenerated(t *testing.T) {
 	}
 
 	resolved, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      "n1",
-		ServiceName: "web",
-		ProjectName: "draft",
-		Environment: "default",
-		Port:        "3000",
-		Hostname:    "web.draft.default.abcd.draft.local",
+		NodeID:           "n1",
+		ServiceName:      "web",
+		ProjectName:      "draft",
+		Environment:      "default",
+		ServicePort:      "3000",
+		InternalHostname: "web.draft.default.abcd.draft.local",
+		InternalURL:      "http://web.draft.default.abcd.draft.local:3000",
+		PublicHostname:   "web.draft.default.abcd.127-0-0-1.sslip.io",
+		PublicURL:        "http://web.draft.default.abcd.127-0-0-1.sslip.io:53888",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +44,11 @@ func TestResolveDeploymentEnvRuntimeBuildArgsAndGenerated(t *testing.T) {
 	if runtime["RUNTIME_ONLY"] != "one" || runtime["BUILD_ME"] != "two" {
 		t.Fatalf("runtime env = %+v", runtime)
 	}
-	if runtime["DRAFT_PORT"] != "3000" || runtime["DRAFT_HOSTNAME"] != "web.draft.default.abcd.draft.local" {
+	if runtime["DRAFT_SERVICE_PORT"] != "3000" ||
+		runtime["DRAFT_INTERNAL_HOSTNAME"] != "web.draft.default.abcd.draft.local" ||
+		runtime["DRAFT_INTERNAL_URL"] != "http://web.draft.default.abcd.draft.local:3000" ||
+		runtime["DRAFT_PUBLIC_HOSTNAME"] != "web.draft.default.abcd.127-0-0-1.sslip.io" ||
+		runtime["DRAFT_PUBLIC_URL"] != "http://web.draft.default.abcd.127-0-0-1.sslip.io:53888" {
 		t.Fatalf("generated env = %+v", runtime)
 	}
 	if _, ok := resolved.BuildArgs["RUNTIME_ONLY"]; ok {
@@ -61,11 +68,11 @@ func TestResolveDeploymentEnvRejectsReservedDraftKeys(t *testing.T) {
 	}
 
 	_, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      "n1",
-		ServiceName: "web",
-		ProjectName: "draft",
-		Port:        "3000",
-		Hostname:    "web.draft.default.abcd.draft.local",
+		NodeID:           "n1",
+		ServiceName:      "web",
+		ProjectName:      "draft",
+		ServicePort:      "3000",
+		InternalHostname: "web.draft.default.abcd.draft.local",
 	})
 	if err == nil {
 		t.Fatal("expected reserved key error")

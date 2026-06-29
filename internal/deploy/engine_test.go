@@ -95,6 +95,26 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
+func TestDraftNetworkName(t *testing.T) {
+	got := draftNetworkName(42, "My Project!", "default")
+	if got != "draft-42-my-project-default" {
+		t.Fatalf("draftNetworkName = %q", got)
+	}
+}
+
+func TestInternalNetworkAliases(t *testing.T) {
+	got := internalNetworkAliases("api", "api.app.default.abcd.draft.local")
+	want := []string{"api", "api.app.default.abcd.draft.local"}
+	if len(got) != len(want) {
+		t.Fatalf("aliases = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("aliases = %+v, want %+v", got, want)
+		}
+	}
+}
+
 // --- shouldSkip ---
 
 func TestShouldSkip(t *testing.T) {

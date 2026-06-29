@@ -131,11 +131,14 @@ func TestClientLocalDomainStatusEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.Mode != "hostname-port" {
-		t.Fatalf("Mode = %q, want hostname-port; status = %+v", status.Mode, status)
+	if status.Mode != "public-hostname-port" {
+		t.Fatalf("Mode = %q, want public-hostname-port; status = %+v", status.Mode, status)
 	}
 	if status.ProxyPort != 54321 {
 		t.Fatalf("ProxyPort = %d, want 54321; status = %+v", status.ProxyPort, status)
+	}
+	if status.PublicSuffix != networking.PublicSuffix {
+		t.Fatalf("PublicSuffix = %q, want %q", status.PublicSuffix, networking.PublicSuffix)
 	}
 }
 

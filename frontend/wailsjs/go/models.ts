@@ -105,6 +105,7 @@ export namespace networking {
 	    hostsConfigured: boolean;
 	    hostsError: string;
 	    mode: string;
+	    publicSuffix: string;
 	    loopbackSuffix: string;
 	
 	    static createFrom(source: any = {}) {
@@ -119,6 +120,7 @@ export namespace networking {
 	        this.hostsConfigured = source["hostsConfigured"];
 	        this.hostsError = source["hostsError"];
 	        this.mode = source["mode"];
+	        this.publicSuffix = source["publicSuffix"];
 	        this.loopbackSuffix = source["loopbackSuffix"];
 	    }
 	}
@@ -387,4 +389,3 @@ export namespace store {
 	}
 
 }
-

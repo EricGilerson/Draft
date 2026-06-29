@@ -88,26 +88,26 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const status = deployment?.status || 'stopped';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
-    const deploymentURL = bestDeploymentURL(deployment, localDomain);
+    const publicURL = bestPublicDeploymentURL(deployment, localDomain);
 
     const handleOpenDeployment = () => {
-        if (!deploymentURL) return;
-        BrowserOpenURL(deploymentURL);
+        if (!publicURL) return;
+        BrowserOpenURL(publicURL);
     };
 
     return (
         <div className="overview-tab">
             <div className="overview-status-row">
                 <StatusBadge status={status} />
-                {deploymentURL && isRunning && (
+                {publicURL && isRunning && (
                     <button
                         type="button"
                         className="overview-hostname"
-                        title={deploymentURL}
+                        title={publicURL}
                         onClick={handleOpenDeployment}
                     >
                         <ExternalLink size={11} />
-                        {deploymentURL.replace('http://', '')}
+                        {publicURL.replace('http://', '')}
                     </button>
                 )}
             </div>
@@ -199,25 +199,31 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     )}
                     {deployment.hostPort > 0 && (
                         <div className="overview-detail-row">
-                            <span className="overview-detail-label">Host Port</span>
+                            <span className="overview-detail-label">Mapped Host Port</span>
                             <span className="overview-detail-value mono">{deployment.hostPort}</span>
                         </div>
                     )}
                     {deployment.hostname && (
                         <div className="overview-detail-row">
-                            <span className="overview-detail-label">Draft Hostname</span>
+                            <span className="overview-detail-label">Internal Hostname</span>
                             <span className="overview-detail-value mono">{deployment.hostname}</span>
+                        </div>
+                    )}
+                    {publicURL && (
+                        <div className="overview-detail-row">
+                            <span className="overview-detail-label">Public URL</span>
+                            <span className="overview-detail-value mono">{publicURL.replace('http://', '')}</span>
                         </div>
                     )}
                     {localDomain?.mode && (
                         <div className="overview-detail-row">
-                            <span className="overview-detail-label">Local Domain Mode</span>
+                            <span className="overview-detail-label">Public Access Mode</span>
                             <span className="overview-detail-value mono">{localDomain.mode}</span>
                         </div>
                     )}
                     {localDomain?.hostsError && (
                         <div className="overview-domain-note">
-                            Draft local names need host-file setup. Using a no-setup loopback hostname with the proxy port.
+                            Internal Draft names are not host-resolved. Public access uses a no-setup loopback hostname with the proxy port.
                         </div>
                     )}
                 </div>
@@ -226,21 +232,18 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     );
 }
 
-function bestDeploymentURL(
+function bestPublicDeploymentURL(
     deployment: store.Deployment | null,
     localDomain: networking.LocalDomainStatus | null,
 ): string {
     if (!deployment) return '';
-    if (deployment.hostname && localDomain?.mode === 'full') {
-        return `http://${deployment.hostname}`;
-    }
-    if (deployment.hostname && localDomain?.mode === 'hostname-port' && localDomain.proxyPort) {
-        return `http://${deployment.hostname}:${localDomain.proxyPort}`;
-    }
-    if (deployment.hostname && localDomain && !localDomain.hostsConfigured && localDomain.proxyPort > 0) {
-        const loopbackHostname = hostnameWithSuffix(deployment.hostname, localDomain.loopbackSuffix);
-        if (loopbackHostname) {
-            return `http://${loopbackHostname}:${localDomain.proxyPort}`;
+    if (deployment.hostname && localDomain?.proxyPort) {
+        const publicHostname = hostnameWithSuffix(
+            deployment.hostname,
+            localDomain.publicSuffix || localDomain.loopbackSuffix,
+        );
+        if (publicHostname) {
+            return `http://${publicHostname}:${localDomain.proxyPort}`;
         }
     }
     if (deployment.hostPort > 0) {
