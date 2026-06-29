@@ -60,22 +60,28 @@ type NodeSetting struct {
 
 // Deployment tracks a single build+run cycle for a service node.
 type Deployment struct {
-	ID          uint       `gorm:"primaryKey" json:"id"`
-	NodeID      string     `gorm:"index;not null" json:"nodeId"`
-	ProjectID   uint       `gorm:"index;not null" json:"projectId"`
-	ImageTag    string     `json:"imageTag"`
-	ContainerID string     `json:"containerId"`
-	Status      string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
-	Hostname    string     `json:"hostname"`
-	HostPort    int        `json:"hostPort"`
-	Error       string     `json:"error"`
-	JobID       string     `gorm:"index" json:"jobId"`
-	WorkerPID   int        `json:"workerPid"`
-	StartedAt   *time.Time `json:"startedAt"`
-	LastSeenAt  *time.Time `json:"lastSeenAt"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	FinishedAt  *time.Time `json:"finishedAt"`
+	ID                 uint       `gorm:"primaryKey" json:"id"`
+	NodeID             string     `gorm:"index;not null" json:"nodeId"`
+	ProjectID          uint       `gorm:"index;not null" json:"projectId"`
+	ImageTag           string     `json:"imageTag"`
+	ContainerID        string     `json:"containerId"`
+	Status             string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
+	Hostname           string     `json:"hostname"`
+	HostPort           int        `json:"hostPort"`
+	Error              string     `json:"error"`
+	JobID              string     `gorm:"index" json:"jobId"`
+	WorkerPID          int        `json:"workerPid"`
+	StartedAt          *time.Time `json:"startedAt"`
+	BuildStartedAt     *time.Time `json:"buildStartedAt"`
+	BuildFinishedAt    *time.Time `json:"buildFinishedAt"`
+	ContainerStartedAt *time.Time `json:"containerStartedAt"`
+	ContainerStoppedAt *time.Time `json:"containerStoppedAt"`
+	ExitCode           *int       `json:"exitCode"`
+	OOMKilled          bool       `json:"oomKilled"`
+	LastSeenAt         *time.Time `json:"lastSeenAt"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	FinishedAt         *time.Time `json:"finishedAt"`
 }
 
 // EnvVar represents a single environment variable key/value pair.

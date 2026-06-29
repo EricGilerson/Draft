@@ -3,6 +3,7 @@
 import {dockerwatch} from '../models';
 import {store} from '../models';
 import {networking} from '../models';
+import {deploy} from '../models';
 import {main} from '../models';
 import {dockerfile} from '../models';
 
@@ -29,6 +30,8 @@ export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
 export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
+
+export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 

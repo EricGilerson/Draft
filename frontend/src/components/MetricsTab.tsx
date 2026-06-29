@@ -1,10 +1,409 @@
-import './PlaceholderTab.css';
+import {Activity, AlertCircle, Clock3, HeartPulse, Package, RotateCcw, ServerCrash, Wifi} from 'lucide-react';
+import {useEffect, useState, type ReactNode} from 'react';
+import {GetServiceMetrics} from '../../wailsjs/go/main/App';
+import {deploy} from '../../wailsjs/go/models';
+import StatusBadge from './StatusBadge';
+import './MetricsTab.css';
 
-export default function MetricsTab() {
+export default function MetricsTab({nodeId}: {nodeId: string}) {
+    const [metrics, setMetrics] = useState<deploy.ServiceMetrics | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        let intervalId: number | null = null;
+
+        const load = async (initial = false) => {
+            if (initial) setLoading(true);
+            try {
+                const next = await GetServiceMetrics(nodeId);
+                if (cancelled) return;
+                setMetrics(next);
+                setError('');
+            } catch (e: any) {
+                if (cancelled) return;
+                setError(typeof e === 'string' ? e : e?.message || 'Could not load metrics.');
+            } finally {
+                if (!cancelled && initial) setLoading(false);
+            }
+        };
+
+        void load(true);
+        intervalId = window.setInterval(() => void load(false), 3000);
+        return () => {
+            cancelled = true;
+            if (intervalId !== null) window.clearInterval(intervalId);
+        };
+    }, [nodeId]);
+
+    if (loading && !metrics) {
+        return <div className="metrics-tab metrics-tab--empty">Loading metrics…</div>;
+    }
+
+    if (error && !metrics) {
+        return (
+            <div className="metrics-tab metrics-tab--empty">
+                <div className="metrics-callout metrics-callout--error">
+                    <AlertCircle size={14} />
+                    <span>{error}</span>
+                </div>
+            </div>
+        );
+    }
+
+    if (!metrics) {
+        return <div className="metrics-tab metrics-tab--empty">No metrics available.</div>;
+    }
+
+    const summary = metrics.deploymentSummary;
+    const successRate = summary.recentWindow > 0
+        ? Math.round((summary.successCount / Math.max(1, summary.successCount + summary.failureCount)) * 100)
+        : 0;
+
     return (
-        <div className="placeholder-tab">
-            <span className="placeholder-tab-title">Metrics</span>
-            <span className="placeholder-tab-desc">CPU, memory, and network usage</span>
+        <div className="metrics-tab">
+            <div className="metrics-header">
+                <div className="metrics-header-copy">
+                    <div className="metrics-title-row">
+                        <span className="metrics-title">Runtime Metrics</span>
+                        <StatusBadge status={metrics.status} />
+                    </div>
+                    <span className="metrics-subtitle">
+                        {metrics.serviceType} service · {metrics.currentDeployment ? `deployment #${metrics.currentDeployment.id}` : 'no active deployment'}
+                    </span>
+                </div>
+                {metrics.reachability.status === 'healthy' && (
+                    <div className="metrics-health-chip">
+                        <HeartPulse size={13} />
+                        Reachable in {metrics.reachability.latencyMs}ms
+                    </div>
+                )}
+            </div>
+
+            {error && (
+                <div className="metrics-callout metrics-callout--error">
+                    <AlertCircle size={14} />
+                    <span>{error}</span>
+                </div>
+            )}
+
+            {metrics.liveMetricsError && metrics.status === 'running' && (
+                <div className="metrics-callout">
+                    <AlertCircle size={14} />
+                    <span>{metrics.liveMetricsError}</span>
+                </div>
+            )}
+
+            <div className="metrics-kpis">
+                <MetricCard
+                    icon={<Activity size={14} />}
+                    label="CPU"
+                    value={metrics.latestPoint ? formatPercent(metrics.latestPoint.cpuPercent) : 'No data'}
+                    note={metrics.latestPoint ? 'Current container usage' : 'Available while running'}
+                />
+                <MetricCard
+                    icon={<ServerCrash size={14} />}
+                    label="Memory"
+                    value={metrics.latestPoint ? formatBytes(metrics.latestPoint.memoryBytes) : 'No data'}
+                    note={metrics.latestPoint && metrics.latestPoint.memoryLimitBytes > 0
+                        ? `${Math.round((metrics.latestPoint.memoryBytes / metrics.latestPoint.memoryLimitBytes) * 100)}% of limit`
+                        : 'Available while running'}
+                />
+                <MetricCard
+                    icon={<Clock3 size={14} />}
+                    label="Uptime"
+                    value={metrics.uptimeMs > 0 ? formatDuration(metrics.uptimeMs) : 'Not running'}
+                    note={metrics.currentDeployment?.containerStartedAt ? `Since ${new Date(metrics.currentDeployment.containerStartedAt).toLocaleString()}` : 'Last-known runtime'}
+                />
+                <MetricCard
+                    icon={<Wifi size={14} />}
+                    label="Reachability"
+                    value={reachabilityLabel(metrics.reachability)}
+                    note={reachabilityNote(metrics)}
+                />
+                <MetricCard
+                    icon={<RotateCcw size={14} />}
+                    label="Recent Success"
+                    value={`${successRate}%`}
+                    note={`${summary.successCount} succeeded / ${summary.failureCount} failed in last ${summary.recentWindow}`}
+                />
+                <MetricCard
+                    icon={<Package size={14} />}
+                    label="Container"
+                    value={metrics.currentDeployment?.containerId ? metrics.currentDeployment.containerId.slice(0, 12) : 'None'}
+                    note={metrics.hostPort > 0 ? `127.0.0.1:${metrics.hostPort}` : metrics.hostname || 'No route yet'}
+                />
+            </div>
+
+            <div className="metrics-charts">
+                <MetricChart
+                    title="CPU Usage"
+                    value={metrics.latestPoint ? formatPercent(metrics.latestPoint.cpuPercent) : 'No live CPU data'}
+                    points={metrics.livePoints}
+                    pickValue={(point) => point.cpuPercent}
+                    tone="cpu"
+                />
+                <MetricChart
+                    title="Memory Usage"
+                    value={metrics.latestPoint ? formatBytes(metrics.latestPoint.memoryBytes) : 'No live memory data'}
+                    points={metrics.livePoints}
+                    pickValue={(point) => point.memoryBytes}
+                    tone="memory"
+                />
+                <MetricChart
+                    title="Network Throughput"
+                    value={metrics.latestPoint ? `${formatRate(metrics.latestPoint.networkRxRateBps)} in · ${formatRate(metrics.latestPoint.networkTxRateBps)} out` : 'No live network data'}
+                    points={metrics.livePoints}
+                    pickValue={(point) => point.networkRxRateBps + point.networkTxRateBps}
+                    tone="network"
+                />
+            </div>
+
+            <div className="metrics-grid">
+                <section className="metrics-panel">
+                    <div className="metrics-panel-header">
+                        <span>Health & Route</span>
+                    </div>
+                    <div className="metrics-facts">
+                        <FactRow label="Reachability" value={reachabilityLabel(metrics.reachability)} />
+                        <FactRow label="Target URL" value={metrics.reachability.targetUrl || metrics.publicUrl || metrics.internalUrl || 'None'} mono />
+                        <FactRow label="HTTP Status" value={metrics.reachability.statusCode ? String(metrics.reachability.statusCode) : '—'} mono />
+                        <FactRow label="Docker Health" value={metrics.dockerHealth || 'No healthcheck'} />
+                        <FactRow label="Hostname" value={metrics.hostname || 'None'} mono />
+                        <FactRow label="Desired Port" value={metrics.desiredPort ? String(metrics.desiredPort) : 'Unset'} mono />
+                        <FactRow label="Host Port" value={metrics.hostPort ? String(metrics.hostPort) : 'Unassigned'} mono />
+                    </div>
+                </section>
+
+                <section className="metrics-panel">
+                    <div className="metrics-panel-header">
+                        <span>Deployment Quality</span>
+                    </div>
+                    <div className="metrics-facts">
+                        <FactRow label="Last Build" value={formatMaybeDuration(summary.lastBuildDurationMs)} />
+                        <FactRow label="Last Boot" value={formatMaybeDuration(summary.lastBootDurationMs)} />
+                        <FactRow label="Last Run" value={formatMaybeDuration(summary.lastRunDurationMs)} />
+                        <FactRow label="Total Deployments" value={String(summary.totalDeployments)} mono />
+                        <FactRow label="Last Failure" value={summary.lastFailureAt ? relativeTime(summary.lastFailureAt) : 'None'} />
+                        <FactRow label="Failure Reason" value={summary.lastFailureReason || '—'} />
+                    </div>
+                </section>
+
+                <section className="metrics-panel">
+                    <div className="metrics-panel-header">
+                        <span>Container Facts</span>
+                    </div>
+                    <div className="metrics-facts">
+                        <FactRow label="Restarts" value={String(metrics.restartCount)} mono />
+                        <FactRow label="Exit Code" value={metrics.exitCode !== undefined ? String(metrics.exitCode) : '—'} mono />
+                        <FactRow label="OOM Killed" value={metrics.oomKilled ? 'Yes' : 'No'} />
+                        <FactRow label="Image Size" value={metrics.imageSizeBytes > 0 ? formatBytes(metrics.imageSizeBytes) : '—'} />
+                        <FactRow label="Writable Layer" value={metrics.writableSizeBytes > 0 ? formatBytes(metrics.writableSizeBytes) : '—'} />
+                        <FactRow label="Image Tag" value={metrics.currentDeployment?.imageTag || '—'} mono />
+                    </div>
+                </section>
+            </div>
+
+            <div className="metrics-grid metrics-grid--bottom">
+                <section className="metrics-panel">
+                    <div className="metrics-panel-header">
+                        <span>Recent Runtime Events</span>
+                    </div>
+                    {metrics.events.length === 0 ? (
+                        <span className="metrics-empty">Events will appear after the first deployment.</span>
+                    ) : (
+                        <div className="metrics-events">
+                            {metrics.events.map((event, index) => (
+                                <div key={`${event.kind}-${event.at}-${index}`} className={`metrics-event metrics-event--${event.severity}`}>
+                                    <div className="metrics-event-dot" />
+                                    <div className="metrics-event-copy">
+                                        <span className="metrics-event-summary">{event.summary}</span>
+                                        <span className="metrics-event-time">{new Date(event.at).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+
+                <section className="metrics-panel">
+                    <div className="metrics-panel-header">
+                        <span>Recent Deployments</span>
+                    </div>
+                    {metrics.recentDeployments.length === 0 ? (
+                        <span className="metrics-empty">No deployments yet.</span>
+                    ) : (
+                        <div className="metrics-deployments">
+                            {metrics.recentDeployments.map((deployment) => (
+                                <div key={deployment.deploymentId} className="metrics-deployment-row">
+                                    <div className="metrics-deployment-main">
+                                        <div className="metrics-deployment-title">
+                                            <StatusBadge status={deployment.status} />
+                                            <span className="metrics-deployment-tag mono">{deployment.imageTag || `#${deployment.deploymentId}`}</span>
+                                        </div>
+                                        <span className="metrics-deployment-time">{new Date(deployment.createdAt).toLocaleString()}</span>
+                                    </div>
+                                    <div className="metrics-deployment-stats">
+                                        <span>{formatMaybeDuration(deployment.buildDurationMs)} build</span>
+                                        <span>{formatMaybeDuration(deployment.bootDurationMs)} boot</span>
+                                        <span>{formatMaybeDuration(deployment.runDurationMs)} run</span>
+                                        {deployment.exitCode !== undefined && <span>exit {deployment.exitCode}</span>}
+                                    </div>
+                                    {deployment.error && (
+                                        <span className="metrics-deployment-error">{deployment.error}</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+            </div>
         </div>
     );
+}
+
+function MetricCard({icon, label, value, note}: {icon: ReactNode; label: string; value: string; note: string}) {
+    return (
+        <div className="metrics-card">
+            <div className="metrics-card-label">
+                {icon}
+                <span>{label}</span>
+            </div>
+            <span className="metrics-card-value">{value}</span>
+            <span className="metrics-card-note">{note}</span>
+        </div>
+    );
+}
+
+function MetricChart({
+    title,
+    value,
+    points,
+    pickValue,
+    tone,
+}: {
+    title: string;
+    value: string;
+    points: deploy.MetricPoint[];
+    pickValue: (point: deploy.MetricPoint) => number;
+    tone: 'cpu' | 'memory' | 'network';
+}) {
+    const chartPoints = points.map((point) => pickValue(point));
+    const path = toSparkline(chartPoints, 260, 96);
+
+    return (
+        <section className="metrics-panel metrics-panel--chart">
+            <div className="metrics-panel-header">
+                <span>{title}</span>
+                <span className="metrics-chart-value">{value}</span>
+            </div>
+            {path ? (
+                <svg className={`metrics-chart metrics-chart--${tone}`} viewBox="0 0 260 96" preserveAspectRatio="none">
+                    <path className="metrics-chart-area" d={`${path} L260 96 L0 96 Z`} />
+                    <path className="metrics-chart-line" d={path} />
+                </svg>
+            ) : (
+                <div className="metrics-chart-empty">Live metrics appear while the container is running.</div>
+            )}
+        </section>
+    );
+}
+
+function FactRow({label, value, mono = false}: {label: string; value: string; mono?: boolean}) {
+    return (
+        <div className="metrics-fact-row">
+            <span className="metrics-fact-label">{label}</span>
+            <span className={`metrics-fact-value ${mono ? 'mono' : ''}`}>{value}</span>
+        </div>
+    );
+}
+
+function toSparkline(values: number[], width: number, height: number) {
+    if (values.length < 2) return '';
+    const max = Math.max(...values, 1);
+    const min = Math.min(...values, 0);
+    const range = max - min || 1;
+    return values.map((value, index) => {
+        const x = (index / (values.length - 1)) * width;
+        const y = height - ((value - min) / range) * (height - 6) - 3;
+        return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+    }).join(' ');
+}
+
+function formatPercent(value: number) {
+    return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function formatBytes(value: number) {
+    if (!value) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let next = value;
+    let unit = 0;
+    while (next >= 1024 && unit < units.length - 1) {
+        next /= 1024;
+        unit++;
+    }
+    return `${next.toFixed(next >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatRate(value: number) {
+    return `${formatBytes(value)}/s`;
+}
+
+function formatDuration(valueMs: number) {
+    const totalSeconds = Math.max(0, Math.floor(valueMs / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+}
+
+function formatMaybeDuration(valueMs: number) {
+    return valueMs > 0 ? formatDuration(valueMs) : '—';
+}
+
+function relativeTime(value: any) {
+    const date = new Date(value);
+    const delta = Date.now() - date.getTime();
+    const minutes = Math.floor(delta / 60000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+}
+
+function reachabilityLabel(reachability: deploy.ReachabilityCheck) {
+    switch (reachability.status) {
+        case 'healthy':
+            return 'Healthy';
+        case 'degraded':
+            return 'Responding with errors';
+        case 'not_applicable':
+            return 'Not applicable';
+        case 'not_running':
+            return 'Not running';
+        default:
+            return 'Unreachable';
+    }
+}
+
+function reachabilityNote(metrics: deploy.ServiceMetrics) {
+    if (metrics.reachability.status === 'healthy') {
+        return `${metrics.reachability.latencyMs}ms from localhost`;
+    }
+    if (metrics.reachability.status === 'degraded') {
+        return metrics.reachability.statusCode ? `HTTP ${metrics.reachability.statusCode}` : 'Request completed with an error status';
+    }
+    if (metrics.reachability.status === 'not_applicable') {
+        return 'HTTP probing is only used for web services';
+    }
+    if (metrics.reachability.error) {
+        return metrics.reachability.error;
+    }
+    return metrics.publicUrl || metrics.internalUrl || 'No reachable endpoint';
 }

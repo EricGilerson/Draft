@@ -113,7 +113,7 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                 {activeTab === 'variables' && <VariablesTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
                 {activeTab === 'networking' && <NetworkingTab />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
-                {activeTab === 'metrics' && <MetricsTab />}
+                {activeTab === 'metrics' && <MetricsTab nodeId={nodeId} />}
                 {activeTab === 'docker' && <DockerTab />}
                 {activeTab === 'settings' && <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} onServicesChanged={onServicesChanged} />}
             </div>

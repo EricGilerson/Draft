@@ -44,6 +44,8 @@ type Engine struct {
 	active      map[string]context.CancelFunc // nodeID → cancel build
 	logsMu      sync.Mutex
 	logSubs     map[string]context.CancelFunc // nodeID → cancel log stream
+	statsMu     sync.Mutex
+	stats       map[string][]MetricPoint
 }
 
 func New(s *store.Store, router *networking.Router, logDir string, emit func(string, any)) *Engine {
@@ -56,6 +58,7 @@ func New(s *store.Store, router *networking.Router, logDir string, emit func(str
 		execCommand: exec.CommandContext,
 		active:      make(map[string]context.CancelFunc),
 		logSubs:     make(map[string]context.CancelFunc),
+		stats:       make(map[string][]MetricPoint),
 	}
 }
 
@@ -144,13 +147,14 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 
 	dep := &store.Deployment{
-		NodeID:     nodeID,
-		ProjectID:  node.ProjectID,
-		Status:     "building",
-		JobID:      fmt.Sprintf("%d-%s", time.Now().UnixNano(), nodeID),
-		WorkerPID:  os.Getpid(),
-		StartedAt:  ptrTime(time.Now()),
-		LastSeenAt: ptrTime(time.Now()),
+		NodeID:         nodeID,
+		ProjectID:      node.ProjectID,
+		Status:         "building",
+		JobID:          fmt.Sprintf("%d-%s", time.Now().UnixNano(), nodeID),
+		WorkerPID:      os.Getpid(),
+		StartedAt:      ptrTime(time.Now()),
+		BuildStartedAt: ptrTime(time.Now()),
+		LastSeenAt:     ptrTime(time.Now()),
 	}
 	dep, err = e.store.CreateDeployment(dep)
 	if err != nil {
@@ -230,7 +234,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	now := time.Now()
 	dep.Status = "built"
-	dep.FinishedAt = &now
+	dep.BuildFinishedAt = &now
 	dep.LastSeenAt = &now
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "built"})
@@ -328,6 +332,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	dep.Status = "running"
 	dep.HostPort = hostPort
+	dep.ContainerStartedAt = ptrTime(time.Now())
+	dep.ContainerStoppedAt = nil
+	dep.FinishedAt = nil
 	dep.LastSeenAt = ptrTime(time.Now())
 	if regResult != nil {
 		dep.Hostname = regResult.Hostname
@@ -795,6 +802,8 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	statusCh, errCh := cli.ContainerWait(ctx, dep.ContainerID, container.WaitConditionNotRunning)
 	select {
 	case result := <-statusCh:
+		exitCode := int(result.StatusCode)
+		dep.ExitCode = &exitCode
 		if result.StatusCode != 0 {
 			errMsg := fmt.Sprintf("container exited with code %d", result.StatusCode)
 			if result.Error != nil && result.Error.Message != "" {
@@ -813,6 +822,7 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	}
 
 	now := time.Now()
+	dep.ContainerStoppedAt = &now
 	dep.FinishedAt = &now
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{
@@ -892,7 +902,10 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 
 	dep.Status = "stopped"
 	now := time.Now()
+	dep.ContainerStoppedAt = &now
 	dep.FinishedAt = &now
+	exitCode := 0
+	dep.ExitCode = &exitCode
 	e.store.UpdateDeployment(dep)
 
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
@@ -920,6 +933,9 @@ func (e *Engine) Restart(ctx context.Context, nodeID string) error {
 	}
 
 	dep.Status = "running"
+	dep.ContainerStartedAt = ptrTime(time.Now())
+	dep.ContainerStoppedAt = nil
+	dep.FinishedAt = nil
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "running"})
 	return nil
@@ -1044,6 +1060,17 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			dep.Status = "running"
 			dep.Error = ""
 			dep.FinishedAt = nil
+			dep.ContainerStoppedAt = nil
+			if dep.ContainerStartedAt == nil {
+				if startedAt, err := time.Parse(time.RFC3339Nano, inspect.State.StartedAt); err == nil {
+					dep.ContainerStartedAt = &startedAt
+				}
+			}
+			dep.OOMKilled = inspect.State.OOMKilled
+			if dep.ExitCode == nil || inspect.State.ExitCode != 0 {
+				exitCode := inspect.State.ExitCode
+				dep.ExitCode = &exitCode
+			}
 			if dep.HostPort == 0 {
 				dep.HostPort = firstHostPort(inspect.NetworkSettings.Ports)
 			}
@@ -1060,10 +1087,20 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			dep.Status = "failed"
 			dep.Error = fmt.Sprintf("container exited with code %d", inspect.State.ExitCode)
 			dep.FinishedAt = ptrTime(time.Now())
+			dep.ContainerStoppedAt = dep.FinishedAt
+			exitCode := inspect.State.ExitCode
+			dep.ExitCode = &exitCode
+			dep.OOMKilled = inspect.State.OOMKilled
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
 		} else {
 			dep.Status = "stopped"
 			dep.FinishedAt = ptrTime(time.Now())
+			dep.ContainerStoppedAt = dep.FinishedAt
+			if inspect.State != nil {
+				exitCode := inspect.State.ExitCode
+				dep.ExitCode = &exitCode
+				dep.OOMKilled = inspect.State.OOMKilled
+			}
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
 		}
 		e.store.UpdateDeployment(dep)
@@ -1131,6 +1168,12 @@ func (e *Engine) failDeployment(dep *store.Deployment, nodeID, errMsg string) {
 	dep.Status = "failed"
 	dep.Error = errMsg
 	now := time.Now()
+	if dep.BuildFinishedAt == nil {
+		dep.BuildFinishedAt = &now
+	}
+	if dep.ContainerStartedAt != nil {
+		dep.ContainerStoppedAt = &now
+	}
 	dep.FinishedAt = &now
 	dep.LastSeenAt = &now
 	e.store.UpdateDeployment(dep)

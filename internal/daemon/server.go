@@ -144,6 +144,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/deployments", s.handleDeployments)
 	mux.HandleFunc("/active-deployment", s.handleActiveDeployment)
 	mux.HandleFunc("/build-log", s.handleBuildLog)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/docker", s.handleDocker)
 	mux.HandleFunc("/local-domain", s.handleLocalDomain)
 	mux.HandleFunc("/env", s.handleGetEnv)
@@ -239,6 +240,16 @@ func (s *Server) handleBuildLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]string{"log": log})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.URL.Query().Get("nodeId")
+	metrics, err := s.engine.GetServiceMetrics(r.Context(), nodeID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, metrics)
 }
 
 func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {

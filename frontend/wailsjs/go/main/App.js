@@ -50,6 +50,10 @@ export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
 
+export function GetServiceMetrics(arg1) {
+  return window['go']['main']['App']['GetServiceMetrics'](arg1);
+}
+
 export function GetServiceRoot(arg1, arg2) {
   return window['go']['main']['App']['GetServiceRoot'](arg1, arg2);
 }

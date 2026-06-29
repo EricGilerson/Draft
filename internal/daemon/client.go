@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"Draft/internal/deploy"
 	"Draft/internal/dockerwatch"
 	"Draft/internal/networking"
 	"Draft/internal/store"
@@ -129,6 +130,12 @@ func (c *Client) GetBuildLog(ctx context.Context, deploymentID uint) (string, er
 	}
 	err := c.get(ctx, fmt.Sprintf("/build-log?id=%d", deploymentID), &out)
 	return out.Log, err
+}
+
+func (c *Client) GetServiceMetrics(ctx context.Context, nodeID string) (deploy.ServiceMetrics, error) {
+	var out deploy.ServiceMetrics
+	err := c.get(ctx, "/metrics?nodeId="+url.QueryEscape(nodeID), &out)
+	return out, err
 }
 
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {

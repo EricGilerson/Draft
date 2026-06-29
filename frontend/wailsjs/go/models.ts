@@ -1,3 +1,309 @@
+export namespace deploy {
+	
+	export class DeploymentHistorySummary {
+	    totalDeployments: number;
+	    recentWindow: number;
+	    successCount: number;
+	    failureCount: number;
+	    // Go type: time
+	    lastDeployAt?: any;
+	    // Go type: time
+	    lastFailureAt?: any;
+	    lastFailureReason: string;
+	    lastBuildDurationMs: number;
+	    lastBootDurationMs: number;
+	    lastRunDurationMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeploymentHistorySummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalDeployments = source["totalDeployments"];
+	        this.recentWindow = source["recentWindow"];
+	        this.successCount = source["successCount"];
+	        this.failureCount = source["failureCount"];
+	        this.lastDeployAt = this.convertValues(source["lastDeployAt"], null);
+	        this.lastFailureAt = this.convertValues(source["lastFailureAt"], null);
+	        this.lastFailureReason = source["lastFailureReason"];
+	        this.lastBuildDurationMs = source["lastBuildDurationMs"];
+	        this.lastBootDurationMs = source["lastBootDurationMs"];
+	        this.lastRunDurationMs = source["lastRunDurationMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DeploymentTimelineItem {
+	    deploymentId: number;
+	    status: string;
+	    imageTag: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    finishedAt?: any;
+	    buildDurationMs: number;
+	    bootDurationMs: number;
+	    runDurationMs: number;
+	    exitCode?: number;
+	    error: string;
+	    oomKilled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeploymentTimelineItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deploymentId = source["deploymentId"];
+	        this.status = source["status"];
+	        this.imageTag = source["imageTag"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.finishedAt = this.convertValues(source["finishedAt"], null);
+	        this.buildDurationMs = source["buildDurationMs"];
+	        this.bootDurationMs = source["bootDurationMs"];
+	        this.runDurationMs = source["runDurationMs"];
+	        this.exitCode = source["exitCode"];
+	        this.error = source["error"];
+	        this.oomKilled = source["oomKilled"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MetricPoint {
+	    // Go type: time
+	    timestamp: any;
+	    cpuPercent: number;
+	    memoryBytes: number;
+	    memoryLimitBytes: number;
+	    networkRxBytes: number;
+	    networkTxBytes: number;
+	    networkRxRateBps: number;
+	    networkTxRateBps: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MetricPoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.cpuPercent = source["cpuPercent"];
+	        this.memoryBytes = source["memoryBytes"];
+	        this.memoryLimitBytes = source["memoryLimitBytes"];
+	        this.networkRxBytes = source["networkRxBytes"];
+	        this.networkTxBytes = source["networkTxBytes"];
+	        this.networkRxRateBps = source["networkRxRateBps"];
+	        this.networkTxRateBps = source["networkTxRateBps"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReachabilityCheck {
+	    status: string;
+	    targetUrl: string;
+	    statusCode: number;
+	    latencyMs: number;
+	    error: string;
+	    // Go type: time
+	    checkedAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReachabilityCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.targetUrl = source["targetUrl"];
+	        this.statusCode = source["statusCode"];
+	        this.latencyMs = source["latencyMs"];
+	        this.error = source["error"];
+	        this.checkedAt = this.convertValues(source["checkedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RuntimeEvent {
+	    kind: string;
+	    severity: string;
+	    // Go type: time
+	    at: any;
+	    summary: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RuntimeEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.severity = source["severity"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.summary = source["summary"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ServiceMetrics {
+	    nodeId: string;
+	    serviceName: string;
+	    serviceType: string;
+	    status: string;
+	    desiredPort: number;
+	    hostPort: number;
+	    hostname: string;
+	    internalUrl: string;
+	    publicUrl: string;
+	    currentDeployment?: store.Deployment;
+	    uptimeMs: number;
+	    restartCount: number;
+	    oomKilled: boolean;
+	    exitCode?: number;
+	    dockerHealth: string;
+	    imageSizeBytes: number;
+	    writableSizeBytes: number;
+	    liveMetricsError: string;
+	    latestPoint?: MetricPoint;
+	    livePoints: MetricPoint[];
+	    reachability: ReachabilityCheck;
+	    deploymentSummary: DeploymentHistorySummary;
+	    recentDeployments: DeploymentTimelineItem[];
+	    events: RuntimeEvent[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceMetrics(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.serviceName = source["serviceName"];
+	        this.serviceType = source["serviceType"];
+	        this.status = source["status"];
+	        this.desiredPort = source["desiredPort"];
+	        this.hostPort = source["hostPort"];
+	        this.hostname = source["hostname"];
+	        this.internalUrl = source["internalUrl"];
+	        this.publicUrl = source["publicUrl"];
+	        this.currentDeployment = this.convertValues(source["currentDeployment"], store.Deployment);
+	        this.uptimeMs = source["uptimeMs"];
+	        this.restartCount = source["restartCount"];
+	        this.oomKilled = source["oomKilled"];
+	        this.exitCode = source["exitCode"];
+	        this.dockerHealth = source["dockerHealth"];
+	        this.imageSizeBytes = source["imageSizeBytes"];
+	        this.writableSizeBytes = source["writableSizeBytes"];
+	        this.liveMetricsError = source["liveMetricsError"];
+	        this.latestPoint = this.convertValues(source["latestPoint"], MetricPoint);
+	        this.livePoints = this.convertValues(source["livePoints"], MetricPoint);
+	        this.reachability = this.convertValues(source["reachability"], ReachabilityCheck);
+	        this.deploymentSummary = this.convertValues(source["deploymentSummary"], DeploymentHistorySummary);
+	        this.recentDeployments = this.convertValues(source["recentDeployments"], DeploymentTimelineItem);
+	        this.events = this.convertValues(source["events"], RuntimeEvent);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace dockerfile {
 	
 	export class ExposePort {
@@ -188,6 +494,16 @@ export namespace store {
 	    // Go type: time
 	    startedAt?: any;
 	    // Go type: time
+	    buildStartedAt?: any;
+	    // Go type: time
+	    buildFinishedAt?: any;
+	    // Go type: time
+	    containerStartedAt?: any;
+	    // Go type: time
+	    containerStoppedAt?: any;
+	    exitCode?: number;
+	    oomKilled: boolean;
+	    // Go type: time
 	    lastSeenAt?: any;
 	    // Go type: time
 	    createdAt: any;
@@ -214,6 +530,12 @@ export namespace store {
 	        this.jobId = source["jobId"];
 	        this.workerPid = source["workerPid"];
 	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.buildStartedAt = this.convertValues(source["buildStartedAt"], null);
+	        this.buildFinishedAt = this.convertValues(source["buildFinishedAt"], null);
+	        this.containerStartedAt = this.convertValues(source["containerStartedAt"], null);
+	        this.containerStoppedAt = this.convertValues(source["containerStoppedAt"], null);
+	        this.exitCode = source["exitCode"];
+	        this.oomKilled = source["oomKilled"];
 	        this.lastSeenAt = this.convertValues(source["lastSeenAt"], null);
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
