@@ -20,10 +20,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
-    const [pendingAction, setPendingAction] = useState<'stopping' | 'restarting' | 'deploying' | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
-    const {lines: buildLines, deploying, version} = useBuildLog(nodeId);
+    const {lines: buildLines, deploying, version, pendingAction, setPendingAction} = useBuildLog(nodeId);
 
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
@@ -35,7 +34,6 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         if (version === 0) return;
         GetActiveDeployment(nodeId).then(d => {
             setDeployment(d || null);
-            setPendingAction(null);
             GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
             if (d?.status === 'failed') {
                 setError(d.error || 'Deployment failed');

@@ -2,25 +2,30 @@ import {createContext, useContext, useEffect, useRef, useState, type ReactNode} 
 import {GetBuildLog} from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 
+type PendingAction = 'stopping' | 'restarting' | 'deploying' | null;
+
 type NodeBuildState = {
     lines: string[];
     deploying: boolean;
     version: number;
+    pendingAction: PendingAction;
 };
 
-const DEFAULT_STATE: NodeBuildState = {lines: [], deploying: false, version: 0};
+const DEFAULT_STATE: NodeBuildState = {lines: [], deploying: false, version: 0, pendingAction: null};
 
 type BuildLogStore = {
     nodes: Map<string, NodeBuildState>;
     listeners: Set<() => void>;
+    setPendingAction: (nodeId: string, action: PendingAction) => void;
 };
 
 const BuildLogContext = createContext<BuildLogStore>({
     nodes: new Map(),
     listeners: new Set(),
+    setPendingAction: () => {},
 });
 
-export function useBuildLog(nodeId: string): NodeBuildState {
+export function useBuildLog(nodeId: string): NodeBuildState & {setPendingAction: (action: PendingAction) => void} {
     const store = useContext(BuildLogContext);
     const [, rerender] = useState(0);
 
@@ -30,13 +35,15 @@ export function useBuildLog(nodeId: string): NodeBuildState {
         return () => { store.listeners.delete(listener); };
     }, [store]);
 
-    return store.nodes.get(nodeId) ?? DEFAULT_STATE;
+    const state = store.nodes.get(nodeId) ?? DEFAULT_STATE;
+    return {...state, setPendingAction: (action: PendingAction) => store.setPendingAction(nodeId, action)};
 }
 
 export function BuildLogProvider({children}: {children: ReactNode}) {
     const storeRef = useRef<BuildLogStore>({
         nodes: new Map(),
         listeners: new Set(),
+        setPendingAction: () => {},
     });
 
     const notify = () => {
@@ -46,11 +53,19 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
     const getOrCreate = (nodeId: string): NodeBuildState => {
         let s = storeRef.current.nodes.get(nodeId);
         if (!s) {
-            s = {lines: [], deploying: false, version: 0};
+            s = {lines: [], deploying: false, version: 0, pendingAction: null};
             storeRef.current.nodes.set(nodeId, s);
         }
         return s;
     };
+
+    const setPendingAction = (nodeId: string, action: PendingAction) => {
+        const s = getOrCreate(nodeId);
+        s.pendingAction = action;
+        notify();
+    };
+
+    storeRef.current.setPendingAction = setPendingAction;
 
     useEffect(() => {
         const unsubStatus = EventsOn('deploy:status', (payload: any) => {
@@ -58,6 +73,9 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
             const ev = payload.event;
             const s = getOrCreate(nodeId);
             s.deploying = ev.status === 'building' || ev.status === 'starting';
+            if (!s.deploying) {
+                s.pendingAction = null;
+            }
             s.version++;
             if (ev.status === 'building') {
                 s.lines = [];
