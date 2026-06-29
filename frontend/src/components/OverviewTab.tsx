@@ -217,7 +217,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     )}
                     {localDomain?.hostsError && (
                         <div className="overview-domain-note">
-                            Local domain names need host-file setup. Falling back to the mapped localhost port.
+                            Draft local names need host-file setup. Using a no-setup loopback hostname with the proxy port.
                         </div>
                     )}
                 </div>
@@ -237,8 +237,19 @@ function bestDeploymentURL(
     if (deployment.hostname && localDomain?.mode === 'hostname-port' && localDomain.proxyPort) {
         return `http://${deployment.hostname}:${localDomain.proxyPort}`;
     }
+    if (deployment.hostname && localDomain && !localDomain.hostsConfigured && localDomain.proxyPort > 0) {
+        const loopbackHostname = hostnameWithSuffix(deployment.hostname, localDomain.loopbackSuffix);
+        if (loopbackHostname) {
+            return `http://${loopbackHostname}:${localDomain.proxyPort}`;
+        }
+    }
     if (deployment.hostPort > 0) {
         return `http://127.0.0.1:${deployment.hostPort}`;
     }
     return '';
+}
+
+function hostnameWithSuffix(hostname: string, suffix: string): string {
+    if (!suffix) return '';
+    return hostname.replace(/\.draft\.local\.?$/, `.${suffix}`);
 }

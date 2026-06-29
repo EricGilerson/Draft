@@ -12,7 +12,10 @@ import (
 	"strings"
 )
 
-const Suffix = "draft.local"
+const (
+	Suffix         = "draft.local"
+	LoopbackSuffix = "127-0-0-1.sslip.io"
+)
 
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
 
@@ -47,6 +50,22 @@ func Hostname(service, project, environment, uid string) string {
 		uid,
 		Suffix,
 	)
+}
+
+func LoopbackHostname(hostname string) string {
+	hostname = strings.TrimSuffix(hostname, ".")
+	if strings.HasSuffix(hostname, "."+Suffix) {
+		return strings.TrimSuffix(hostname, "."+Suffix) + "." + LoopbackSuffix
+	}
+	return hostname
+}
+
+func HostAliases(hostname string) []string {
+	loopback := LoopbackHostname(hostname)
+	if loopback == hostname {
+		return []string{hostname}
+	}
+	return []string{hostname, loopback}
 }
 
 // ParsedHostname holds the decoded parts of a Draft hostname.

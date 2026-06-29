@@ -65,6 +65,10 @@ func TestRouterRegisterHTTP(t *testing.T) {
 	if result.HostPort != 0 {
 		t.Errorf("HostPort = %d, want 0 for HTTP", result.HostPort)
 	}
+	loopbackHostname := LoopbackHostname(wantHostname)
+	if !r.proxy.HasRoute(loopbackHostname) {
+		t.Errorf("proxy should route loopback alias %q", loopbackHostname)
+	}
 
 	// Verify the proxy actually routes to the upstream
 	req, _ := http.NewRequest("GET", "http://"+r.proxy.Addr()+"/", nil)
@@ -78,6 +82,18 @@ func TestRouterRegisterHTTP(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "ok" {
 		t.Errorf("proxy response = %q, want 'ok'", body)
+	}
+
+	req, _ = http.NewRequest("GET", "http://"+r.proxy.Addr()+"/", nil)
+	req.Host = loopbackHostname
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("loopback proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ = io.ReadAll(resp.Body)
+	if string(body) != "ok" {
+		t.Errorf("loopback proxy response = %q, want 'ok'", body)
 	}
 
 	// Verify the route is persisted in the database
@@ -368,7 +384,7 @@ func TestRouterLocalDomainStatusModes(t *testing.T) {
 	hostsFailed := NewRouter(s, "127.0.0.1:80")
 	hostsFailed.setHostsError(os.ErrPermission)
 	status = hostsFailed.LocalDomainStatus()
-	if status.Mode != "localhost-port" || status.HostsConfigured || status.HostsError == "" {
+	if status.Mode != "loopback-hostname-port" || status.HostsConfigured || status.HostsError == "" {
 		t.Fatalf("hosts failure status = %+v", status)
 	}
 }

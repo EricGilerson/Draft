@@ -38,6 +38,27 @@ func TestHostnameSpecialChars(t *testing.T) {
 	}
 }
 
+func TestLoopbackHostname(t *testing.T) {
+	h := LoopbackHostname("api.myapp.default.a3f2.draft.local")
+	want := "api.myapp.default.a3f2.127-0-0-1.sslip.io"
+	if h != want {
+		t.Errorf("LoopbackHostname = %q, want %q", h, want)
+	}
+}
+
+func TestHostAliases(t *testing.T) {
+	aliases := HostAliases("api.myapp.default.a3f2.draft.local")
+	if len(aliases) != 2 {
+		t.Fatalf("len(HostAliases) = %d, want 2: %+v", len(aliases), aliases)
+	}
+	if aliases[0] != "api.myapp.default.a3f2.draft.local" {
+		t.Errorf("primary alias = %q", aliases[0])
+	}
+	if aliases[1] != "api.myapp.default.a3f2.127-0-0-1.sslip.io" {
+		t.Errorf("loopback alias = %q", aliases[1])
+	}
+}
+
 func TestParseHostname(t *testing.T) {
 	p := ParseHostname("api.myapp.default.a3f2.draft.local")
 	if p == nil {

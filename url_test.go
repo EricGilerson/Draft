@@ -29,8 +29,13 @@ func TestBestDeploymentURL(t *testing.T) {
 			want: "http://api.app.default.abcd.draft.local:53888",
 		},
 		{
-			name: "localhost fallback",
-			mode: networking.LocalDomainStatus{Mode: "localhost-port", ProxyPort: 53888},
+			name: "loopback hostname fallback",
+			mode: networking.LocalDomainStatus{Mode: "loopback-hostname-port", ProxyPort: 53888},
+			want: "http://api.app.default.abcd.127-0-0-1.sslip.io:53888",
+		},
+		{
+			name: "localhost port fallback without proxy",
+			mode: networking.LocalDomainStatus{Mode: "localhost-port"},
 			want: "http://127.0.0.1:49152",
 		},
 	}

@@ -105,6 +105,7 @@ export namespace networking {
 	    hostsConfigured: boolean;
 	    hostsError: string;
 	    mode: string;
+	    loopbackSuffix: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalDomainStatus(source);
@@ -118,6 +119,7 @@ export namespace networking {
 	        this.hostsConfigured = source["hostsConfigured"];
 	        this.hostsError = source["hostsError"];
 	        this.mode = source["mode"];
+	        this.loopbackSuffix = source["loopbackSuffix"];
 	    }
 	}
 

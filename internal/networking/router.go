@@ -31,7 +31,8 @@ type LocalDomainStatus struct {
 	ProxyOnDefault  bool   `json:"proxyOnDefault"`
 	HostsConfigured bool   `json:"hostsConfigured"`
 	HostsError      string `json:"hostsError"`
-	Mode            string `json:"mode"` // full|hostname-port|localhost-port
+	Mode            string `json:"mode"` // full|hostname-port|loopback-hostname-port|localhost-port
+	LoopbackSuffix  string `json:"loopbackSuffix"`
 }
 
 // NewRouter creates a Router backed by the given store. The proxy listens on
@@ -136,10 +137,7 @@ func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 	}
 
 	if protocol == "http" {
-		r.proxy.SetRoute(hostname, ProxyTarget{
-			Host: req.TargetHost,
-			Port: req.TargetPort,
-		})
+		r.setHTTPRouteAliases(hostname, ProxyTarget{Host: req.TargetHost, Port: req.TargetPort})
 	}
 
 	if err := r.syncHosts(); err != nil {
@@ -171,7 +169,7 @@ func (r *Router) RestoreHTTPRoute(hostname string, projectID uint, nodeID string
 			return createErr
 		}
 	}
-	r.proxy.SetRoute(hostname, ProxyTarget{Host: targetHost, Port: targetPort})
+	r.setHTTPRouteAliases(hostname, ProxyTarget{Host: targetHost, Port: targetPort})
 	if err := r.syncHosts(); err != nil {
 		log.Printf("[draft-router] hosts file sync failed (non-fatal): %v", err)
 	}
@@ -192,7 +190,7 @@ func (r *Router) Unregister(hostname string) error {
 		}
 	}
 
-	r.proxy.RemoveRoute(hostname)
+	r.removeHTTPRouteAliases(hostname)
 
 	if err := r.store.DeleteRoute(hostname); err != nil {
 		return fmt.Errorf("delete route: %w", err)
@@ -212,7 +210,7 @@ func (r *Router) UnregisterNode(nodeID string) error {
 	}
 
 	for _, route := range routes {
-		r.proxy.RemoveRoute(route.Hostname)
+		r.removeHTTPRouteAliases(route.Hostname)
 	}
 
 	if err := r.store.DeleteRoutesByNode(nodeID); err != nil {
@@ -247,6 +245,8 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 		mode = "full"
 	} else if hostsConfigured && port > 0 {
 		mode = "hostname-port"
+	} else if port > 0 {
+		mode = "loopback-hostname-port"
 	}
 
 	return LocalDomainStatus{
@@ -256,6 +256,7 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 		HostsConfigured: hostsConfigured,
 		HostsError:      hostsError,
 		Mode:            mode,
+		LoopbackSuffix:  LoopbackSuffix,
 	}
 }
 
@@ -268,10 +269,7 @@ func (r *Router) reloadRoutes() error {
 	}
 	for _, route := range routes {
 		if route.Protocol == "http" {
-			r.proxy.SetRoute(route.Hostname, ProxyTarget{
-				Host: route.TargetHost,
-				Port: route.TargetPort,
-			})
+			r.setHTTPRouteAliases(route.Hostname, ProxyTarget{Host: route.TargetHost, Port: route.TargetPort})
 		}
 	}
 	log.Printf("[draft-router] loaded %d routes from database", len(routes))
@@ -315,6 +313,18 @@ func parsePort(addr string) int {
 	}
 	port, _ := strconv.Atoi(portStr)
 	return port
+}
+
+func (r *Router) setHTTPRouteAliases(hostname string, target ProxyTarget) {
+	for _, alias := range HostAliases(hostname) {
+		r.proxy.SetRoute(alias, target)
+	}
+}
+
+func (r *Router) removeHTTPRouteAliases(hostname string) {
+	for _, alias := range HostAliases(hostname) {
+		r.proxy.RemoveRoute(alias)
+	}
 }
 
 // leasedPorts returns a set of all currently leased ports.
