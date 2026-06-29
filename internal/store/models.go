@@ -80,6 +80,29 @@ type Deployment struct {
 
 // EnvVar represents a single environment variable key/value pair.
 type EnvVar struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	NodeID    string    `gorm:"primaryKey;not null" json:"nodeId"`
+	Key       string    `gorm:"primaryKey;not null" json:"key"`
+	Value     string    `gorm:"not null" json:"value"`
+	Scope     string    `gorm:"not null;default:'runtime'" json:"scope"` // runtime|build|both
+	Secret    bool      `json:"secret"`
+	Source    string    `gorm:"not null;default:'manual'" json:"source"` // manual|imported|generated
+	EnvFile   string    `json:"envFile"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type EnvVarConflict struct {
+	Key           string `json:"key"`
+	DatabaseValue string `json:"databaseValue"`
+	FileValue     string `json:"fileValue"`
+}
+
+type EnvFileSyncResult struct {
+	Path      string           `json:"path"`
+	Imported  int              `json:"imported"`
+	Updated   int              `json:"updated"`
+	Unchanged int              `json:"unchanged"`
+	Skipped   int              `json:"skipped"`
+	Exported  int              `json:"exported"`
+	Conflicts []EnvVarConflict `json:"conflicts"`
 }

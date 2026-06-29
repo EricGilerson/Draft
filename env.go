@@ -26,6 +26,39 @@ func (a *App) SetEnvVar(nodeID, key, value string) error {
 	return c.SetEnvVar(a.ctx, nodeID, key, value)
 }
 
+func (a *App) ImportEnvFile(nodeID, path string) (store.EnvFileSyncResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return store.EnvFileSyncResult{}, err
+	}
+	if c == nil {
+		return store.EnvFileSyncResult{}, errNoStore
+	}
+	return c.ImportEnvFile(a.ctx, nodeID, path)
+}
+
+func (a *App) RefreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return store.EnvFileSyncResult{}, err
+	}
+	if c == nil {
+		return store.EnvFileSyncResult{}, errNoStore
+	}
+	return c.RefreshEnvFile(a.ctx, nodeID)
+}
+
+func (a *App) ExportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return store.EnvFileSyncResult{}, err
+	}
+	if c == nil {
+		return store.EnvFileSyncResult{}, errNoStore
+	}
+	return c.ExportEnvFile(a.ctx, nodeID)
+}
+
 // SuggestEnvFile returns the absolute path to a .env file found in the service root, if one exists.
 func (a *App) SuggestEnvFile(nodeID string, projectID int) (string, error) {
 	c, err := a.ensureDaemon()

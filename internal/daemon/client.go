@@ -200,6 +200,24 @@ func (c *Client) SetEnvVar(ctx context.Context, nodeID, key, value string) error
 	return nil
 }
 
+func (c *Client) ImportEnvFile(ctx context.Context, nodeID, path string) (store.EnvFileSyncResult, error) {
+	var out store.EnvFileSyncResult
+	err := c.postJSON(ctx, "/env/import", map[string]string{"nodeId": nodeID, "path": path}, &out)
+	return out, err
+}
+
+func (c *Client) RefreshEnvFile(ctx context.Context, nodeID string) (store.EnvFileSyncResult, error) {
+	var out store.EnvFileSyncResult
+	err := c.postJSON(ctx, "/env/refresh", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
+func (c *Client) ExportEnvFile(ctx context.Context, nodeID string) (store.EnvFileSyncResult, error) {
+	var out store.EnvFileSyncResult
+	err := c.postJSON(ctx, "/env/export", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
 func (c *Client) SubscribeEvents(ctx context.Context, fn func(string, any)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/events"), nil)
 	if err != nil {
@@ -256,6 +274,29 @@ func (c *Client) postNode(ctx context.Context, path, nodeID string) error {
 		return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
 	}
 	return nil
+}
+
+func (c *Client) postJSON(ctx context.Context, path string, in any, out any) error {
+	body, _ := json.Marshal(in)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(tokenHeader, c.state.Token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
 }
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

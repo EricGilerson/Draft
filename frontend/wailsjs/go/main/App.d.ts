@@ -15,6 +15,8 @@ export function DeleteNode(arg1:string):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
 
+export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
+
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
 export function GetBuildLog(arg1:number):Promise<string>;
@@ -29,6 +31,8 @@ export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
 export function Greet(arg1:string):Promise<string>;
 
+export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
+
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
@@ -36,6 +40,8 @@ export function ListProjectServices(arg1:number):Promise<Array<main.ProjectServi
 export function ListProjects():Promise<Array<store.Project>>;
 
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
+
+export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function RestartService(arg1:string):Promise<void>;
 

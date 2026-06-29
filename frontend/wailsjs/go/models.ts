@@ -207,9 +207,76 @@ export namespace store {
 		    return a;
 		}
 	}
+	export class EnvVarConflict {
+	    key: string;
+	    databaseValue: string;
+	    fileValue: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvVarConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.databaseValue = source["databaseValue"];
+	        this.fileValue = source["fileValue"];
+	    }
+	}
+	export class EnvFileSyncResult {
+	    path: string;
+	    imported: number;
+	    updated: number;
+	    unchanged: number;
+	    skipped: number;
+	    exported: number;
+	    conflicts: EnvVarConflict[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvFileSyncResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.imported = source["imported"];
+	        this.updated = source["updated"];
+	        this.unchanged = source["unchanged"];
+	        this.skipped = source["skipped"];
+	        this.exported = source["exported"];
+	        this.conflicts = this.convertValues(source["conflicts"], EnvVarConflict);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class EnvVar {
+	    nodeId: string;
 	    key: string;
 	    value: string;
+	    scope: string;
+	    secret: boolean;
+	    source: string;
+	    envFile: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
 	
 	    static createFrom(source: any = {}) {
 	        return new EnvVar(source);
@@ -217,10 +284,36 @@ export namespace store {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
 	        this.key = source["key"];
 	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.secret = source["secret"];
+	        this.source = source["source"];
+	        this.envFile = source["envFile"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class Project {
 	    id: number;
 	    name: string;

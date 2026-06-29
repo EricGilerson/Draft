@@ -22,6 +22,10 @@ export function DeployService(arg1) {
   return window['go']['main']['App']['DeployService'](arg1);
 }
 
+export function ExportEnvFile(arg1) {
+  return window['go']['main']['App']['ExportEnvFile'](arg1);
+}
+
 export function GetActiveDeployment(arg1) {
   return window['go']['main']['App']['GetActiveDeployment'](arg1);
 }
@@ -50,6 +54,10 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function ImportEnvFile(arg1, arg2) {
+  return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
+}
+
 export function ListNodes(arg1) {
   return window['go']['main']['App']['ListNodes'](arg1);
 }
@@ -64,6 +72,10 @@ export function ListProjects() {
 
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+}
+
+export function RefreshEnvFile(arg1) {
+  return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
 
 export function RestartService(arg1) {

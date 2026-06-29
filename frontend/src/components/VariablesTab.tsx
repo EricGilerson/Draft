@@ -1,8 +1,8 @@
 import {useEffect, useState} from 'react';
-import {Eye, EyeOff, Plus, FileSearch} from 'lucide-react';
+import {Download, Eye, EyeOff, FileSearch, Plus, RefreshCw, Upload} from 'lucide-react';
 import {
     GetEnvVars, SetEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
-    GetServiceRoot, SuggestEnvFile
+    GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
@@ -25,6 +25,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [envFile, setEnvFile] = useState('');
     const [serviceRoot, setServiceRoot] = useState('');
     const [showConfirm, setShowConfirm] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
+    const [syncError, setSyncError] = useState('');
 
     const load = async () => {
         try {
@@ -72,7 +75,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             if (p) {
                 await SetNodeSetting(nodeId, 'env_file', p);
                 setEnvFile(p);
-                await load();
+                setSyncResult(null);
+                setSyncError('');
             }
         } catch (e) {
             console.error(e);
@@ -108,6 +112,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             }
             setEdits({});
             setShowConfirm(false);
+            setSyncResult(null);
+            setSyncError('');
             await load();
         } catch (e) {
             console.error(e);
@@ -120,11 +126,50 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             await SetEnvVar(nodeId, newKey.trim(), newValue);
             setNewKey('');
             setNewValue('');
+            setSyncResult(null);
+            setSyncError('');
             await load();
         } catch (e) {
             console.error(e);
         }
     };
+
+    const persistEnvPath = async () => {
+        await SetNodeSetting(nodeId, 'env_file', envFile.trim());
+    };
+
+    const runSync = async (action: 'import' | 'refresh' | 'export') => {
+        setSyncing(true);
+        setSyncError('');
+        setSyncResult(null);
+        try {
+            await persistEnvPath();
+            let result: store.EnvFileSyncResult;
+            if (action === 'import') {
+                result = await ImportEnvFile(nodeId, envFile.trim());
+            } else if (action === 'refresh') {
+                result = await RefreshEnvFile(nodeId);
+            } else {
+                result = await ExportEnvFile(nodeId);
+            }
+            setSyncResult(result);
+            await load();
+        } catch (e: any) {
+            setSyncError(typeof e === 'string' ? e : e?.message || `${action} failed`);
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const conflicts = syncResult?.conflicts ?? [];
+    const resultText = syncResult ? [
+        syncResult.imported ? `${syncResult.imported} imported` : '',
+        syncResult.updated ? `${syncResult.updated} updated` : '',
+        syncResult.unchanged ? `${syncResult.unchanged} unchanged` : '',
+        syncResult.exported ? `${syncResult.exported} exported` : '',
+        syncResult.skipped ? `${syncResult.skipped} skipped` : '',
+        conflicts.length ? `${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}` : '',
+    ].filter(Boolean).join(' · ') : '';
 
     if (loading) {
         return <div className="variables-loading">Loading...</div>;
@@ -133,16 +178,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     return (
         <div className="variables-tab">
             <div className="form-field">
-                <label className="form-label">Environment file</label>
-                <span className="settings-hint">Path to the .env file used for this service.</span>
+                <label className="form-label">Linked environment file</label>
+                <span className="settings-hint">Draft stores variables in SQLite. Use this file only for explicit import, refresh, or export.</span>
                 <div className="input-with-action">
                     <input
                         className="input"
                         value={envFile}
                         onChange={(e) => setEnvFile(e.target.value)}
                         onBlur={async () => {
-                            await SetNodeSetting(nodeId, 'env_file', envFile.trim());
-                            await load();
+                            await persistEnvPath();
                         }}
                         placeholder=".env"
                     />
@@ -151,29 +195,72 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     </button>
                 </div>
                 {!envFile && serviceRoot && (
-                    <span className="settings-hint">No .env found in root directory.</span>
+                    <span className="settings-hint">No linked .env file yet. Draft variables can still be managed here.</span>
+                )}
+                <div className="env-sync-actions">
+                    <button className="btn btn-ghost" onClick={() => runSync('import')} disabled={syncing || !envFile.trim()}>
+                        <Upload size={13}/> Import
+                    </button>
+                    <button className="btn btn-ghost" onClick={() => runSync('refresh')} disabled={syncing}>
+                        <RefreshCw size={13}/> Refresh
+                    </button>
+                    <button className="btn btn-ghost" onClick={() => runSync('export')} disabled={syncing}>
+                        <Download size={13}/> Export
+                    </button>
+                </div>
+                {(resultText || syncError) && (
+                    <div className={`env-sync-status ${syncError ? 'env-sync-status--error' : ''}`}>
+                        {syncError || resultText}
+                    </div>
+                )}
+                {conflicts.length > 0 && (
+                    <div className="env-conflicts">
+                        {conflicts.map((conflict) => (
+                            <div key={conflict.key} className="env-conflict-row">
+                                <span className="var-key">{conflict.key}</span>
+                                <span>Draft kept its value instead of overwriting it from file.</span>
+                            </div>
+                        ))}
+                    </div>
                 )}
             </div>
             <div className="variables-list">
                 {vars.length === 0 && (
-                    <div className="variables-empty">No variables in .env yet.</div>
+                    <div className="variables-empty">No Draft variables yet.</div>
                 )}
                 {vars.map(v => (
                     <div key={v.key} className="var-row">
-                        <div className="var-key">{v.key}</div>
+                        <div className="var-key-cell">
+                            <div className="var-key" title={v.key}>{v.key}</div>
+                            <div className={`var-source var-source--${v.source || 'manual'}`}>
+                                {v.source || 'manual'} · {v.scope || 'runtime'}
+                            </div>
+                        </div>
                         <div className="var-value">
-                            <input
-                                type={visible[v.key] ? 'text' : 'password'}
-                                value={v.value}
-                                disabled={!visible[v.key]}
-                                onChange={e => {
-                                    const nv = [...vars];
-                                    const idx = nv.findIndex(x => x.key === v.key);
-                                    nv[idx] = {...v, value: e.target.value};
-                                    setVars(nv);
-                                    stageEdit(v.key, e.target.value);
-                                }}
-                            />
+                            {visible[v.key] ? (
+                                <textarea
+                                    className="var-value-editor"
+                                    value={v.value}
+                                    rows={v.value.includes('\n') || v.value.length > 160 ? 7 : 2}
+                                    wrap="off"
+                                    spellCheck={false}
+                                    onChange={e => {
+                                        const nv = [...vars];
+                                        const idx = nv.findIndex(x => x.key === v.key);
+                                        nv[idx] = store.EnvVar.createFrom({...v, value: e.target.value});
+                                        setVars(nv);
+                                        stageEdit(v.key, e.target.value);
+                                    }}
+                                />
+                            ) : (
+                                <input
+                                    className="var-value-mask"
+                                    type="password"
+                                    value={v.value}
+                                    disabled
+                                    readOnly
+                                />
+                            )}
                             <button className="var-toggle" onClick={() => toggle(v.key)}>
                                 {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
                             </button>
@@ -200,7 +287,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
             {Object.keys(edits).length > 0 && (
                 <button className="btn btn-primary save-btn" onClick={() => setShowConfirm(true)}>
-                    Save {Object.keys(edits).length} change{Object.keys(edits).length > 1 ? 's' : ''}
+                    Save {Object.keys(edits).length} Draft change{Object.keys(edits).length > 1 ? 's' : ''}
                 </button>
             )}
 
@@ -211,6 +298,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         <button className="btn btn-primary" onClick={saveChanges}>Save changes</button>
                     </div>
                 }>
+                    <p className="var-confirm-note">
+                        These changes update Draft's database. Use Export when you want to write them back to the linked .env file.
+                    </p>
                     <div className="var-diff">
                         {pendingChanges.map(c => (
                             <div key={c.key} className="var-diff-row">

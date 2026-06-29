@@ -1,8 +1,6 @@
 package daemon
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -14,13 +12,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"Draft/internal/deploy"
 	"Draft/internal/dockerwatch"
+	"Draft/internal/envfile"
 	"Draft/internal/networking"
 	"Draft/internal/store"
 )
@@ -146,6 +144,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/suggest", s.handleSuggestEnv)
+	mux.HandleFunc("/env/import", s.handleImportEnv)
+	mux.HandleFunc("/env/refresh", s.handleRefreshEnv)
+	mux.HandleFunc("/env/export", s.handleExportEnv)
 	return s.auth(mux)
 }
 
@@ -442,110 +443,57 @@ func (s *Server) handleSetEnv(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {
-	node, err := s.store.GetNode(nodeID)
+func (s *Server) handleImportEnv(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Path   string `json:"path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	result, err := s.importEnvFile(req.NodeID, req.Path)
 	if err != nil {
-		return nil, err
+		writeError(w, err)
+		return
 	}
-	settings, err := s.store.GetNodeSettings(nodeID)
-	if err != nil {
-		return nil, err
-	}
-	project, err := s.store.GetProject(node.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	envPath := settings["env_file"]
-	if envPath == "" {
-		root := project.Path
-		if rel := settings["service_root"]; rel != "" {
-			root = filepath.Join(project.Path, rel)
-		}
-		envPath = filepath.Join(root, ".env")
-	}
-	f, err := os.Open(envPath)
-	if os.IsNotExist(err) {
-		return []store.EnvVar{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
+	writeJSON(w, result)
+}
 
-	var vars []store.EnvVar
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if idx := strings.Index(line, "="); idx != -1 {
-			key := strings.TrimSpace(line[:idx])
-			val := strings.TrimSpace(line[idx+1:])
-			if key != "" {
-				vars = append(vars, store.EnvVar{Key: key, Value: val})
-			}
-		}
+func (s *Server) handleRefreshEnv(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
 	}
-	return vars, scanner.Err()
+	result, err := s.refreshEnvFile(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleExportEnv(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	result, err := s.exportEnvFile(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {
+	return s.store.ListEnvVars(nodeID)
 }
 
 func (s *Server) setEnvVar(nodeID, key, value string) error {
-	node, err := s.store.GetNode(nodeID)
-	if err != nil {
-		return err
-	}
-	settings, err := s.store.GetNodeSettings(nodeID)
-	if err != nil {
-		return err
-	}
-	project, err := s.store.GetProject(node.ProjectID)
-	if err != nil {
-		return err
-	}
-	envPath := settings["env_file"]
-	if envPath == "" {
-		root := project.Path
-		if rel := settings["service_root"]; rel != "" {
-			root = filepath.Join(project.Path, rel)
-		}
-		envPath = filepath.Join(root, ".env")
-	}
-
-	// read existing
-	existing := map[string]string{}
-	if f, err := os.Open(envPath); err == nil {
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			if idx := strings.Index(line, "="); idx != -1 {
-				k := strings.TrimSpace(line[:idx])
-				v := strings.TrimSpace(line[idx+1:])
-				if k != "" {
-					existing[k] = v
-				}
-			}
-		}
-		f.Close()
-	}
-
-	existing[key] = value
-
-	// write back sorted
-	keys := make([]string, 0, len(existing))
-	for k := range existing {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var b bytes.Buffer
-	for _, k := range keys {
-		fmt.Fprintf(&b, "%s=%s\n", k, existing[k])
-	}
-	return os.WriteFile(envPath, b.Bytes(), 0o644)
+	return s.store.SetEnvVar(nodeID, key, value)
 }
 
 func (s *Server) suggestEnvFile(nodeID string, projectID uint) (string, error) {
@@ -569,4 +517,72 @@ func (s *Server) suggestEnvFile(nodeID string, projectID uint) (string, error) {
 		return candidate, nil
 	}
 	return "", nil
+}
+
+func (s *Server) importEnvFile(nodeID, path string) (store.EnvFileSyncResult, error) {
+	path = strings.TrimSpace(path)
+	result := store.EnvFileSyncResult{Path: path}
+	if path == "" {
+		return result, fmt.Errorf("env file path is required")
+	}
+	values, err := envfile.Read(path)
+	if err != nil {
+		return result, err
+	}
+	if err := s.store.SetNodeSetting(nodeID, "env_file", path); err != nil {
+		return result, err
+	}
+	return s.store.ImportEnvVars(nodeID, path, values)
+}
+
+func (s *Server) refreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+	path, err := s.resolveEnvPath(nodeID)
+	if err != nil {
+		return store.EnvFileSyncResult{}, err
+	}
+	values, err := envfile.Read(path)
+	if err != nil {
+		return store.EnvFileSyncResult{Path: path}, err
+	}
+	return s.store.ImportEnvVars(nodeID, path, values)
+}
+
+func (s *Server) exportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+	path, err := s.resolveEnvPath(nodeID)
+	if err != nil {
+		return store.EnvFileSyncResult{}, err
+	}
+	vars, err := s.store.ListEnvVars(nodeID)
+	if err != nil {
+		return store.EnvFileSyncResult{Path: path}, err
+	}
+	count, err := envfile.Write(path, vars)
+	if err != nil {
+		return store.EnvFileSyncResult{Path: path}, err
+	}
+	return store.EnvFileSyncResult{Path: path, Exported: count}, nil
+}
+
+func (s *Server) resolveEnvPath(nodeID string) (string, error) {
+	node, err := s.store.GetNode(nodeID)
+	if err != nil {
+		return "", err
+	}
+	settings, err := s.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return "", err
+	}
+	project, err := s.store.GetProject(node.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	envPath := strings.TrimSpace(settings["env_file"])
+	if envPath != "" {
+		return envPath, nil
+	}
+	root := project.Path
+	if rel := strings.TrimSpace(settings["service_root"]); rel != "" {
+		root = filepath.Join(project.Path, rel)
+	}
+	return filepath.Join(root, ".env"), nil
 }
