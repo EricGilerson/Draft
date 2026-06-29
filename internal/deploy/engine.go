@@ -221,10 +221,32 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer logFile.Close()
 
-	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv)
+	hooks := parseLifecycleHooks(settings)
+	overrides := parseContainerOverrides(settings)
+	buildOvr := parseBuildOverrides(settings)
+
+	if hooks.PreBuild != "" {
+		if err := runLifecycleHook(ctx, "pre-build", hooks.PreBuild, plan.ServiceRoot, func(line string) {
+			e.emitBuildLog(nodeID, line)
+		}); err != nil {
+			e.failDeployment(dep, nodeID, err.Error())
+			return
+		}
+	}
+
+	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv, buildOvr)
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
 		return
+	}
+
+	if hooks.PostBuild != "" {
+		if err := runLifecycleHook(ctx, "post-build", hooks.PostBuild, plan.ServiceRoot, func(line string) {
+			e.emitBuildLog(nodeID, line)
+		}); err != nil {
+			e.failDeployment(dep, nodeID, err.Error())
+			return
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -247,6 +269,15 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		e.emitBuildLog(nodeID, "    Done")
 	}
 
+	if hooks.PreDeploy != "" {
+		if err := runLifecycleHook(ctx, "pre-deploy", hooks.PreDeploy, plan.ServiceRoot, func(line string) {
+			e.emitBuildLog(nodeID, line)
+		}); err != nil {
+			e.failDeployment(dep, nodeID, err.Error())
+			return
+		}
+	}
+
 	e.emitBuildLog(nodeID, "==> Creating container...")
 	dep.Status = "starting"
 	dep.LastSeenAt = ptrTime(time.Now())
@@ -262,20 +293,58 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
 
-	createResp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: imageTag,
-		Env:   deployEnv.RuntimeEnv,
-		Labels: map[string]string{
-			"draft.project":    fmt.Sprintf("%d", node.ProjectID),
-			"draft.node":       nodeID,
-			"draft.deployment": fmt.Sprintf("%d", dep.ID),
-		},
+	labels := map[string]string{
+		"draft.project":    fmt.Sprintf("%d", node.ProjectID),
+		"draft.node":       nodeID,
+		"draft.deployment": fmt.Sprintf("%d", dep.ID),
+	}
+	for k, v := range overrides.Labels {
+		labels[k] = v
+	}
+
+	containerCfg := &container.Config{
+		Image:        imageTag,
+		Env:          deployEnv.RuntimeEnv,
+		Labels:       labels,
 		ExposedPorts: nat.PortSet{containerPort: struct{}{}},
-	}, &container.HostConfig{
+	}
+	if len(overrides.Cmd) > 0 {
+		containerCfg.Cmd = overrides.Cmd
+	}
+	if len(overrides.Entrypoint) > 0 {
+		containerCfg.Entrypoint = overrides.Entrypoint
+	}
+	if overrides.WorkingDir != "" {
+		containerCfg.WorkingDir = overrides.WorkingDir
+	}
+	if overrides.User != "" {
+		containerCfg.User = overrides.User
+	}
+	if overrides.StopSignal != "" {
+		containerCfg.StopSignal = overrides.StopSignal
+	}
+	if overrides.Healthcheck != nil {
+		containerCfg.Healthcheck = overrides.Healthcheck
+	}
+	if overrides.StopTimeout != nil {
+		containerCfg.StopTimeout = overrides.StopTimeout
+	}
+
+	hostCfg := &container.HostConfig{
 		PortBindings: nat.PortMap{
 			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "0"}},
 		},
-	}, &dockernetwork.NetworkingConfig{
+		RestartPolicy:  overrides.RestartPolicy,
+		Resources:      overrides.Resources,
+		Mounts:         overrides.Mounts,
+		Privileged:     overrides.Privileged,
+		ReadonlyRootfs: overrides.ReadonlyRootfs,
+		CapAdd:         overrides.CapAdd,
+		CapDrop:        overrides.CapDrop,
+		Init:           overrides.Init,
+	}
+
+	createResp, err := cli.ContainerCreate(ctx, containerCfg, hostCfg, &dockernetwork.NetworkingConfig{
 		EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
 			networkName: {
 				Aliases: internalNetworkAliases(serviceName, hostname),
@@ -340,6 +409,15 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		dep.Hostname = regResult.Hostname
 	}
 	e.store.UpdateDeployment(dep)
+
+	if hooks.PostDeploy != "" {
+		if err := runLifecycleHook(ctx, "post-deploy", hooks.PostDeploy, plan.ServiceRoot, func(line string) {
+			e.emitBuildLog(nodeID, line)
+		}); err != nil {
+			log.Printf("[deploy] post-deploy hook failed (non-fatal): %v", err)
+		}
+	}
+
 	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
 	e.emitStatus(nodeID, StatusEvent{
@@ -382,14 +460,14 @@ func resolveBuildContextPlan(projectPath, serviceRootSetting, dockerfilePath str
 	}, nil
 }
 
-func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv) error {
+func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
 	if buildkitEnabled(settings) {
 		if compatible, reason := buildxCompatibleWithSettings(projectPath, plan, settings); compatible {
 			if status, err := e.inspectBuildx(ctx); err == nil {
 				e.emitBuildLog(nodeID, "==> Using BuildKit local-context deploy...")
 				e.emitBuildLog(nodeID, fmt.Sprintf("    Builder: %s", status.Name))
 				e.emitBuildLog(nodeID, fmt.Sprintf("    BuildKit: %s", status.Version))
-				if err := e.buildImageWithBuildx(ctx, logFile, nodeID, imageTag, plan, deployEnv); err != nil {
+				if err := e.buildImageWithBuildx(ctx, logFile, nodeID, imageTag, plan, deployEnv, bo); err != nil {
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
@@ -407,7 +485,7 @@ func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os
 		e.emitBuildLog(nodeID, "==> BuildKit local-context disabled for this service; using legacy tar upload")
 	}
 
-	return e.buildImageLegacy(ctx, cli, logFile, nodeID, imageTag, projectPath, settings, plan, deployEnv)
+	return e.buildImageLegacy(ctx, cli, logFile, nodeID, imageTag, projectPath, settings, plan, deployEnv, bo)
 }
 
 func buildkitEnabled(settings map[string]string) bool {
@@ -454,13 +532,22 @@ func (e *Engine) inspectBuildx(ctx context.Context) (buildxStatus, error) {
 	return status, nil
 }
 
-func (e *Engine) buildImageWithBuildx(ctx context.Context, logFile *os.File, nodeID, imageTag string, plan buildContextPlan, deployEnv deploymentEnv) error {
+func (e *Engine) buildImageWithBuildx(ctx context.Context, logFile *os.File, nodeID, imageTag string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
 	args := []string{
 		"buildx", "build",
 		"--load",
 		"--progress=plain",
 		"-t", imageTag,
 		"-f", plan.RelativeDockerfile,
+	}
+	if bo.Target != "" {
+		args = append(args, "--target", bo.Target)
+	}
+	if bo.Platform != "" {
+		args = append(args, "--platform", bo.Platform)
+	}
+	if bo.NoCache {
+		args = append(args, "--no-cache")
 	}
 	for _, arg := range buildArgsForCLI(deployEnv.BuildArgs) {
 		args = append(args, "--build-arg", arg)
@@ -494,7 +581,7 @@ func (e *Engine) buildImageWithBuildx(ctx context.Context, logFile *os.File, nod
 	return nil
 }
 
-func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv) error {
+func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
 	matcher := ignore.New()
 	if settings["use_dockerignore"] == "true" {
 		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
@@ -531,7 +618,7 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		},
 	}
 
-	resp, err := cli.ImageBuild(ctx, tracker, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs))
+	resp, err := cli.ImageBuild(ctx, tracker, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs, bo))
 	if err != nil {
 		return fmt.Errorf("docker build failed: %w", err)
 	}
@@ -567,14 +654,22 @@ func buildArgsForCLI(buildArgs map[string]*string) []string {
 	return args
 }
 
-func legacyImageBuildOptions(imageTag, relativeDockerfile string, buildArgs map[string]*string) build.ImageBuildOptions {
-	return build.ImageBuildOptions{
+func legacyImageBuildOptions(imageTag, relativeDockerfile string, buildArgs map[string]*string, bo buildOverrides) build.ImageBuildOptions {
+	opts := build.ImageBuildOptions{
 		Tags:       []string{imageTag},
 		Dockerfile: relativeDockerfile,
 		Remove:     true,
 		BuildArgs:  buildArgs,
 		Version:    build.BuilderV1,
+		NoCache:    bo.NoCache,
 	}
+	if bo.Target != "" {
+		opts.Target = bo.Target
+	}
+	if bo.Platform != "" {
+		opts.Platform = bo.Platform
+	}
+	return opts
 }
 
 func buildxCompatibleWithSettings(projectPath string, plan buildContextPlan, settings map[string]string) (bool, string) {

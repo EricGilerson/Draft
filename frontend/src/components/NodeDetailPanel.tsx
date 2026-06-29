@@ -3,10 +3,8 @@ import {useEffect, useRef, useState} from 'react';
 import OverviewTab from './OverviewTab';
 import DeploymentsTab from './DeploymentsTab';
 import VariablesTab from './VariablesTab';
-import NetworkingTab from './NetworkingTab';
 import LogsTab from './LogsTab';
 import MetricsTab from './MetricsTab';
-import DockerTab from './DockerTab';
 import SettingsTab from './SettingsTab';
 import './NodeDetailPanel.css';
 
@@ -19,10 +17,8 @@ const TABS: Tab[] = [
     {id: 'overview', label: 'Overview'},
     {id: 'deployments', label: 'Deployments'},
     {id: 'variables', label: 'Variables'},
-    {id: 'networking', label: 'Networking'},
     {id: 'logs', label: 'Logs'},
     {id: 'metrics', label: 'Metrics'},
-    {id: 'docker', label: 'Docker'},
     {id: 'settings', label: 'Settings'},
 ];
 
@@ -111,10 +107,8 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                 {activeTab === 'overview' && <OverviewTab nodeId={nodeId} onServicesChanged={onServicesChanged} />}
                 {activeTab === 'deployments' && <DeploymentsTab nodeId={nodeId} />}
                 {activeTab === 'variables' && <VariablesTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
-                {activeTab === 'networking' && <NetworkingTab />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
                 {activeTab === 'metrics' && <MetricsTab nodeId={nodeId} />}
-                {activeTab === 'docker' && <DockerTab />}
                 {activeTab === 'settings' && <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} onServicesChanged={onServicesChanged} />}
             </div>
         </div>

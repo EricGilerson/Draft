@@ -566,7 +566,7 @@ func TestBuildkitEnabledDefaultsOn(t *testing.T) {
 
 func TestLegacyImageBuildOptionsForceBuilderV1(t *testing.T) {
 	value := "bar"
-	opts := legacyImageBuildOptions("draft-test:1", "Dockerfile", map[string]*string{"FOO": &value})
+	opts := legacyImageBuildOptions("draft-test:1", "Dockerfile", map[string]*string{"FOO": &value}, buildOverrides{})
 
 	if opts.Version != build.BuilderV1 {
 		t.Fatalf("expected legacy builder version %q, got %q", build.BuilderV1, opts.Version)
