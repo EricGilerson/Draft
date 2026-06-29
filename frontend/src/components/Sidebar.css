@@ -27,7 +27,7 @@
 
 .brand-mark-tile {
     fill: rgba(24, 26, 18, 0.94);
-    stroke: rgba(255, 195, 107, 0.42);
+    stroke: rgba(194, 202, 197, 0.36);
     stroke-width: 1.15;
 }
 
@@ -39,7 +39,7 @@
 }
 
 .brand-mark-route-secondary {
-    stroke: rgba(123, 216, 143, 0.86);
+    stroke: rgba(104, 189, 120, 0.78);
 }
 
 .brand-mark-node {
@@ -49,7 +49,7 @@
 }
 
 .brand-mark-node-primary {
-    fill: rgba(240, 138, 36, 0.18);
+    fill: rgba(140, 150, 144, 0.2);
     stroke: var(--accent);
 }
 

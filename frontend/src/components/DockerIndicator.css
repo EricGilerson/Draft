@@ -23,12 +23,12 @@
 
 .docker-indicator.running .docker-dot {
     background-color: var(--green);
-    box-shadow: 0 0 9px rgba(123, 216, 143, 0.82);
+    box-shadow: 0 0 9px rgba(104, 189, 120, 0.72);
 }
 
 .docker-indicator.stopped .docker-dot {
     background-color: var(--red);
-    box-shadow: 0 0 8px rgba(255, 103, 95, 0.7);
+    box-shadow: 0 0 8px rgba(239, 111, 104, 0.68);
 }
 
 .docker-indicator.checking .docker-dot {

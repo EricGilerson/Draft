@@ -16,7 +16,7 @@
     justify-content: center;
     color: var(--accent-text);
     background:
-        linear-gradient(135deg, rgba(240, 138, 36, 0.17), rgba(240, 138, 36, 0.045)),
+        linear-gradient(135deg, rgba(140, 150, 144, 0.18), rgba(140, 150, 144, 0.05)),
         var(--surface);
     border: 1px solid var(--accent-border);
     box-shadow: var(--inset-line), 0 18px 40px rgba(0, 0, 0, 0.22);

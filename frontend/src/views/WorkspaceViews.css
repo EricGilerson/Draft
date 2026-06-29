@@ -233,7 +233,7 @@
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    background: #0f1115;
+    background: var(--canvas-bg);
     background-size: 24px 24px, 24px 24px, 100% 100%;
 }
 
@@ -468,7 +468,7 @@
 
 .settings-select-wrap:focus-within {
     border-color: var(--accent-border);
-    box-shadow: 0 0 0 2px rgba(240, 138, 36, 0.08);
+    box-shadow: 0 0 0 2px rgba(140, 150, 144, 0.09);
 }
 
 .settings-select {
@@ -535,7 +535,7 @@
     height: 16px;
     margin-left: 4px;
     border-radius: 999px;
-    background: #fff2cc;
+    background: #e9e4d6;
     transition: transform 0.14s ease;
 }
 

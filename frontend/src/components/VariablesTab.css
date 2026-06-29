@@ -142,7 +142,7 @@
 .var-add .btn {
     background: var(--btn-primary-gradient);
     border-color: var(--accent-border);
-    color: #fff;
+    color: #10130f;
     padding: 0 12px !important;
     min-height: 28px !important;
     height: 28px !important;

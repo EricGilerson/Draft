@@ -10,7 +10,7 @@
     min-width: 0;
     height: 100%;
     border-top: 1px solid var(--border);
-    background: #0f1115;
+    background: var(--canvas-bg);
     overflow: hidden;
 }
 
@@ -38,7 +38,7 @@
     padding: 12px 14px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: #16181f;
+    background: var(--bg-elevated);
 }
 
 .canvas-workspace-label strong {
@@ -87,7 +87,7 @@
     width: 260px;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: #16181f;
+    background: var(--bg-elevated);
     overflow: hidden;
 }
 
@@ -115,7 +115,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     overflow: hidden;
-    background: #16181f;
+    background: var(--bg-elevated);
 }
 
 .canvas-controls .react-flow__controls-button {

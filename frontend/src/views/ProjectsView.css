@@ -15,7 +15,7 @@
     justify-content: center;
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: #16181f;
+    background: var(--bg-elevated);
 }
 
 .projects-loading {
@@ -51,7 +51,7 @@
 .project-card {
     border: 1px solid var(--border);
     border-radius: 4px;
-    background: #16181f;
+    background: var(--bg-elevated);
     overflow: hidden;
 }
 
@@ -148,7 +148,7 @@
 
 .project-meta-divider {
     margin: 0 2px;
-    color: rgba(143, 147, 173, 0.35);
+    color: rgba(170, 160, 140, 0.35);
 }
 
 .project-card-badges {
@@ -189,7 +189,7 @@
 .project-card-body {
     padding: 12px 14px 14px 36px;
     border-top: 1px solid var(--border);
-    background: #0f1115;
+    background: var(--canvas-bg);
 }
 
 .project-card-actions {

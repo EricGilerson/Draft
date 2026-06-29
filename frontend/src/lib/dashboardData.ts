@@ -39,17 +39,17 @@ export type ActivityPreview = {
 };
 
 export const SERVICE_COLORS: Record<ServiceType, string> = {
-    web: '#62b8ff',
-    database: '#b9a0ff',
-    cache: '#7bd88f',
-    worker: '#f2bd4b',
+    web: '#8c9690',
+    database: '#b8a06a',
+    cache: '#68bd78',
+    worker: '#c08b75',
 };
 
 export const STATUS_COLORS: Record<ServiceStatus, string> = {
-    running: '#7bd88f',
+    running: '#68bd78',
     stopped: '#5c5749',
-    error: '#ff675f',
-    starting: '#f2bd4b',
+    error: '#ef6f68',
+    starting: '#d8b75c',
 };
 
 const SANDBOX_BRANCHES = [

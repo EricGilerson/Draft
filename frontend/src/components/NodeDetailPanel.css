@@ -4,7 +4,7 @@
     width: 100%;
     height: 100%;
     border-left: 1px solid var(--border);
-    background: #16181f;
+    background: var(--bg-elevated);
     overflow: hidden;
 }
 
@@ -137,7 +137,7 @@
     border: 0;
     font-family: var(--mono);
     font-size: 0.7rem;
-    color: var(--draft-blue);
+    color: var(--draft-teal);
     cursor: pointer;
     word-break: break-all;
 }
@@ -152,8 +152,8 @@
     gap: 8px;
     padding: 10px 12px;
     border-radius: var(--radius);
-    background: rgba(255, 103, 95, 0.08);
-    border: 1px solid rgba(255, 103, 95, 0.2);
+    background: rgba(239, 111, 104, 0.08);
+    border: 1px solid rgba(239, 111, 104, 0.2);
     color: var(--red);
     font-size: 0.72rem;
     line-height: 1.5;
@@ -227,13 +227,13 @@
 }
 
 .status-badge--running {
-    background: rgba(123, 216, 143, 0.12);
+    background: rgba(104, 189, 120, 0.12);
     color: var(--green);
 }
 
 .status-badge--building,
 .status-badge--starting {
-    background: rgba(242, 189, 75, 0.12);
+    background: rgba(216, 183, 92, 0.12);
     color: var(--yellow);
 }
 
@@ -244,13 +244,13 @@
 }
 
 .status-badge--failed {
-    background: rgba(255, 103, 95, 0.12);
+    background: rgba(239, 111, 104, 0.12);
     color: var(--red);
 }
 
 .status-badge--built {
-    background: rgba(98, 184, 255, 0.12);
-    color: var(--draft-blue);
+    background: rgba(140, 150, 144, 0.13);
+    color: var(--draft-teal);
 }
 
 /* ---- Deployments Tab ---- */
@@ -343,7 +343,7 @@
     padding: 8px;
     margin-bottom: 8px;
     border-radius: 4px;
-    background: rgba(255, 103, 95, 0.08);
+    background: rgba(239, 111, 104, 0.08);
     color: var(--red);
     font-size: 0.7rem;
     line-height: 1.4;
@@ -560,8 +560,8 @@
 }
 
 .toggle-switch--on {
-    background: var(--accent-soft, rgba(98, 184, 255, 0.18));
-    border-color: var(--accent-border, rgba(98, 184, 255, 0.4));
+    background: var(--accent-soft, rgba(140, 150, 144, 0.18));
+    border-color: var(--accent-border, rgba(140, 150, 144, 0.4));
 }
 
 .toggle-switch::after {
@@ -578,5 +578,5 @@
 
 .toggle-switch--on::after {
     transform: translateX(16px);
-    background: var(--draft-blue, #62b8ff);
+    background: var(--draft-teal, #8c9690);
 }

@@ -1,46 +1,49 @@
 :root {
     /* Surfaces */
-    --bg: #111318;
-    --bg-elevated: #181b22;
-    --surface: #20252e;
-    --surface-2: #282e39;
-    --surface-hover: rgba(99, 102, 241, 0.07);
-    --surface-pressed: rgba(99, 102, 241, 0.12);
+    --bg: #11110f;
+    --bg-elevated: #171715;
+    --canvas-bg: #0e0f0c;
+    --surface: #1f1f1b;
+    --surface-2: #28271f;
+    --surface-hover: rgba(140, 150, 144, 0.075);
+    --surface-pressed: rgba(140, 150, 144, 0.13);
 
     /* Lines */
-    --border: rgba(148, 163, 184, 0.18);
-    --border-strong: rgba(148, 163, 184, 0.28);
-    --grid-line: rgba(148, 163, 184, 0.08);
-    --grid-line-strong: rgba(148, 163, 184, 0.12);
+    --border: rgba(224, 218, 204, 0.13);
+    --border-strong: rgba(224, 218, 204, 0.22);
+    --grid-line: rgba(224, 218, 204, 0.065);
+    --grid-line-strong: rgba(224, 218, 204, 0.105);
 
     /* Text */
-    --text: #e8edf5;
-    --text-muted: #9aa4b8;
-    --text-faint: #6b768a;
+    --text: #ebe7dc;
+    --text-muted: #a7a193;
+    --text-faint: #716c62;
 
-    /* Accent (indigo) */
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
-    --accent-soft: rgba(99, 102, 241, 0.14);
-    --accent-border: rgba(99, 102, 241, 0.38);
-    --accent-text: #a5b4fc;
-    --draft-green: #4ade80;
-    --draft-blue: #60a5fa;
-    --draft-violet: #c084fc;
+    /* Accent (pewter) */
+    --accent: #8c9690;
+    --accent-hover: #a1aaa4;
+    --accent-soft: rgba(140, 150, 144, 0.13);
+    --accent-border: rgba(140, 150, 144, 0.36);
+    --accent-text: #c2cac5;
+    --draft-green: #68bd78;
+    --draft-teal: #8c9690;
+    --draft-brass: #b8a06a;
+    --draft-clay: #c08b75;
+    --draft-amber: #d8b75c;
 
     /* Effects */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-panel: 0 18px 46px rgba(0, 0, 0, 0.4);
-    --inset-line: inset 0 1px 0 rgba(148, 163, 184, 0.06);
+    --inset-line: inset 0 1px 0 rgba(224, 218, 204, 0.055);
 
-    /* Button gradients (indigo) */
-    --btn-primary-gradient: linear-gradient(180deg, #6366f1, #5558d9);
-    --btn-primary-gradient-hover: linear-gradient(180deg, #818cf8, #6366f1);
+    /* Button gradients (pewter) */
+    --btn-primary-gradient: linear-gradient(180deg, #8c9690, #737d77);
+    --btn-primary-gradient-hover: linear-gradient(180deg, #a1aaa4, #8c9690);
 
     /* Status */
-    --green: #4ade80;
-    --red: #f87171;
-    --yellow: #facc15;
+    --green: #68bd78;
+    --red: #ef6f68;
+    --yellow: #d8b75c;
 
     /* Metrics */
     --radius: 6px;
@@ -108,13 +111,13 @@ button {
 .btn-primary {
     background: var(--btn-primary-gradient);
     border-color: var(--accent-border);
-    color: #fff;
+    color: #10130f;
 }
 
 .btn-primary:not(:disabled):hover {
     background: var(--btn-primary-gradient-hover);
     border-color: var(--accent);
-    color: #fff;
+    color: #10130f;
     transform: translateY(-1px);
 }
 
@@ -150,7 +153,7 @@ button {
 .input:focus {
     outline: none;
     border-color: var(--accent-border);
-    box-shadow: 0 0 0 2px rgba(240, 138, 36, 0.08);
+    box-shadow: 0 0 0 2px rgba(140, 150, 144, 0.09);
 }
 
 /* Form fields */

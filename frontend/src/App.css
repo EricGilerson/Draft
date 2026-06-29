@@ -22,7 +22,7 @@
     gap: 16px;
     padding: 0 22px;
     border-bottom: 1px solid var(--border);
-    background: #16181f;
+    background: var(--bg-elevated);
     overflow: hidden;
 }
 
