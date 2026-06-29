@@ -85,7 +85,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const status = deployment?.status || 'stopped';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
-    const deploymentURL = deployment?.hostname ? `http://${deployment.hostname}` : '';
+    const deploymentURL = deployment?.hostPort ? `http://127.0.0.1:${deployment.hostPort}` : '';
 
     const handleOpenDeployment = () => {
         if (!deploymentURL) return;
@@ -96,7 +96,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         <div className="overview-tab">
             <div className="overview-status-row">
                 <StatusBadge status={status} />
-                {deployment?.hostname && isRunning && (
+                {deploymentURL && isRunning && (
                     <button
                         type="button"
                         className="overview-hostname"
@@ -104,7 +104,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         onClick={handleOpenDeployment}
                     >
                         <ExternalLink size={11} />
-                        {deployment.hostname}
+                        {deploymentURL.replace('http://', '')}
                     </button>
                 )}
             </div>
@@ -198,6 +198,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         <div className="overview-detail-row">
                             <span className="overview-detail-label">Host Port</span>
                             <span className="overview-detail-value mono">{deployment.hostPort}</span>
+                        </div>
+                    )}
+                    {deployment.hostname && (
+                        <div className="overview-detail-row">
+                            <span className="overview-detail-label">Draft Hostname</span>
+                            <span className="overview-detail-value mono">{deployment.hostname}</span>
                         </div>
                     )}
                 </div>
