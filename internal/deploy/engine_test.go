@@ -509,6 +509,147 @@ func TestDeployCancelsPrevious(t *testing.T) {
 
 // --- logPath ---
 
+func TestResolveBuildContextPlanUsesServiceRootWhenDockerfileInside(t *testing.T) {
+	project := t.TempDir()
+	serviceRoot := filepath.Join(project, "services", "web")
+	if err := os.MkdirAll(serviceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := resolveBuildContextPlan(project, filepath.Join("services", "web"), "Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ContextRoot != serviceRoot {
+		t.Fatalf("ContextRoot = %q, want %q", plan.ContextRoot, serviceRoot)
+	}
+	if plan.ServiceRoot != serviceRoot {
+		t.Fatalf("ServiceRoot = %q, want %q", plan.ServiceRoot, serviceRoot)
+	}
+	if plan.RelativeDockerfile != "Dockerfile" {
+		t.Fatalf("RelativeDockerfile = %q, want Dockerfile", plan.RelativeDockerfile)
+	}
+}
+
+func TestResolveBuildContextPlanFallsBackToProjectRoot(t *testing.T) {
+	project := t.TempDir()
+	serviceRoot := filepath.Join(project, "services", "web")
+	if err := os.MkdirAll(serviceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := resolveBuildContextPlan(project, filepath.Join("services", "web"), "../Dockerfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.ContextRoot != project {
+		t.Fatalf("ContextRoot = %q, want %q", plan.ContextRoot, project)
+	}
+	if plan.ServiceRoot != serviceRoot {
+		t.Fatalf("ServiceRoot = %q, want %q", plan.ServiceRoot, serviceRoot)
+	}
+	if plan.RelativeDockerfile != "services/Dockerfile" {
+		t.Fatalf("RelativeDockerfile = %q, want services/Dockerfile", plan.RelativeDockerfile)
+	}
+}
+
+func TestBuildkitEnabledDefaultsOn(t *testing.T) {
+	if !buildkitEnabled(map[string]string{}) {
+		t.Fatal("expected BuildKit local-context to default on")
+	}
+	if buildkitEnabled(map[string]string{"use_buildkit_local_context": "false"}) {
+		t.Fatal("expected explicit false to disable BuildKit local-context")
+	}
+}
+
+func TestBuildArgsForCLI(t *testing.T) {
+	one := "one"
+	three := "three"
+	got := buildArgsForCLI(map[string]*string{
+		"B": &three,
+		"A": &one,
+		"C": nil,
+	})
+	want := []string{"A=one", "B=three", "C="}
+	if len(got) != len(want) {
+		t.Fatalf("buildArgsForCLI length = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("buildArgsForCLI[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildxCompatibleWithSettingsRejectsGitignoreMode(t *testing.T) {
+	project := t.TempDir()
+	plan := buildContextPlan{ContextRoot: project, ServiceRoot: project}
+	ok, reason := buildxCompatibleWithSettings(project, plan, map[string]string{"use_gitignore": "true"})
+	if ok {
+		t.Fatal("expected gitignore mode to reject buildx local-context")
+	}
+	if !strings.Contains(reason, ".gitignore") {
+		t.Fatalf("unexpected reason: %q", reason)
+	}
+}
+
+func TestBuildxCompatibleWithSettingsRejectsRootDockerignoreWhenToggleOff(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, ".dockerignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := buildContextPlan{ContextRoot: project, ServiceRoot: project}
+	ok, reason := buildxCompatibleWithSettings(project, plan, map[string]string{"use_dockerignore": "false"})
+	if ok {
+		t.Fatal("expected root .dockerignore with toggle off to reject buildx local-context")
+	}
+	if !strings.Contains(reason, ".dockerignore") {
+		t.Fatalf("unexpected reason: %q", reason)
+	}
+}
+
+func TestBuildxCompatibleWithSettingsAcceptsSimpleDockerignoreMode(t *testing.T) {
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, ".dockerignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := buildContextPlan{ContextRoot: project, ServiceRoot: project}
+	ok, reason := buildxCompatibleWithSettings(project, plan, map[string]string{"use_dockerignore": "true"})
+	if !ok {
+		t.Fatalf("expected simple root .dockerignore mode to allow buildx local-context, got %q", reason)
+	}
+}
+
+func TestBuildxCompatibleWithSettingsRejectsLegacySkipEntriesWithoutRootDockerignore(t *testing.T) {
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(project, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := buildContextPlan{ContextRoot: project, ServiceRoot: project}
+	ok, reason := buildxCompatibleWithSettings(project, plan, map[string]string{})
+	if ok {
+		t.Fatal("expected top-level Draft-skipped entries to reject buildx local-context without root .dockerignore")
+	}
+	if !strings.Contains(reason, "node_modules") {
+		t.Fatalf("unexpected reason: %q", reason)
+	}
+}
+
+func TestBuildxCompatibleWithSettingsAcceptsLegacySkipEntriesWhenRootDockerignoreMatches(t *testing.T) {
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(project, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, ".dockerignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan := buildContextPlan{ContextRoot: project, ServiceRoot: project}
+	ok, reason := buildxCompatibleWithSettings(project, plan, map[string]string{"use_dockerignore": "true"})
+	if !ok {
+		t.Fatalf("expected matching root .dockerignore to allow buildx local-context, got %q", reason)
+	}
+}
+
 func TestLogPath(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

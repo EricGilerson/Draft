@@ -25,6 +25,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [exposePorts, setExposePorts] = useState<dockerfile.ExposePort[]>([]);
     const [useDockerignore, setUseDockerignore] = useState(false);
     const [useGitignore, setUseGitignore] = useState(false);
+    const [useBuildkitLocalContext, setUseBuildkitLocalContext] = useState(true);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
@@ -40,6 +41,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setPortInput(p);
             setUseDockerignore(settings?.use_dockerignore === 'true');
             setUseGitignore(settings?.use_gitignore === 'true');
+            setUseBuildkitLocalContext(settings?.use_buildkit_local_context !== 'false');
             if (df) {
                 ParseDockerfileExpose(df, projectId).then(setExposePorts).catch(() => setExposePorts([]));
             }
@@ -136,6 +138,12 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         setUseGitignore(next);
         SetNodeSetting(nodeId, 'use_gitignore', next ? 'true' : 'false');
     }, [nodeId, useGitignore]);
+
+    const toggleBuildkitLocalContext = useCallback(() => {
+        const next = !useBuildkitLocalContext;
+        setUseBuildkitLocalContext(next);
+        SetNodeSetting(nodeId, 'use_buildkit_local_context', next ? 'true' : 'false');
+    }, [nodeId, useBuildkitLocalContext]);
 
     const applyExposePort = useCallback((exposePort: number) => {
         const val = String(exposePort);
@@ -260,6 +268,21 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                         onClick={toggleGitignore}
                         role="switch"
                         aria-checked={useGitignore}
+                    />
+                </div>
+
+                <div className="settings-toggle-row">
+                    <div className="settings-toggle-label">
+                        <span className="settings-toggle-name">BuildKit local context</span>
+                        <span className="settings-toggle-desc">
+                            Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft&apos;s legacy tar upload path for maximum compatibility.
+                        </span>
+                    </div>
+                    <button
+                        className={`toggle-switch${useBuildkitLocalContext ? ' toggle-switch--on' : ''}`}
+                        onClick={toggleBuildkitLocalContext}
+                        role="switch"
+                        aria-checked={useBuildkitLocalContext}
                     />
                 </div>
             </div>

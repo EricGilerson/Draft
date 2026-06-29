@@ -10,8 +10,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,25 +35,27 @@ import (
 )
 
 type Engine struct {
-	store   *store.Store
-	router  *networking.Router
-	emit    func(event string, data any)
-	logDir  string
-	mu      sync.Mutex
-	active  map[string]context.CancelFunc // nodeID → cancel build
-	logsMu  sync.Mutex
-	logSubs map[string]context.CancelFunc // nodeID → cancel log stream
+	store       *store.Store
+	router      *networking.Router
+	emit        func(event string, data any)
+	logDir      string
+	execCommand func(context.Context, string, ...string) *exec.Cmd
+	mu          sync.Mutex
+	active      map[string]context.CancelFunc // nodeID → cancel build
+	logsMu      sync.Mutex
+	logSubs     map[string]context.CancelFunc // nodeID → cancel log stream
 }
 
 func New(s *store.Store, router *networking.Router, logDir string, emit func(string, any)) *Engine {
 	os.MkdirAll(logDir, 0o755)
 	return &Engine{
-		store:   s,
-		router:  router,
-		emit:    emit,
-		logDir:  logDir,
-		active:  make(map[string]context.CancelFunc),
-		logSubs: make(map[string]context.CancelFunc),
+		store:       s,
+		router:      router,
+		emit:        emit,
+		logDir:      logDir,
+		execCommand: exec.CommandContext,
+		active:      make(map[string]context.CancelFunc),
+		logSubs:     make(map[string]context.CancelFunc),
 	}
 }
 
@@ -66,6 +70,13 @@ type StatusEvent struct {
 type LogLine struct {
 	Line   string `json:"line"`
 	Stream string `json:"stream"` // "build", "stdout", "stderr"
+}
+
+type buildContextPlan struct {
+	ContextRoot        string
+	ServiceRoot        string
+	DockerfilePath     string
+	RelativeDockerfile string
 }
 
 func (e *Engine) Deploy(ctx context.Context, nodeID string) error {
@@ -118,29 +129,19 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	serviceRoot := project.Path
-	if rel := settings["service_root"]; rel != "" {
-		serviceRoot = filepath.Join(project.Path, rel)
+	plan, err := resolveBuildContextPlan(project.Path, settings["service_root"], dockerfilePath)
+	if err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
+		return
 	}
 
-	if !filepath.IsAbs(dockerfilePath) {
-		dockerfilePath = filepath.Join(serviceRoot, dockerfilePath)
-	}
-
-	relDockerfile, err := filepath.Rel(serviceRoot, dockerfilePath)
-	if err != nil || strings.HasPrefix(relDockerfile, "..") {
-		serviceRoot = project.Path
-		relDockerfile, err = filepath.Rel(serviceRoot, dockerfilePath)
-		if err != nil {
-			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "cannot resolve dockerfile path"})
-			return
-		}
-	}
-	relDockerfile = filepath.ToSlash(relDockerfile)
-
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Dockerfile: %s", relDockerfile))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Dockerfile: %s", plan.RelativeDockerfile))
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Service port: %s", portStr))
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Build context: %s", serviceRoot))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Service root: %s", plan.ServiceRoot))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Build context: %s", plan.ContextRoot))
+	if plan.ContextRoot != plan.ServiceRoot {
+		e.emitBuildLog(nodeID, "    Dockerfile is outside the service root; using the project root as build context")
+	}
 
 	dep := &store.Deployment{
 		NodeID:     nodeID,
@@ -216,58 +217,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer logFile.Close()
 
-	matcher := ignore.New()
-	if settings["use_dockerignore"] == "true" {
-		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
-		n, _ := matcher.ScanDir(project.Path, serviceRoot, ".dockerignore")
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .dockerignore file(s)", n))
-	}
-	if settings["use_gitignore"] == "true" {
-		e.emitBuildLog(nodeID, "==> Scanning for .gitignore files...")
-		n, _ := matcher.ScanDir(project.Path, serviceRoot, ".gitignore")
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .gitignore file(s)", n))
-	}
-
-	e.emitBuildLog(nodeID, "==> Packaging build context...")
-	packStart := time.Now()
-	buildContext, fileCount, totalBytes, err := tarDirectoryWithProgress(serviceRoot, matcher, func(files int, bytes int64) {
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Packaged %d files (%.1f MB)", files, float64(bytes)/(1024*1024)))
-	})
-	if err != nil {
-		e.failDeployment(dep, nodeID, "cannot create build context: "+err.Error())
-		return
-	}
-	defer buildContext.Close()
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Done: %d files, %.1f MB in %s", fileCount, float64(totalBytes)/(1024*1024), time.Since(packStart).Round(time.Millisecond)))
-
-	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
-	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, relDockerfile))
-
-	uploadStart := time.Now()
-	tracker := &uploadTracker{
-		reader:     buildContext,
-		totalBytes: totalBytes,
-		onProgress: func(sent int64, total int64) {
-			pct := float64(sent) / float64(total) * 100
-			e.emitBuildLog(nodeID, fmt.Sprintf("    Uploading: %.0f%% (%.1f / %.1f MB)", pct, float64(sent)/(1024*1024), float64(total)/(1024*1024)))
-		},
-	}
-
-	resp, err := cli.ImageBuild(ctx, tracker, build.ImageBuildOptions{
-		Tags:       []string{imageTag},
-		Dockerfile: relDockerfile,
-		Remove:     true,
-		BuildArgs:  deployEnv.BuildArgs,
-	})
-	if err != nil {
-		e.failDeployment(dep, nodeID, "docker build failed: "+err.Error())
-		return
-	}
-	defer resp.Body.Close()
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Upload complete in %s", time.Since(uploadStart).Round(time.Millisecond)))
-
-	buildStart := time.Now()
-	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, dep.ID)
+	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv, ping.BuilderVersion)
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
 		return
@@ -277,8 +227,6 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		e.failDeployment(dep, nodeID, "build cancelled")
 		return
 	}
-
-	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
 
 	now := time.Now()
 	dep.Status = "built"
@@ -397,6 +345,291 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	go e.watchContainer(context.Background(), dep, nodeID)
 }
 
+func resolveBuildContextPlan(projectPath, serviceRootSetting, dockerfilePath string) (buildContextPlan, error) {
+	serviceRoot := projectPath
+	if rel := strings.TrimSpace(serviceRootSetting); rel != "" {
+		serviceRoot = filepath.Join(projectPath, rel)
+	}
+
+	absDockerfile := dockerfilePath
+	if !filepath.IsAbs(absDockerfile) {
+		absDockerfile = filepath.Join(serviceRoot, absDockerfile)
+	}
+	absDockerfile = filepath.Clean(absDockerfile)
+
+	contextRoot := serviceRoot
+	relDockerfile, err := filepath.Rel(contextRoot, absDockerfile)
+	if err != nil || relDockerfile == "." || strings.HasPrefix(relDockerfile, "..") {
+		contextRoot = projectPath
+		relDockerfile, err = filepath.Rel(contextRoot, absDockerfile)
+		if err != nil || relDockerfile == "." || strings.HasPrefix(relDockerfile, "..") {
+			return buildContextPlan{}, fmt.Errorf("cannot resolve dockerfile path")
+		}
+	}
+
+	return buildContextPlan{
+		ContextRoot:        filepath.Clean(contextRoot),
+		ServiceRoot:        filepath.Clean(serviceRoot),
+		DockerfilePath:     absDockerfile,
+		RelativeDockerfile: filepath.ToSlash(relDockerfile),
+	}, nil
+}
+
+func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, builderVersion build.BuilderVersion) error {
+	if buildkitEnabled(settings) {
+		if compatible, reason := buildxCompatibleWithSettings(projectPath, plan, settings); compatible {
+			if status, err := e.inspectBuildx(ctx); err == nil {
+				e.emitBuildLog(nodeID, "==> Using BuildKit local-context deploy...")
+				e.emitBuildLog(nodeID, fmt.Sprintf("    Builder: %s", status.Name))
+				e.emitBuildLog(nodeID, fmt.Sprintf("    BuildKit: %s", status.Version))
+				if err := e.buildImageWithBuildx(ctx, logFile, nodeID, imageTag, plan, deployEnv); err != nil {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					e.emitBuildLog(nodeID, fmt.Sprintf("    BuildKit local-context build failed; falling back to legacy tar upload: %v", err))
+				} else {
+					return nil
+				}
+			} else {
+				e.emitBuildLog(nodeID, fmt.Sprintf("==> BuildKit local-context unavailable; using legacy tar upload (%v)", err))
+			}
+		} else {
+			e.emitBuildLog(nodeID, fmt.Sprintf("==> BuildKit local-context skipped; using legacy tar upload (%s)", reason))
+		}
+	} else {
+		e.emitBuildLog(nodeID, "==> BuildKit local-context disabled for this service; using legacy tar upload")
+	}
+
+	return e.buildImageLegacy(ctx, cli, logFile, nodeID, imageTag, projectPath, settings, plan, deployEnv, builderVersion)
+}
+
+func buildkitEnabled(settings map[string]string) bool {
+	value := strings.TrimSpace(strings.ToLower(settings["use_buildkit_local_context"]))
+	return value != "false" && value != "0" && value != "off"
+}
+
+type buildxStatus struct {
+	Name    string
+	Version string
+}
+
+func (e *Engine) inspectBuildx(ctx context.Context) (buildxStatus, error) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return buildxStatus{}, fmt.Errorf("docker CLI not found")
+	}
+
+	inspectCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := e.execCommand(inspectCtx, "docker", "buildx", "inspect", "--bootstrap")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return buildxStatus{}, fmt.Errorf("%s", msg)
+	}
+
+	status := buildxStatus{Name: "buildx"}
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "Name:"):
+			status.Name = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+		case strings.HasPrefix(line, "BuildKit version:"):
+			status.Version = strings.TrimSpace(strings.TrimPrefix(line, "BuildKit version:"))
+		}
+	}
+	if status.Version == "" {
+		status.Version = "available"
+	}
+	return status, nil
+}
+
+func (e *Engine) buildImageWithBuildx(ctx context.Context, logFile *os.File, nodeID, imageTag string, plan buildContextPlan, deployEnv deploymentEnv) error {
+	args := []string{
+		"buildx", "build",
+		"--load",
+		"--progress=plain",
+		"-t", imageTag,
+		"-f", plan.RelativeDockerfile,
+	}
+	for _, arg := range buildArgsForCLI(deployEnv.BuildArgs) {
+		args = append(args, "--build-arg", arg)
+	}
+	args = append(args, plan.ContextRoot)
+
+	e.emitBuildLog(nodeID, "==> Handing local directory context to BuildKit...")
+	e.emitBuildLog(nodeID, fmt.Sprintf("    docker %s", strings.Join(args, " ")))
+
+	cmd := e.execCommand(ctx, "docker", args...)
+	writer := newLineEmitterWriter(func(line string) {
+		logFile.WriteString(line + "\n")
+		e.emitBuildLog(nodeID, line)
+	})
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+
+	buildStart := time.Now()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start buildx: %w", err)
+	}
+	err := cmd.Wait()
+	writer.Flush()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("buildx: %w", err)
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
+	return nil
+}
+
+func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, builderVersion build.BuilderVersion) error {
+	matcher := ignore.New()
+	if settings["use_dockerignore"] == "true" {
+		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
+		n, _ := matcher.ScanDir(projectPath, plan.ContextRoot, ".dockerignore")
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .dockerignore file(s)", n))
+	}
+	if settings["use_gitignore"] == "true" {
+		e.emitBuildLog(nodeID, "==> Scanning for .gitignore files...")
+		n, _ := matcher.ScanDir(projectPath, plan.ContextRoot, ".gitignore")
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .gitignore file(s)", n))
+	}
+
+	e.emitBuildLog(nodeID, "==> Packaging build context...")
+	packStart := time.Now()
+	buildContext, fileCount, totalBytes, err := tarDirectoryWithProgress(plan.ContextRoot, matcher, func(files int, bytes int64) {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Packaged %d files (%.1f MB)", files, float64(bytes)/(1024*1024)))
+	})
+	if err != nil {
+		return fmt.Errorf("cannot create build context: %w", err)
+	}
+	defer buildContext.Close()
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Done: %d files, %.1f MB in %s", fileCount, float64(totalBytes)/(1024*1024), time.Since(packStart).Round(time.Millisecond)))
+
+	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
+	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, plan.RelativeDockerfile))
+
+	uploadStart := time.Now()
+	tracker := &uploadTracker{
+		reader:     buildContext,
+		totalBytes: totalBytes,
+		onProgress: func(sent int64, total int64) {
+			pct := float64(sent) / float64(total) * 100
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Uploading: %.0f%% (%.1f / %.1f MB)", pct, float64(sent)/(1024*1024), float64(total)/(1024*1024)))
+		},
+	}
+
+	resp, err := cli.ImageBuild(ctx, tracker, build.ImageBuildOptions{
+		Tags:       []string{imageTag},
+		Dockerfile: plan.RelativeDockerfile,
+		Remove:     true,
+		BuildArgs:  deployEnv.BuildArgs,
+		Version:    builderVersion,
+	})
+	if err != nil {
+		return fmt.Errorf("docker build failed: %w", err)
+	}
+	defer resp.Body.Close()
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Upload complete in %s", time.Since(uploadStart).Round(time.Millisecond)))
+
+	buildStart := time.Now()
+	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, 0)
+	if buildErr != nil {
+		return buildErr
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
+	return nil
+}
+
+func buildArgsForCLI(buildArgs map[string]*string) []string {
+	if len(buildArgs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(buildArgs))
+	for key := range buildArgs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	args := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if buildArgs[key] == nil {
+			args = append(args, key+"=")
+			continue
+		}
+		args = append(args, key+"="+*buildArgs[key])
+	}
+	return args
+}
+
+func buildxCompatibleWithSettings(projectPath string, plan buildContextPlan, settings map[string]string) (bool, string) {
+	if strings.EqualFold(strings.TrimSpace(settings["use_gitignore"]), "true") {
+		return false, ".gitignore-based context filtering is enabled"
+	}
+
+	rootDockerignore := filepath.Join(plan.ContextRoot, ".dockerignore")
+	hasRootDockerignore := fileExists(rootDockerignore)
+	useDockerignore := strings.EqualFold(strings.TrimSpace(settings["use_dockerignore"]), "true")
+	legacySkips, err := topLevelLegacySkipEntries(plan.ContextRoot)
+	if err != nil {
+		return false, fmt.Sprintf("could not inspect the build context (%v)", err)
+	}
+
+	if !useDockerignore && hasRootDockerignore {
+		return false, "the service has a root .dockerignore but the Draft .dockerignore toggle is off"
+	}
+	if useDockerignore {
+		matcher := ignore.New()
+		count, _ := matcher.ScanDir(projectPath, plan.ContextRoot, ".dockerignore")
+		if count > 1 || (count == 1 && !hasRootDockerignore) {
+			return false, "the current .dockerignore mode relies on nested or ancestor ignore files"
+		}
+	}
+	if len(legacySkips) > 0 {
+		if !useDockerignore || !hasRootDockerignore {
+			return false, fmt.Sprintf("the build context includes Draft-skipped entries (%s) without a compatible root .dockerignore", strings.Join(legacySkips, ", "))
+		}
+		matcher := ignore.New()
+		if err := matcher.AddFile(rootDockerignore, ""); err != nil {
+			return false, fmt.Sprintf("could not read the root .dockerignore (%v)", err)
+		}
+		for _, entry := range legacySkips {
+			if !matcher.Match(entry, true) {
+				return false, fmt.Sprintf("the root .dockerignore does not exclude Draft-skipped entry %s", entry)
+			}
+		}
+	}
+	return true, ""
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func topLevelLegacySkipEntries(contextRoot string) ([]string, error) {
+	names := []string{".git", "node_modules", ".next", "__pycache__", ".venv"}
+	found := make([]string, 0, len(names))
+	for _, name := range names {
+		path := filepath.Join(contextRoot, name)
+		info, err := os.Stat(path)
+		if err == nil {
+			if info.IsDir() || name == ".git" {
+				found = append(found, name)
+			}
+			continue
+		}
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+	return found, nil
+}
+
 func draftNetworkName(projectID uint, projectName, environment string) string {
 	env := sanitize(environment)
 	if env == "" {
@@ -440,6 +673,50 @@ type uploadTracker struct {
 	sent       int64
 	lastPct    int
 	onProgress func(sent int64, total int64)
+}
+
+type lineEmitterWriter struct {
+	mu       sync.Mutex
+	buf      strings.Builder
+	emitLine func(string)
+}
+
+func newLineEmitterWriter(emitLine func(string)) *lineEmitterWriter {
+	return &lineEmitterWriter{emitLine: emitLine}
+}
+
+func (w *lineEmitterWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for _, b := range p {
+		if b == '\r' {
+			continue
+		}
+		if b == '\n' {
+			w.flushLocked()
+			continue
+		}
+		w.buf.WriteByte(b)
+	}
+	return len(p), nil
+}
+
+func (w *lineEmitterWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.flushLocked()
+}
+
+func (w *lineEmitterWriter) flushLocked() {
+	if w.buf.Len() == 0 {
+		return
+	}
+	line := w.buf.String()
+	w.buf.Reset()
+	if w.emitLine != nil {
+		w.emitLine(line)
+	}
 }
 
 func (u *uploadTracker) Read(p []byte) (int, error) {
