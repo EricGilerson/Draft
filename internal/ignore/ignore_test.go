@@ -287,3 +287,69 @@ func TestScanDirSubdirIgnore(t *testing.T) {
 		t.Error("sub/foo.tmp should match")
 	}
 }
+
+func TestScanDirSkipsSiblingIgnoreFiles(t *testing.T) {
+	root := t.TempDir()
+	backend := filepath.Join(root, "backend")
+	frontend := filepath.Join(root, "frontend")
+	os.MkdirAll(backend, 0755)
+	os.MkdirAll(frontend, 0755)
+	os.WriteFile(filepath.Join(frontend, ".gitignore"), []byte("*\n"), 0644)
+
+	m := New()
+	n, err := m.ScanDir(root, backend, ".gitignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected sibling ignore file to be skipped, found %d", n)
+	}
+	if m.Match("Dockerfile", false) || m.Match("app/main.py", false) {
+		t.Fatal("sibling ignore file should not affect backend context")
+	}
+}
+
+func TestScanDirAncestorIgnoreUsesAncestorCoordinates(t *testing.T) {
+	root := t.TempDir()
+	backend := filepath.Join(root, "backend")
+	os.MkdirAll(filepath.Join(backend, "venv"), 0755)
+	os.WriteFile(filepath.Join(root, ".dockerignore"), []byte("/backend/venv\nfrontend/node_modules\n"), 0644)
+
+	m := New()
+	n, err := m.ScanDir(root, backend, ".dockerignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("expected root ignore file, found %d", n)
+	}
+	if !m.Match("venv", true) {
+		t.Fatal("/backend/venv should ignore venv inside backend context")
+	}
+	if m.Match("node_modules", true) {
+		t.Fatal("frontend/node_modules should not ignore backend node_modules")
+	}
+	if m.Match("Dockerfile", false) {
+		t.Fatal("root ignore file should not ignore unrelated backend files")
+	}
+}
+
+func TestDirOnlyPatternMatchesDescendants(t *testing.T) {
+	m := New()
+	m.rules = []rule{
+		{base: "", pattern: pattern{raw: "cache", dirOnly: true}},
+	}
+
+	if !m.Match("cache", true) {
+		t.Fatal("cache directory should match")
+	}
+	if !m.Match("cache/file.txt", false) {
+		t.Fatal("file inside ignored cache directory should match")
+	}
+	if !m.Match("src/cache/file.txt", false) {
+		t.Fatal("file inside nested ignored cache directory should match")
+	}
+	if m.Match("cache.txt", false) {
+		t.Fatal("cache.txt file should not match dir-only cache pattern")
+	}
+}

@@ -15,8 +15,9 @@ type pattern struct {
 }
 
 type rule struct {
-	base    string // directory containing the ignore file, relative to tar root
-	pattern pattern
+	base          string // directory containing the ignore file, relative to tar root
+	contextPrefix string // tar root path relative to an ancestor ignore file
+	pattern       pattern
 }
 
 // Matcher evaluates .gitignore / .dockerignore patterns against paths.
@@ -36,8 +37,12 @@ func (m *Matcher) Empty() bool {
 
 // AddFile parses an ignore file and registers its patterns. base is the
 // directory containing the file relative to the tar root; use "" for the tar
-// root itself or for parent directories (patterns apply everywhere).
+// root itself.
 func (m *Matcher) AddFile(path, base string) error {
+	return m.addFile(path, base, "")
+}
+
+func (m *Matcher) addFile(path, base, contextPrefix string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -50,7 +55,11 @@ func (m *Matcher) AddFile(path, base string) error {
 		if p == nil {
 			continue
 		}
-		m.rules = append(m.rules, rule{base: filepath.ToSlash(base), pattern: *p})
+		m.rules = append(m.rules, rule{
+			base:          filepath.ToSlash(base),
+			contextPrefix: filepath.ToSlash(contextPrefix),
+			pattern:       *p,
+		})
 	}
 	return scanner.Err()
 }
@@ -60,19 +69,17 @@ func (m *Matcher) AddFile(path, base string) error {
 func (m *Matcher) Match(rel string, isDir bool) bool {
 	matched := false
 	for _, r := range m.rules {
-		if r.pattern.dirOnly && !isDir {
-			continue
-		}
-
 		testPath := rel
-		if r.base != "" && r.base != "." {
+		if r.contextPrefix != "" && r.contextPrefix != "." {
+			testPath = joinSlash(r.contextPrefix, rel)
+		} else if r.base != "" && r.base != "." {
 			if !strings.HasPrefix(rel, r.base+"/") {
 				continue
 			}
 			testPath = rel[len(r.base)+1:]
 		}
 
-		if matchPattern(r.pattern, testPath) {
+		if matchRule(r.pattern, testPath, isDir) {
 			matched = !r.pattern.negate
 		}
 	}
@@ -152,6 +159,21 @@ func matchPattern(p pattern, path string) bool {
 			if globMatch(pat, path[i+1:]) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func matchRule(p pattern, path string, isDir bool) bool {
+	if !p.dirOnly {
+		return matchPattern(p, path)
+	}
+	if isDir && matchPattern(p, path) {
+		return true
+	}
+	for i := 0; i < len(path); i++ {
+		if path[i] == '/' && matchPattern(p, path[:i]) {
+			return true
 		}
 	}
 	return false
@@ -306,8 +328,10 @@ func matchDoublestar(pat, name string) bool {
 // ".dockerignore") and adds each one to m. tarRoot is the directory that will
 // be tarred; pattern bases are computed relative to it.
 //
-// Ignore files found in parent directories of tarRoot (between scanRoot and
-// tarRoot) get base "" so their patterns apply to the entire tar tree.
+// Ignore files inside tarRoot are scoped to the directory containing the ignore
+// file. Ignore files in ancestors of tarRoot are evaluated against paths
+// relative to that ancestor. Ignore files in sibling/outside directories are
+// ignored.
 //
 // scanRoot must be an ancestor of (or equal to) tarRoot.
 func (m *Matcher) ScanDir(scanRoot, tarRoot, target string) (int, error) {
@@ -339,18 +363,59 @@ func (m *Matcher) ScanDir(scanRoot, tarRoot, target string) (int, error) {
 		}
 		rel = filepath.ToSlash(rel)
 
-		var base string
-		if rel == "." || strings.HasPrefix(rel, "..") {
+		var base, contextPrefix string
+		if rel == "." {
 			base = ""
+		} else if isOutsideRel(rel) {
+			if !isAncestorOrSame(ignoreDir, tarRoot) {
+				return nil
+			}
+			prefix, prefixErr := filepath.Rel(ignoreDir, tarRoot)
+			if prefixErr != nil {
+				return nil
+			}
+			contextPrefix = filepath.ToSlash(prefix)
 		} else {
 			base = rel
 		}
 
-		if err := m.AddFile(path, base); err != nil {
+		if err := m.addFile(path, base, contextPrefix); err != nil {
 			return nil
 		}
 		count++
 		return nil
 	})
 	return count, err
+}
+
+func isAncestorOrSame(parent, child string) bool {
+	parent = filepath.Clean(parent)
+	child = filepath.Clean(child)
+	if parent == child {
+		return true
+	}
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+func isOutsideRel(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	return rel == ".." || strings.HasPrefix(rel, "../")
+}
+
+func joinSlash(a, b string) string {
+	a = strings.Trim(a, "/")
+	b = strings.Trim(b, "/")
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	default:
+		return a + "/" + b
+	}
 }
