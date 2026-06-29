@@ -25,3 +25,15 @@ func (a *App) SetEnvVar(nodeID, key, value string) error {
 	}
 	return c.SetEnvVar(a.ctx, nodeID, key, value)
 }
+
+// SuggestEnvFile returns the absolute path to a .env file found in the service root, if one exists.
+func (a *App) SuggestEnvFile(nodeID string, projectID int) (string, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", errNoStore
+	}
+	return c.SuggestEnvFile(a.ctx, nodeID, uint(projectID))
+}

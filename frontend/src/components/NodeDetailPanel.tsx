@@ -110,7 +110,7 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
             <div className="node-detail-body">
                 {activeTab === 'overview' && <OverviewTab nodeId={nodeId} onServicesChanged={onServicesChanged} />}
                 {activeTab === 'deployments' && <DeploymentsTab nodeId={nodeId} />}
-                {activeTab === 'variables' && <VariablesTab nodeId={nodeId} />}
+                {activeTab === 'variables' && <VariablesTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
                 {activeTab === 'networking' && <NetworkingTab />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
                 {activeTab === 'metrics' && <MetricsTab />}

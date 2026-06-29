@@ -57,4 +57,6 @@ export function StopLogStream(arg1:string):Promise<void>;
 
 export function StopService(arg1:string):Promise<void>;
 
+export function SuggestEnvFile(arg1:string,arg2:number):Promise<string>;
+
 export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;

@@ -135,6 +135,30 @@ func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, err
 	return out, c.get(ctx, "/docker", &out)
 }
 
+func (c *Client) SuggestEnvFile(ctx context.Context, nodeID string, projectID uint) (string, error) {
+	var out struct{ Path string }
+	body, _ := json.Marshal(map[string]any{"nodeId": nodeID, "projectId": projectID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url("/env/suggest"), bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(tokenHeader, c.state.Token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		msg, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.Path, nil
+}
+
 func (c *Client) GetEnvVars(ctx context.Context, nodeID string) ([]store.EnvVar, error) {
 	var out []store.EnvVar
 	body, _ := json.Marshal(map[string]string{"nodeId": nodeID})

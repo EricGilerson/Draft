@@ -70,14 +70,19 @@
     border-top: 1px solid var(--border);
 }
 
-.var-add input {
+.var-add input,
+.var-add .btn {
     font-family: var(--mono);
     font-size: 0.72rem;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 4px 8px;
+    padding: 0 10px;
     color: var(--text);
+    height: 28px !important;
+    min-height: 28px !important;
+    box-sizing: border-box;
+    line-height: 1;
 }
 
 .var-add input:first-child {
@@ -87,4 +92,24 @@
 .variables-loading {
     font-size: 0.72rem;
     color: var(--text-faint);
+}
+
+.var-env-row {
+    margin-bottom: 12px;
+}
+
+.var-env-row .btn {
+    font-size: 0.7rem;
+    padding: 0 10px;
+    height: 26px;
+}
+
+.var-add .btn {
+    background: var(--btn-primary-gradient);
+    border-color: var(--accent-border);
+    color: #fff;
+    padding: 0 12px !important;
+    min-height: 28px !important;
+    height: 28px !important;
+    font-weight: 700;
 }

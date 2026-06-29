@@ -106,6 +106,10 @@ export function StopService(arg1) {
   return window['go']['main']['App']['StopService'](arg1);
 }
 
+export function SuggestEnvFile(arg1, arg2) {
+  return window['go']['main']['App']['SuggestEnvFile'](arg1, arg2);
+}
+
 export function UpdateNode(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateNode'](arg1, arg2, arg3, arg4);
 }

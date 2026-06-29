@@ -145,6 +145,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/docker", s.handleDocker)
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
+	mux.HandleFunc("/env/suggest", s.handleSuggestEnv)
 	return s.auth(mux)
 }
 
@@ -407,6 +408,23 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, vars)
 }
 
+func (s *Server) handleSuggestEnv(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID    string `json:"nodeId"`
+		ProjectID uint   `json:"projectId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	path, err := s.suggestEnvFile(req.NodeID, req.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]string{"path": path})
+}
+
 func (s *Server) handleSetEnv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID string `json:"nodeId"`
@@ -437,11 +455,14 @@ func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {
 	if err != nil {
 		return nil, err
 	}
-	root := project.Path
-	if rel := settings["service_root"]; rel != "" {
-		root = filepath.Join(project.Path, rel)
+	envPath := settings["env_file"]
+	if envPath == "" {
+		root := project.Path
+		if rel := settings["service_root"]; rel != "" {
+			root = filepath.Join(project.Path, rel)
+		}
+		envPath = filepath.Join(root, ".env")
 	}
-	envPath := filepath.Join(root, ".env")
 	f, err := os.Open(envPath)
 	if os.IsNotExist(err) {
 		return []store.EnvVar{}, nil
@@ -482,11 +503,14 @@ func (s *Server) setEnvVar(nodeID, key, value string) error {
 	if err != nil {
 		return err
 	}
-	root := project.Path
-	if rel := settings["service_root"]; rel != "" {
-		root = filepath.Join(project.Path, rel)
+	envPath := settings["env_file"]
+	if envPath == "" {
+		root := project.Path
+		if rel := settings["service_root"]; rel != "" {
+			root = filepath.Join(project.Path, rel)
+		}
+		envPath = filepath.Join(root, ".env")
 	}
-	envPath := filepath.Join(root, ".env")
 
 	// read existing
 	existing := map[string]string{}
@@ -522,4 +546,27 @@ func (s *Server) setEnvVar(nodeID, key, value string) error {
 		fmt.Fprintf(&b, "%s=%s\n", k, existing[k])
 	}
 	return os.WriteFile(envPath, b.Bytes(), 0o644)
+}
+
+func (s *Server) suggestEnvFile(nodeID string, projectID uint) (string, error) {
+	settings, err := s.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return "", err
+	}
+	if settings["env_file"] != "" {
+		return "", nil // already set
+	}
+	project, err := s.store.GetProject(projectID)
+	if err != nil {
+		return "", err
+	}
+	root := project.Path
+	if rel := settings["service_root"]; rel != "" {
+		root = filepath.Join(project.Path, rel)
+	}
+	candidate := filepath.Join(root, ".env")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+	return "", nil
 }
