@@ -217,7 +217,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	defer logFile.Close()
 
-	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv, ping.BuilderVersion)
+	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv)
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
 		return
@@ -375,7 +375,7 @@ func resolveBuildContextPlan(projectPath, serviceRootSetting, dockerfilePath str
 	}, nil
 }
 
-func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, builderVersion build.BuilderVersion) error {
+func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv) error {
 	if buildkitEnabled(settings) {
 		if compatible, reason := buildxCompatibleWithSettings(projectPath, plan, settings); compatible {
 			if status, err := e.inspectBuildx(ctx); err == nil {
@@ -400,7 +400,7 @@ func (e *Engine) buildImage(ctx context.Context, cli *client.Client, logFile *os
 		e.emitBuildLog(nodeID, "==> BuildKit local-context disabled for this service; using legacy tar upload")
 	}
 
-	return e.buildImageLegacy(ctx, cli, logFile, nodeID, imageTag, projectPath, settings, plan, deployEnv, builderVersion)
+	return e.buildImageLegacy(ctx, cli, logFile, nodeID, imageTag, projectPath, settings, plan, deployEnv)
 }
 
 func buildkitEnabled(settings map[string]string) bool {
@@ -487,7 +487,7 @@ func (e *Engine) buildImageWithBuildx(ctx context.Context, logFile *os.File, nod
 	return nil
 }
 
-func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv, builderVersion build.BuilderVersion) error {
+func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath string, settings map[string]string, plan buildContextPlan, deployEnv deploymentEnv) error {
 	matcher := ignore.New()
 	if settings["use_dockerignore"] == "true" {
 		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
@@ -524,13 +524,7 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		},
 	}
 
-	resp, err := cli.ImageBuild(ctx, tracker, build.ImageBuildOptions{
-		Tags:       []string{imageTag},
-		Dockerfile: plan.RelativeDockerfile,
-		Remove:     true,
-		BuildArgs:  deployEnv.BuildArgs,
-		Version:    builderVersion,
-	})
+	resp, err := cli.ImageBuild(ctx, tracker, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs))
 	if err != nil {
 		return fmt.Errorf("docker build failed: %w", err)
 	}
@@ -564,6 +558,16 @@ func buildArgsForCLI(buildArgs map[string]*string) []string {
 		args = append(args, key+"="+*buildArgs[key])
 	}
 	return args
+}
+
+func legacyImageBuildOptions(imageTag, relativeDockerfile string, buildArgs map[string]*string) build.ImageBuildOptions {
+	return build.ImageBuildOptions{
+		Tags:       []string{imageTag},
+		Dockerfile: relativeDockerfile,
+		Remove:     true,
+		BuildArgs:  buildArgs,
+		Version:    build.BuilderV1,
+	}
 }
 
 func buildxCompatibleWithSettings(projectPath string, plan buildContextPlan, settings map[string]string) (bool, string) {

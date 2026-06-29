@@ -16,6 +16,8 @@ import (
 
 	"Draft/internal/networking"
 	"Draft/internal/store"
+
+	"github.com/docker/docker/api/types/build"
 )
 
 func openTestStore(t *testing.T) *store.Store {
@@ -559,6 +561,24 @@ func TestBuildkitEnabledDefaultsOn(t *testing.T) {
 	}
 	if buildkitEnabled(map[string]string{"use_buildkit_local_context": "false"}) {
 		t.Fatal("expected explicit false to disable BuildKit local-context")
+	}
+}
+
+func TestLegacyImageBuildOptionsForceBuilderV1(t *testing.T) {
+	value := "bar"
+	opts := legacyImageBuildOptions("draft-test:1", "Dockerfile", map[string]*string{"FOO": &value})
+
+	if opts.Version != build.BuilderV1 {
+		t.Fatalf("expected legacy builder version %q, got %q", build.BuilderV1, opts.Version)
+	}
+	if len(opts.Tags) != 1 || opts.Tags[0] != "draft-test:1" {
+		t.Fatalf("unexpected tags: %+v", opts.Tags)
+	}
+	if opts.Dockerfile != "Dockerfile" {
+		t.Fatalf("unexpected dockerfile: %q", opts.Dockerfile)
+	}
+	if opts.BuildArgs["FOO"] == nil || *opts.BuildArgs["FOO"] != "bar" {
+		t.Fatalf("unexpected build args: %+v", opts.BuildArgs)
 	}
 }
 
