@@ -613,8 +613,13 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		reader:     buildContext,
 		totalBytes: totalBytes,
 		onProgress: func(sent int64, total int64) {
-			pct := float64(sent) / float64(total) * 100
-			e.emitBuildLog(nodeID, fmt.Sprintf("    Uploading: %.0f%% (%.1f / %.1f MB)", pct, float64(sent)/(1024*1024), float64(total)/(1024*1024)))
+			pct := int(float64(sent) / float64(total) * 100)
+			e.emit("deploy:upload-progress", map[string]any{
+				"nodeId":     nodeID,
+				"percent":    pct,
+				"sentBytes":  sent,
+				"totalBytes": total,
+			})
 		},
 	}
 
@@ -623,6 +628,13 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		return fmt.Errorf("docker build failed: %w", err)
 	}
 	defer resp.Body.Close()
+	e.emit("deploy:upload-progress", map[string]any{
+		"nodeId":     nodeID,
+		"percent":    100,
+		"sentBytes":  totalBytes,
+		"totalBytes": totalBytes,
+		"done":       true,
+	})
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Upload complete in %s", time.Since(uploadStart).Round(time.Millisecond)))
 
 	buildStart := time.Now()

@@ -4,14 +4,21 @@ import {EventsOn} from '../../wailsjs/runtime/runtime';
 
 type PendingAction = 'stopping' | 'restarting' | 'deploying' | null;
 
+type UploadProgress = {
+    percent: number;
+    sentBytes: number;
+    totalBytes: number;
+} | null;
+
 type NodeBuildState = {
     lines: string[];
     deploying: boolean;
     version: number;
     pendingAction: PendingAction;
+    uploadProgress: UploadProgress;
 };
 
-const DEFAULT_STATE: NodeBuildState = {lines: [], deploying: false, version: 0, pendingAction: null};
+const DEFAULT_STATE: NodeBuildState = {lines: [], deploying: false, version: 0, pendingAction: null, uploadProgress: null};
 
 type BuildLogStore = {
     nodes: Map<string, NodeBuildState>;
@@ -53,7 +60,7 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
     const getOrCreate = (nodeId: string): NodeBuildState => {
         let s = storeRef.current.nodes.get(nodeId);
         if (!s) {
-            s = {lines: [], deploying: false, version: 0, pendingAction: null};
+            s = {lines: [], deploying: false, version: 0, pendingAction: null, uploadProgress: null};
             storeRef.current.nodes.set(nodeId, s);
         }
         return s;
@@ -79,6 +86,7 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
             s.version++;
             if (ev.status === 'building') {
                 s.lines = [];
+                s.uploadProgress = null;
             }
             notify();
             if ((ev.status === 'building' || ev.status === 'starting') && ev.deploymentId) {
@@ -110,7 +118,22 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
             notify();
         });
 
-        return () => { unsubStatus(); unsubBuild(); };
+        const unsubUpload = EventsOn('deploy:upload-progress', (payload: any) => {
+            const nodeId: string = payload.nodeId;
+            const s = getOrCreate(nodeId);
+            if (payload.done) {
+                s.uploadProgress = null;
+            } else {
+                s.uploadProgress = {
+                    percent: payload.percent,
+                    sentBytes: payload.sentBytes,
+                    totalBytes: payload.totalBytes,
+                };
+            }
+            notify();
+        });
+
+        return () => { unsubStatus(); unsubBuild(); unsubUpload(); };
     }, []);
 
     return (

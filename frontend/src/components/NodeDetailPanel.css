@@ -398,6 +398,31 @@
     color: var(--red);
 }
 
+.upload-progress {
+    padding: 6px 0 2px;
+}
+
+.upload-progress-bar {
+    height: 6px;
+    background: var(--bg-tertiary, #2a2a2a);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.upload-progress-fill {
+    height: 100%;
+    background: var(--accent, #7c5cbf);
+    border-radius: 3px;
+    transition: width 0.15s ease-out;
+}
+
+.upload-progress-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-secondary, #999);
+    margin-top: 3px;
+}
+
 /* ---- Logs Tab ---- */
 
 .logs-tab {

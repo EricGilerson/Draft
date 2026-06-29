@@ -22,7 +22,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
-    const {lines: buildLines, deploying, version, pendingAction, setPendingAction} = useBuildLog(nodeId);
+    const {lines: buildLines, deploying, version, pendingAction, setPendingAction, uploadProgress} = useBuildLog(nodeId);
 
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
@@ -184,6 +184,19 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         {buildLines.map((line, i) => (
                             <div key={i} className="log-line">{line}</div>
                         ))}
+                        {uploadProgress && (
+                            <div className="upload-progress">
+                                <div className="upload-progress-bar">
+                                    <div
+                                        className="upload-progress-fill"
+                                        style={{width: `${uploadProgress.percent}%`}}
+                                    />
+                                </div>
+                                <span className="upload-progress-label">
+                                    Uploading {uploadProgress.percent}% — {(uploadProgress.sentBytes / 1024 / 1024).toFixed(1)} / {(uploadProgress.totalBytes / 1024 / 1024).toFixed(1)} MB
+                                </span>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
