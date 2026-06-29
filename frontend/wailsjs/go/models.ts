@@ -389,3 +389,4 @@ export namespace store {
 	}
 
 }
+

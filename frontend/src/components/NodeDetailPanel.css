@@ -420,6 +420,14 @@
     color: var(--text-muted);
 }
 
+.logs-status--streaming {
+    color: var(--draft-green);
+}
+
+.logs-status--error {
+    color: var(--red);
+}
+
 .btn-sm {
     padding: 3px 8px;
     font-size: 0.66rem;

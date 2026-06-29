@@ -1,7 +1,16 @@
 import {useEffect, useRef, useState} from 'react';
-import {StartLogStream, StopLogStream} from '../../wailsjs/go/main/App';
-import {EventsOn, EventsOff} from '../../wailsjs/runtime/runtime';
+import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {useBuildLog} from './BuildLogProvider';
+import {acquireLogStream, releaseLogStream} from '../lib/logStreamManager';
+
+function getErrorMessage(error: unknown) {
+    return typeof error === 'string' ? error : (error as {message?: string})?.message || 'Could not start log stream';
+}
+
+function isTransientConnectError(message: string) {
+    const value = message.toLowerCase();
+    return value.includes('context canceled') || value.includes('connection reset') || value.includes('unexpected eof');
+}
 
 export default function LogsTab({nodeId}: {nodeId: string}) {
     const [lines, setLines] = useState<{line: string; stream: string}[]>([]);
@@ -10,11 +19,21 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
     const [error, setError] = useState('');
     const logRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
-    const {deploying, version} = useBuildLog(nodeId);
+    const {deploying} = useBuildLog(nodeId);
+
+    useEffect(() => {
+        setLines([]);
+        setError('');
+        setStreaming(false);
+        setConnecting(false);
+        autoScroll.current = true;
+    }, [nodeId]);
 
     useEffect(() => {
         let cancelled = false;
-        const start = () => {
+        let retryTimer: number | null = null;
+
+        const start = async (attempt = 0) => {
             if (deploying) {
                 setConnecting(false);
                 setStreaming(false);
@@ -23,27 +42,37 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
             }
             setConnecting(true);
             setError('');
-            StartLogStream(nodeId).then(() => {
+            try {
+                await acquireLogStream(nodeId);
                 if (cancelled) return;
                 setStreaming(true);
                 setConnecting(false);
-            }).catch((e: any) => {
+                setError('');
+            } catch (e: any) {
+                releaseLogStream(nodeId);
                 if (cancelled) return;
-                const msg = typeof e === 'string' ? e : e?.message || 'Could not start log stream';
+                const msg = getErrorMessage(e);
                 if (msg.includes('no active container')) {
                     setError('');
+                } else if (isTransientConnectError(msg) && attempt < 2) {
+                    retryTimer = window.setTimeout(() => {
+                        void start(attempt + 1);
+                    }, 300 * (attempt + 1));
+                    setError('');
+                    setStreaming(false);
+                    setConnecting(true);
                 } else {
-                    setError(msg);
+                    setError('Could not connect to container logs.');
+                    setStreaming(false);
+                    setConnecting(false);
                 }
-                setStreaming(false);
-                setConnecting(false);
-            });
+            }
         };
 
-        start();
+        void start();
 
         const eventName = 'container:log:' + nodeId;
-        EventsOn(eventName, (ev: any) => {
+        const unsubscribe = EventsOn(eventName, (ev: any) => {
             setLines(prev => {
                 const next = [...prev, {line: ev.line, stream: ev.stream}];
                 return next.length > 5000 ? next.slice(-4000) : next;
@@ -52,12 +81,15 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
 
         return () => {
             cancelled = true;
-            EventsOff(eventName);
-            StopLogStream(nodeId);
+            if (retryTimer !== null) {
+                window.clearTimeout(retryTimer);
+            }
+            unsubscribe();
+            releaseLogStream(nodeId);
             setStreaming(false);
             setConnecting(false);
         };
-    }, [nodeId, deploying, version]);
+    }, [nodeId, deploying]);
 
     useEffect(() => {
         if (autoScroll.current && logRef.current) {
@@ -74,7 +106,7 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
     return (
         <div className="logs-tab">
             <div className="logs-header">
-                <span className="logs-status">
+                <span className={`logs-status ${error ? 'logs-status--error' : streaming ? 'logs-status--streaming' : ''}`}>
                     {streaming ? 'Streaming' : deploying ? 'Deployment starting...' : connecting ? 'Connecting...' : error || 'Not connected'}
                 </span>
                 {lines.length > 0 && (
