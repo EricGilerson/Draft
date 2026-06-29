@@ -5,6 +5,7 @@ import {
     GetServiceRoot, SuggestEnvFile
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
+import Dialog from './Dialog';
 import './VariablesTab.css';
 
 type VariablesTabProps = {
@@ -15,17 +16,25 @@ type VariablesTabProps = {
 
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
     const [vars, setVars] = useState<store.EnvVar[]>([]);
+    const [originals, setOriginals] = useState<Record<string, string>>({});
+    const [edits, setEdits] = useState<Record<string, string>>({});
     const [visible, setVisible] = useState<Record<string, boolean>>({});
     const [newKey, setNewKey] = useState('');
     const [newValue, setNewValue] = useState('');
     const [loading, setLoading] = useState(true);
     const [envFile, setEnvFile] = useState('');
     const [serviceRoot, setServiceRoot] = useState('');
+    const [showConfirm, setShowConfirm] = useState(false);
 
     const load = async () => {
         try {
             const v = await GetEnvVars(nodeId);
-            setVars(v || []);
+            const list = v || [];
+            setVars(list);
+            const map: Record<string, string> = {};
+            list.forEach(x => { map[x.key] = x.value; });
+            setOriginals(map);
+            setEdits({});
         } catch (e) {
             console.error(e);
         } finally {
@@ -74,9 +83,31 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         setVisible(prev => ({...prev, [key]: !prev[key]}));
     };
 
-    const update = async (key: string, value: string) => {
+    const stageEdit = (key: string, value: string) => {
+        const original = originals[key] ?? '';
+        setEdits(prev => {
+            const next = {...prev};
+            if (value === original) {
+                delete next[key];
+            } else {
+                next[key] = value;
+            }
+            return next;
+        });
+    };
+
+    const pendingChanges = Object.entries(edits).map(([k, v]) => {
+        const original = vars.find(x => x.key === k)?.value ?? '';
+        return {key: k, from: original, to: v};
+    });
+
+    const saveChanges = async () => {
         try {
-            await SetEnvVar(nodeId, key, value);
+            for (const [k, v] of Object.entries(edits)) {
+                await SetEnvVar(nodeId, k, v);
+            }
+            setEdits({});
+            setShowConfirm(false);
             await load();
         } catch (e) {
             console.error(e);
@@ -134,13 +165,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             <input
                                 type={visible[v.key] ? 'text' : 'password'}
                                 value={v.value}
+                                disabled={!visible[v.key]}
                                 onChange={e => {
                                     const nv = [...vars];
                                     const idx = nv.findIndex(x => x.key === v.key);
                                     nv[idx] = {...v, value: e.target.value};
                                     setVars(nv);
+                                    stageEdit(v.key, e.target.value);
                                 }}
-                                onBlur={e => update(v.key, e.target.value)}
                             />
                             <button className="var-toggle" onClick={() => toggle(v.key)}>
                                 {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
@@ -165,6 +197,34 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <Plus size={14}/> Add
                 </button>
             </div>
+
+            {Object.keys(edits).length > 0 && (
+                <button className="btn btn-primary save-btn" onClick={() => setShowConfirm(true)}>
+                    Save {Object.keys(edits).length} change{Object.keys(edits).length > 1 ? 's' : ''}
+                </button>
+            )}
+
+            {showConfirm && (
+                <Dialog title="Confirm variable changes" onClose={() => setShowConfirm(false)} footer={
+                    <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                        <button className="btn btn-ghost" onClick={() => setShowConfirm(false)}>Cancel</button>
+                        <button className="btn btn-primary" onClick={saveChanges}>Save changes</button>
+                    </div>
+                }>
+                    <div className="var-diff">
+                        {pendingChanges.map(c => (
+                            <div key={c.key} className="var-diff-row">
+                                <div className="var-key">{c.key}</div>
+                                <div className="var-diff-values">
+                                    <span className="old">{c.from || '(empty)'}</span>
+                                    <span>→</span>
+                                    <span className="new">{c.to}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Dialog>
+            )}
         </div>
     );
 }

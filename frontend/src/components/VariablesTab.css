@@ -94,6 +94,41 @@
     color: var(--text-faint);
 }
 
+.save-btn {
+    margin-top: 12px;
+    align-self: flex-start;
+}
+
+.var-diff {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    overflow-x: auto;
+}
+
+.var-diff-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.var-diff-values {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.var-diff-values .old {
+    color: var(--text-faint);
+    text-decoration: line-through;
+}
+
+.var-diff-values .new {
+    color: var(--text);
+}
+
 .var-env-row {
     margin-bottom: 12px;
 }
