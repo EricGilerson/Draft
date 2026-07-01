@@ -148,7 +148,21 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	gitStream := gitBranch != "" && gitStreamEnabled(settings)
 
 	if gitBranch != "" && !gitStream {
-		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, gitBranch)
+		// Determine the minimal subtree the build context needs so we export
+		// only that from git, not the whole repository. The path math is
+		// filesystem-independent, so resolve it against the on-disk project.
+		basePlan, err := resolveBuildContextPlan(project.Path, settings["service_root"], dockerfilePath)
+		if err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
+			return
+		}
+		contextRel, err := filepath.Rel(project.Path, basePlan.ContextRoot)
+		if err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
+			return
+		}
+
+		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, gitBranch, contextRel)
 		if err != nil {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
@@ -483,24 +497,46 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 // repository into a fresh temporary directory and returns its path. The caller
 // owns the returned directory and must remove it when done. The project's
 // working tree and index are never read or modified.
-func (e *Engine) prepareGitSource(ctx context.Context, nodeID, projectPath, ref string) (string, error) {
+//
+// contextRel is the build-context path relative to the repo root (e.g.
+// "backend"); only that subtree is exported, mirrored at the same relative
+// location inside the workspace so the caller's service-root/context
+// resolution against the workspace is identical to the on-disk project. This
+// avoids materializing an entire monorepo when a service lives in one
+// subdirectory. Pass "." (or "") to export the whole repository.
+func (e *Engine) prepareGitSource(ctx context.Context, nodeID, projectPath, ref, contextRel string) (string, error) {
 	if !gitsrc.IsRepo(projectPath) {
 		return "", fmt.Errorf("git branch is set but %s is not a git repository", projectPath)
 	}
 
-	e.emitBuildLog(nodeID, fmt.Sprintf("==> Preparing source from git branch %q...", ref))
+	contextRel = filepath.ToSlash(strings.TrimSpace(contextRel))
 
 	archiveDir, err := os.MkdirTemp("", "draft-src-")
 	if err != nil {
 		return "", fmt.Errorf("create source workspace: %w", err)
 	}
 
-	if err := gitsrc.ArchiveToDir(ctx, projectPath, ref, archiveDir); err != nil {
+	treeish := ref
+	destDir := archiveDir
+	exported := fmt.Sprintf("%q", ref)
+	if contextRel != "" && contextRel != "." {
+		treeish = ref + ":" + contextRel
+		destDir = filepath.Join(archiveDir, filepath.FromSlash(contextRel))
+		exported = fmt.Sprintf("%q:%s", ref, contextRel)
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			os.RemoveAll(archiveDir)
+			return "", fmt.Errorf("create source workspace: %w", err)
+		}
+	}
+
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Preparing source from git branch %q...", ref))
+
+	if err := gitsrc.ArchiveToDir(ctx, projectPath, treeish, destDir); err != nil {
 		os.RemoveAll(archiveDir)
 		return "", err
 	}
 
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Exported %q into an ephemeral workspace (working tree untouched)", ref))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Exported %s into an ephemeral workspace (working tree untouched)", exported))
 	return archiveDir, nil
 }
 

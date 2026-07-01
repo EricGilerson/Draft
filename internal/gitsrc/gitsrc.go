@@ -79,9 +79,19 @@ func VerifyRef(ctx context.Context, path, ref string) error {
 // git archive writes the tarball to a temporary file which is then extracted;
 // this avoids the OS-pipe buffering deadlocks that arise from streaming a
 // child process's stdout while concurrently draining its stderr.
-func ArchiveToDir(ctx context.Context, repoPath, ref, destDir string) error {
+//
+// treeish may be a bare ref ("main") or a ref with a sub-path
+// ("main:services/api"), in which case only that subtree is exported, rooted
+// at destDir.
+func ArchiveToDir(ctx context.Context, repoPath, treeish, destDir string) error {
 	if !IsRepo(repoPath) {
 		return ErrNotRepo
+	}
+	// A "<ref>:<subdir>" tree-ish resolves to a tree, not a commit; verify the
+	// commit-ish part so a bad branch still yields a clear error.
+	ref := treeish
+	if i := strings.IndexByte(treeish, ':'); i >= 0 {
+		ref = treeish[:i]
 	}
 	if err := VerifyRef(ctx, repoPath, ref); err != nil {
 		return err
@@ -95,7 +105,7 @@ func ArchiveToDir(ctx context.Context, repoPath, ref, destDir string) error {
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", ref)
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", treeish)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -105,7 +115,7 @@ func ArchiveToDir(ctx context.Context, repoPath, ref, destDir string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
-		return fmt.Errorf("git archive %s: %s", ref, msg)
+		return fmt.Errorf("git archive %s: %s", treeish, msg)
 	}
 
 	if _, err := tarFile.Seek(0, io.SeekStart); err != nil {

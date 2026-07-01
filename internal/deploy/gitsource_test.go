@@ -67,7 +67,7 @@ func TestPrepareGitSource_MaterializesBranch(t *testing.T) {
 	e, _ := newTestEngine(t, s)
 	repo := gitRepoWithCommit(t)
 
-	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main")
+	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main", ".")
 	if err != nil {
 		t.Fatalf("prepareGitSource: %v", err)
 	}
@@ -89,6 +89,54 @@ func TestPrepareGitSource_MaterializesBranch(t *testing.T) {
 	}
 }
 
+// TestPrepareGitSource_SubtreeOnly is the monorepo optimization: with a
+// contextRel of "svc", only that subtree is exported (mirrored at
+// <workspace>/svc), and sibling top-level content is not materialized — so a
+// service in a large repo doesn't drag the whole tree onto disk.
+func TestPrepareGitSource_SubtreeOnly(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	repo := gitRepoWithCommit(t) // Dockerfile + app.txt at root
+
+	// Add a service subdir plus a large sibling that must NOT be materialized.
+	if err := os.WriteFile(filepath.Join(repo, "svc", "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		_ = os.MkdirAll(filepath.Join(repo, "svc"), 0o755)
+		if err2 := os.WriteFile(filepath.Join(repo, "svc", "Dockerfile"), []byte("FROM scratch\n"), 0o644); err2 != nil {
+			t.Fatalf("write svc/Dockerfile: %v", err2)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "svc", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write svc/main.go: %v", err)
+	}
+	_ = os.MkdirAll(filepath.Join(repo, "huge-assets"), 0o755)
+	if err := os.WriteFile(filepath.Join(repo, "huge-assets", "blob.bin"), make([]byte, 1<<20), 0o644); err != nil {
+		t.Fatalf("write huge-assets/blob.bin: %v", err)
+	}
+	runGitIn(t, repo, "add", ".")
+	runGitIn(t, repo, "commit", "-q", "-m", "add svc and assets")
+
+	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main", "svc")
+	if err != nil {
+		t.Fatalf("prepareGitSource: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	// The svc subtree is present at the mirrored location <workspace>/svc.
+	if _, err := os.Stat(filepath.Join(dir, "svc", "Dockerfile")); err != nil {
+		t.Fatalf("expected svc/Dockerfile in workspace: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "svc", "main.go")); err != nil {
+		t.Fatalf("expected svc/main.go in workspace: %v", err)
+	}
+	// Sibling top-level content must NOT have been materialized.
+	if _, err := os.Stat(filepath.Join(dir, "huge-assets")); !os.IsNotExist(err) {
+		t.Fatalf("huge-assets should not be materialized for a svc-only export")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app.txt")); !os.IsNotExist(err) {
+		t.Fatalf("root app.txt should not be materialized for a svc-only export")
+	}
+}
+
 func TestPrepareGitSource_LeavesWorkingTreeUntouched(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
@@ -102,7 +150,7 @@ func TestPrepareGitSource_LeavesWorkingTreeUntouched(t *testing.T) {
 		t.Fatalf("write untracked: %v", err)
 	}
 
-	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main")
+	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main", ".")
 	if err != nil {
 		t.Fatalf("prepareGitSource: %v", err)
 	}
@@ -131,7 +179,7 @@ func TestPrepareGitSource_NotARepo(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 
-	_, err := e.prepareGitSource(context.Background(), "node-1", t.TempDir(), "main")
+	_, err := e.prepareGitSource(context.Background(), "node-1", t.TempDir(), "main", ".")
 	if err == nil {
 		t.Fatalf("expected error for non-git project directory")
 	}
@@ -145,7 +193,7 @@ func TestPrepareGitSource_BadBranch(t *testing.T) {
 	e, _ := newTestEngine(t, s)
 	repo := gitRepoWithCommit(t)
 
-	_, err := e.prepareGitSource(context.Background(), "node-1", repo, "no-such-branch")
+	_, err := e.prepareGitSource(context.Background(), "node-1", repo, "no-such-branch", ".")
 	if err == nil {
 		t.Fatalf("expected error for nonexistent branch")
 	}
@@ -312,7 +360,7 @@ func TestGitDeploy_AbsoluteDockerfileResolves(t *testing.T) {
 
 	absDockerfile := filepath.Join(repo, "Dockerfile")
 
-	source, err := e.prepareGitSource(context.Background(), "node-1", repo, "main")
+	source, err := e.prepareGitSource(context.Background(), "node-1", repo, "main", ".")
 	if err != nil {
 		t.Fatalf("prepareGitSource: %v", err)
 	}

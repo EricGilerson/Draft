@@ -230,6 +230,37 @@ func TestArchiveToDir_IgnoresUncommittedChanges(t *testing.T) {
 	}
 }
 
+func TestArchiveToDir_Subtree(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "svc", "app.js"), "sub\n")
+	writeFile(t, filepath.Join(repo, "other", "big.txt"), "unrelated\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "add svc and other")
+
+	dest := t.TempDir()
+	// "<ref>:<subdir>" exports only that subtree, rooted at dest.
+	if err := ArchiveToDir(context.Background(), repo, "main:svc", dest); err != nil {
+		t.Fatalf("ArchiveToDir subtree: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dest, "app.js")); err != nil || string(data) != "sub\n" {
+		t.Fatalf("expected svc/app.js rooted at dest: data=%q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "other")); !os.IsNotExist(err) {
+		t.Fatalf("subtree export must not include sibling 'other'")
+	}
+	if _, err := os.Stat(filepath.Join(dest, "README.md")); !os.IsNotExist(err) {
+		t.Fatalf("subtree export must not include root README.md")
+	}
+}
+
+func TestArchiveToDir_SubtreeBadRef(t *testing.T) {
+	repo := newTestRepo(t)
+	dest := t.TempDir()
+	if err := ArchiveToDir(context.Background(), repo, "no-such-branch:svc", dest); err == nil {
+		t.Fatalf("expected error for nonexistent branch in subtree treeish")
+	}
+}
+
 func TestArchiveToDir_InvalidRef(t *testing.T) {
 	repo := newTestRepo(t)
 	dest := t.TempDir()
