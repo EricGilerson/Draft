@@ -182,6 +182,40 @@ func TestRebaseUnderSource(t *testing.T) {
 	}
 }
 
+func TestCountingReaderFiresEOFOnce(t *testing.T) {
+	data := bytes.Repeat([]byte("x"), 10<<20) // 10 MB so onProgress also fires
+	var progressCalls int
+	var eofCalls, eofTotal int64
+	cr := &countingReader{
+		r:          bytes.NewReader(data),
+		onProgress: func(int64) { progressCalls++ },
+		onEOF: func(sent int64) {
+			eofCalls++
+			eofTotal = sent
+		},
+	}
+
+	// Drain fully, then attempt one more read (already at EOF).
+	n, err := io.Copy(io.Discard, cr)
+	if err != nil {
+		t.Fatalf("copy: %v", err)
+	}
+	_, _ = cr.Read(make([]byte, 8))
+
+	if n != int64(len(data)) {
+		t.Fatalf("copied %d bytes, want %d", n, len(data))
+	}
+	if eofCalls != 1 {
+		t.Fatalf("onEOF fired %d times, want exactly 1", eofCalls)
+	}
+	if eofTotal != int64(len(data)) {
+		t.Fatalf("onEOF reported %d bytes, want %d", eofTotal, len(data))
+	}
+	if progressCalls == 0 {
+		t.Fatalf("expected onProgress to fire for a 10MB stream")
+	}
+}
+
 func TestGitStreamEnabled(t *testing.T) {
 	cases := map[string]bool{
 		"":      true, // default on

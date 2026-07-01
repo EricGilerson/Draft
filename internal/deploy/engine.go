@@ -806,6 +806,22 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	}
 
 	uploadStart := time.Now()
+	// clearProgress hides the (indeterminate) upload bar. It must fire exactly
+	// once the tar has been fully sent — i.e. when the archive stream reaches
+	// EOF — not after the build, so the bar doesn't linger through the build.
+	var progressCleared atomic.Bool
+	clearProgress := func(sent int64) {
+		if progressCleared.Swap(true) {
+			return
+		}
+		e.emit("deploy:upload-progress", map[string]any{
+			"nodeId":        nodeID,
+			"sentBytes":     sent,
+			"indeterminate": true,
+			"done":          true,
+		})
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Streamed %.1f MB of committed files in %s", float64(sent)/(1024*1024), time.Since(uploadStart).Round(time.Millisecond)))
+	}
 	reader := &countingReader{
 		r: stdout,
 		onProgress: func(sent int64) {
@@ -815,13 +831,16 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 				"indeterminate": true,
 			})
 		},
+		onEOF: clearProgress,
 	}
 
 	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
+	e.emitBuildLog(nodeID, "    Only files committed to this branch are sent (uncommitted and gitignored files such as node_modules are excluded)")
 	resp, err := cli.ImageBuild(ctx, reader, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs, bo))
 	if err != nil {
 		cancelGit()
 		_ = cmd.Wait()
+		clearProgress(atomic.LoadInt64(&reader.n))
 		return fmt.Errorf("docker build failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -833,14 +852,8 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	// and git has finished writing; Wait reaps it and surfaces archive errors.
 	waitErr := cmd.Wait()
 
-	sent := atomic.LoadInt64(&reader.n)
-	e.emit("deploy:upload-progress", map[string]any{
-		"nodeId":        nodeID,
-		"sentBytes":     sent,
-		"indeterminate": true,
-		"done":          true,
-	})
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Streamed %.1f MB in %s", float64(sent)/(1024*1024), time.Since(uploadStart).Round(time.Millisecond)))
+	// Belt-and-suspenders: ensure the bar is cleared even if EOF wasn't observed.
+	clearProgress(atomic.LoadInt64(&reader.n))
 
 	if buildErr != nil {
 		return buildErr
@@ -856,14 +869,16 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	return nil
 }
 
-// countingReader tallies bytes read and periodically reports progress. n is
-// updated atomically so a caller in another goroutine can read the final total
-// once the underlying stream is fully consumed.
+// countingReader tallies bytes read, periodically reports progress, and fires
+// onEOF once when the underlying stream is exhausted. n is updated atomically
+// so a caller in another goroutine can read the final total safely.
 type countingReader struct {
 	r          io.Reader
 	n          int64
 	lastEmit   int64
+	firedEOF   bool
 	onProgress func(sent int64)
+	onEOF      func(sent int64)
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
@@ -873,6 +888,12 @@ func (c *countingReader) Read(p []byte) (int, error) {
 		if c.onProgress != nil && total-c.lastEmit >= 4<<20 { // every ~4 MB
 			c.lastEmit = total
 			c.onProgress(total)
+		}
+	}
+	if err == io.EOF && !c.firedEOF {
+		c.firedEOF = true
+		if c.onEOF != nil {
+			c.onEOF(atomic.LoadInt64(&c.n))
 		}
 	}
 	return n, err
