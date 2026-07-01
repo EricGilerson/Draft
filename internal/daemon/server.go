@@ -154,6 +154,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/import", s.handleImportEnv)
 	mux.HandleFunc("/env/refresh", s.handleRefreshEnv)
 	mux.HandleFunc("/env/export", s.handleExportEnv)
+	mux.HandleFunc("/env/preview", s.handlePreviewEnv)
+	mux.HandleFunc("/env/reference-targets", s.handleReferenceTargets)
+	mux.HandleFunc("/connections", s.handleConnections)
 	return s.auth(mux)
 }
 
@@ -534,6 +537,48 @@ func (s *Server) handleExportEnv(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
+func (s *Server) handlePreviewEnv(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	preview, err := s.engine.PreviewEnvVars(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, preview)
+}
+
+func (s *Server) handleReferenceTargets(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	targets, err := s.engine.ListReferenceTargets(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, targets)
+}
+
+func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
+	projectID, err := strconv.ParseUint(r.URL.Query().Get("projectId"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	conns, err := s.engine.GetProjectConnections(uint(projectID))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, conns)
+}
+
 func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {
 	return s.store.ListEnvVars(nodeID)
 }
@@ -598,7 +643,9 @@ func (s *Server) exportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	if err != nil {
 		return store.EnvFileSyncResult{}, err
 	}
-	vars, err := s.store.ListEnvVars(nodeID)
+	// Resolved, not raw: a written .env file is read by tools outside Draft,
+	// which have no notion of an @{Label.ATTR} reference token.
+	vars, err := s.engine.ResolveEnvVars(nodeID)
 	if err != nil {
 		return store.EnvFileSyncResult{Path: path}, err
 	}

@@ -15,7 +15,7 @@ import '@xyflow/react/dist/style.css';
 import {Maximize2, Minus, Plus, PlusCircle, X} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {CreateNode, DeleteNode, GetActiveDeployment, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
+import {CreateNode, DeleteNode, GetActiveDeployment, GetProjectConnections, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
 import NodeDetailPanel from './NodeDetailPanel';
@@ -78,7 +78,7 @@ function generateId(): string {
 
 export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-    const [edges, _setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [showAddPopover, setShowAddPopover] = useState(false);
     const [newNodeName, setNewNodeName] = useState('');
     const [addNodeError, setAddNodeError] = useState<string | null>(null);
@@ -115,6 +115,30 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             setNodes(flowNodes);
         });
     }, [project.id, setNodes]);
+
+    // Connections are read-only edges derived from variable references
+    // (@{Label.ATTR} tokens) across the project's env vars — there's no
+    // drag-to-connect on the canvas. Refetched whenever the detail panel's
+    // selection changes, since that's when a service's variables were just
+    // edited.
+    useEffect(() => {
+        GetProjectConnections(project.id)
+            .then((conns) => {
+                const flowEdges: Edge[] = (conns || []).map((c) => ({
+                    id: `${c.sourceNodeId}:${c.sourceKey}->${c.targetNodeId}`,
+                    source: c.sourceNodeId,
+                    target: c.targetNodeId,
+                    label: c.sourceKey,
+                    selectable: false,
+                    focusable: false,
+                    reconnectable: false,
+                    style: {stroke: 'var(--text-faint)', strokeDasharray: '4 3'},
+                    labelStyle: {fill: 'var(--text-faint)', fontSize: 10},
+                }));
+                setEdges(flowEdges);
+            })
+            .catch(() => {});
+    }, [project.id, selectedNodeId, setEdges]);
 
     useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', (payload: any) => {
@@ -252,6 +276,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     edges={edges}
                     onNodesChange={handleNodesChange}
                     onEdgesChange={onEdgesChange}
+                    edgesReconnectable={false}
                     onNodeClick={(_e, node) => setSelectedNodeId(node.id)}
                     onPaneClick={() => setSelectedNodeId(null)}
                     nodeTypes={nodeTypes}

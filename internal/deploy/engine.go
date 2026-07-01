@@ -162,30 +162,31 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	serviceName := sanitize(node.Label)
-	projectName := sanitize(project.Name)
-	environment := "default"
+	addr, err := e.computeNodeAddress(&node)
+	if err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve node identity: " + err.Error()})
+		return
+	}
+	serviceName := addr.ServiceName
+	projectName := addr.ProjectName
+	environment := addr.Environment
+	hostname := addr.InternalHostname
 	uid, err := e.store.EnsureNodeUID(nodeID)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve node identity: " + err.Error()})
 		return
 	}
-	hostname := networking.Hostname(serviceName, projectName, environment, uid)
-	publicHostname := networking.PublicHostname(hostname)
-	publicURL := ""
-	if e.router != nil {
-		publicURL = networking.PublicURL(hostname, e.router.LocalDomainStatus().ProxyPort)
-	}
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
 		NodeID:           nodeID,
-		ServiceName:      serviceName,
-		ProjectName:      projectName,
-		Environment:      environment,
-		ServicePort:      portStr,
-		InternalHostname: hostname,
-		InternalURL:      networking.InternalURL(hostname, portStr),
-		PublicHostname:   publicHostname,
-		PublicURL:        publicURL,
+		ProjectID:        node.ProjectID,
+		ServiceName:      addr.ServiceName,
+		ProjectName:      addr.ProjectName,
+		Environment:      addr.Environment,
+		ServicePort:      addr.ServicePort,
+		InternalHostname: addr.InternalHostname,
+		InternalURL:      addr.InternalURL,
+		PublicHostname:   addr.PublicHostname,
+		PublicURL:        addr.PublicURL,
 	})
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve environment: " + err.Error()})

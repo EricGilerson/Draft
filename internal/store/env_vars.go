@@ -30,6 +30,16 @@ func (s *Store) ListEnvVars(nodeID string) ([]EnvVar, error) {
 	return vars, nil
 }
 
+// GetEnvVar returns a single env var by node and key, or gorm.ErrRecordNotFound
+// if it doesn't exist.
+func (s *Store) GetEnvVar(nodeID, key string) (*EnvVar, error) {
+	var v EnvVar
+	if err := s.DB.Where("node_id = ? AND key = ?", strings.TrimSpace(nodeID), strings.TrimSpace(key)).First(&v).Error; err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
 func (s *Store) SetEnvVar(nodeID, key, value string) error {
 	return s.UpsertEnvVar(EnvVar{
 		NodeID: nodeID,

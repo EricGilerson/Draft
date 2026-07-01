@@ -1,5 +1,23 @@
 export namespace deploy {
 	
+	export class Connection {
+	    sourceNodeId: string;
+	    sourceKey: string;
+	    targetNodeId: string;
+	    targetAttr: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Connection(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.sourceKey = source["sourceKey"];
+	        this.targetNodeId = source["targetNodeId"];
+	        this.targetAttr = source["targetAttr"];
+	    }
+	}
 	export class DeploymentHistorySummary {
 	    totalDeployments: number;
 	    recentWindow: number;
@@ -189,6 +207,24 @@ export namespace deploy {
 		    }
 		    return a;
 		}
+	}
+	export class ReferenceTarget {
+	    nodeId: string;
+	    label: string;
+	    attributes: string[];
+	    customKeys: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReferenceTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.attributes = source["attributes"];
+	        this.customKeys = source["customKeys"];
+	    }
 	}
 	export class RuntimeEvent {
 	    kind: string;

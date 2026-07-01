@@ -9,6 +9,7 @@ import (
 
 var ErrInvalidNode = errors.New("node id and label are required")
 var ErrDuplicateNodeLabel = errors.New("a service with this name already exists in this project")
+var ErrNodeNotFound = errors.New("no service with that name in this project")
 
 // generateUID returns a random 4-character hex string. Mirrors
 // networking.GenerateUID(), duplicated here to avoid store importing
@@ -168,4 +169,20 @@ func (s *Store) GetNode(id string) (*CanvasNode, error) {
 		return nil, err
 	}
 	return &n, nil
+}
+
+// GetNodeByLabel finds a node in a project by its label, matching on the same
+// normalized form used to enforce label uniqueness (case/format-insensitive).
+func (s *Store) GetNodeByLabel(projectID uint, label string) (*CanvasNode, error) {
+	target := sanitizeLabel(label)
+	var nodes []CanvasNode
+	if err := s.DB.Where("project_id = ?", projectID).Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	for i := range nodes {
+		if sanitizeLabel(nodes[i].Label) == target {
+			return &nodes[i], nil
+		}
+	}
+	return nil, ErrNodeNotFound
 }

@@ -50,6 +50,10 @@ export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
 
+export function GetProjectConnections(arg1) {
+  return window['go']['main']['App']['GetProjectConnections'](arg1);
+}
+
 export function GetServiceMetrics(arg1) {
   return window['go']['main']['App']['GetServiceMetrics'](arg1);
 }
@@ -78,8 +82,16 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListReferenceTargets(arg1) {
+  return window['go']['main']['App']['ListReferenceTargets'](arg1);
+}
+
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+}
+
+export function PreviewEnvVars(arg1) {
+  return window['go']['main']['App']['PreviewEnvVars'](arg1);
 }
 
 export function RefreshEnvFile(arg1) {

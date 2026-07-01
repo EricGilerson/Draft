@@ -235,6 +235,24 @@ func (c *Client) ExportEnvFile(ctx context.Context, nodeID string) (store.EnvFil
 	return out, err
 }
 
+func (c *Client) PreviewEnvVars(ctx context.Context, nodeID string) (map[string]deploy.EnvPreview, error) {
+	var out map[string]deploy.EnvPreview
+	err := c.postJSON(ctx, "/env/preview", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
+func (c *Client) ListReferenceTargets(ctx context.Context, nodeID string) ([]deploy.ReferenceTarget, error) {
+	var out []deploy.ReferenceTarget
+	err := c.postJSON(ctx, "/env/reference-targets", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
+func (c *Client) GetProjectConnections(ctx context.Context, projectID uint) ([]deploy.Connection, error) {
+	var out []deploy.Connection
+	err := c.get(ctx, fmt.Sprintf("/connections?projectId=%d", projectID), &out)
+	return out, err
+}
+
 func (c *Client) SubscribeEvents(ctx context.Context, fn func(string, any)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/events"), nil)
 	if err != nil {

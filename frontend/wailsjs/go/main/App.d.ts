@@ -31,6 +31,8 @@ export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
+export function GetProjectConnections(arg1:number):Promise<Array<deploy.Connection>>;
+
 export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
@@ -45,7 +47,11 @@ export function ListProjectServices(arg1:number):Promise<Array<main.ProjectServi
 
 export function ListProjects():Promise<Array<store.Project>>;
 
+export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
+
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
+
+export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 

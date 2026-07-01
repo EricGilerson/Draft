@@ -51,11 +51,64 @@
     color: var(--text-muted);
 }
 
+.var-value-col {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
 .var-value {
     display: flex;
     align-items: flex-start;
     gap: 6px;
     min-width: 0;
+}
+
+.var-toggle--active {
+    color: var(--accent-text);
+}
+
+.var-preview {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    color: var(--text-faint);
+    padding: 2px 8px;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.var-preview--error {
+    color: var(--red);
+}
+
+.var-link-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface-2);
+}
+
+.var-link-picker select {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    background: var(--surface-1, #1a1b19);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    color: var(--text);
+    height: 26px;
+}
+
+.var-link-picker .btn {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 0.68rem;
 }
 
 .var-value input,

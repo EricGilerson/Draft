@@ -1,12 +1,30 @@
-import {useEffect, useState} from 'react';
-import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Plus, RefreshCw, Upload} from 'lucide-react';
+import {useEffect, useRef, useState} from 'react';
+import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Upload} from 'lucide-react';
 import {
     GetEnvVars, SetEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
+    PreviewEnvVars, ListReferenceTargets,
 } from '../../wailsjs/go/main/App';
-import {store} from '../../wailsjs/go/models';
+import {store, deploy} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import './VariablesTab.css';
+
+// Defined locally rather than imported from the generated models: Wails only
+// emits a model class for types it sees as a direct return type or array
+// element, not as a map value (PreviewEnvVars returns Record<string, X>), so
+// EnvPreview keeps getting dropped from models.ts on every real `wails build`.
+type EnvPreview = {
+    value: string;
+    error?: string;
+};
+
+const ATTR_DESCRIPTIONS: Record<string, string> = {
+    INTERNAL_HOSTNAME: 'Docker-network hostname',
+    INTERNAL_URL: 'Internal http URL',
+    PUBLIC_HOSTNAME: 'Browser-facing hostname',
+    PUBLIC_URL: 'Browser-facing URL',
+    PORT: 'Container port',
+};
 
 const DRAFT_RUNTIME_VARS = [
     {key: 'DRAFT_SERVICE_PORT', description: 'The port this service listens on inside the container'},
@@ -64,6 +82,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
     const [syncError, setSyncError] = useState('');
+    const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
+    const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
+    const [linkPickerKey, setLinkPickerKey] = useState<string | null>(null);
+    const [pickerTargetId, setPickerTargetId] = useState('');
+    const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
     const load = async () => {
         try {
@@ -78,6 +101,22 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             console.error(e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadPreviews = async () => {
+        try {
+            setPreviews(await PreviewEnvVars(nodeId) || {});
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const loadLinkTargets = async () => {
+        try {
+            setLinkTargets(await ListReferenceTargets(nodeId) || []);
+        } catch (e) {
+            console.error(e);
         }
     };
 
@@ -103,6 +142,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     useEffect(() => {
         load();
         loadSettings();
+        loadPreviews();
+        loadLinkTargets();
     }, [nodeId]);
 
     const pickEnv = async () => {
@@ -151,6 +192,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setSyncResult(null);
             setSyncError('');
             await load();
+            await loadPreviews();
+            await loadLinkTargets();
         } catch (e) {
             console.error(e);
         }
@@ -165,6 +208,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setSyncResult(null);
             setSyncError('');
             await load();
+            await loadPreviews();
+            await loadLinkTargets();
         } catch (e) {
             console.error(e);
         }
@@ -182,6 +227,34 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             console.error(e);
         }
     };
+
+    const openLinkPicker = (key: string) => {
+        setVisible(prev => ({...prev, [key]: true}));
+        setPickerTargetId('');
+        setLinkPickerKey(key);
+    };
+
+    const closeLinkPicker = () => {
+        setLinkPickerKey(null);
+        setPickerTargetId('');
+    };
+
+    const insertToken = (key: string, token: string) => {
+        const current = vars.find(x => x.key === key)?.value ?? '';
+        const el = textareaRefs.current[key];
+        const start = el?.selectionStart ?? current.length;
+        const end = el?.selectionEnd ?? current.length;
+        const nextValue = current.slice(0, start) + token + current.slice(end);
+
+        const nv = [...vars];
+        const idx = nv.findIndex(x => x.key === key);
+        nv[idx] = store.EnvVar.createFrom({...nv[idx], value: nextValue});
+        setVars(nv);
+        stageEdit(key, nextValue);
+        closeLinkPicker();
+    };
+
+    const pickerTarget = linkTargets.find(t => t.nodeId === pickerTargetId) ?? null;
 
     const persistEnvPath = async () => {
         await SetNodeSetting(nodeId, 'env_file', envFile.trim());
@@ -285,41 +358,89 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 {v.source || 'manual'}
                             </div>
                         </div>
-                        <div className="var-value">
-                            {visible[v.key] ? (
-                                <textarea
-                                    className="var-value-editor"
-                                    value={v.value}
-                                    rows={v.value.includes('\n') || v.value.length > 160 ? 7 : 2}
-                                    wrap="off"
-                                    spellCheck={false}
-                                    onChange={e => {
-                                        const nv = [...vars];
-                                        const idx = nv.findIndex(x => x.key === v.key);
-                                        nv[idx] = store.EnvVar.createFrom({...v, value: e.target.value});
-                                        setVars(nv);
-                                        stageEdit(v.key, e.target.value);
-                                    }}
-                                />
-                            ) : (
-                                <input
-                                    className="var-value-mask"
-                                    type="password"
-                                    value={v.value}
-                                    disabled
-                                    readOnly
-                                />
+                        <div className="var-value-col">
+                            <div className="var-value">
+                                {visible[v.key] ? (
+                                    <textarea
+                                        ref={el => { textareaRefs.current[v.key] = el; }}
+                                        className="var-value-editor"
+                                        value={v.value}
+                                        rows={v.value.includes('\n') || v.value.length > 160 ? 7 : 2}
+                                        wrap="off"
+                                        spellCheck={false}
+                                        onChange={e => {
+                                            const nv = [...vars];
+                                            const idx = nv.findIndex(x => x.key === v.key);
+                                            nv[idx] = store.EnvVar.createFrom({...v, value: e.target.value});
+                                            setVars(nv);
+                                            stageEdit(v.key, e.target.value);
+                                        }}
+                                    />
+                                ) : (
+                                    <input
+                                        className="var-value-mask"
+                                        type="password"
+                                        value={v.value}
+                                        disabled
+                                        readOnly
+                                    />
+                                )}
+                                <button className="var-toggle" onClick={() => toggle(v.key)}>
+                                    {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
+                                </button>
+                                <button
+                                    className={`var-toggle ${linkPickerKey === v.key ? 'var-toggle--active' : ''}`}
+                                    onClick={() => linkPickerKey === v.key ? closeLinkPicker() : openLinkPicker(v.key)}
+                                    title="Reference another service's variable"
+                                    disabled={linkTargets.length === 0}
+                                >
+                                    <Link2 size={14}/>
+                                </button>
+                                <button
+                                    className={`var-scope-toggle ${v.scope === 'build' || v.scope === 'both' ? 'var-scope-toggle--active' : ''}`}
+                                    onClick={() => toggleBuildArg(v)}
+                                    title={v.scope === 'build' || v.scope === 'both' ? 'Included in Docker build args' : 'Runtime only'}
+                                >
+                                    ARG
+                                </button>
+                            </div>
+                            {previews[v.key]?.error && (
+                                <div className="var-preview var-preview--error">{previews[v.key].error}</div>
                             )}
-                            <button className="var-toggle" onClick={() => toggle(v.key)}>
-                                {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
-                            </button>
-                            <button
-                                className={`var-scope-toggle ${v.scope === 'build' || v.scope === 'both' ? 'var-scope-toggle--active' : ''}`}
-                                onClick={() => toggleBuildArg(v)}
-                                title={v.scope === 'build' || v.scope === 'both' ? 'Included in Docker build args' : 'Runtime only'}
-                            >
-                                ARG
-                            </button>
+                            {!previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value && (
+                                <div className="var-preview">resolves to: {previews[v.key].value || '(empty)'}</div>
+                            )}
+                            {linkPickerKey === v.key && (
+                                <div className="var-link-picker">
+                                    <select value={pickerTargetId} onChange={e => setPickerTargetId(e.target.value)}>
+                                        <option value="">Select a service…</option>
+                                        {linkTargets.map(t => (
+                                            <option key={t.nodeId} value={t.nodeId}>{t.label}</option>
+                                        ))}
+                                    </select>
+                                    {pickerTarget && (
+                                        <select
+                                            value=""
+                                            onChange={e => e.target.value && insertToken(v.key, `@{${pickerTarget.label}.${e.target.value}}`)}
+                                        >
+                                            <option value="">Select a value…</option>
+                                            <optgroup label="Address">
+                                                {pickerTarget.attributes.map(a => (
+                                                    <option key={a} value={a}>{ATTR_DESCRIPTIONS[a] || a}</option>
+                                                ))}
+                                            </optgroup>
+                                            {pickerTarget.customKeys.length > 0 && (
+                                                <optgroup label="Variables">
+                                                    {pickerTarget.customKeys.map(k => (
+                                                        <option key={k} value={k}>{k}</option>
+                                                    ))}
+                                                </optgroup>
+                                            )}
+                                        </select>
+                                    )}
+                                    <button className="btn btn-ghost" onClick={closeLinkPicker}>Cancel</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}

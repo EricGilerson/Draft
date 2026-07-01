@@ -1,6 +1,9 @@
 package main
 
-import "Draft/internal/store"
+import (
+	"Draft/internal/deploy"
+	"Draft/internal/store"
+)
 
 // GetEnvVars returns Draft-managed environment variables for a node.
 func (a *App) GetEnvVars(nodeID string) ([]store.EnvVar, error) {
@@ -80,4 +83,46 @@ func (a *App) SuggestEnvFile(nodeID string, projectID int) (string, error) {
 		return "", errNoStore
 	}
 	return c.SuggestEnvFile(a.ctx, nodeID, uint(projectID))
+}
+
+// PreviewEnvVars resolves nodeID's env vars (including @{Label.ATTR} variable
+// references to other services) for read-only display, tolerating per-key
+// errors so one broken reference doesn't hide the rest.
+func (a *App) PreviewEnvVars(nodeID string) (map[string]deploy.EnvPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewEnvVars(a.ctx, nodeID)
+}
+
+// ListReferenceTargets returns the other services in nodeID's project that can
+// be referenced from it (excluding ones that would create a reference cycle),
+// along with what's available to reference on each: address attributes plus
+// custom variable keys.
+func (a *App) ListReferenceTargets(nodeID string) ([]deploy.ReferenceTarget, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListReferenceTargets(a.ctx, nodeID)
+}
+
+// GetProjectConnections returns the read-only edges derived from variable
+// references across every node in the project, for the canvas to render.
+func (a *App) GetProjectConnections(projectID int) ([]deploy.Connection, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetProjectConnections(a.ctx, uint(projectID))
 }
