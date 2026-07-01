@@ -425,6 +425,17 @@
     transition: width 0.15s ease-out;
 }
 
+.upload-progress-fill--indeterminate {
+    width: 35%;
+    transition: none;
+    animation: upload-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes upload-progress-slide {
+    0% { margin-left: -35%; }
+    100% { margin-left: 100%; }
+}
+
 .upload-progress-label {
     display: block;
     font-size: 11px;
@@ -596,6 +607,19 @@
     font-size: 0.68rem;
     color: var(--text-faint);
     line-height: 1.4;
+}
+
+.settings-toggle-row--inactive .settings-toggle-name,
+.settings-toggle-row--inactive .toggle-switch {
+    opacity: 0.45;
+}
+
+.settings-toggle-inactive-note {
+    display: block;
+    margin-top: 2px;
+    font-style: italic;
+    color: var(--accent, #7c5cbf);
+    opacity: 0.85;
 }
 
 .toggle-switch {

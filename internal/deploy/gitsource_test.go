@@ -1,7 +1,10 @@
 package deploy
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,19 +12,43 @@ import (
 	"testing"
 )
 
+// runGitIn runs git in dir, failing the test on error.
+func runGitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// tarEntryNames returns the set of file entry names in a tar byte stream.
+func tarEntryNames(t *testing.T, data []byte) map[string]bool {
+	t.Helper()
+	names := map[string]bool{}
+	tr := tar.NewReader(bytes.NewReader(data))
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		if hdr.Typeflag == tar.TypeReg {
+			names[hdr.Name] = true
+		}
+	}
+	return names
+}
+
 func gitRepoWithCommit(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
+	run := func(args ...string) { runGitIn(t, dir, args...) }
 	run("init", "-b", "main", "-q")
 	run("config", "core.autocrlf", "false")
 	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
@@ -152,6 +179,92 @@ func TestRebaseUnderSource(t *testing.T) {
 	absOut := filepath.Join(outside, "Dockerfile")
 	if _, err := rebaseUnderSource(project, source, absOut); err == nil {
 		t.Fatalf("expected error for absolute path outside project")
+	}
+}
+
+func TestGitStreamEnabled(t *testing.T) {
+	cases := map[string]bool{
+		"":      true, // default on
+		"true":  true,
+		"1":     true,
+		"on":    true,
+		"false": false,
+		"0":     false,
+		"off":   false,
+		"FALSE": false,
+	}
+	for val, want := range cases {
+		got := gitStreamEnabled(map[string]string{"git_stream": val})
+		if got != want {
+			t.Fatalf("gitStreamEnabled(%q) = %v, want %v", val, got, want)
+		}
+	}
+	// Missing key entirely defaults to on.
+	if !gitStreamEnabled(map[string]string{}) {
+		t.Fatalf("gitStreamEnabled with no setting should default to true")
+	}
+}
+
+func TestGitArchiveTreeish(t *testing.T) {
+	project := t.TempDir()
+
+	// Context == repo root → bare ref.
+	if got, err := gitArchiveTreeish(project, project, "main"); err != nil || got != "main" {
+		t.Fatalf("root context: got %q err %v", got, err)
+	}
+
+	// Context in a subdirectory → ref:subdir (forward slashes even on Windows).
+	sub := filepath.Join(project, "services", "web")
+	if got, err := gitArchiveTreeish(project, sub, "develop"); err != nil || got != "develop:services/web" {
+		t.Fatalf("subdir context: got %q err %v", got, err)
+	}
+
+	// Context outside the repo → error.
+	if _, err := gitArchiveTreeish(project, t.TempDir(), "main"); err == nil {
+		t.Fatalf("expected error for context outside repo")
+	}
+}
+
+// TestGitStreamTreeishMatchesArchive verifies that the tree-ish computed for a
+// subdirectory build context actually produces the expected files when handed
+// to `git archive` — i.e. paths are rooted at the subdir.
+func TestGitStreamTreeishMatchesArchive(t *testing.T) {
+	repo := gitRepoWithCommit(t) // Dockerfile + app.txt at root
+	// Add a subdirectory service with its own Dockerfile.
+	sub := filepath.Join(repo, "svc")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir svc: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatalf("write svc/Dockerfile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("write svc/main.go: %v", err)
+	}
+	runGitIn(t, repo, "add", ".")
+	runGitIn(t, repo, "commit", "-q", "-m", "add svc")
+
+	treeish, err := gitArchiveTreeish(repo, sub, "main")
+	if err != nil {
+		t.Fatalf("gitArchiveTreeish: %v", err)
+	}
+	if treeish != "main:svc" {
+		t.Fatalf("unexpected treeish: %q", treeish)
+	}
+
+	// Archive that treeish and confirm the subtree is rooted at svc.
+	cmd := exec.Command("git", "-C", repo, "archive", "--format=tar", treeish)
+	tarBytes, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git archive %s: %v", treeish, err)
+	}
+	names := tarEntryNames(t, tarBytes)
+	// Rooted at svc → entries are "Dockerfile" and "main.go", NOT "svc/...".
+	if !names["Dockerfile"] || !names["main.go"] {
+		t.Fatalf("expected Dockerfile and main.go at archive root, got %v", names)
+	}
+	if names["svc/Dockerfile"] || names["app.txt"] {
+		t.Fatalf("archive should be rooted at svc and exclude root files, got %v", names)
 	}
 }
 

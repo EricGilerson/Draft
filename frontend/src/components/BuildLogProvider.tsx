@@ -8,6 +8,7 @@ type UploadProgress = {
     percent: number;
     sentBytes: number;
     totalBytes: number;
+    indeterminate: boolean;
 } | null;
 
 type NodeBuildState = {
@@ -125,9 +126,10 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
                 s.uploadProgress = null;
             } else {
                 s.uploadProgress = {
-                    percent: payload.percent,
-                    sentBytes: payload.sentBytes,
-                    totalBytes: payload.totalBytes,
+                    percent: payload.percent ?? 0,
+                    sentBytes: payload.sentBytes ?? 0,
+                    totalBytes: payload.totalBytes ?? 0,
+                    indeterminate: !!payload.indeterminate,
                 };
             }
             notify();

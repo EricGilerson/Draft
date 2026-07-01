@@ -38,6 +38,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [useDockerignore, setUseDockerignore] = useState(false);
     const [useGitignore, setUseGitignore] = useState(false);
     const [useBuildkitLocalContext, setUseBuildkitLocalContext] = useState(true);
+    const [gitStream, setGitStream] = useState(true);
 
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
@@ -96,6 +97,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setUseDockerignore(s.use_dockerignore === 'true');
             setUseGitignore(s.use_gitignore === 'true');
             setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
+            setGitStream(s.git_stream !== 'false');
             if (s.volume_mounts) {
                 try { setVolumes(JSON.parse(s.volume_mounts)); } catch { setVolumes([]); }
             }
@@ -209,6 +211,12 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         setUseBuildkitLocalContext(next);
         saveSetting('use_buildkit_local_context', next ? 'true' : 'false');
     }, [nodeId, useBuildkitLocalContext, saveSetting]);
+
+    const toggleGitStream = useCallback(() => {
+        const next = !gitStream;
+        setGitStream(next);
+        saveSetting('git_stream', next ? 'true' : 'false');
+    }, [gitStream, saveSetting]);
 
     const applyExposePort = useCallback((exposePort: number) => {
         const val = String(exposePort);
@@ -342,9 +350,17 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             {/* ── Build Context ── */}
             <div className="settings-section">
                 <h3 className="settings-section-title">Build Context</h3>
-                <ToggleRow label=".dockerignore" desc="Exclude files matched by .dockerignore patterns found in the service root." checked={useDockerignore} onToggle={toggleDockerignore} />
-                <ToggleRow label=".gitignore" desc="Exclude files matched by .gitignore patterns found anywhere in the service root." checked={useGitignore} onToggle={toggleGitignore} />
-                <ToggleRow label="BuildKit local context" desc="Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft's legacy tar upload path for maximum compatibility." checked={useBuildkitLocalContext} onToggle={toggleBuildkitLocalContext} />
+                {gitBranch && (
+                    <ToggleRow
+                        label="Stream branch to Docker"
+                        desc="Pipe the branch's committed files straight to Docker for a faster build. .dockerignore, .gitignore and BuildKit local context don't apply while streaming — commit only what you need to keep the context small. Turn off to build from a full checkout that respects your ignore files (slower)."
+                        checked={gitStream}
+                        onToggle={toggleGitStream}
+                    />
+                )}
+                <ToggleRow label=".dockerignore" desc="Exclude files matched by .dockerignore patterns found in the service root." checked={useDockerignore} onToggle={toggleDockerignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
+                <ToggleRow label=".gitignore" desc="Exclude files matched by .gitignore patterns found anywhere in the service root." checked={useGitignore} onToggle={toggleGitignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
+                <ToggleRow label="BuildKit local context" desc="Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft's legacy tar upload path for maximum compatibility." checked={useBuildkitLocalContext} onToggle={toggleBuildkitLocalContext} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
             </div>
 
             {/* ── Build Configuration ── */}
@@ -511,7 +527,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             {/* ── Lifecycle Hooks ── */}
             <div className="settings-section">
                 <h3 className="settings-section-title">Lifecycle Hooks</h3>
-                <SettingInput label="Pre-Build" hint="Shell command to run on your machine before building the image." settingKey="pre_build_cmd" value={getSetting('pre_build_cmd')} onSave={saveSetting} placeholder="e.g. npm run generate" />
+                <SettingInput label="Pre-Build" hint="Shell command to run on your machine before building the image. If you're streaming from a git branch (the “Stream branch to Docker” option), any files this command generates on disk won't be included — the build context comes straight from git. Turn that option off to build from a full checkout that picks them up." settingKey="pre_build_cmd" value={getSetting('pre_build_cmd')} onSave={saveSetting} placeholder="e.g. npm run generate" />
                 <SettingInput label="Post-Build" hint="Shell command to run on your machine after a successful build." settingKey="post_build_cmd" value={getSetting('post_build_cmd')} onSave={saveSetting} placeholder="e.g. echo Build complete" />
                 <SettingInput label="Pre-Deploy" hint="Shell command to run on your machine before starting the container." settingKey="pre_deploy_cmd" value={getSetting('pre_deploy_cmd')} onSave={saveSetting} placeholder="e.g. ./scripts/migrate.sh" />
                 <SettingInput label="Post-Deploy" hint="Shell command to run on your machine after the container is running." settingKey="post_deploy_cmd" value={getSetting('post_deploy_cmd')} onSave={saveSetting} placeholder="e.g. curl http://localhost:3000/warmup" />
@@ -584,12 +600,15 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     );
 }
 
-function ToggleRow({label, desc, checked, onToggle}: {label: string; desc: string; checked: boolean; onToggle: () => void}) {
+function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote}: {label: string; desc: string; checked: boolean; onToggle: () => void; inactive?: boolean; inactiveNote?: string}) {
     return (
-        <div className="settings-toggle-row">
+        <div className={`settings-toggle-row${inactive ? ' settings-toggle-row--inactive' : ''}`}>
             <div className="settings-toggle-label">
                 <span className="settings-toggle-name">{label}</span>
-                <span className="settings-toggle-desc">{desc}</span>
+                <span className="settings-toggle-desc">
+                    {desc}
+                    {inactive && inactiveNote && <em className="settings-toggle-inactive-note"> {inactiveNote}</em>}
+                </span>
             </div>
             <button
                 className={`toggle-switch${checked ? ' toggle-switch--on' : ''}`}

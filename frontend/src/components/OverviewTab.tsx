@@ -188,12 +188,14 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                             <div className="upload-progress">
                                 <div className="upload-progress-bar">
                                     <div
-                                        className="upload-progress-fill"
-                                        style={{width: `${uploadProgress.percent}%`}}
+                                        className={`upload-progress-fill${uploadProgress.indeterminate ? ' upload-progress-fill--indeterminate' : ''}`}
+                                        style={uploadProgress.indeterminate ? undefined : {width: `${uploadProgress.percent}%`}}
                                     />
                                 </div>
                                 <span className="upload-progress-label">
-                                    Uploading {uploadProgress.percent}% — {(uploadProgress.sentBytes / 1024 / 1024).toFixed(1)} / {(uploadProgress.totalBytes / 1024 / 1024).toFixed(1)} MB
+                                    {uploadProgress.indeterminate
+                                        ? `Streaming to Docker — ${(uploadProgress.sentBytes / 1024 / 1024).toFixed(1)} MB`
+                                        : `Uploading ${uploadProgress.percent}% — ${(uploadProgress.sentBytes / 1024 / 1024).toFixed(1)} / ${(uploadProgress.totalBytes / 1024 / 1024).toFixed(1)} MB`}
                                 </span>
                             </div>
                         )}

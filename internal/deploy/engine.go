@@ -3,6 +3,7 @@ package deploy
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"Draft/internal/gitsrc"
@@ -134,12 +136,19 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 
 	// By default the build reads directly from the project directory on disk.
-	// If a git branch is pinned for this service, materialize that branch into
-	// an ephemeral directory instead — leaving the project's working tree
-	// (including any uncommitted changes) completely untouched.
+	// If a git branch is pinned for this service, the build uses that branch's
+	// committed files instead, leaving the working tree (and any uncommitted
+	// changes) untouched. Two strategies:
+	//   - stream (default): pipe `git archive` straight to Docker. Fastest, but
+	//     .dockerignore/.gitignore and BuildKit local context do not apply.
+	//   - checkout: materialize the branch into an ephemeral directory, then
+	//     build it like a normal on-disk service (honors ignore files/BuildKit).
 	sourcePath := project.Path
-	if branch := strings.TrimSpace(settings["git_branch"]); branch != "" {
-		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, branch)
+	gitBranch := strings.TrimSpace(settings["git_branch"])
+	gitStream := gitBranch != "" && gitStreamEnabled(settings)
+
+	if gitBranch != "" && !gitStream {
+		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, gitBranch)
 		if err != nil {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
@@ -159,6 +168,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		dockerfilePath = rebased
 	}
 
+	// For streaming, resolve the plan against the real project path — the path
+	// math is filesystem-independent, and it yields the build-context subtree
+	// and Dockerfile path we hand to `git archive` and Docker respectively.
 	plan, err := resolveBuildContextPlan(sourcePath, settings["service_root"], dockerfilePath)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
@@ -266,7 +278,12 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		}
 	}
 
-	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, sourcePath, settings, plan, deployEnv, buildOvr)
+	var buildErr error
+	if gitStream {
+		buildErr = e.buildImageGitStream(ctx, cli, logFile, nodeID, imageTag, project.Path, gitBranch, plan, deployEnv, buildOvr)
+	} else {
+		buildErr = e.buildImage(ctx, cli, logFile, nodeID, imageTag, sourcePath, settings, plan, deployEnv, buildOvr)
+	}
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
 		return
@@ -567,6 +584,13 @@ func buildkitEnabled(settings map[string]string) bool {
 	return value != "false" && value != "0" && value != "off"
 }
 
+// gitStreamEnabled reports whether a pinned git branch should be streamed
+// directly to Docker (the default) rather than checked out into a temp dir.
+func gitStreamEnabled(settings map[string]string) bool {
+	value := strings.TrimSpace(strings.ToLower(settings["git_stream"]))
+	return value != "false" && value != "0" && value != "off"
+}
+
 type buildxStatus struct {
 	Name    string
 	Version string
@@ -718,6 +742,140 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 	}
 	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
 	return nil
+}
+
+// gitArchiveTreeish builds the `git archive` tree-ish for a build context that
+// lives at contextRoot inside the repo at projectPath. When the context is the
+// repo root the bare ref is used; for a subdirectory the `<ref>:<subdir>` form
+// roots the archive at that subdirectory. A context outside the repo is an
+// error — it cannot be reproduced from a branch archive.
+func gitArchiveTreeish(projectPath, contextRoot, ref string) (string, error) {
+	contextRel, err := filepath.Rel(projectPath, contextRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve build context within repo: %w", err)
+	}
+	contextRel = filepath.ToSlash(contextRel)
+	if contextRel == ".." || strings.HasPrefix(contextRel, "../") {
+		return "", fmt.Errorf("build context %q is outside the repository and cannot be streamed from a git branch", contextRoot)
+	}
+	if contextRel == "." || contextRel == "" {
+		return ref, nil
+	}
+	return ref + ":" + contextRel, nil
+}
+
+// buildImageGitStream builds directly from a git branch by piping
+// `git archive <ref>[:<context-subdir>]` straight into the Docker build API.
+// It never materializes the branch to disk, so it is the fastest path — but
+// .dockerignore/.gitignore filtering and BuildKit local context do not apply
+// (the tar comes straight from git's object store, not the filesystem).
+func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath, ref string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
+	if !gitsrc.IsRepo(projectPath) {
+		return fmt.Errorf("git branch is set but %s is not a git repository", projectPath)
+	}
+	if err := gitsrc.VerifyRef(ctx, projectPath, ref); err != nil {
+		return err
+	}
+
+	// Archive only the build-context subtree. `<ref>:<subdir>` roots the archive
+	// at that subdir, so entries line up with plan.RelativeDockerfile.
+	treeish, err := gitArchiveTreeish(projectPath, plan.ContextRoot, ref)
+	if err != nil {
+		return err
+	}
+
+	e.emitBuildLog(nodeID, "==> Streaming git branch to Docker...")
+	e.emitBuildLog(nodeID, fmt.Sprintf("    git archive --format=tar %s", treeish))
+	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, plan.RelativeDockerfile))
+	e.emitBuildLog(nodeID, "    Note: .dockerignore, .gitignore and BuildKit local context do not apply while streaming")
+
+	// A dedicated cancellable context lets us tear down git archive if Docker
+	// rejects the build before draining the tar, avoiding a blocked-writer hang.
+	gitCtx, cancelGit := context.WithCancel(ctx)
+	defer cancelGit()
+
+	cmd := e.execCommand(gitCtx, "git", "-C", projectPath, "archive", "--format=tar", treeish)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("git archive: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("git archive: %w", err)
+	}
+
+	uploadStart := time.Now()
+	reader := &countingReader{
+		r: stdout,
+		onProgress: func(sent int64) {
+			e.emit("deploy:upload-progress", map[string]any{
+				"nodeId":        nodeID,
+				"sentBytes":     sent,
+				"indeterminate": true,
+			})
+		},
+	}
+
+	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
+	resp, err := cli.ImageBuild(ctx, reader, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs, bo))
+	if err != nil {
+		cancelGit()
+		_ = cmd.Wait()
+		return fmt.Errorf("docker build failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	buildStart := time.Now()
+	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, 0)
+
+	// The build response is fully read above, so the entire tar has been sent
+	// and git has finished writing; Wait reaps it and surfaces archive errors.
+	waitErr := cmd.Wait()
+
+	sent := atomic.LoadInt64(&reader.n)
+	e.emit("deploy:upload-progress", map[string]any{
+		"nodeId":        nodeID,
+		"sentBytes":     sent,
+		"indeterminate": true,
+		"done":          true,
+	})
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Streamed %.1f MB in %s", float64(sent)/(1024*1024), time.Since(uploadStart).Round(time.Millisecond)))
+
+	if buildErr != nil {
+		return buildErr
+	}
+	if waitErr != nil && ctx.Err() == nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = waitErr.Error()
+		}
+		return fmt.Errorf("git archive %s: %s", ref, msg)
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
+	return nil
+}
+
+// countingReader tallies bytes read and periodically reports progress. n is
+// updated atomically so a caller in another goroutine can read the final total
+// once the underlying stream is fully consumed.
+type countingReader struct {
+	r          io.Reader
+	n          int64
+	lastEmit   int64
+	onProgress func(sent int64)
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		total := atomic.AddInt64(&c.n, int64(n))
+		if c.onProgress != nil && total-c.lastEmit >= 4<<20 { // every ~4 MB
+			c.lastEmit = total
+			c.onProgress(total)
+		}
+	}
+	return n, err
 }
 
 func buildArgsForCLI(buildArgs map[string]*string) []string {
