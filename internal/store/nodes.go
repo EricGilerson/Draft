@@ -12,10 +12,37 @@ var ErrInvalidNode = errors.New("node id and label are required")
 // generateUID returns a random 4-character hex string. Mirrors
 // networking.GenerateUID(), duplicated here to avoid store importing
 // networking (which itself depends on store, e.g. for route persistence).
-func generateUID() string {
+// Now that this value is persisted permanently on the node rather than
+// regenerated per deploy, uniqueUIDForProject retries on collision to
+// compensate for the small (65536) space. A var so tests can force
+// collisions deterministically.
+var generateUID = func() string {
 	b := make([]byte, 2)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// nodeUIDExists reports whether any node in the project already has the
+// given UID.
+func (s *Store) nodeUIDExists(projectID uint, uid string) (bool, error) {
+	var count int64
+	err := s.DB.Model(&CanvasNode{}).Where("project_id = ? AND uid = ?", projectID, uid).Count(&count).Error
+	return count > 0, err
+}
+
+// uniqueUIDForProject generates a UID guaranteed not to collide with an
+// existing node's UID in the same project.
+func (s *Store) uniqueUIDForProject(projectID uint) (string, error) {
+	for {
+		uid := generateUID()
+		exists, err := s.nodeUIDExists(projectID, uid)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return uid, nil
+		}
+	}
 }
 
 func (s *Store) CreateNode(node *CanvasNode) (*CanvasNode, error) {
@@ -25,7 +52,11 @@ func (s *Store) CreateNode(node *CanvasNode) (*CanvasNode, error) {
 		return nil, ErrInvalidNode
 	}
 	if node.UID == "" {
-		node.UID = generateUID()
+		uid, err := s.uniqueUIDForProject(node.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		node.UID = uid
 	}
 	if err := s.DB.Create(node).Error; err != nil {
 		return nil, err
@@ -44,11 +75,14 @@ func (s *Store) EnsureNodeUID(id string) (string, error) {
 	if node.UID != "" {
 		return node.UID, nil
 	}
-	node.UID = generateUID()
-	if err := s.DB.Model(&CanvasNode{}).Where("id = ?", id).Update("uid", node.UID).Error; err != nil {
+	uid, err := s.uniqueUIDForProject(node.ProjectID)
+	if err != nil {
 		return "", err
 	}
-	return node.UID, nil
+	if err := s.DB.Model(&CanvasNode{}).Where("id = ?", id).Update("uid", uid).Error; err != nil {
+		return "", err
+	}
+	return uid, nil
 }
 
 func (s *Store) UpdateNode(id string, x, y float64, label string) error {

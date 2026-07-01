@@ -89,6 +89,67 @@ func TestEnsureNodeUIDBackfillsLegacyRows(t *testing.T) {
 	}
 }
 
+func TestCreateNodeRetriesOnUIDCollision(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api", UID: "aaaa"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	// Force the generator to return the colliding value first, then a
+	// unique one, to deterministically exercise the retry loop.
+	origGenerateUID := generateUID
+	t.Cleanup(func() { generateUID = origGenerateUID })
+	calls := 0
+	generateUID = func() string {
+		calls++
+		if calls == 1 {
+			return "aaaa"
+		}
+		return "bbbb"
+	}
+
+	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "worker"})
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("expected generateUID to be retried after a collision, called %d time(s)", calls)
+	}
+	if node.UID != "bbbb" {
+		t.Errorf("UID = %q, want %q", node.UID, "bbbb")
+	}
+}
+
+func TestCreateNodeUIDCollisionCheckIsScopedPerProject(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api", UID: "aaaa"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	origGenerateUID := generateUID
+	t.Cleanup(func() { generateUID = origGenerateUID })
+	calls := 0
+	generateUID = func() string {
+		calls++
+		return "aaaa"
+	}
+
+	// Different project: "aaaa" is free there, so it should be accepted
+	// without retrying, even though it's taken in project 1.
+	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 2, Label: "api"})
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if node.UID != "aaaa" {
+		t.Errorf("UID = %q, want %q", node.UID, "aaaa")
+	}
+	if calls != 1 {
+		t.Errorf("expected generateUID called once (no retry needed cross-project), got %d", calls)
+	}
+}
+
 func TestEnsureNodeUIDUnknownNode(t *testing.T) {
 	s := openTemp(t)
 
