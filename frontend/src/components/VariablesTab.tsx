@@ -614,6 +614,52 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     </div>
                 )}
             </div>
+
+            <div className="var-add-col">
+                <div className="var-add">
+                    <input
+                        placeholder="KEY"
+                        value={newKey}
+                        onChange={e => setNewKey(e.target.value)}
+                    />
+                    <input
+                        ref={el => { fieldRefs.current[FIELD_NEW_VALUE] = el; }}
+                        placeholder="value"
+                        value={newValue}
+                        onChange={e => {
+                            setNewValue(e.target.value);
+                            handleCaretActivity(FIELD_NEW_VALUE, e.target);
+                        }}
+                        onClick={e => handleCaretActivity(FIELD_NEW_VALUE, e.currentTarget)}
+                        onKeyUp={e => handleCaretActivity(FIELD_NEW_VALUE, e.currentTarget)}
+                        onBlur={() => {
+                            setTimeout(() => setAutocomplete(a => (a?.key === FIELD_NEW_VALUE ? null : a)), 120);
+                        }}
+                    />
+                    <button className="btn btn-primary" onClick={add}>
+                        <Plus size={14}/> Add
+                    </button>
+                    <button
+                        className={`btn btn-ghost ${linker?.mode === 'new' ? 'var-toggle--active' : ''}`}
+                        onClick={() => linker?.mode === 'new' ? closeLinker() : openNewLinker()}
+                        disabled={linkTargets.length === 0}
+                        title="Add a new variable that references another service"
+                    >
+                        <Link2 size={14}/> Link
+                    </button>
+                </div>
+                {autocomplete?.key === FIELD_NEW_VALUE && (
+                    <VarAutocomplete
+                        autocomplete={autocomplete}
+                        linkTargets={linkTargets}
+                        onSelectService={selectAutocompleteService}
+                        onSelectAttr={selectAutocompleteAttr}
+                    />
+                )}
+            </div>
+
+            {linker?.mode === 'new' && renderLinkerPanel()}
+
             <div className="variables-list">
                 {vars.length === 0 && (
                     <div className="variables-empty">No Draft variables yet.</div>
@@ -700,51 +746,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     </div>
                 ))}
             </div>
-
-            <div className="var-add-col">
-                <div className="var-add">
-                    <input
-                        placeholder="KEY"
-                        value={newKey}
-                        onChange={e => setNewKey(e.target.value)}
-                    />
-                    <input
-                        ref={el => { fieldRefs.current[FIELD_NEW_VALUE] = el; }}
-                        placeholder="value"
-                        value={newValue}
-                        onChange={e => {
-                            setNewValue(e.target.value);
-                            handleCaretActivity(FIELD_NEW_VALUE, e.target);
-                        }}
-                        onClick={e => handleCaretActivity(FIELD_NEW_VALUE, e.currentTarget)}
-                        onKeyUp={e => handleCaretActivity(FIELD_NEW_VALUE, e.currentTarget)}
-                        onBlur={() => {
-                            setTimeout(() => setAutocomplete(a => (a?.key === FIELD_NEW_VALUE ? null : a)), 120);
-                        }}
-                    />
-                    <button className="btn btn-primary" onClick={add}>
-                        <Plus size={14}/> Add
-                    </button>
-                    <button
-                        className={`btn btn-ghost ${linker?.mode === 'new' ? 'var-toggle--active' : ''}`}
-                        onClick={() => linker?.mode === 'new' ? closeLinker() : openNewLinker()}
-                        disabled={linkTargets.length === 0}
-                        title="Add a new variable that references another service"
-                    >
-                        <Link2 size={14}/> Link
-                    </button>
-                </div>
-                {autocomplete?.key === FIELD_NEW_VALUE && (
-                    <VarAutocomplete
-                        autocomplete={autocomplete}
-                        linkTargets={linkTargets}
-                        onSelectService={selectAutocompleteService}
-                        onSelectAttr={selectAutocompleteAttr}
-                    />
-                )}
-            </div>
-
-            {linker?.mode === 'new' && renderLinkerPanel()}
 
             <RuntimeVarsSection />
 
