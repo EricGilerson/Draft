@@ -669,6 +669,10 @@ select.input.settings-select {
     cursor: pointer;
     line-height: 1.4;
     font-family: inherit;
+    /* Native selects ignore vertical padding and render shorter than text
+       inputs — pin a matching height so all dropdowns line up. */
+    min-height: 40px;
+    height: 40px;
 }
 
 select.input.settings-select option {

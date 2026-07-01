@@ -443,7 +443,7 @@
 
 .settings-input,
 .settings-select-wrap {
-    height: 36px;
+    height: 40px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: rgba(8, 9, 7, 0.72);
