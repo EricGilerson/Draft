@@ -12,16 +12,19 @@ import (
 
 // refPattern matches @{Label.ATTR} tokens inside an env var value, letting
 // one service's variable reference another service's address or variables
-// (e.g. "postgres://@{db.INTERNAL_HOSTNAME}:5432/app"). Label matches up to
-// the last '.' so it can contain dots itself only if ATTR still parses as a
-// trailing identifier; node labels are otherwise unrestricted, so this is a
-// best-effort split, not a hard guarantee.
+// (e.g. "postgres://@{db.DRAFT_INTERNAL_HOSTNAME}:5432/app"). Label matches
+// up to the last '.' so it can contain dots itself only if ATTR still parses
+// as a trailing identifier; node labels are otherwise unrestricted, so this
+// is a best-effort split, not a hard guarantee.
 var refPattern = regexp.MustCompile(`@\{([^{}]+)\.([A-Za-z0-9_]+)\}`)
 
 // generatedAttrs are the address attributes every node exposes to referencing
 // services, independent of whether the node has ever been deployed (hostname
-// and port are deterministic — see computeNodeAddress).
-var generatedAttrs = []string{"INTERNAL_HOSTNAME", "INTERNAL_URL", "PUBLIC_HOSTNAME", "PUBLIC_URL", "PORT"}
+// and port are deterministic — see computeNodeAddress). Named to match the
+// DRAFT_* vars Draft injects into that same node's own container, so
+// referencing another service's address reads the same as the variable it
+// corresponds to there.
+var generatedAttrs = []string{"DRAFT_INTERNAL_HOSTNAME", "DRAFT_INTERNAL_URL", "DRAFT_PUBLIC_HOSTNAME", "DRAFT_PUBLIC_URL", "DRAFT_SERVICE_PORT"}
 
 // NodeAddress holds the deterministic, pre-deploy-computable address info for
 // a node. It's used both to inject this node's own DRAFT_* vars and to
@@ -39,15 +42,15 @@ type NodeAddress struct {
 
 func (a NodeAddress) attr(name string) (string, bool) {
 	switch name {
-	case "INTERNAL_HOSTNAME":
+	case "DRAFT_INTERNAL_HOSTNAME":
 		return a.InternalHostname, true
-	case "INTERNAL_URL":
+	case "DRAFT_INTERNAL_URL":
 		return a.InternalURL, true
-	case "PUBLIC_HOSTNAME":
+	case "DRAFT_PUBLIC_HOSTNAME":
 		return a.PublicHostname, true
-	case "PUBLIC_URL":
+	case "DRAFT_PUBLIC_URL":
 		return a.PublicURL, true
-	case "PORT":
+	case "DRAFT_SERVICE_PORT":
 		return a.ServicePort, true
 	default:
 		return "", false

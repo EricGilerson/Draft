@@ -35,7 +35,7 @@ func TestResolveValueGeneratedAttribute(t *testing.T) {
 	e, _ := newTestEngine(t, s)
 	project, api, _ := setupRefTestNodes(t, s)
 
-	if err := s.SetEnvVar(api.ID, "DATABASE_URL", "postgres://@{db.INTERNAL_HOSTNAME}:@{db.PORT}/app"); err != nil {
+	if err := s.SetEnvVar(api.ID, "DATABASE_URL", "postgres://@{db.DRAFT_INTERNAL_HOSTNAME}:@{db.DRAFT_SERVICE_PORT}/app"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +126,7 @@ func TestResolveValueMissingReference(t *testing.T) {
 	e, _ := newTestEngine(t, s)
 	project, api, _ := setupRefTestNodes(t, s)
 
-	if err := s.SetEnvVar(api.ID, "MISSING", "@{ghost.INTERNAL_URL}"); err != nil {
+	if err := s.SetEnvVar(api.ID, "MISSING", "@{ghost.DRAFT_INTERNAL_URL}"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +147,7 @@ func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 	e, _ := newTestEngine(t, s)
 	project, api, db := setupRefTestNodes(t, s)
 
-	if err := s.SetEnvVar(api.ID, "DATABASE_URL", "@{db.INTERNAL_URL}"); err != nil {
+	if err := s.SetEnvVar(api.ID, "DATABASE_URL", "@{db.DRAFT_INTERNAL_URL}"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -155,7 +155,7 @@ func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(conns) != 1 || conns[0].SourceNodeID != api.ID || conns[0].TargetNodeID != db.ID || conns[0].TargetAttr != "INTERNAL_URL" {
+	if len(conns) != 1 || conns[0].SourceNodeID != api.ID || conns[0].TargetNodeID != db.ID || conns[0].TargetAttr != "DRAFT_INTERNAL_URL" {
 		t.Fatalf("connections = %+v", conns)
 	}
 

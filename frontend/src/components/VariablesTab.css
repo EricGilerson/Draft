@@ -238,6 +238,12 @@
     color: var(--text-faint);
 }
 
+.var-add-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
 .var-add {
     display: flex;
     gap: 8px;
