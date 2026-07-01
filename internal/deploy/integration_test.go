@@ -830,6 +830,79 @@ func TestIntegrationRedeployCleansStaleImages(t *testing.T) {
 	})
 }
 
+// TestIntegrationRedeployKeepsStableHostname verifies that redeploying the
+// same node produces the same internal hostname (and therefore the same
+// Docker network DNS alias) across deployments, since the node's UID is now
+// persisted rather than regenerated on every deploy.
+func TestIntegrationRedeployKeepsStableHostname(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	// First deploy
+	e.Deploy(context.Background(), "svc1")
+	running1 := waitForStatus(col, "svc1", "running", 60*time.Second)
+	if running1 == nil {
+		t.Fatal("expected first deploy to reach running")
+	}
+	dep1, _ := s.ActiveDeployment("svc1")
+	firstHostname := dep1.Hostname
+	firstDeployID := dep1.ID
+	if firstHostname == "" {
+		t.Fatal("expected first deployment to have a hostname")
+	}
+
+	// Second deploy of the same node
+	e.Deploy(context.Background(), "svc1")
+
+	deadline := time.Now().Add(60 * time.Second)
+	var secondRunning *StatusEvent
+	for time.Now().Before(deadline) {
+		for _, ev := range col.get() {
+			if ev.Name == "deploy:status:svc1" {
+				se := ev.Data.(StatusEvent)
+				if se.Status == "running" && se.DeploymentID != firstDeployID {
+					secondRunning = &se
+				}
+			}
+		}
+		if secondRunning != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if secondRunning == nil {
+		t.Fatal("expected second deploy to reach running")
+	}
+
+	dep2, _ := s.ActiveDeployment("svc1")
+	if dep2.Hostname != firstHostname {
+		t.Errorf("hostname changed across redeploy: %q != %q", dep2.Hostname, firstHostname)
+	}
+
+	node, err := s.GetNode("svc1")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.UID == "" {
+		t.Error("expected node to have a persisted UID")
+	}
+	if !strings.Contains(firstHostname, node.UID) {
+		t.Errorf("expected hostname %q to contain node UID %q", firstHostname, node.UID)
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
 // TestIntegrationImageTag verifies the image tag naming convention.
 func TestIntegrationImageTag(t *testing.T) {
 	cli := requireDocker(t)

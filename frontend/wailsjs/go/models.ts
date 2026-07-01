@@ -443,6 +443,7 @@ export namespace store {
 	    label: string;
 	    x: number;
 	    y: number;
+	    uid: string;
 	    // Go type: time
 	    createdAt: any;
 	    // Go type: time
@@ -459,6 +460,7 @@ export namespace store {
 	        this.label = source["label"];
 	        this.x = source["x"];
 	        this.y = source["y"];
+	        this.uid = source["uid"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }

@@ -20,6 +20,11 @@ type CanvasNode struct {
 	Label     string    `gorm:"not null" json:"label"`
 	X         float64   `json:"x"`
 	Y         float64   `json:"y"`
+	// UID is a short, stable identifier used to build the node's Draft hostname
+	// (service.project.environment.uid.draft.local). It's generated once and
+	// never changes, so the hostname stays valid across redeploys and other
+	// services on the same Docker network can depend on it.
+	UID       string    `gorm:"not null;default:''" json:"uid"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }

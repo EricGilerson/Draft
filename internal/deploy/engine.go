@@ -165,7 +165,11 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	serviceName := sanitize(node.Label)
 	projectName := sanitize(project.Name)
 	environment := "default"
-	uid := networking.GenerateUID()
+	uid, err := e.store.EnsureNodeUID(nodeID)
+	if err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve node identity: " + err.Error()})
+		return
+	}
 	hostname := networking.Hostname(serviceName, projectName, environment, uid)
 	publicHostname := networking.PublicHostname(hostname)
 	publicURL := ""
