@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCreateNodeGeneratesUID(t *testing.T) {
 	s := openTemp(t)
@@ -155,5 +158,98 @@ func TestEnsureNodeUIDUnknownNode(t *testing.T) {
 
 	if _, err := s.EnsureNodeUID("does-not-exist"); err == nil {
 		t.Error("expected error for unknown node, got nil")
+	}
+}
+
+func TestCreateNodeRejectsDuplicateLabelInSameProject(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
+		t.Errorf("got %v, want ErrDuplicateNodeLabel", err)
+	}
+}
+
+func TestCreateNodeRejectsDuplicateLabelAfterSanitization(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "My Api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	// Different raw string, but sanitizes to the same Docker service name
+	// ("my-api") — must still be rejected, since that's the actual
+	// collision that matters downstream (network alias, hostname).
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "my_api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
+		t.Errorf("got %v, want ErrDuplicateNodeLabel", err)
+	}
+}
+
+func TestCreateNodeAllowsSameLabelInDifferentProjects(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 2, Label: "api"}); err != nil {
+		t.Errorf("expected same label to be allowed in a different project, got: %v", err)
+	}
+}
+
+func TestUpdateNodeRejectsDuplicateLabel(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "worker"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	if err := s.UpdateNode("n2", 1, 2, "api"); !errors.Is(err, ErrDuplicateNodeLabel) {
+		t.Errorf("got %v, want ErrDuplicateNodeLabel", err)
+	}
+
+	// Original label and position must be unchanged after the rejected rename.
+	node, err := s.GetNode("n2")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.Label != "worker" || node.X != 0 || node.Y != 0 {
+		t.Errorf("node mutated despite rejected update: %+v", node)
+	}
+}
+
+func TestUpdateNodeAllowsUnchangedLabelOnPositionMove(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+
+	// Simulates a drag: same label, new coordinates. Must not conflict
+	// with itself.
+	if err := s.UpdateNode("n1", 100, 200, "api"); err != nil {
+		t.Errorf("UpdateNode: unexpected error on self-move: %v", err)
+	}
+
+	node, err := s.GetNode("n1")
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if node.X != 100 || node.Y != 200 {
+		t.Errorf("position not updated: %+v", node)
+	}
+}
+
+func TestUpdateNodeRejectsEmptyLabel(t *testing.T) {
+	s := openTemp(t)
+
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if err := s.UpdateNode("n1", 0, 0, "   "); !errors.Is(err, ErrInvalidNode) {
+		t.Errorf("got %v, want ErrInvalidNode", err)
 	}
 }

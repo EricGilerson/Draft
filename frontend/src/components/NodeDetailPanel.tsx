@@ -28,7 +28,7 @@ type NodeDetailPanelProps = {
     projectId: number;
     projectPath: string;
     onClose: () => void;
-    onRename: (nodeId: string, newLabel: string) => void;
+    onRename: (nodeId: string, newLabel: string) => Promise<void>;
     onServicesChanged?: () => void;
 };
 
@@ -36,26 +36,41 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
     const [activeTab, setActiveTab] = useState('overview');
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(nodeLabel);
+    const [renameError, setRenameError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         setEditValue(nodeLabel);
+        setRenameError(null);
     }, [nodeLabel]);
 
     const startEditing = () => {
         setEditValue(nodeLabel);
+        setRenameError(null);
         setEditing(true);
         setTimeout(() => editRef.current?.select(), 0);
     };
 
     const commitRename = () => {
-        setEditing(false);
         const trimmed = editValue.trim();
-        if (trimmed && trimmed !== nodeLabel) {
-            onRename(nodeId, trimmed);
-        } else {
+        if (!trimmed || trimmed === nodeLabel) {
+            setEditing(false);
             setEditValue(nodeLabel);
+            setRenameError(null);
+            return;
         }
+        setRenameError(null);
+        onRename(nodeId, trimmed)
+            .then(() => {
+                setEditing(false);
+            })
+            .catch((e) => {
+                // Keep the input open with the attempted value so the user
+                // can see what failed (e.g. a duplicate service name) and
+                // fix it, rather than silently reverting.
+                setRenameError(String(e));
+                setTimeout(() => editRef.current?.focus(), 0);
+            });
     };
 
     return (
@@ -70,12 +85,16 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                             ref={editRef}
                             className="node-detail-title-input"
                             value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
+                            onChange={(e) => {
+                                setEditValue(e.target.value);
+                                setRenameError(null);
+                            }}
                             onBlur={commitRename}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') commitRename();
                                 if (e.key === 'Escape') {
                                     setEditValue(nodeLabel);
+                                    setRenameError(null);
                                     setEditing(false);
                                 }
                             }}
@@ -90,6 +109,7 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                     <X size={16}/>
                 </button>
             </div>
+            {renameError && <p className="form-error node-detail-rename-error">{renameError}</p>}
 
             <nav className="node-detail-tabs">
                 {TABS.map((tab) => (

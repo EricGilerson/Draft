@@ -81,6 +81,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     const [edges, _setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [showAddPopover, setShowAddPopover] = useState(false);
     const [newNodeName, setNewNodeName] = useState('');
+    const [addNodeError, setAddNodeError] = useState<string | null>(null);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -155,6 +156,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         const x = 120 + Math.random() * 300;
         const y = 140 + Math.random() * 200;
 
+        setAddNodeError(null);
         CreateNode(id, label, project.id, x, y).then(() => {
             const node: Node = {
                 id,
@@ -164,25 +166,32 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             };
             setNodes((prev) => [...prev, node]);
             onServicesChanged?.();
+            setNewNodeName('');
+            setShowAddPopover(false);
+        }).catch((e) => {
+            // Leave the popover open with the attempted name so the user
+            // can fix it (e.g. a duplicate service name) instead of losing
+            // it silently.
+            setAddNodeError(String(e));
         });
-
-        setNewNodeName('');
-        setShowAddPopover(false);
     }, [newNodeName, onServicesChanged, setNodes, project.id]);
 
     const renameNode = useCallback((nodeId: string, newLabel: string) => {
-        setNodes((prev) =>
-            prev.map((n) =>
-                n.id === nodeId ? {...n, data: {...n.data, label: newLabel}} : n,
-            ),
-        );
         const node = nodes.find((n) => n.id === nodeId);
-        UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel).then(() => onServicesChanged?.());
+        return UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel).then(() => {
+            setNodes((prev) =>
+                prev.map((n) =>
+                    n.id === nodeId ? {...n, data: {...n.data, label: newLabel}} : n,
+                ),
+            );
+            onServicesChanged?.();
+        });
     }, [onServicesChanged, setNodes, nodes]);
 
     const openPopover = () => {
         setShowAddPopover(true);
         setNewNodeName('');
+        setAddNodeError(null);
         setTimeout(() => inputRef.current?.focus(), 0);
     };
 
@@ -203,7 +212,10 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                         <div className="canvas-add-popover">
                             <div className="canvas-add-popover-header">
                                 <span>New service</span>
-                                <button className="dialog-close" onClick={() => setShowAddPopover(false)}>
+                                <button className="dialog-close" onClick={() => {
+                                    setShowAddPopover(false);
+                                    setAddNodeError(null);
+                                }}>
                                     <X size={14}/>
                                 </button>
                             </div>
@@ -212,13 +224,20 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                                     ref={inputRef}
                                     className="input"
                                     value={newNodeName}
-                                    onChange={(e) => setNewNodeName(e.target.value)}
+                                    onChange={(e) => {
+                                        setNewNodeName(e.target.value);
+                                        setAddNodeError(null);
+                                    }}
                                     placeholder="Service name (optional)"
                                     onKeyDown={(e) => {
                                         if (e.key === 'Enter') addNode();
-                                        if (e.key === 'Escape') setShowAddPopover(false);
+                                        if (e.key === 'Escape') {
+                                            setShowAddPopover(false);
+                                            setAddNodeError(null);
+                                        }
                                     }}
                                 />
+                                {addNodeError && <p className="form-error">{addNodeError}</p>}
                                 <button className="btn btn-primary" onClick={addNode}>
                                     Add
                                 </button>

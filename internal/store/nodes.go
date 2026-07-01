@@ -8,6 +8,7 @@ import (
 )
 
 var ErrInvalidNode = errors.New("node id and label are required")
+var ErrDuplicateNodeLabel = errors.New("a service with this name already exists in this project")
 
 // generateUID returns a random 4-character hex string. Mirrors
 // networking.GenerateUID(), duplicated here to avoid store importing
@@ -30,6 +31,44 @@ func (s *Store) nodeUIDExists(projectID uint, uid string) (bool, error) {
 	return count > 0, err
 }
 
+// sanitizeLabel normalizes a node label the same way engine.sanitize() does
+// before it becomes a Docker service name, hostname, and network alias
+// (lowercase, non [a-z0-9-] chars replaced with '-', trimmed). Two labels
+// that normalize to the same value would collide on the Docker network, so
+// uniqueness is checked against this normalized form rather than the raw
+// string — otherwise "API" and "api" (or "my_svc" and "my-svc") could both
+// be created and only collide later, at deploy time.
+func sanitizeLabel(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	return strings.Trim(strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, s), "-")
+}
+
+// nodeLabelTaken reports whether another node in the project already has a
+// label that normalizes to the same value, excluding excludeID (used so
+// updating a node's position, or re-saving its own unchanged label, never
+// conflicts with itself).
+func (s *Store) nodeLabelTaken(projectID uint, label, excludeID string) (bool, error) {
+	target := sanitizeLabel(label)
+	if target == "" {
+		return false, nil
+	}
+	var siblings []CanvasNode
+	if err := s.DB.Where("project_id = ? AND id <> ?", projectID, excludeID).Find(&siblings).Error; err != nil {
+		return false, err
+	}
+	for _, n := range siblings {
+		if sanitizeLabel(n.Label) == target {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // uniqueUIDForProject generates a UID guaranteed not to collide with an
 // existing node's UID in the same project.
 func (s *Store) uniqueUIDForProject(projectID uint) (string, error) {
@@ -50,6 +89,11 @@ func (s *Store) CreateNode(node *CanvasNode) (*CanvasNode, error) {
 	node.Label = strings.TrimSpace(node.Label)
 	if node.ID == "" || node.Label == "" {
 		return nil, ErrInvalidNode
+	}
+	if taken, err := s.nodeLabelTaken(node.ProjectID, node.Label, node.ID); err != nil {
+		return nil, err
+	} else if taken {
+		return nil, ErrDuplicateNodeLabel
 	}
 	if node.UID == "" {
 		uid, err := s.uniqueUIDForProject(node.ProjectID)
@@ -86,6 +130,19 @@ func (s *Store) EnsureNodeUID(id string) (string, error) {
 }
 
 func (s *Store) UpdateNode(id string, x, y float64, label string) error {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return ErrInvalidNode
+	}
+	node, err := s.GetNode(id)
+	if err != nil {
+		return err
+	}
+	if taken, err := s.nodeLabelTaken(node.ProjectID, label, id); err != nil {
+		return err
+	} else if taken {
+		return ErrDuplicateNodeLabel
+	}
 	return s.DB.Model(&CanvasNode{}).Where("id = ?", id).Updates(map[string]any{
 		"x":     x,
 		"y":     y,

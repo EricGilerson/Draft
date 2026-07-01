@@ -24,6 +24,10 @@
     min-width: 0;
 }
 
+.node-detail-rename-error {
+    margin: 0 16px 10px;
+}
+
 .node-detail-icon {
     display: flex;
     align-items: center;
