@@ -128,6 +128,24 @@
     white-space: nowrap;
     overflow-x: auto;
     scrollbar-width: thin;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.var-preview-toggle {
+    display: inline-flex;
+    align-items: center;
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text-faint);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.var-preview-toggle:hover {
+    color: var(--text-secondary, var(--text-faint));
 }
 
 .var-preview--error {

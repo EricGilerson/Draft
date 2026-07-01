@@ -146,6 +146,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
     const [syncError, setSyncError] = useState('');
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
+    const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
@@ -231,6 +232,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     const toggle = (key: string) => {
         setVisible(prev => ({...prev, [key]: !prev[key]}));
+    };
+
+    const togglePreview = (key: string) => {
+        setPreviewVisible(prev => ({...prev, [key]: !prev[key]}));
     };
 
     const stageEdit = (key: string, value: string) => {
@@ -731,7 +736,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 <div className="var-preview var-preview--error">{previews[v.key].error}</div>
                             )}
                             {!previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value && (
-                                <div className="var-preview">resolves to: {previews[v.key].value || '(empty)'}</div>
+                                <div className="var-preview">
+                                    resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
+                                    <button className="var-preview-toggle" onClick={() => togglePreview(v.key)} title={previewVisible[v.key] ? 'Hide resolved value' : 'Show resolved value'}>
+                                        {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
+                                    </button>
+                                </div>
                             )}
                             {autocomplete?.key === v.key && (
                                 <VarAutocomplete
