@@ -50,6 +50,19 @@ func (s *Store) SetEnvVar(nodeID, key, value string) error {
 	})
 }
 
+// DeleteEnvVar removes a single env var by node and key.
+func (s *Store) DeleteEnvVar(nodeID, key string) error {
+	nodeID = strings.TrimSpace(nodeID)
+	key = strings.TrimSpace(key)
+	if nodeID == "" {
+		return ErrInvalidNode
+	}
+	if err := validateEnvKey(key); err != nil {
+		return err
+	}
+	return s.DB.Delete(&EnvVar{}, "node_id = ? AND key = ?", nodeID, key).Error
+}
+
 func (s *Store) SetEnvVarScope(nodeID, key, scope string) error {
 	nodeID = strings.TrimSpace(nodeID)
 	key = strings.TrimSpace(key)

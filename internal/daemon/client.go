@@ -213,6 +213,10 @@ func (c *Client) SetEnvVar(ctx context.Context, nodeID, key, value string) error
 	return nil
 }
 
+func (c *Client) DeleteEnvVar(ctx context.Context, nodeID, key string) error {
+	return c.postJSON(ctx, "/env/delete", map[string]string{"nodeId": nodeID, "key": key}, nil)
+}
+
 func (c *Client) SetEnvVarScope(ctx context.Context, nodeID, key, scope string) error {
 	return c.postJSON(ctx, "/env/scope", map[string]string{"nodeId": nodeID, "key": key, "scope": scope}, nil)
 }

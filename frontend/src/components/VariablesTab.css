@@ -69,6 +69,57 @@
     color: var(--accent-text);
 }
 
+.var-toggle--danger:hover {
+    color: var(--red);
+}
+
+.var-link-key-input {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    background: var(--surface-1, #1a1b19);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 8px;
+    color: var(--text);
+    height: 26px;
+    width: 140px;
+}
+
+.var-autocomplete {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--accent-border);
+    border-radius: 4px;
+    background: var(--surface-1, #1a1b19);
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.var-autocomplete button {
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.var-autocomplete button:hover {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+}
+
+.var-autocomplete-empty {
+    padding: 4px 6px;
+    font-size: 0.68rem;
+    color: var(--text-faint);
+}
+
 .var-preview {
     font-family: var(--mono);
     font-size: 0.66rem;

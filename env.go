@@ -29,6 +29,18 @@ func (a *App) SetEnvVar(nodeID, key, value string) error {
 	return c.SetEnvVar(a.ctx, nodeID, key, value)
 }
 
+// DeleteEnvVar removes a single Draft-managed environment variable.
+func (a *App) DeleteEnvVar(nodeID, key string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteEnvVar(a.ctx, nodeID, key)
+}
+
 func (a *App) SetEnvVarScope(nodeID, key, scope string) error {
 	c, err := a.ensureDaemon()
 	if err != nil {

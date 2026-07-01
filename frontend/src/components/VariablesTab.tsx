@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
-import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Upload} from 'lucide-react';
+import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
+    GetEnvVars, SetEnvVar, DeleteEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
     PreviewEnvVars, ListReferenceTargets,
 } from '../../wailsjs/go/main/App';
@@ -26,6 +26,8 @@ const ATTR_DESCRIPTIONS: Record<string, string> = {
     PORT: 'Container port',
 };
 
+const NEW_TARGET_KEY = '__new__';
+
 const DRAFT_RUNTIME_VARS = [
     {key: 'DRAFT_SERVICE_PORT', description: 'The port this service listens on inside the container'},
     {key: 'DRAFT_INTERNAL_HOSTNAME', description: 'The canonical Draft hostname for service-to-service traffic'},
@@ -42,6 +44,31 @@ type VariablesTabProps = {
     projectId: number;
     projectPath: string;
 };
+
+// Either creating a brand-new variable whose value is a reference ('new',
+// opened from the button beside +Add — needs its own key name), or adding a
+// reference into an existing variable's value ('existing', opened from that
+// row's link icon — the key is already fixed).
+type LinkerState = {
+    mode: 'new' | 'existing';
+    localKey: string;
+    targetId: string;
+    targetAttr: string;
+    newTargetKey: string;
+    newTargetValue: string;
+};
+
+// Tracks an in-progress @{...} token the user is typing manually, so we can
+// show matching services first, then (once a service + '.' is typed) that
+// service's attributes/variables.
+type AutocompleteState = {
+    key: string;
+    stage: 'service' | 'attr';
+    query: string;
+    start: number;
+    end: number;
+    target?: deploy.ReferenceTarget;
+} | null;
 
 function RuntimeVarsSection() {
     const [expanded, setExpanded] = useState(false);
@@ -68,6 +95,45 @@ function RuntimeVarsSection() {
     );
 }
 
+function VarAutocomplete({autocomplete, linkTargets, onSelectService, onSelectAttr}: {
+    autocomplete: AutocompleteState;
+    linkTargets: deploy.ReferenceTarget[];
+    onSelectService: (t: deploy.ReferenceTarget) => void;
+    onSelectAttr: (attr: string) => void;
+}) {
+    if (!autocomplete) return null;
+
+    if (autocomplete.stage === 'service') {
+        const matches = linkTargets.filter(t => t.label.toLowerCase().startsWith(autocomplete.query.toLowerCase()));
+        return (
+            <div className="var-autocomplete">
+                {matches.length === 0 && <span className="var-autocomplete-empty">No matching service</span>}
+                {matches.map(t => (
+                    <button key={t.nodeId} onMouseDown={e => { e.preventDefault(); onSelectService(t); }}>
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+        );
+    }
+
+    if (!autocomplete.target) {
+        return <div className="var-autocomplete"><span className="var-autocomplete-empty">Unknown service</span></div>;
+    }
+    const options = [...autocomplete.target.attributes, ...autocomplete.target.customKeys]
+        .filter(a => a.toLowerCase().startsWith(autocomplete.query.toLowerCase()));
+    return (
+        <div className="var-autocomplete">
+            {options.length === 0 && <span className="var-autocomplete-empty">No matching variable</span>}
+            {options.map(a => (
+                <button key={a} onMouseDown={e => { e.preventDefault(); onSelectAttr(a); }}>
+                    {ATTR_DESCRIPTIONS[a] || a}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
     const [vars, setVars] = useState<store.EnvVar[]>([]);
     const [originals, setOriginals] = useState<Record<string, string>>({});
@@ -84,8 +150,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncError, setSyncError] = useState('');
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
-    const [linkPickerKey, setLinkPickerKey] = useState<string | null>(null);
-    const [pickerTargetId, setPickerTargetId] = useState('');
+    const [linker, setLinker] = useState<LinkerState | null>(null);
+    const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
     const load = async () => {
@@ -118,6 +184,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         } catch (e) {
             console.error(e);
         }
+    };
+
+    const refreshAll = async () => {
+        await load();
+        await loadPreviews();
+        await loadLinkTargets();
     };
 
     const loadSettings = async () => {
@@ -177,6 +249,34 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         });
     };
 
+    // Replaces vars[key]'s value between [start,end) with replacement, staging
+    // the edit (not saving it) — shared by manual-token insertion, the row
+    // link picker, and inline autocomplete. Returns the cursor position right
+    // after the inserted text.
+    const replaceRange = (key: string, start: number, end: number, replacement: string): number => {
+        const current = vars.find(x => x.key === key)?.value ?? '';
+        const nextValue = current.slice(0, start) + replacement + current.slice(end);
+        setVars(prev => prev.map(x => x.key === key ? store.EnvVar.createFrom({...x, value: nextValue}) : x));
+        stageEdit(key, nextValue);
+        return start + replacement.length;
+    };
+
+    const focusAt = (key: string, pos: number) => {
+        requestAnimationFrame(() => {
+            const el = textareaRefs.current[key];
+            el?.focus();
+            el?.setSelectionRange(pos, pos);
+        });
+    };
+
+    const insertAtCursor = (key: string, token: string) => {
+        const el = textareaRefs.current[key];
+        const current = vars.find(x => x.key === key)?.value ?? '';
+        const start = el?.selectionStart ?? current.length;
+        const end = el?.selectionEnd ?? current.length;
+        replaceRange(key, start, end, token);
+    };
+
     const pendingChanges = Object.entries(edits).map(([k, v]) => {
         const original = vars.find(x => x.key === k)?.value ?? '';
         return {key: k, from: original, to: v};
@@ -191,9 +291,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setShowConfirm(false);
             setSyncResult(null);
             setSyncError('');
-            await load();
-            await loadPreviews();
-            await loadLinkTargets();
+            await refreshAll();
         } catch (e) {
             console.error(e);
         }
@@ -207,9 +305,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setNewValue('');
             setSyncResult(null);
             setSyncError('');
-            await load();
-            await loadPreviews();
-            await loadLinkTargets();
+            await refreshAll();
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const removeVar = async (key: string) => {
+        if (!window.confirm(`Delete ${key}? This can't be undone.`)) return;
+        try {
+            await DeleteEnvVar(nodeId, key);
+            await refreshAll();
         } catch (e) {
             console.error(e);
         }
@@ -228,33 +334,97 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
-    const openLinkPicker = (key: string) => {
+    // --- Linker: create a reference either into an existing variable's value
+    // (mode 'existing', opened from that row) or as a brand-new variable
+    // (mode 'new', opened from the button beside +Add). ---
+
+    const openLinkerForKey = (key: string) => {
         setVisible(prev => ({...prev, [key]: true}));
-        setPickerTargetId('');
-        setLinkPickerKey(key);
+        setLinker({mode: 'existing', localKey: key, targetId: '', targetAttr: '', newTargetKey: '', newTargetValue: ''});
     };
 
-    const closeLinkPicker = () => {
-        setLinkPickerKey(null);
-        setPickerTargetId('');
+    const openNewLinker = () => {
+        setLinker({mode: 'new', localKey: '', targetId: '', targetAttr: '', newTargetKey: '', newTargetValue: ''});
     };
 
-    const insertToken = (key: string, token: string) => {
-        const current = vars.find(x => x.key === key)?.value ?? '';
-        const el = textareaRefs.current[key];
-        const start = el?.selectionStart ?? current.length;
-        const end = el?.selectionEnd ?? current.length;
-        const nextValue = current.slice(0, start) + token + current.slice(end);
+    const closeLinker = () => setLinker(null);
 
-        const nv = [...vars];
-        const idx = nv.findIndex(x => x.key === key);
-        nv[idx] = store.EnvVar.createFrom({...nv[idx], value: nextValue});
-        setVars(nv);
-        stageEdit(key, nextValue);
-        closeLinkPicker();
+    const linkerTarget = linker ? linkTargets.find(t => t.nodeId === linker.targetId) ?? null : null;
+
+    const confirmLinker = async () => {
+        if (!linker || !linkerTarget) return;
+        try {
+            let attrName = linker.targetAttr;
+            if (attrName === NEW_TARGET_KEY) {
+                const key = linker.newTargetKey.trim().toUpperCase();
+                if (!key) return;
+                await SetEnvVar(linkerTarget.nodeId, key, linker.newTargetValue);
+                attrName = key;
+            }
+            if (!attrName) return;
+            const token = `@{${linkerTarget.label}.${attrName}}`;
+
+            if (linker.mode === 'existing') {
+                insertAtCursor(linker.localKey, token);
+                setLinker(null);
+                // The insert only stages an edit (like manual typing) — it's
+                // not saved until "Save changes", so don't reload vars here,
+                // that would discard the unsaved token we just inserted.
+                if (linker.targetAttr === NEW_TARGET_KEY) await loadLinkTargets();
+            } else {
+                const localKey = linker.localKey.trim().toUpperCase();
+                if (!localKey) return;
+                await SetEnvVar(nodeId, localKey, token);
+                setLinker(null);
+                await refreshAll();
+            }
+        } catch (e) {
+            console.error(e);
+        }
     };
 
-    const pickerTarget = linkTargets.find(t => t.nodeId === pickerTargetId) ?? null;
+    // --- Manual @{...} autocomplete while typing in a textarea. ---
+
+    const handleCaretActivity = (key: string, el: HTMLTextAreaElement) => {
+        const value = el.value;
+        const cursor = el.selectionStart ?? value.length;
+        const before = value.slice(0, cursor);
+        const openIdx = before.lastIndexOf('@{');
+        if (openIdx === -1) {
+            setAutocomplete(a => (a?.key === key ? null : a));
+            return;
+        }
+        const inner = before.slice(openIdx + 2);
+        if (inner.includes('}') || inner.includes('@') || inner.includes('\n')) {
+            setAutocomplete(a => (a?.key === key ? null : a));
+            return;
+        }
+        const dotIdx = inner.indexOf('.');
+        if (dotIdx === -1) {
+            setAutocomplete({key, stage: 'service', query: inner, start: openIdx + 2, end: cursor});
+        } else {
+            const label = inner.slice(0, dotIdx).trim();
+            const attrQuery = inner.slice(dotIdx + 1);
+            const target = linkTargets.find(t => t.label.toLowerCase() === label.toLowerCase());
+            setAutocomplete({key, stage: 'attr', query: attrQuery, start: openIdx + 2 + dotIdx + 1, end: cursor, target});
+        }
+    };
+
+    const selectAutocompleteService = (target: deploy.ReferenceTarget) => {
+        if (!autocomplete) return;
+        const {key, start, end} = autocomplete;
+        const pos = replaceRange(key, start, end, `${target.label}.`);
+        setAutocomplete({key, stage: 'attr', query: '', start: pos, end: pos, target});
+        focusAt(key, pos);
+    };
+
+    const selectAutocompleteAttr = (attrName: string) => {
+        if (!autocomplete) return;
+        const {key, start, end} = autocomplete;
+        const pos = replaceRange(key, start, end, `${attrName}}`);
+        setAutocomplete(null);
+        focusAt(key, pos);
+    };
 
     const persistEnvPath = async () => {
         await SetNodeSetting(nodeId, 'env_file', envFile.trim());
@@ -296,6 +466,67 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     if (loading) {
         return <div className="variables-loading">Loading...</div>;
     }
+
+    const renderLinkerPanel = () => (
+        <div className="var-link-picker">
+            {linker!.mode === 'new' && (
+                <input
+                    className="var-link-key-input"
+                    placeholder="NEW_KEY"
+                    value={linker!.localKey}
+                    onChange={e => setLinker(l => l && {...l, localKey: e.target.value.toUpperCase()})}
+                />
+            )}
+            <select
+                value={linker!.targetId}
+                onChange={e => setLinker(l => l && {...l, targetId: e.target.value, targetAttr: '', newTargetKey: '', newTargetValue: ''})}
+            >
+                <option value="">Select a service…</option>
+                {linkTargets.map(t => (
+                    <option key={t.nodeId} value={t.nodeId}>{t.label}</option>
+                ))}
+            </select>
+            {linkerTarget && (
+                <select
+                    value={linker!.targetAttr}
+                    onChange={e => setLinker(l => l && {...l, targetAttr: e.target.value})}
+                >
+                    <option value="">Select a value…</option>
+                    <optgroup label="Address">
+                        {linkerTarget.attributes.map(a => (
+                            <option key={a} value={a}>{ATTR_DESCRIPTIONS[a] || a}</option>
+                        ))}
+                    </optgroup>
+                    {linkerTarget.customKeys.length > 0 && (
+                        <optgroup label="Variables">
+                            {linkerTarget.customKeys.map(k => (
+                                <option key={k} value={k}>{k}</option>
+                            ))}
+                        </optgroup>
+                    )}
+                    <option value={NEW_TARGET_KEY}>+ New variable on {linkerTarget.label}…</option>
+                </select>
+            )}
+            {linker!.targetAttr === NEW_TARGET_KEY && linkerTarget && (
+                <>
+                    <input
+                        className="var-link-key-input"
+                        placeholder={`KEY on ${linkerTarget.label}`}
+                        value={linker!.newTargetKey}
+                        onChange={e => setLinker(l => l && {...l, newTargetKey: e.target.value.toUpperCase()})}
+                    />
+                    <input
+                        className="var-link-key-input"
+                        placeholder="initial value"
+                        value={linker!.newTargetValue}
+                        onChange={e => setLinker(l => l && {...l, newTargetValue: e.target.value})}
+                    />
+                </>
+            )}
+            <button className="btn btn-primary" onClick={confirmLinker}>Link</button>
+            <button className="btn btn-ghost" onClick={closeLinker}>Cancel</button>
+        </div>
+    );
 
     return (
         <div className="variables-tab">
@@ -374,6 +605,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                             nv[idx] = store.EnvVar.createFrom({...v, value: e.target.value});
                                             setVars(nv);
                                             stageEdit(v.key, e.target.value);
+                                            handleCaretActivity(v.key, e.target);
+                                        }}
+                                        onClick={e => handleCaretActivity(v.key, e.currentTarget)}
+                                        onKeyUp={e => handleCaretActivity(v.key, e.currentTarget)}
+                                        onBlur={() => {
+                                            setTimeout(() => setAutocomplete(a => (a?.key === v.key ? null : a)), 120);
                                         }}
                                     />
                                 ) : (
@@ -389,8 +626,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                     {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
                                 </button>
                                 <button
-                                    className={`var-toggle ${linkPickerKey === v.key ? 'var-toggle--active' : ''}`}
-                                    onClick={() => linkPickerKey === v.key ? closeLinkPicker() : openLinkPicker(v.key)}
+                                    className={`var-toggle ${linker?.mode === 'existing' && linker.localKey === v.key ? 'var-toggle--active' : ''}`}
+                                    onClick={() => (linker?.mode === 'existing' && linker.localKey === v.key) ? closeLinker() : openLinkerForKey(v.key)}
                                     title="Reference another service's variable"
                                     disabled={linkTargets.length === 0}
                                 >
@@ -403,6 +640,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 >
                                     ARG
                                 </button>
+                                <button className="var-toggle var-toggle--danger" onClick={() => removeVar(v.key)} title="Delete variable">
+                                    <Trash2 size={14}/>
+                                </button>
                             </div>
                             {previews[v.key]?.error && (
                                 <div className="var-preview var-preview--error">{previews[v.key].error}</div>
@@ -410,37 +650,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             {!previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value && (
                                 <div className="var-preview">resolves to: {previews[v.key].value || '(empty)'}</div>
                             )}
-                            {linkPickerKey === v.key && (
-                                <div className="var-link-picker">
-                                    <select value={pickerTargetId} onChange={e => setPickerTargetId(e.target.value)}>
-                                        <option value="">Select a service…</option>
-                                        {linkTargets.map(t => (
-                                            <option key={t.nodeId} value={t.nodeId}>{t.label}</option>
-                                        ))}
-                                    </select>
-                                    {pickerTarget && (
-                                        <select
-                                            value=""
-                                            onChange={e => e.target.value && insertToken(v.key, `@{${pickerTarget.label}.${e.target.value}}`)}
-                                        >
-                                            <option value="">Select a value…</option>
-                                            <optgroup label="Address">
-                                                {pickerTarget.attributes.map(a => (
-                                                    <option key={a} value={a}>{ATTR_DESCRIPTIONS[a] || a}</option>
-                                                ))}
-                                            </optgroup>
-                                            {pickerTarget.customKeys.length > 0 && (
-                                                <optgroup label="Variables">
-                                                    {pickerTarget.customKeys.map(k => (
-                                                        <option key={k} value={k}>{k}</option>
-                                                    ))}
-                                                </optgroup>
-                                            )}
-                                        </select>
-                                    )}
-                                    <button className="btn btn-ghost" onClick={closeLinkPicker}>Cancel</button>
-                                </div>
+                            {autocomplete?.key === v.key && (
+                                <VarAutocomplete
+                                    autocomplete={autocomplete}
+                                    linkTargets={linkTargets}
+                                    onSelectService={selectAutocompleteService}
+                                    onSelectAttr={selectAutocompleteAttr}
+                                />
                             )}
+                            {linker?.mode === 'existing' && linker.localKey === v.key && renderLinkerPanel()}
                         </div>
                     </div>
                 ))}
@@ -460,7 +678,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 <button className="btn btn-primary" onClick={add}>
                     <Plus size={14}/> Add
                 </button>
+                <button
+                    className={`btn btn-ghost ${linker?.mode === 'new' ? 'var-toggle--active' : ''}`}
+                    onClick={() => linker?.mode === 'new' ? closeLinker() : openNewLinker()}
+                    disabled={linkTargets.length === 0}
+                    title="Add a new variable that references another service"
+                >
+                    <Link2 size={14}/> Link
+                </button>
             </div>
+
+            {linker?.mode === 'new' && renderLinkerPanel()}
 
             <RuntimeVarsSection />
 

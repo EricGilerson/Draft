@@ -13,6 +13,8 @@ export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:
 
 export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store.Project>;
 
+export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
+
 export function DeleteNode(arg1:string):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
