@@ -3,8 +3,10 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 func requireDocker(t *testing.T) *client.Client {
@@ -901,6 +904,193 @@ func TestIntegrationRedeployKeepsStableHostname(t *testing.T) {
 		deps, _ := s.ListDeployments("svc1")
 		cleanupContainers(t, cli, deps)
 	})
+}
+
+// execInContainer runs cmd inside an already-running container via `docker
+// exec` and returns its combined stdout+stderr and exit code.
+func execInContainer(t *testing.T, cli *client.Client, containerID string, cmd []string) (string, int, error) {
+	t.Helper()
+	ctx := context.Background()
+	execResp, err := cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("exec create: %w", err)
+	}
+	attachResp, err := cli.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{})
+	if err != nil {
+		return "", 0, fmt.Errorf("exec attach: %w", err)
+	}
+	defer attachResp.Close()
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, attachResp.Reader); err != nil {
+		return "", 0, fmt.Errorf("read exec output: %w", err)
+	}
+
+	inspect, err := cli.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return "", 0, fmt.Errorf("exec inspect: %w", err)
+	}
+	return stdout.String() + stderr.String(), inspect.ExitCode, nil
+}
+
+// TestIntegrationInternalHostnameResolvesContainerToContainer verifies the
+// actual claim behind "docker-to-docker communication works": one service's
+// container can resolve and reach a sibling service's container by its
+// internal Draft hostname (the same hostname baked into DRAFT_INTERNAL_URL)
+// over Docker's embedded DNS on their shared project network. It also
+// confirms that hostname is NOT resolvable from the host/browser — it's
+// never written to the OS hosts file, only Docker's internal resolver knows
+// about it.
+func TestIntegrationInternalHostnameResolvesContainerToContainer(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	// Register cleanup immediately (not after the fatal-prone waits below)
+	// so a failed run never leaves containers behind to collide with the
+	// next run's container names.
+	t.Cleanup(func() {
+		deps1, _ := s.ListDeployments("svc1")
+		deps2, _ := s.ListDeployments("svc2")
+		cleanupContainers(t, cli, append(deps1, deps2...))
+	})
+
+	// svc1 (created by setupIntegration): the caller. Lives in its own
+	// subdirectory so it can have a different Dockerfile than svc2.
+	svc1Dir := filepath.Join(projectDir, "svc1")
+	if err := os.MkdirAll(svc1Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeDockerfile(t, svc1Dir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	s.SetNodeSetting("svc1", "service_root", "svc1")
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	// svc2: the target. Serves a known string over HTTP on 8080.
+	svc2Dir := filepath.Join(projectDir, "svc2")
+	if err := os.MkdirAll(svc2Dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeDockerfile(t, svc2Dir, `FROM alpine:3.20
+RUN apk add --no-cache python3 && mkdir -p /www && echo -n "internal-hello" > /www/index.html
+CMD ["python3", "-m", "http.server", "8080", "--directory", "/www"]
+`)
+	if err := s.DB.Create(&store.CanvasNode{ID: "svc2", ProjectID: 1, Label: "target-svc"}).Error; err != nil {
+		t.Fatalf("create svc2 node: %v", err)
+	}
+	s.SetNodeSetting("svc2", "service_root", "svc2")
+	s.SetNodeSetting("svc2", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc2", "service_port", "8080")
+
+	e.Deploy(context.Background(), "svc1")
+	if waitForStatus(col, "svc1", "running", 60*time.Second) == nil {
+		t.Fatal("expected svc1 to reach running")
+	}
+
+	e.Deploy(context.Background(), "svc2")
+	if waitForStatus(col, "svc2", "running", 60*time.Second) == nil {
+		t.Fatal("expected svc2 to reach running")
+	}
+
+	dep1, _ := s.ActiveDeployment("svc1")
+	dep2, _ := s.ActiveDeployment("svc2")
+	if dep2 == nil || dep2.Hostname == "" {
+		t.Fatal("expected svc2 to have an internal hostname")
+	}
+
+	// Docker-to-Docker: svc1's container resolves and reaches svc2 by its
+	// internal Draft hostname over the shared project network.
+	url := fmt.Sprintf("http://%s:8080/", dep2.Hostname)
+	stdout, exitCode, err := execInContainer(t, cli, dep1.ContainerID, []string{"wget", "-qO-", url})
+	if err != nil {
+		t.Fatalf("exec wget in svc1 container: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("wget from svc1 to %s exited %d, output: %s", url, exitCode, stdout)
+	}
+	if !strings.Contains(stdout, "internal-hello") {
+		t.Errorf("expected response body to contain internal-hello, got: %q", stdout)
+	}
+
+	// Host/browser side: the same hostname should NOT resolve outside
+	// Docker's embedded DNS, since it's never added to the OS hosts file
+	// (only the public *.draft.resolv.sh-style hostname is, via the
+	// router). Logged rather than failed, since some networks hijack
+	// NXDOMAIN responses and would make this flaky.
+	if addrs, err := net.LookupHost(dep2.Hostname); err == nil {
+		t.Logf("warning: internal hostname %q unexpectedly resolved on the host to %v (possible DNS hijacking on this network)", dep2.Hostname, addrs)
+	}
+}
+
+// TestIntegrationInternalHostnameNotReachableAcrossProjects verifies that
+// the shared Docker network is scoped per-project: a container in one
+// project cannot resolve or reach a container in a different project by its
+// internal Draft hostname, since they land on two separate bridge networks
+// with independent embedded DNS.
+func TestIntegrationInternalHostnameNotReachableAcrossProjects(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	// Project A: the caller.
+	e1, s1, col1, dirA := setupIntegration(t)
+	writeDockerfile(t, dirA, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	s1.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s1.SetNodeSetting("svc1", "service_port", "80")
+
+	// Project B: the target, in a separate store/project/network entirely.
+	// setupIntegration always creates a project named "integ-test" with
+	// ID 1 in its own fresh store — since the Docker network name is
+	// derived from projectID+projectName (draftNetworkName), and both
+	// stores would independently produce id=1/name="integ-test", they'd
+	// collide onto the *same* Docker network unless we rename one, which
+	// would silently defeat this test (both containers would actually be
+	// reachable). Give project B a distinct name so the two land on
+	// genuinely different networks, matching two unrelated real projects.
+	e2, s2, col2, dirB := setupIntegration(t)
+	if err := s2.DB.Model(&store.Project{}).Where("id = ?", 1).Update("name", "integ-test-b").Error; err != nil {
+		t.Fatalf("rename project B: %v", err)
+	}
+	writeDockerfile(t, dirB, `FROM alpine:3.20
+RUN apk add --no-cache python3 && mkdir -p /www && echo -n "internal-hello" > /www/index.html
+CMD ["python3", "-m", "http.server", "8080", "--directory", "/www"]
+`)
+	s2.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s2.SetNodeSetting("svc1", "service_port", "8080")
+
+	// Register cleanup immediately so a failed run never leaves containers
+	// behind to collide with the next run's container names.
+	t.Cleanup(func() {
+		depsA, _ := s1.ListDeployments("svc1")
+		cleanupContainers(t, cli, depsA)
+		depsB, _ := s2.ListDeployments("svc1")
+		cleanupContainers(t, cli, depsB)
+	})
+
+	e1.Deploy(context.Background(), "svc1")
+	if waitForStatus(col1, "svc1", "running", 60*time.Second) == nil {
+		t.Fatal("expected project A's service to reach running")
+	}
+	e2.Deploy(context.Background(), "svc1")
+	if waitForStatus(col2, "svc1", "running", 60*time.Second) == nil {
+		t.Fatal("expected project B's service to reach running")
+	}
+
+	depA, _ := s1.ActiveDeployment("svc1")
+	depB, _ := s2.ActiveDeployment("svc1")
+	if depB == nil || depB.Hostname == "" {
+		t.Fatal("expected project B's service to have an internal hostname")
+	}
+
+	url := fmt.Sprintf("http://%s:8080/", depB.Hostname)
+	stdout, exitCode, err := execInContainer(t, cli, depA.ContainerID, []string{"wget", "-T", "5", "-qO-", url})
+	if err == nil && exitCode == 0 {
+		t.Fatalf("expected wget across projects to fail, but it succeeded: %s", stdout)
+	}
 }
 
 // TestIntegrationImageTag verifies the image tag naming convention.
