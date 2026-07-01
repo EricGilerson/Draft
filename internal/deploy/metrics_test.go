@@ -1,11 +1,70 @@
 package deploy
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"Draft/internal/store"
 )
+
+// TestMetricSeriesNonNilWhenEmpty guards the frontend crash: a nil slice
+// marshals to JSON null, and the metrics UI calls .map()/.length on livePoints.
+// An empty series must serialize as [] so the frontend never sees null.
+func TestMetricSeriesNonNilWhenEmpty(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	series := e.metricSeries("node-with-no-metrics")
+	if series == nil {
+		t.Fatalf("metricSeries returned nil; frontend would receive null and crash")
+	}
+	if len(series) != 0 {
+		t.Fatalf("expected empty series, got %d points", len(series))
+	}
+
+	out, err := json.Marshal(series)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(out) != "[]" {
+		t.Fatalf("expected empty series to marshal to [], got %q", out)
+	}
+}
+
+// TestGetServiceMetricsEmptyStateSerializesArrays ensures the full metrics
+// payload for a fresh, never-deployed, not-running service carries non-null
+// arrays for the fields the frontend iterates.
+func TestGetServiceMetricsEmptyStateSerializesArrays(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	project, err := s.CreateProject("Empty", t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "node-1", ProjectID: project.ID, Label: "web"}); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	metrics, err := e.GetServiceMetrics(context.Background(), "node-1")
+	if err != nil {
+		t.Fatalf("GetServiceMetrics: %v", err)
+	}
+
+	out, err := json.Marshal(metrics)
+	if err != nil {
+		t.Fatalf("marshal metrics: %v", err)
+	}
+	payload := string(out)
+	for _, field := range []string{`"livePoints":null`, `"events":null`, `"recentDeployments":null`} {
+		if strings.Contains(payload, field) {
+			t.Fatalf("metrics payload contains %s — frontend would crash on it", field)
+		}
+	}
+}
 
 func TestSummarizeDeploymentHistoryUsesSeparatedTimings(t *testing.T) {
 	buildStart := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)

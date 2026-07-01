@@ -267,7 +267,12 @@ func (e *Engine) recordMetricPoint(nodeID string, point MetricPoint) []MetricPoi
 func (e *Engine) metricSeries(nodeID string) []MetricPoint {
 	e.statsMu.Lock()
 	defer e.statsMu.Unlock()
-	return append([]MetricPoint(nil), e.stats[nodeID]...)
+	// Always return a non-nil slice: a nil slice marshals to JSON null, and the
+	// frontend calls .map()/.length on livePoints, which would crash on null.
+	series := e.stats[nodeID]
+	out := make([]MetricPoint, len(series))
+	copy(out, series)
+	return out
 }
 
 func (e *Engine) lastMetricPoint(nodeID string) *MetricPoint {

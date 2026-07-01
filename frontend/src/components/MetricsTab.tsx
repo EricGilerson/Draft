@@ -56,10 +56,17 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
         return <div className="metrics-tab metrics-tab--empty">No metrics available.</div>;
     }
 
-    const summary = metrics.deploymentSummary;
-    const meaningful = summary.successCount + summary.failureCount;
+    // Defensive fallbacks: when metrics are off, unavailable, or partial, the
+    // backend may omit nested objects/arrays (nil slices serialize to null),
+    // and .map()/.length/property access on those would crash the whole tab.
+    const summary = metrics.deploymentSummary ?? ({} as deploy.DeploymentHistorySummary);
+    const reachability = metrics.reachability ?? ({status: 'not_running'} as deploy.ReachabilityCheck);
+    const livePoints = metrics.livePoints ?? [];
+    const events = metrics.events ?? [];
+    const recentDeployments = metrics.recentDeployments ?? [];
+    const meaningful = (summary.successCount ?? 0) + (summary.failureCount ?? 0);
     const successRate = meaningful > 0
-        ? Math.round((summary.successCount / meaningful) * 100)
+        ? Math.round(((summary.successCount ?? 0) / meaningful) * 100)
         : 0;
 
     return (
@@ -74,10 +81,10 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                         {metrics.serviceType} service · {metrics.currentDeployment ? `deployment #${metrics.currentDeployment.id}` : 'no active deployment'}
                     </span>
                 </div>
-                {metrics.reachability.status === 'healthy' && (
+                {reachability.status === 'healthy' && (
                     <div className="metrics-health-chip">
                         <HeartPulse size={13} />
-                        Reachable in {metrics.reachability.latencyMs}ms
+                        Reachable in {reachability.latencyMs}ms
                     </div>
                 )}
             </div>
@@ -120,7 +127,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                 <MetricCard
                     icon={<Wifi size={14} />}
                     label="Reachability"
-                    value={reachabilityLabel(metrics.reachability)}
+                    value={reachabilityLabel(reachability)}
                     note={reachabilityNote(metrics)}
                 />
                 <MetricCard
@@ -141,7 +148,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                 <MetricChart
                     title="CPU Usage"
                     value={metrics.latestPoint ? formatPercent(metrics.latestPoint.cpuPercent) : 'No live CPU data'}
-                    points={metrics.livePoints}
+                    points={livePoints}
                     pickValue={(point) => point.cpuPercent}
                     formatValue={formatPercent}
                     tone="cpu"
@@ -149,7 +156,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                 <MetricChart
                     title="Memory Usage"
                     value={metrics.latestPoint ? formatBytes(metrics.latestPoint.memoryBytes) : 'No live memory data'}
-                    points={metrics.livePoints}
+                    points={livePoints}
                     pickValue={(point) => point.memoryBytes}
                     formatValue={formatBytes}
                     tone="memory"
@@ -157,7 +164,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                 <MetricChart
                     title="Network Throughput"
                     value={metrics.latestPoint ? `${formatRate(metrics.latestPoint.networkRxRateBps)} in · ${formatRate(metrics.latestPoint.networkTxRateBps)} out` : 'No live network data'}
-                    points={metrics.livePoints}
+                    points={livePoints}
                     pickValue={(point) => point.networkRxRateBps + point.networkTxRateBps}
                     formatValue={formatRate}
                     tone="network"
@@ -170,9 +177,9 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                         <span>Health & Route</span>
                     </div>
                     <div className="metrics-facts">
-                        <FactRow label="Reachability" value={reachabilityLabel(metrics.reachability)} />
-                        <FactRow label="Target URL" value={metrics.reachability.targetUrl || metrics.publicUrl || metrics.internalUrl || 'None'} mono />
-                        <FactRow label="HTTP Status" value={metrics.reachability.statusCode ? String(metrics.reachability.statusCode) : '—'} mono />
+                        <FactRow label="Reachability" value={reachabilityLabel(reachability)} />
+                        <FactRow label="Target URL" value={reachability.targetUrl || metrics.publicUrl || metrics.internalUrl || 'None'} mono />
+                        <FactRow label="HTTP Status" value={reachability.statusCode ? String(reachability.statusCode) : '—'} mono />
                         <FactRow label="Docker Health" value={metrics.dockerHealth || 'No healthcheck'} />
                         <FactRow label="Hostname" value={metrics.hostname || 'None'} mono />
                         <FactRow label="Desired Port" value={metrics.desiredPort ? String(metrics.desiredPort) : 'Unset'} mono />
@@ -214,11 +221,11 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     <div className="metrics-panel-header">
                         <span>Recent Runtime Events</span>
                     </div>
-                    {metrics.events.length === 0 ? (
+                    {events.length === 0 ? (
                         <span className="metrics-empty">Events will appear after the first deployment.</span>
                     ) : (
                         <div className="metrics-events">
-                            {metrics.events.map((event, index) => (
+                            {events.map((event, index) => (
                                 <div key={`${event.kind}-${event.at}-${index}`} className={`metrics-event metrics-event--${event.severity}`}>
                                     <div className="metrics-event-dot" />
                                     <div className="metrics-event-copy">
@@ -235,11 +242,11 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     <div className="metrics-panel-header">
                         <span>Recent Deployments</span>
                     </div>
-                    {metrics.recentDeployments.length === 0 ? (
+                    {recentDeployments.length === 0 ? (
                         <span className="metrics-empty">No deployments yet.</span>
                     ) : (
                         <div className="metrics-deployments">
-                            {metrics.recentDeployments.map((deployment) => (
+                            {recentDeployments.map((deployment) => (
                                 <div key={deployment.deploymentId} className="metrics-deployment-row">
                                     <div className="metrics-deployment-main">
                                         <div className="metrics-deployment-title">
@@ -295,7 +302,7 @@ function MetricChart({
     formatValue: (v: number) => string;
     tone: 'cpu' | 'memory' | 'network';
 }) {
-    const chartPoints = points.map((point) => pickValue(point));
+    const chartPoints = (points ?? []).map((point) => pickValue(point));
     const path = toSparkline(chartPoints, 260, 96);
     const svgRef = useRef<SVGSVGElement>(null);
     const [hover, setHover] = useState<{x: number; index: number} | null>(null);
@@ -449,17 +456,18 @@ function reachabilityLabel(reachability: deploy.ReachabilityCheck) {
 }
 
 function reachabilityNote(metrics: deploy.ServiceMetrics) {
-    if (metrics.reachability.status === 'healthy') {
-        return `${metrics.reachability.latencyMs}ms from localhost`;
+    const reachability = metrics.reachability ?? ({status: 'not_running'} as deploy.ReachabilityCheck);
+    if (reachability.status === 'healthy') {
+        return `${reachability.latencyMs}ms from localhost`;
     }
-    if (metrics.reachability.status === 'degraded') {
-        return metrics.reachability.statusCode ? `HTTP ${metrics.reachability.statusCode}` : 'Request completed with an error status';
+    if (reachability.status === 'degraded') {
+        return reachability.statusCode ? `HTTP ${reachability.statusCode}` : 'Request completed with an error status';
     }
-    if (metrics.reachability.status === 'not_applicable') {
+    if (reachability.status === 'not_applicable') {
         return 'HTTP probing is only used for web services';
     }
-    if (metrics.reachability.error) {
-        return metrics.reachability.error;
+    if (reachability.error) {
+        return reachability.error;
     }
     return metrics.publicUrl || metrics.internalUrl || 'No reachable endpoint';
 }
