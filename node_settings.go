@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"Draft/internal/dockerfile"
+	"Draft/internal/gitsrc"
 )
 
 // GetNodeSettings returns all settings for a node as a map.
@@ -119,6 +120,43 @@ func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint) ([]do
 		return []dockerfile.ExposePort{}, nil
 	}
 	return ports, nil
+}
+
+// IsGitRepo reports whether the given project's directory is a git repository.
+// Used by the UI to decide whether to offer git-branch deploys.
+func (a *App) IsGitRepo(projectID uint) (bool, error) {
+	if a.store == nil {
+		return false, errNoStore
+	}
+	project, err := a.store.GetProject(projectID)
+	if err != nil {
+		return false, fmt.Errorf("project not found: %w", err)
+	}
+	return gitsrc.IsRepo(project.Path), nil
+}
+
+// ListGitBranches returns the local and remote-tracking branch names for the
+// given project's git repository, for populating the branch picker. Returns an
+// empty slice (not an error) if the project is not a git repository.
+func (a *App) ListGitBranches(projectID uint) ([]string, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	project, err := a.store.GetProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %w", err)
+	}
+	if !gitsrc.IsRepo(project.Path) {
+		return []string{}, nil
+	}
+	branches, err := gitsrc.ListBranches(a.ctx, project.Path)
+	if err != nil {
+		return nil, err
+	}
+	if branches == nil {
+		return []string{}, nil
+	}
+	return branches, nil
 }
 
 func validateInsideProject(projectPath, targetPath string) error {

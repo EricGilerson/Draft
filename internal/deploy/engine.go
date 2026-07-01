@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"Draft/internal/gitsrc"
 	"Draft/internal/ignore"
 	"Draft/internal/networking"
 	"Draft/internal/store"
@@ -132,7 +133,33 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	plan, err := resolveBuildContextPlan(project.Path, settings["service_root"], dockerfilePath)
+	// By default the build reads directly from the project directory on disk.
+	// If a git branch is pinned for this service, materialize that branch into
+	// an ephemeral directory instead — leaving the project's working tree
+	// (including any uncommitted changes) completely untouched.
+	sourcePath := project.Path
+	if branch := strings.TrimSpace(settings["git_branch"]); branch != "" {
+		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, branch)
+		if err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
+			return
+		}
+		defer os.RemoveAll(archiveDir)
+		sourcePath = archiveDir
+
+		// The Dockerfile setting may be stored as an absolute path pointing into
+		// the on-disk project (e.g. picked via the file dialog). Re-anchor it to
+		// the archived workspace so it resolves against the branch's files rather
+		// than the original working tree.
+		rebased, err := rebaseUnderSource(project.Path, sourcePath, dockerfilePath)
+		if err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
+			return
+		}
+		dockerfilePath = rebased
+	}
+
+	plan, err := resolveBuildContextPlan(sourcePath, settings["service_root"], dockerfilePath)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 		return
@@ -239,7 +266,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		}
 	}
 
-	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, project.Path, settings, plan, deployEnv, buildOvr)
+	buildErr := e.buildImage(ctx, cli, logFile, nodeID, imageTag, sourcePath, settings, plan, deployEnv, buildOvr)
 	if buildErr != nil {
 		e.failDeployment(dep, nodeID, "build error: "+buildErr.Error())
 		return
@@ -433,6 +460,48 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	})
 
 	go e.watchContainer(context.Background(), dep, nodeID)
+}
+
+// prepareGitSource materializes the given branch/ref of the project's git
+// repository into a fresh temporary directory and returns its path. The caller
+// owns the returned directory and must remove it when done. The project's
+// working tree and index are never read or modified.
+func (e *Engine) prepareGitSource(ctx context.Context, nodeID, projectPath, ref string) (string, error) {
+	if !gitsrc.IsRepo(projectPath) {
+		return "", fmt.Errorf("git branch is set but %s is not a git repository", projectPath)
+	}
+
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Preparing source from git branch %q...", ref))
+
+	archiveDir, err := os.MkdirTemp("", "draft-src-")
+	if err != nil {
+		return "", fmt.Errorf("create source workspace: %w", err)
+	}
+
+	if err := gitsrc.ArchiveToDir(ctx, projectPath, ref, archiveDir); err != nil {
+		os.RemoveAll(archiveDir)
+		return "", err
+	}
+
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Exported %q into an ephemeral workspace (working tree untouched)", ref))
+	return archiveDir, nil
+}
+
+// rebaseUnderSource re-anchors a path from the on-disk project directory onto
+// the archived source directory. Relative paths are returned unchanged (they
+// already resolve against the source root). An absolute path that lives inside
+// projectPath is rewritten to the equivalent location under sourcePath. An
+// absolute path outside the project cannot be reproduced from a branch archive
+// and is rejected with a clear error.
+func rebaseUnderSource(projectPath, sourcePath, p string) (string, error) {
+	if p == "" || !filepath.IsAbs(p) {
+		return p, nil
+	}
+	rel, err := filepath.Rel(projectPath, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("dockerfile %q is outside the project and cannot be resolved from a git branch; set it to a path inside the project", p)
+	}
+	return filepath.Join(sourcePath, rel), nil
 }
 
 func resolveBuildContextPlan(projectPath, serviceRootSetting, dockerfilePath string) (buildContextPlan, error) {

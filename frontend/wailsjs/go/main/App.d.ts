@@ -43,6 +43,10 @@ export function Greet(arg1:string):Promise<string>;
 
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
+export function IsGitRepo(arg1:number):Promise<boolean>;
+
+export function ListGitBranches(arg1:number):Promise<Array<string>>;
+
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;

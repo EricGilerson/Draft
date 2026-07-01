@@ -74,6 +74,14 @@ export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
 }
 
+export function IsGitRepo(arg1) {
+  return window['go']['main']['App']['IsGitRepo'](arg1);
+}
+
+export function ListGitBranches(arg1) {
+  return window['go']['main']['App']['ListGitBranches'](arg1);
+}
+
 export function ListNodes(arg1) {
   return window['go']['main']['App']['ListNodes'](arg1);
 }

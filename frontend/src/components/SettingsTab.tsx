@@ -1,8 +1,9 @@
-import {FolderOpen, FileSearch, Plus, Trash2} from 'lucide-react';
+import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw} from 'lucide-react';
 import {useCallback, useEffect, useState} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
+    IsGitRepo, ListGitBranches,
 } from '../../wailsjs/go/main/App';
 import {dockerfile} from '../../wailsjs/go/models';
 
@@ -42,12 +43,40 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
     const [labels, setLabels] = useState<LabelEntry[]>([]);
 
+    const [isGitRepo, setIsGitRepo] = useState(false);
+    const [gitBranch, setGitBranch] = useState('');
+    const [branches, setBranches] = useState<string[]>([]);
+    const [branchesLoading, setBranchesLoading] = useState(false);
+    const [branchError, setBranchError] = useState('');
+
     const saveSetting = useCallback((key: string, value: string) => {
         setSettings(prev => ({...prev, [key]: value}));
         SetNodeSetting(nodeId, key, value);
     }, [nodeId]);
 
     const getSetting = (key: string) => settings[key] || '';
+
+    const refreshBranches = useCallback(() => {
+        setBranchesLoading(true);
+        setBranchError('');
+        ListGitBranches(projectId)
+            .then((list) => setBranches(list || []))
+            .catch((e) => setBranchError(typeof e === 'string' ? e : e?.message || 'Failed to list branches'))
+            .finally(() => setBranchesLoading(false));
+    }, [projectId]);
+
+    useEffect(() => {
+        IsGitRepo(projectId).then((ok) => {
+            setIsGitRepo(ok);
+            if (ok) refreshBranches();
+        }).catch(() => setIsGitRepo(false));
+    }, [projectId, refreshBranches]);
+
+    const commitGitBranch = useCallback((value: string) => {
+        setGitBranch(value);
+        setSettings(prev => ({...prev, git_branch: value}));
+        SetNodeSetting(nodeId, 'git_branch', value).then(() => onServicesChanged?.());
+    }, [nodeId, onServicesChanged]);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
@@ -57,6 +86,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         GetNodeSettings(nodeId).then((s) => {
             if (!s) s = {};
             setSettings(s);
+            setGitBranch(s.git_branch || '');
             const df = s.dockerfile || '';
             setDockerfilePath(df);
             setDockerfileInput(df);
@@ -215,6 +245,47 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             {/* ── Source ── */}
             <div className="settings-section">
                 <h3 className="settings-section-title">Source</h3>
+                {isGitRepo && (
+                    <div className="form-field">
+                        <label className="form-label">
+                            <GitBranch size={13} style={{verticalAlign: '-2px', marginRight: 4}} />
+                            Git Branch
+                        </label>
+                        <span className="settings-hint">
+                            Deploy from a specific committed branch instead of the files currently on disk.
+                            The branch is exported into a temporary workspace at build time — your working
+                            tree and any uncommitted changes are never touched. Leave as “Working tree” to
+                            deploy exactly what is on disk (the default).
+                        </span>
+                        <div className="input-with-action">
+                            <select
+                                className="input settings-select"
+                                value={gitBranch}
+                                onChange={(e) => commitGitBranch(e.target.value)}
+                            >
+                                <option value="">Working tree (files on disk)</option>
+                                {gitBranch && !branches.includes(gitBranch) && (
+                                    <option value={gitBranch}>{gitBranch} (not found)</option>
+                                )}
+                                {branches.map((b) => (
+                                    <option key={b} value={b}>{b}</option>
+                                ))}
+                            </select>
+                            <button
+                                className="btn btn-ghost input-action-btn"
+                                onClick={refreshBranches}
+                                disabled={branchesLoading}
+                                title="Refresh branch list"
+                            >
+                                <RefreshCw size={14} className={branchesLoading ? 'spin' : ''} />
+                            </button>
+                        </div>
+                        {branchError && <p className="form-error">{branchError}</p>}
+                        {gitBranch && !branchError && (
+                            <span className="settings-resolved">Deploying from branch “{gitBranch}”</span>
+                        )}
+                    </div>
+                )}
                 <div className="form-field">
                     <label className="form-label">Root Directory</label>
                     <span className="settings-hint">
