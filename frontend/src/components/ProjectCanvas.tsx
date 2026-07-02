@@ -5,7 +5,6 @@ import {
     Controls,
     type Node,
     type Edge,
-    type NodeChange,
     ReactFlow,
     useReactFlow,
     useNodesState,
@@ -15,7 +14,7 @@ import '@xyflow/react/dist/style.css';
 import {Maximize2, Minus, Plus, PlusCircle, X} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {CreateNode, DeleteNode, GetActiveDeployment, GetProjectConnections, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
+import {CreateNode, DeleteNode, GetDeployments, GetProjectConnections, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
 import NodeDetailPanel from './NodeDetailPanel';
@@ -25,6 +24,12 @@ import './ProjectCanvas.css';
 type ProjectCanvasProps = {
     project: store.Project;
     onServicesChanged?: () => void;
+};
+
+type ServiceNodeData = {
+    label: string;
+    status: string;
+    deploymentId?: number;
 };
 
 function CanvasControls() {
@@ -77,7 +82,7 @@ function generateId(): string {
 }
 
 export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const [showAddPopover, setShowAddPopover] = useState(false);
     const [newNodeName, setNewNodeName] = useState('');
@@ -98,17 +103,20 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             const flowNodes = await Promise.all(
                 saved.map(async (n) => {
                     let status = 'stopped';
+                    let deploymentId: number | undefined;
                     try {
-                        const dep = await GetActiveDeployment(n.id);
+                        const deps = await GetDeployments(n.id);
+                        const dep = deps?.[0];
                         if (dep?.status) {
                             status = serviceStatusFromDeployment(dep.status);
+                            deploymentId = dep.id;
                         }
-                    } catch { /* no active deployment */ }
+                    } catch { /* no deployment history */ }
                     return {
                         id: n.id,
                         type: 'service' as const,
                         position: {x: n.x, y: n.y},
-                        data: {label: n.label, status},
+                        data: {label: n.label, status, deploymentId},
                     };
                 }),
             );
@@ -143,12 +151,25 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', (payload: any) => {
             const nodeId: string = payload.nodeId;
-            const deployStatus: string = payload.event?.status;
+            const event = payload.event;
+            const deployStatus: string = event?.status;
+            const deploymentId: number | undefined = event?.deploymentId;
             if (!nodeId || !deployStatus) return;
             const uiStatus = serviceStatusFromDeployment(deployStatus);
             setNodes((prev) =>
                 prev.map((n) =>
-                    n.id === nodeId ? {...n, data: {...n.data, status: uiStatus}} : n,
+                    n.id === nodeId
+                        ? {
+                            ...n,
+                            data: (() => {
+                                const currentId = typeof n.data?.deploymentId === 'number' ? n.data.deploymentId : undefined;
+                                if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
+                                    return n.data;
+                                }
+                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId};
+                            })(),
+                        }
+                        : n,
                 ),
             );
         });
@@ -156,7 +177,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     }, [setNodes]);
 
     const handleNodesChange = useCallback(
-        (changes: NodeChange[]) => {
+        (changes: Parameters<typeof onNodesChange>[0]) => {
             onNodesChange(changes);
 
             for (const change of changes) {
@@ -182,7 +203,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
 
         setAddNodeError(null);
         CreateNode(id, label, project.id, x, y).then(() => {
-            const node: Node = {
+            const node: Node<ServiceNodeData> = {
                 id,
                 type: 'service',
                 position: {x, y},
