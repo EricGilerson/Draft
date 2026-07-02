@@ -149,9 +149,18 @@ func TestBuildTimelineItemsIncludesExitMetadata(t *testing.T) {
 	}
 }
 
-func TestProbeReachabilitySkipsNonWebServices(t *testing.T) {
-	result := probeReachability("database", 5432, "")
+func TestProbeReachabilityNotApplicableWithoutPort(t *testing.T) {
+	result := probeReachability(0, "")
 	if result.Status != "not_applicable" {
 		t.Fatalf("Status = %q, want not_applicable", result.Status)
+	}
+}
+
+// TestProbeReachabilityReachableOnClosedPort asserts that a port nobody is
+// listening on is reported unreachable (TCP dial fails), not healthy.
+func TestProbeReachabilityUnreachableOnClosedPort(t *testing.T) {
+	result := probeReachability(1, "")
+	if result.Status != "unreachable" {
+		t.Fatalf("Status = %q, want unreachable", result.Status)
 	}
 }

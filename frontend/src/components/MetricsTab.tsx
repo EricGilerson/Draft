@@ -446,6 +446,8 @@ function reachabilityLabel(reachability: deploy.ReachabilityCheck) {
             return 'Healthy';
         case 'degraded':
             return 'Responding with errors';
+        case 'reachable':
+            return 'Reachable';
         case 'not_applicable':
             return 'Not applicable';
         case 'not_running':
@@ -463,8 +465,11 @@ function reachabilityNote(metrics: deploy.ServiceMetrics) {
     if (reachability.status === 'degraded') {
         return reachability.statusCode ? `HTTP ${reachability.statusCode}` : 'Request completed with an error status';
     }
+    if (reachability.status === 'reachable') {
+        return 'Port is open (TCP), no HTTP response';
+    }
     if (reachability.status === 'not_applicable') {
-        return 'HTTP probing is only used for web services';
+        return 'No published port to probe';
     }
     if (reachability.error) {
         return reachability.error;

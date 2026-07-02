@@ -30,9 +30,6 @@ func TestListProjectServicesUsesRealCanvasNodes(t *testing.T) {
 	if err := s.SetNodeSetting("web-1", "dockerfile", "services/web/Dockerfile"); err != nil {
 		t.Fatalf("set web dockerfile: %v", err)
 	}
-	if err := s.SetNodeSetting("worker-1", "service_port", "9000"); err != nil {
-		t.Fatalf("set worker port: %v", err)
-	}
 	now := time.Now()
 	if _, err := s.CreateDeployment(&store.Deployment{
 		NodeID:    "web-1",

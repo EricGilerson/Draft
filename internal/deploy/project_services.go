@@ -49,7 +49,7 @@ func projectServiceFromNode(node store.CanvasNode, settings map[string]string, d
 		ID:          node.ID,
 		ProjectID:   node.ProjectID,
 		Name:        node.Label,
-		Type:        inferServiceType(node.Label, settings),
+		Type:        serviceTypeFromPort(port),
 		Image:       strings.TrimSpace(settings["dockerfile"]),
 		Port:        port,
 		Status:      "stopped",
@@ -70,20 +70,6 @@ func projectServiceFromNode(node store.CanvasNode, settings map[string]string, d
 		svc.UpdatedAt = dep.UpdatedAt
 	}
 	return svc
-}
-
-func inferServiceType(label string, settings map[string]string) string {
-	value := strings.ToLower(label + " " + settings["dockerfile"] + " " + settings["service_root"])
-	switch {
-	case strings.Contains(value, "postgres"), strings.Contains(value, "mysql"), strings.Contains(value, "database"), strings.Contains(value, " db"):
-		return "database"
-	case strings.Contains(value, "redis"), strings.Contains(value, "cache"):
-		return "cache"
-	case strings.Contains(value, "worker"), strings.Contains(value, "queue"), strings.Contains(value, "job"):
-		return "worker"
-	default:
-		return "web"
-	}
 }
 
 func ServiceStatusFromDeployment(status string) string {

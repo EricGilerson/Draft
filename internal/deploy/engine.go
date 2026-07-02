@@ -461,9 +461,8 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	// Verify the new container is actually serving before switching traffic to
 	// it. Until Register() runs below, the route still points at the previous
 	// deployment, so this wait causes no downtime for existing traffic.
-	serviceType := metricsServiceType(node.Label, settings)
 	e.emitBuildLog(nodeID, "==> Waiting for new container to become ready...")
-	if err := e.waitForReady(ctx, cli, createResp.ID, serviceType, hostPort); err != nil {
+	if err := e.waitForReady(ctx, cli, createResp.ID, hostPort); err != nil {
 		// The new container never became ready: tear it down and leave the
 		// previous deployment serving untouched (automatic rollback).
 		e.emitBuildLog(nodeID, fmt.Sprintf("    New container not ready: %v", err))
@@ -1825,9 +1824,18 @@ const (
 	readinessTimeout = 90 * time.Second
 	// readinessInterval is how often readiness is polled.
 	readinessInterval = 500 * time.Millisecond
-	// readinessSettle is how long a container with no healthcheck and no HTTP
-	// endpoint (e.g. a database) must stay running before it counts as ready.
+	// readinessSettle is how long a container must remain in a "likely ready"
+	// state before we trust it: either running with no published port and no
+	// healthcheck, or with a port that is open but not answering HTTP (e.g. a
+	// database). It rules out an immediate crash without waiting on HTTP.
 	readinessSettle = 3 * time.Second
+	// tcpDialTimeout caps each TCP reachability dial so a closed port is
+	// detected quickly and a polling cycle stays cheap.
+	tcpDialTimeout = 300 * time.Millisecond
+	// httpProbeTimeout caps the best-effort HTTP confirmation probe. It is
+	// deliberately short: any HTTP response means ready, and a non-HTTP service
+	// should not burn a full second per cycle.
+	httpProbeTimeout = 600 * time.Millisecond
 )
 
 // waitForReady blocks until the freshly-started container is ready to receive
@@ -1839,21 +1847,24 @@ const (
 // to the old container until the post-wait cutover. That also means readiness
 // never depends on public DNS or the reverse proxy.
 //
-// Readiness signal, in priority order:
+// Readiness is driven entirely by observable signals — no name-based service
+// classification. In priority order:
 //   - A Docker HEALTHCHECK, when defined, is authoritative: we wait for
 //     "healthy" and fail on "unhealthy" (or on timeout).
-//   - A web service (with a published port and no healthcheck) must actually
-//     answer HTTP: we poll the reachability probe and cut over as soon as the
-//     server responds (any status code). If it never answers before the
-//     timeout, the deploy fails and the previous container keeps serving.
-//   - Anything else — a non-web service (database, cache, worker) or a service
-//     with no published port — has no HTTP endpoint to probe, so readiness is
-//     "stayed running past a short settle window without exiting", which rules
-//     out an immediate crash.
-func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, containerID, serviceType string, hostPort int) error {
+//   - A service with a published port is gated on a TCP dial to that port.
+//     Once the port accepts a connection we try a short HTTP probe as a
+//     confirmation bonus: any HTTP response means ready now. If the service
+//     doesn't speak HTTP (a database, cache, or worker that binds a port), the
+//     probe never answers, so we fall back to "port has been open past the
+//     settle window" — bounded by readinessSettle, not the full timeout.
+//   - A service with no healthcheck and no published port is ready once it has
+//     stayed running past the settle window without exiting, ruling out an
+//     immediate crash.
+func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, containerID string, hostPort int) error {
 	deadline := time.Now().Add(readinessTimeout)
-	isWeb := serviceType == "web" && hostPort > 0
+	hasPort := hostPort > 0
 	var runningSince time.Time
+	var portOpenSince time.Time
 
 	for {
 		if ctx.Err() != nil {
@@ -1886,18 +1897,30 @@ func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, container
 						return fmt.Errorf("container reported unhealthy")
 					}
 					// "starting" → keep polling until healthy or timeout.
-				case isWeb:
-					// A web service must actually serve HTTP before we cut over,
-					// so existing traffic is never switched to a port that isn't
-					// answering yet. Any status code means a live server.
-					if r := probeReachability("web", hostPort, ""); r.Status == "healthy" || r.Status == "degraded" {
+				case hasPort:
+					// Port-based readiness: a single probe does a fast TCP dial
+					// and, only if that succeeds, a short HTTP confirmation. This
+					// works uniformly for HTTP and non-HTTP services without any
+					// name-based classification.
+					switch r := probeReachability(hostPort, ""); r.Status {
+					case "healthy", "degraded":
 						return nil
+					case "reachable":
+						// Port is open but not answering HTTP. Don't block on HTTP
+						// forever — once it has been open past the settle window,
+						// trust it (e.g. a database or cache).
+						if portOpenSince.IsZero() {
+							portOpenSince = time.Now()
+						}
+						if time.Since(portOpenSince) >= readinessSettle {
+							return nil
+						}
+					default:
+						// "unreachable": port not open yet; keep polling.
 					}
-					// Not answering yet → keep polling until it does or timeout.
 				default:
-					// No healthcheck and nothing to HTTP-probe (non-web service or
-					// no published port): ready once it has stayed up long enough
-					// not to be an immediate crash.
+					// No healthcheck and no published port: ready once it has
+					// stayed up long enough not to be an immediate crash.
 					if time.Since(runningSince) >= readinessSettle {
 						return nil
 					}
@@ -1906,8 +1929,8 @@ func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, container
 		}
 
 		if time.Now().After(deadline) {
-			if isWeb {
-				return fmt.Errorf("web service did not answer on 127.0.0.1:%d within %s", hostPort, readinessTimeout)
+			if hasPort {
+				return fmt.Errorf("service did not become ready on 127.0.0.1:%d within %s", hostPort, readinessTimeout)
 			}
 			return fmt.Errorf("timed out after %s", readinessTimeout)
 		}

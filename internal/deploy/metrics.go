@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -118,8 +119,8 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		return ServiceMetrics{}, err
 	}
 
-	serviceType := metricsServiceType(node.Label, settings)
 	desiredPort, _ := strconv.Atoi(strings.TrimSpace(settings["service_port"]))
+	serviceType := serviceTypeFromPort(desiredPort)
 	metrics := ServiceMetrics{
 		NodeID:      nodeID,
 		ServiceName: node.Label,
@@ -165,7 +166,7 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 	}
 
 	if active == nil || active.ContainerID == "" || (active.Status != "running" && active.Status != "starting") {
-		if serviceType != "web" {
+		if desiredPort == 0 {
 			metrics.Reachability.Status = "not_applicable"
 		}
 		return metrics, nil
@@ -209,7 +210,7 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		metrics.LiveMetricsError = "Live stats unavailable."
 	}
 
-	metrics.Reachability = probeReachability(serviceType, active.HostPort, metrics.PublicURL)
+	metrics.Reachability = probeReachability(active.HostPort, metrics.PublicURL)
 	return metrics, nil
 }
 
@@ -421,12 +422,24 @@ func buildRuntimeEvents(deployments []store.Deployment) []RuntimeEvent {
 	return events
 }
 
-func probeReachability(serviceType string, hostPort int, publicURL string) ReachabilityCheck {
-	if serviceType != "web" {
-		return ReachabilityCheck{Status: "not_applicable"}
-	}
+// probeReachability checks whether a published container port is reachable
+// from the host. It is TCP-first so it works for any service that listens on a
+// port — not just HTTP servers — and uses a short HTTP probe as a confirmation
+// bonus when the port accepts a connection.
+//
+// Result statuses:
+//   - not_applicable: no published port to probe.
+//   - unreachable: the port is not accepting TCP connections.
+//   - reachable: TCP connects but no HTTP response (e.g. a database or cache).
+//   - healthy: HTTP responds with a 2xx/3xx status.
+//   - degraded: HTTP responds with another status code.
+//
+// publicURL is only used for display (TargetURL); the actual probe always
+// targets the container's loopback-published port so it never depends on the
+// proxy or public DNS.
+func probeReachability(hostPort int, publicURL string) ReachabilityCheck {
 	if hostPort <= 0 {
-		return ReachabilityCheck{Status: "not_running"}
+		return ReachabilityCheck{Status: "not_applicable"}
 	}
 
 	targetURL := fmt.Sprintf("http://127.0.0.1:%d", hostPort)
@@ -439,16 +452,30 @@ func probeReachability(serviceType string, hostPort int, publicURL string) Reach
 		TargetURL: targetURL,
 		CheckedAt: &now,
 	}
-	client := &http.Client{Timeout: 1500 * time.Millisecond}
-	start := time.Now()
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d", hostPort))
-	result.LatencyMs = time.Since(start).Milliseconds()
+
+	addr := fmt.Sprintf("127.0.0.1:%d", hostPort)
+	tcpStart := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, tcpDialTimeout)
 	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	conn.Close()
+
+	// Port is open. Try a short HTTP probe; non-HTTP services (databases,
+	// caches) will fail here, and that's fine — the open port is itself a
+	// strong readiness signal.
+	httpClient := &http.Client{Timeout: httpProbeTimeout}
+	resp, err := httpClient.Get(fmt.Sprintf("http://%s", addr))
+	if err != nil {
+		result.Status = "reachable"
+		result.LatencyMs = time.Since(tcpStart).Milliseconds()
 		result.Error = err.Error()
 		return result
 	}
 	defer resp.Body.Close()
 	result.StatusCode = resp.StatusCode
+	result.LatencyMs = time.Since(tcpStart).Milliseconds()
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		result.Status = "healthy"
 		return result
@@ -457,18 +484,16 @@ func probeReachability(serviceType string, hostPort int, publicURL string) Reach
 	return result
 }
 
-func metricsServiceType(label string, settings map[string]string) string {
-	value := strings.ToLower(label + " " + settings["dockerfile"] + " " + settings["service_root"])
-	switch {
-	case strings.Contains(value, "postgres"), strings.Contains(value, "mysql"), strings.Contains(value, "database"), strings.Contains(value, " db"):
-		return "database"
-	case strings.Contains(value, "redis"), strings.Contains(value, "cache"):
-		return "cache"
-	case strings.Contains(value, "worker"), strings.Contains(value, "queue"), strings.Contains(value, "job"):
-		return "worker"
-	default:
+// serviceTypeFromPort derives a coarse service type from whether the service
+// exposes a port, instead of guessing from its name. A service with a
+// published port is treated as network-facing ("web"); one without is a
+// background worker ("worker"). This is a display-only hint — readiness is
+// driven by the healthcheck and port probes, not by this label.
+func serviceTypeFromPort(port int) string {
+	if port > 0 {
 		return "web"
 	}
+	return "worker"
 }
 
 func cpuPercent(stats container.StatsResponse) float64 {
