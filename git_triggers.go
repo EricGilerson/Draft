@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"Draft/internal/githooks"
 	"Draft/internal/gitsrc"
@@ -64,8 +65,15 @@ func (a *App) syncRepoHooks(projectID uint) error {
 		if err != nil {
 			continue
 		}
-		if settings["git_branch"] == "" {
+		branch := strings.TrimSpace(settings["git_branch"])
+		if branch == "" {
 			continue
+		}
+		if canonical := gitsrc.PreferLocalRef(a.ctx, project.Path, branch); canonical != "" && canonical != branch {
+			if err := a.store.SetNodeSetting(node.ID, "git_branch", canonical); err != nil {
+				return err
+			}
+			settings["git_branch"] = canonical
 		}
 		switch settings["deploy_trigger"] {
 		case "on_commit":

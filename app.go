@@ -36,6 +36,7 @@ func (a *App) startup(ctx context.Context) {
 		fmt.Println("store: open:", err)
 	} else {
 		a.store = s
+		a.reconcileSavedRepoHooks()
 	}
 
 	if a.store != nil {
@@ -100,6 +101,22 @@ func (a *App) ensureDaemon() (*daemon.Client, error) {
 	a.daemon = c
 	a.startDaemonEvents()
 	return c, nil
+}
+
+func (a *App) reconcileSavedRepoHooks() {
+	if a.store == nil {
+		return
+	}
+	projects, err := a.store.ListProjects()
+	if err != nil {
+		fmt.Println("githooks: list projects:", err)
+		return
+	}
+	for _, project := range projects {
+		if err := a.syncRepoHooks(project.ID); err != nil {
+			fmt.Printf("githooks: sync project %d (%s): %v\n", project.ID, project.Path, err)
+		}
+	}
 }
 
 // SelectFolder opens a native directory-picker dialog and returns the chosen path.

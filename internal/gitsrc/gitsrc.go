@@ -38,8 +38,39 @@ func ListBranches(ctx context.Context, path string) ([]string, error) {
 		return nil, ErrNotRepo
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "for-each-ref",
-		"--format=%(refname:short)", "refs/heads/", "refs/remotes/")
+	locals, err := listRefs(ctx, path, "refs/heads/")
+	if err != nil {
+		return nil, err
+	}
+	remotes, err := listRefs(ctx, path, "refs/remotes/")
+	if err != nil {
+		return nil, err
+	}
+
+	localSet := make(map[string]struct{}, len(locals))
+	branches := make([]string, 0, len(locals)+len(remotes))
+	for _, branch := range locals {
+		localSet[branch] = struct{}{}
+		branches = append(branches, branch)
+	}
+
+	for _, branch := range remotes {
+		if strings.HasSuffix(branch, "/HEAD") {
+			continue
+		}
+		parts := strings.SplitN(branch, "/", 2)
+		if len(parts) == 2 {
+			if _, ok := localSet[parts[1]]; ok {
+				continue
+			}
+		}
+		branches = append(branches, branch)
+	}
+	return branches, nil
+}
+
+func listRefs(ctx context.Context, path, prefix string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "for-each-ref", "--format=%(refname:short)", prefix)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -51,15 +82,82 @@ func ListBranches(ctx context.Context, path string) ([]string, error) {
 		return nil, fmt.Errorf("list branches: %s", msg)
 	}
 
-	var branches []string
+	var refs []string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasSuffix(line, "/HEAD") {
+		if line == "" {
 			continue
 		}
-		branches = append(branches, line)
+		refs = append(refs, line)
 	}
-	return branches, nil
+	return refs, nil
+}
+
+// PreferLocalRef collapses a remote-tracking ref such as "origin/main" down to
+// "main" when that local branch exists in the repository. This keeps pinned
+// refs aligned with the branch a post-commit hook will report, while still
+// preserving remote-only refs like "origin/release" when no local branch exists.
+func PreferLocalRef(ctx context.Context, path, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+
+	base, suffix := splitTreeish(ref)
+	if strings.HasPrefix(base, "refs/heads/") {
+		return strings.TrimPrefix(base, "refs/heads/") + suffix
+	}
+
+	remoteName, branch := splitRemoteRef(ctx, path, base)
+	if remoteName == "" || branch == "" {
+		return ref
+	}
+	if err := VerifyRef(ctx, path, branch); err == nil {
+		return branch + suffix
+	}
+	return ref
+}
+
+func splitTreeish(ref string) (base, suffix string) {
+	if i := strings.IndexByte(ref, ':'); i >= 0 {
+		return ref[:i], ref[i:]
+	}
+	return ref, ""
+}
+
+func splitRemoteRef(ctx context.Context, path, ref string) (remote, branch string) {
+	if strings.HasPrefix(ref, "refs/remotes/") {
+		trimmed := strings.TrimPrefix(ref, "refs/remotes/")
+		parts := strings.SplitN(trimmed, "/", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+		return "", ""
+	}
+
+	for _, remote := range repoRemotes(ctx, path) {
+		prefix := remote + "/"
+		if strings.HasPrefix(ref, prefix) && len(ref) > len(prefix) {
+			return remote, ref[len(prefix):]
+		}
+	}
+	return "", ""
+}
+
+func repoRemotes(ctx context.Context, path string) []string {
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "remote")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var remotes []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			remotes = append(remotes, line)
+		}
+	}
+	return remotes
 }
 
 // VerifyRef checks that ref resolves to a commit in the repository at path.

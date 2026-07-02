@@ -144,7 +144,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	//   - checkout: materialize the branch into an ephemeral directory, then
 	//     build it like a normal on-disk service (honors ignore files/BuildKit).
 	sourcePath := project.Path
-	gitBranch := strings.TrimSpace(settings["git_branch"])
+	gitBranch := gitsrc.PreferLocalRef(ctx, project.Path, strings.TrimSpace(settings["git_branch"]))
 	gitStream := gitBranch != "" && gitStreamEnabled(settings)
 
 	if gitBranch != "" && !gitStream {

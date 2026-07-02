@@ -93,7 +93,7 @@ func TestListBranches_NotARepo(t *testing.T) {
 	}
 }
 
-func TestListBranches_IncludesRemotes(t *testing.T) {
+func TestListBranches_DedupesRemoteWhenLocalExists(t *testing.T) {
 	// Bare "remote" repo.
 	remote := t.TempDir()
 	runGit(t, remote, "init", "--bare", "-b", "main", "-q")
@@ -106,14 +106,84 @@ func TestListBranches_IncludesRemotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListBranches: %v", err)
 	}
+	foundLocal := false
+	foundRemote := false
+	for _, b := range branches {
+		if b == "main" {
+			foundLocal = true
+		}
+		if b == "origin/main" {
+			foundRemote = true
+		}
+	}
+	if !foundLocal {
+		t.Fatalf("expected main in %v", branches)
+	}
+	if foundRemote {
+		t.Fatalf("did not expect duplicate origin/main in %v", branches)
+	}
+}
+
+func TestListBranches_KeepsRemoteOnlyBranches(t *testing.T) {
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare", "-b", "main", "-q")
+
+	repo := newTestRepo(t)
+	runGit(t, repo, "remote", "add", "origin", remote)
+	runGit(t, repo, "push", "-q", "origin", "main")
+	runGit(t, repo, "checkout", "-q", "-b", "feature/x")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "feature commit")
+	runGit(t, repo, "push", "-q", "origin", "feature/x")
+	runGit(t, repo, "checkout", "-q", "main")
+	runGit(t, repo, "branch", "-D", "feature/x")
+	runGit(t, repo, "fetch", "-q", "origin")
+
+	branches, err := ListBranches(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("ListBranches: %v", err)
+	}
 	found := false
 	for _, b := range branches {
-		if b == "origin/main" {
+		if b == "origin/feature/x" {
 			found = true
+		}
+		if b == "origin/main" {
+			t.Fatalf("did not expect duplicate origin/main in %v", branches)
 		}
 	}
 	if !found {
-		t.Fatalf("expected origin/main in %v", branches)
+		t.Fatalf("expected origin/feature/x in %v", branches)
+	}
+}
+
+func TestPreferLocalRef(t *testing.T) {
+	remote := t.TempDir()
+	runGit(t, remote, "init", "--bare", "-b", "main", "-q")
+
+	repo := newTestRepo(t)
+	runGit(t, repo, "remote", "add", "origin", remote)
+	runGit(t, repo, "push", "-q", "origin", "main")
+
+	if got := PreferLocalRef(context.Background(), repo, "origin/main"); got != "main" {
+		t.Fatalf("PreferLocalRef(origin/main) = %q, want main", got)
+	}
+	if got := PreferLocalRef(context.Background(), repo, "refs/remotes/origin/main"); got != "main" {
+		t.Fatalf("PreferLocalRef(refs/remotes/origin/main) = %q, want main", got)
+	}
+
+	runGit(t, repo, "checkout", "-q", "-b", "feature/x")
+	writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "feature commit")
+	runGit(t, repo, "push", "-q", "origin", "feature/x")
+	runGit(t, repo, "checkout", "-q", "main")
+	runGit(t, repo, "branch", "-D", "feature/x")
+	runGit(t, repo, "fetch", "-q", "origin")
+
+	if got := PreferLocalRef(context.Background(), repo, "origin/feature/x"); got != "origin/feature/x" {
+		t.Fatalf("PreferLocalRef(origin/feature/x) = %q, want origin/feature/x", got)
 	}
 }
 
