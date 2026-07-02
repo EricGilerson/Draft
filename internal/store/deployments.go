@@ -38,6 +38,21 @@ func (s *Store) ActiveDeployment(nodeID string) (*Deployment, error) {
 	return &d, nil
 }
 
+// LatestDeployment returns the most recent deployment for a node regardless of
+// status, or nil if none exists. Used by the git-trigger reconciler to read the
+// last SourceSHA it built for the node.
+func (s *Store) LatestDeployment(nodeID string) (*Deployment, error) {
+	var d Deployment
+	err := s.DB.Where("node_id = ?", nodeID).Order("created_at desc").First(&d).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
 func (s *Store) ListDeployments(nodeID string) ([]Deployment, error) {
 	var deployments []Deployment
 	if err := s.DB.Where("node_id = ?", nodeID).Order("created_at desc").Find(&deployments).Error; err != nil {

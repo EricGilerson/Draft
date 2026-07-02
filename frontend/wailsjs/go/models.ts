@@ -383,7 +383,24 @@ export namespace dockerwatch {
 }
 
 export namespace main {
-	
+
+	export class GitHookStatus {
+	    supported: boolean;
+	    commitForeign: boolean;
+	    pushForeign: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new GitHookStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.commitForeign = source["commitForeign"];
+	        this.pushForeign = source["pushForeign"];
+	    }
+	}
+
 	export class ProjectService {
 	    id: string;
 	    projectId: number;

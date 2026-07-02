@@ -199,9 +199,25 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		e.emitBuildLog(nodeID, "    Dockerfile is outside the service root; using the project root as build context")
 	}
 
+	// Record the commit being built when a branch is pinned, so the git-trigger
+	// reconciler can tell whether a later commit/push actually moved the tracked
+	// branch past what we last deployed. Best-effort: a resolve failure must not
+	// block the deploy.
+	var sourceSHA string
+	if gitBranch != "" {
+		ref := gitBranch
+		if i := strings.IndexByte(ref, ':'); i >= 0 {
+			ref = ref[:i]
+		}
+		if sha, err := gitsrc.ResolveSHA(ctx, project.Path, ref); err == nil {
+			sourceSHA = sha
+		}
+	}
+
 	dep := &store.Deployment{
 		NodeID:         nodeID,
 		ProjectID:      node.ProjectID,
+		SourceSHA:      sourceSHA,
 		Status:         "building",
 		JobID:          fmt.Sprintf("%d-%s", time.Now().UnixNano(), nodeID),
 		WorkerPID:      os.Getpid(),

@@ -3,9 +3,11 @@ import {useCallback, useEffect, useState} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
-    IsGitRepo, ListGitBranches,
+    IsGitRepo, ListGitBranches, SetDeployTrigger, GetGitHookStatus,
 } from '../../wailsjs/go/main/App';
-import {dockerfile} from '../../wailsjs/go/models';
+import {dockerfile, main} from '../../wailsjs/go/models';
+
+type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
 type SettingsTabProps = {
     nodeId: string;
@@ -49,6 +51,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [branches, setBranches] = useState<string[]>([]);
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState('');
+    const [deployTrigger, setDeployTrigger] = useState<DeployTrigger>('manual');
+    const [hookStatus, setHookStatus] = useState<main.GitHookStatus | null>(null);
 
     const saveSetting = useCallback((key: string, value: string) => {
         setSettings(prev => ({...prev, [key]: value}));
@@ -66,18 +70,40 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             .finally(() => setBranchesLoading(false));
     }, [projectId]);
 
+    const refreshHookStatus = useCallback(() => {
+        GetGitHookStatus(projectId).then(setHookStatus).catch(() => setHookStatus(null));
+    }, [projectId]);
+
     useEffect(() => {
         IsGitRepo(projectId).then((ok) => {
             setIsGitRepo(ok);
-            if (ok) refreshBranches();
+            if (ok) {
+                refreshBranches();
+                refreshHookStatus();
+            }
         }).catch(() => setIsGitRepo(false));
-    }, [projectId, refreshBranches]);
+    }, [projectId, refreshBranches, refreshHookStatus]);
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
         setSettings(prev => ({...prev, git_branch: value}));
-        SetNodeSetting(nodeId, 'git_branch', value).then(() => onServicesChanged?.());
-    }, [nodeId, onServicesChanged]);
+        SetNodeSetting(nodeId, 'git_branch', value).then(() => {
+            // The trigger is only meaningful with a branch; re-applying it
+            // installs or tears down the repo's git hooks to match.
+            return SetDeployTrigger(nodeId, projectId, deployTrigger);
+        }).then(() => {
+            refreshHookStatus();
+            onServicesChanged?.();
+        }).catch(() => onServicesChanged?.());
+    }, [nodeId, projectId, deployTrigger, refreshHookStatus, onServicesChanged]);
+
+    const commitDeployTrigger = useCallback((value: DeployTrigger) => {
+        setDeployTrigger(value);
+        setSettings(prev => ({...prev, deploy_trigger: value}));
+        SetDeployTrigger(nodeId, projectId, value)
+            .then(() => refreshHookStatus())
+            .catch(() => {});
+    }, [nodeId, projectId, refreshHookStatus]);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
@@ -88,6 +114,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             if (!s) s = {};
             setSettings(s);
             setGitBranch(s.git_branch || '');
+            setDeployTrigger((s.deploy_trigger as DeployTrigger) || 'manual');
             const df = s.dockerfile || '';
             setDockerfilePath(df);
             setDockerfileInput(df);
@@ -291,6 +318,41 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                         {branchError && <p className="form-error">{branchError}</p>}
                         {gitBranch && !branchError && (
                             <span className="settings-resolved">Deploying from branch “{gitBranch}”</span>
+                        )}
+                    </div>
+                )}
+                {isGitRepo && gitBranch && (
+                    <div className="form-field">
+                        <label className="form-label">Deploy Trigger</label>
+                        <span className="settings-hint">
+                            When to redeploy “{gitBranch}”. <strong>Manual</strong> deploys only when you click
+                            Deploy. <strong>On commit</strong> redeploys whenever a commit lands on this branch.
+                            <strong> On push</strong> redeploys only when this branch is pushed to its remote.
+                            Automatic triggers install a local git hook — nothing is committed to your repository.
+                        </span>
+                        <div className="trigger-seg" role="group" aria-label="Deploy trigger">
+                            {([
+                                ['manual', 'Manual'],
+                                ['on_commit', 'On commit'],
+                                ['on_push', 'On push'],
+                            ] as [DeployTrigger, string][]).map(([value, label]) => (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    className={`trigger-seg-btn ${deployTrigger === value ? 'trigger-seg-btn--active' : ''}`}
+                                    onClick={() => commitDeployTrigger(value)}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        {deployTrigger !== 'manual' && hookStatus &&
+                            ((deployTrigger === 'on_commit' && hookStatus.commitForeign) ||
+                             (deployTrigger === 'on_push' && hookStatus.pushForeign)) && (
+                            <span className="settings-hint" style={{marginTop: 6}}>
+                                An existing {deployTrigger === 'on_push' ? 'pre-push' : 'post-commit'} hook was found.
+                                Draft chains to it, so your existing hook keeps running.
+                            </span>
                         )}
                     </div>
                 )}

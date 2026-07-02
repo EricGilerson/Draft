@@ -46,6 +46,20 @@ type Server struct {
 }
 
 func RunProcess(ctx context.Context) error {
+	// Single-instance guard: if a daemon is already recorded and answering,
+	// don't start a second one — two daemons would bind separate ports and
+	// contend over the one SQLite file. This is what lets a git hook (or any
+	// caller) blindly launch the daemon without risking a double-up.
+	if existing, err := NewClientFromState(); err == nil {
+		pingCtx, cancel := context.WithTimeout(ctx, time.Second)
+		alive := existing.Ping(pingCtx) == nil
+		cancel()
+		if alive {
+			log.Printf("[draft-daemon] another daemon is already running; exiting")
+			return nil
+		}
+	}
+
 	dbPath, err := store.DefaultPath()
 	if err != nil {
 		return err
@@ -104,6 +118,10 @@ func (s *Server) Run(ctx context.Context) error {
 		cancel()
 	}
 
+	// Catch commits/pushes to tracked branches that landed while the daemon was
+	// down — including the event whose git hook just launched this daemon.
+	go s.reconcileAllGitTriggersOnStartup(ctx)
+
 	httpServer := &http.Server{Handler: s.routes()}
 	errCh := make(chan error, 1)
 	go func() {
@@ -158,6 +176,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/preview", s.handlePreviewEnv)
 	mux.HandleFunc("/env/reference-targets", s.handleReferenceTargets)
 	mux.HandleFunc("/connections", s.handleConnections)
+	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	return s.auth(mux)
 }
 
@@ -181,6 +200,17 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.Deploy(context.Background(), req.NodeID))
+}
+
+func (s *Server) handleGitRecheck(w http.ResponseWriter, r *http.Request) {
+	var req recheckRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	// Reconcile asynchronously so the hook's HTTP call returns immediately and
+	// never delays the user's git command.
+	go s.reconcileGitTriggers(context.Background(), req)
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

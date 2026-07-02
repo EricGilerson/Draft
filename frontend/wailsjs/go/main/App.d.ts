@@ -29,6 +29,8 @@ export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
 export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
 
+export function GetGitHookStatus(arg1:number):Promise<main.GitHookStatus>;
+
 export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
@@ -68,6 +70,8 @@ export function SelectFile(arg1:string,arg2:string):Promise<string>;
 export function SelectFolder():Promise<string>;
 
 export function SelectServiceRoot(arg1:number):Promise<string>;
+
+export function SetDeployTrigger(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 

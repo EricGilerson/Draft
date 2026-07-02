@@ -300,3 +300,28 @@ func TestArchiveToDir_NestedDirectories(t *testing.T) {
 		t.Fatalf("unexpected nested file content: %q", data)
 	}
 }
+
+func TestResolveSHA(t *testing.T) {
+	repo := newTestRepo(t)
+	want := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
+
+	got, err := ResolveSHA(context.Background(), repo, "main")
+	if err != nil {
+		t.Fatalf("ResolveSHA: %v", err)
+	}
+	if got != want {
+		t.Fatalf("ResolveSHA(main) = %q, want %q", got, want)
+	}
+
+	if _, err := ResolveSHA(context.Background(), repo, "does-not-exist"); err == nil {
+		t.Fatalf("expected error for unknown ref")
+	}
+}
+
+func TestUpstreamRef(t *testing.T) {
+	repo := newTestRepo(t)
+	// No upstream configured → falls back to origin/<branch>.
+	if got := UpstreamRef(context.Background(), repo, "main"); got != "origin/main" {
+		t.Fatalf("UpstreamRef fallback = %q, want origin/main", got)
+	}
+}

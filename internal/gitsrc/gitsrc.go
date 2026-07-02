@@ -71,6 +71,35 @@ func VerifyRef(ctx context.Context, path, ref string) error {
 	return nil
 }
 
+// ResolveSHA returns the full commit SHA that ref resolves to in the repository
+// at path. Returns an error if ref does not resolve to a commit (e.g. a branch
+// that doesn't exist, or a remote-tracking ref for a branch never pushed).
+func ResolveSHA(ctx context.Context, path, ref string) (string, error) {
+	if !IsRepo(path) {
+		return "", ErrNotRepo
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("ref %q not found in repository", ref)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// UpstreamRef returns the remote-tracking ref for the local branch (e.g.
+// "origin/main" for "main"), following the branch's configured upstream when
+// set. It falls back to "origin/<branch>" when no upstream is configured. The
+// returned ref is suitable for ResolveSHA; callers should treat a resolve error
+// as "nothing pushed yet" rather than fatal.
+func UpstreamRef(ctx context.Context, path, branch string) string {
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
+	out, err := cmd.Output()
+	if up := strings.TrimSpace(string(out)); err == nil && up != "" {
+		return up
+	}
+	return "origin/" + branch
+}
+
 // ArchiveToDir exports the tree of ref from the repository at repoPath into
 // destDir, which must already exist. It never reads or modifies repoPath's
 // working tree or index — only committed content reachable from ref is

@@ -95,10 +95,16 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
     const publicURL = bestPublicDeploymentURL(deployment, localDomain);
+    const localURL = deployment && deployment.hostPort > 0 ? `http://127.0.0.1:${deployment.hostPort}` : '';
 
     const handleOpenDeployment = () => {
         if (!publicURL) return;
         BrowserOpenURL(publicURL);
+    };
+
+    const handleOpenLocal = () => {
+        if (!localURL) return;
+        BrowserOpenURL(localURL);
     };
 
     return (
@@ -245,6 +251,19 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         <div className="overview-detail-row">
                             <span className="overview-detail-label">Public Access Mode</span>
                             <span className="overview-detail-value mono">{localDomain.mode}</span>
+                        </div>
+                    )}
+                    {localURL && (
+                        <div className="overview-detail-row">
+                            <span className="overview-detail-label">Local URL</span>
+                            <button
+                                type="button"
+                                className="overview-detail-value mono overview-detail-link"
+                                title="Direct loopback address. Works without internet — use this for apps running on your machine (e.g. a desktop client)."
+                                onClick={handleOpenLocal}
+                            >
+                                {localURL.replace('http://', '')}
+                            </button>
                         </div>
                     )}
                     {localDomain?.hostsError && (

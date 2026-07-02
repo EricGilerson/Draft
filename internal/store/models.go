@@ -70,6 +70,11 @@ type Deployment struct {
 	ProjectID          uint       `gorm:"index;not null" json:"projectId"`
 	ImageTag           string     `json:"imageTag"`
 	ContainerID        string     `json:"containerId"`
+	// SourceSHA is the git commit this deployment was built from, when the node
+	// is pinned to a git branch/ref. Empty for working-tree deploys. It is the
+	// baseline the git-trigger reconciler diffs against to decide whether a
+	// commit/push actually changed the tracked branch since the last deploy.
+	SourceSHA          string     `json:"sourceSha"`
 	Status             string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
 	Hostname           string     `json:"hostname"`
 	HostPort           int        `json:"hostPort"`
