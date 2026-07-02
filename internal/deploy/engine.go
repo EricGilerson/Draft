@@ -340,13 +340,12 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "built"})
 
-	e.emitBuildLog(nodeID, "==> Stopping previous deployment...")
-	if err := e.stopPrevious(ctx, cli, nodeID, dep.ID); err != nil {
-		log.Printf("[deploy] warning: stop previous: %v", err)
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
-	} else {
-		e.emitBuildLog(nodeID, "    Done")
-	}
+	// The previous deployment is intentionally left running here. It keeps
+	// serving traffic while the new container is created, started, and verified
+	// ready below; only once the route is repointed to the new container do we
+	// retire the old one. This makes the cutover zero-downtime (blue-green) and
+	// leaves the previous deployment in place as an automatic rollback if the
+	// new container never becomes ready.
 
 	if hooks.PreDeploy != "" {
 		if err := runLifecycleHook(ctx, "pre-deploy", hooks.PreDeploy, plan.ServiceRoot, func(line string) {
@@ -459,6 +458,24 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Listening on 127.0.0.1:%d (container port %s)", hostPort, portStr))
 
+	// Verify the new container is actually serving before switching traffic to
+	// it. Until Register() runs below, the route still points at the previous
+	// deployment, so this wait causes no downtime for existing traffic.
+	serviceType := metricsServiceType(node.Label, settings)
+	e.emitBuildLog(nodeID, "==> Waiting for new container to become ready...")
+	if err := e.waitForReady(ctx, cli, createResp.ID, serviceType, hostPort); err != nil {
+		// The new container never became ready: tear it down and leave the
+		// previous deployment serving untouched (automatic rollback).
+		e.emitBuildLog(nodeID, fmt.Sprintf("    New container not ready: %v", err))
+		e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
+		stopTO := 10
+		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
+		cli.ContainerRemove(context.Background(), createResp.ID, container.RemoveOptions{})
+		e.failDeployment(dep, nodeID, "new container did not become ready: "+err.Error()+" (previous deployment left running)")
+		return
+	}
+	e.emitBuildLog(nodeID, "    Ready")
+
 	e.emitBuildLog(nodeID, "==> Registering route...")
 	regResult, err := e.router.Register(networking.RegisterRequest{
 		Service:     serviceName,
@@ -488,6 +505,18 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		dep.Hostname = regResult.Hostname
 	}
 	e.store.UpdateDeployment(dep)
+
+	// Traffic now flows to the new container; retire the previous deployment(s).
+	// The current hostname is preserved — it was just repointed to the new
+	// container and is shared across this node's deployments, so unregistering
+	// it here would tear down the live route we just established.
+	e.emitBuildLog(nodeID, "==> Retiring previous deployment...")
+	if err := e.stopPrevious(ctx, cli, nodeID, dep.ID, dep.Hostname); err != nil {
+		log.Printf("[deploy] warning: retire previous: %v", err)
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
+	} else {
+		e.emitBuildLog(nodeID, "    Done")
+	}
 
 	if hooks.PostDeploy != "" {
 		if err := runLifecycleHook(ctx, "post-deploy", hooks.PostDeploy, plan.ServiceRoot, func(line string) {
@@ -1252,7 +1281,12 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	}
 }
 
-func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID string, currentID uint) error {
+// stopPrevious retires every deployment for the node other than currentID:
+// it stops and removes their containers and images. keepHostname is the route
+// the current deployment now owns; it is never unregistered here, since the
+// current and previous deployments of a node share a stable hostname and the
+// route was just repointed to the new container.
+func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID string, currentID uint, keepHostname string) error {
 	deployments, err := e.store.ListDeployments(nodeID)
 	if err != nil {
 		return err
@@ -1269,7 +1303,7 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 				cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
 				cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
 			}
-			if d.Hostname != "" {
+			if d.Hostname != "" && d.Hostname != keepHostname {
 				e.router.Unregister(d.Hostname)
 			}
 			d.Status = "stopped"
@@ -1628,6 +1662,93 @@ func (e *Engine) failDeployment(dep *store.Deployment, nodeID, errMsg string) {
 
 func ptrTime(t time.Time) *time.Time {
 	return &t
+}
+
+const (
+	// readinessTimeout bounds how long we hold both the old and new containers
+	// while waiting for the new one to serve. A crash is detected immediately
+	// (container exit), so this mainly caps slow-booting apps.
+	readinessTimeout = 90 * time.Second
+	// readinessInterval is how often readiness is polled.
+	readinessInterval = 500 * time.Millisecond
+	// readinessSettle is how long a container with no healthcheck and no HTTP
+	// endpoint (e.g. a database) must stay running before it counts as ready.
+	readinessSettle = 3 * time.Second
+)
+
+// waitForReady blocks until the freshly-started container is ready to receive
+// traffic, or returns an error if it exits or never becomes ready within
+// readinessTimeout. Because the route is not repointed until this returns, the
+// wait is invisible to traffic still hitting the previous container.
+//
+// Readiness signal, in priority order:
+//   - A Docker HEALTHCHECK, when defined, is authoritative: we wait for
+//     "healthy" and fail on "unhealthy" (or on timeout). This is the way to get
+//     strict, app-defined readiness gating for slow-booting services.
+//   - Otherwise the floor is "stayed running past a short settle window without
+//     exiting", which rules out an immediate crash while never false-failing a
+//     service that simply doesn't speak HTTP on the declared port. For web
+//     services an HTTP probe is used only as a fast-path to cut over sooner once
+//     the server answers — it can shorten the wait but never lengthen it.
+func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, containerID, serviceType string, hostPort int) error {
+	deadline := time.Now().Add(readinessTimeout)
+	var runningSince time.Time
+
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		inspect, err := cli.ContainerInspect(ctx, containerID)
+		if err == nil && inspect.State != nil {
+			st := inspect.State
+			switch {
+			case st.Running:
+				if runningSince.IsZero() {
+					runningSince = time.Now()
+				}
+			case st.Status == "created":
+				// Not started yet; keep waiting.
+			default:
+				// Exited or dead before becoming ready — a crash.
+				return fmt.Errorf("container exited (%s, code %d)", st.Status, st.ExitCode)
+			}
+
+			if st.Running {
+				if st.Health != nil {
+					// A Docker healthcheck is authoritative when present.
+					switch st.Health.Status {
+					case "healthy":
+						return nil
+					case "unhealthy":
+						return fmt.Errorf("container reported unhealthy")
+					}
+					// "starting" → keep polling until healthy or timeout.
+				} else {
+					// Fast-path: a web service that already answers HTTP is ready
+					// now (any status code means a live server we can route to).
+					if serviceType == "web" && hostPort > 0 {
+						if r := probeReachability("web", hostPort, ""); r.Status == "healthy" || r.Status == "degraded" {
+							return nil
+						}
+					}
+					// Floor: running long enough to rule out an immediate crash.
+					if time.Since(runningSince) >= readinessSettle {
+						return nil
+					}
+				}
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s", readinessTimeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(readinessInterval):
+		}
+	}
 }
 
 func firstHostPort(ports nat.PortMap) int {
