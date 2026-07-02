@@ -1,4 +1,4 @@
-package main
+package deploy
 
 import (
 	"strconv"
@@ -23,21 +23,18 @@ type ProjectService struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-func (a *App) ListProjectServices(projectID uint) ([]ProjectService, error) {
-	if a.store == nil {
-		return nil, errNoStore
-	}
-	nodes, err := a.store.ListNodes(projectID)
+func ListProjectServices(s *store.Store, projectID uint) ([]ProjectService, error) {
+	nodes, err := s.ListNodes(projectID)
 	if err != nil {
 		return nil, err
 	}
 	services := make([]ProjectService, 0, len(nodes))
 	for _, node := range nodes {
-		settings, err := a.store.GetNodeSettings(node.ID)
+		settings, err := s.GetNodeSettings(node.ID)
 		if err != nil {
 			return nil, err
 		}
-		dep, err := a.store.ActiveDeployment(node.ID)
+		dep, err := s.ActiveDeployment(node.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +60,7 @@ func projectServiceFromNode(node store.CanvasNode, settings map[string]string, d
 	if dep == nil {
 		return svc
 	}
-	svc.Status = serviceStatusFromDeployment(dep.Status)
+	svc.Status = ServiceStatusFromDeployment(dep.Status)
 	svc.Hostname = dep.Hostname
 	svc.HostPort = dep.HostPort
 	if dep.ImageTag != "" {
@@ -89,7 +86,7 @@ func inferServiceType(label string, settings map[string]string) string {
 	}
 }
 
-func serviceStatusFromDeployment(status string) string {
+func ServiceStatusFromDeployment(status string) string {
 	switch status {
 	case "running":
 		return "running"

@@ -1,9 +1,8 @@
-package main
+package networking
 
 import (
 	"testing"
 
-	"Draft/internal/networking"
 	"Draft/internal/store"
 )
 
@@ -15,17 +14,17 @@ func TestBestDeploymentURL(t *testing.T) {
 
 	tests := []struct {
 		name string
-		mode networking.LocalDomainStatus
+		mode LocalDomainStatus
 		want string
 	}{
 		{
 			name: "public hostname with proxy port",
-			mode: networking.LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
+			mode: LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
 			want: "http://api.app.default.abcd.draft.resolv.sh:53888",
 		},
 		{
 			name: "localhost port fallback without proxy",
-			mode: networking.LocalDomainStatus{Mode: "localhost-port"},
+			mode: LocalDomainStatus{Mode: "localhost-port"},
 			want: "http://127.0.0.1:49152",
 		},
 	}

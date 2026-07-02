@@ -41,8 +41,6 @@ export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
-export function Greet(arg1:string):Promise<string>;
-
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
 export function IsGitRepo(arg1:number):Promise<boolean>;

@@ -29,7 +29,7 @@ func main() {
 	// rings its doorbell, then exits. It must never fail the user's git command,
 	// so any error is swallowed with exit 0.
 	if len(os.Args) > 1 && os.Args[1] == "--git-hook" {
-		repo, event := parseGitHookArgs(os.Args[2:])
+		repo, event := daemon.ParseGitHookArgs(os.Args[2:])
 		if repo != "" && event != "" {
 			_ = daemon.FireHook(context.Background(), repo, event)
 		}
@@ -72,23 +72,4 @@ func main() {
 	if err != nil {
 		println("Error:", err.Error())
 	}
-}
-
-// parseGitHookArgs extracts --repo and --event from the --git-hook arg list.
-func parseGitHookArgs(args []string) (repo, event string) {
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--repo":
-			if i+1 < len(args) {
-				repo = args[i+1]
-				i++
-			}
-		case "--event":
-			if i+1 < len(args) {
-				event = args[i+1]
-				i++
-			}
-		}
-	}
-	return repo, event
 }

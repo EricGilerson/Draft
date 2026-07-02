@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"Draft/internal/daemon"
+	"Draft/internal/githooks"
 	"Draft/internal/store"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -107,15 +108,8 @@ func (a *App) reconcileSavedRepoHooks() {
 	if a.store == nil {
 		return
 	}
-	projects, err := a.store.ListProjects()
-	if err != nil {
-		fmt.Println("githooks: list projects:", err)
-		return
-	}
-	for _, project := range projects {
-		if err := a.syncRepoHooks(project.ID); err != nil {
-			fmt.Printf("githooks: sync project %d (%s): %v\n", project.ID, project.Path, err)
-		}
+	if err := githooks.ReconcileAllProjects(a.ctx, a.store); err != nil {
+		fmt.Println("githooks:", err)
 	}
 }
 
@@ -137,9 +131,4 @@ func (a *App) SelectFile(title string, defaultDir string) (string, error) {
 		Title:            title,
 		DefaultDirectory: defaultDir,
 	})
-}
-
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
 }

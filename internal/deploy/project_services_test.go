@@ -1,4 +1,4 @@
-package main
+package deploy
 
 import (
 	"testing"
@@ -46,8 +46,7 @@ func TestListProjectServicesUsesRealCanvasNodes(t *testing.T) {
 		t.Fatalf("create deployment: %v", err)
 	}
 
-	app := &App{store: s}
-	services, err := app.ListProjectServices(project.ID)
+	services, err := ListProjectServices(s, project.ID)
 	if err != nil {
 		t.Fatalf("ListProjectServices: %v", err)
 	}
@@ -94,8 +93,8 @@ func TestServiceStatusFromDeployment(t *testing.T) {
 		"stopped":  "stopped",
 	}
 	for input, want := range tests {
-		if got := serviceStatusFromDeployment(input); got != want {
-			t.Fatalf("serviceStatusFromDeployment(%q) = %q, want %q", input, got, want)
+		if got := ServiceStatusFromDeployment(input); got != want {
+			t.Fatalf("ServiceStatusFromDeployment(%q) = %q, want %q", input, got, want)
 		}
 	}
 }

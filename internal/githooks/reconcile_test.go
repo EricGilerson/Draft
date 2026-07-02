@@ -1,4 +1,4 @@
-package main
+package githooks
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func newGitRepo(t *testing.T) string {
 	return repo
 }
 
-func TestReconcileSavedRepoHooksInstallsHooksAndNormalizesBranch(t *testing.T) {
+func TestReconcileAllProjectsInstallsHooksAndNormalizesBranch(t *testing.T) {
 	repo := newGitRepo(t)
 	remote := t.TempDir()
 	runGitTest(t, remote, "init", "--bare", "-b", "main", "-q")
@@ -65,8 +65,9 @@ func TestReconcileSavedRepoHooksInstallsHooksAndNormalizesBranch(t *testing.T) {
 		t.Fatalf("set deploy_trigger: %v", err)
 	}
 
-	app := &App{ctx: context.Background(), store: s}
-	app.reconcileSavedRepoHooks()
+	if err := ReconcileAllProjects(context.Background(), s); err != nil {
+		t.Fatalf("ReconcileAllProjects: %v", err)
+	}
 
 	hookPath := filepath.Join(repo, ".git", "hooks", "post-commit")
 	data, err := os.ReadFile(hookPath)

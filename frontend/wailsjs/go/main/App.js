@@ -70,10 +70,6 @@ export function GetServiceRoot(arg1, arg2) {
   return window['go']['main']['App']['GetServiceRoot'](arg1, arg2);
 }
 
-export function Greet(arg1) {
-  return window['go']['main']['App']['Greet'](arg1);
-}
-
 export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
 }

@@ -30,7 +30,7 @@ Draft is a native desktop app built with Wails v2 (Go backend + React frontend).
 ```
 
 - `main.go` starts either the desktop app, the background daemon (`--daemon`), or a fast git-hook entrypoint (`--git-hook`).
-- The Wails app binds thin methods in top-level `*.go` files and talks to the daemon for long-running work.
+- The Wails app binds thin methods in `bindings.go` and talks to the daemon for long-running work.
 - The daemon owns the store, deployment engine, Docker watch hub, local routing/proxy, and SSE event stream.
 - The daemon is single-instance. It writes state (addr/token/pid), reuses an existing healthy daemon, and idles out after inactivity.
 
@@ -39,22 +39,21 @@ Draft is a native desktop app built with Wails v2 (Go backend + React frontend).
 ```text
 main.go                    # Wails app startup, daemon mode, git-hook mode
 app.go                     # App lifecycle, daemon bootstrap, event bridge
-projects.go, nodes.go, services.go, deployments.go,
-env.go, metrics.go, docker.go, node_settings.go,
-local_domain.go, url.go, git_triggers.go
-                          # Wails-bound methods
+bindings.go                # Wails-bound methods (thin delegates)
+cgo_darwin.go              # macOS cgo linker flags for Wails/WebKit
 
 internal/
   daemon/                 # HTTP API, SSE hub, daemon lifecycle, git-trigger reconcile
-  deploy/                 # Build/run engine, metrics, env resolution, BuildKit/legacy paths
+  deploy/                 # Build/run engine, metrics, env resolution, service projection helpers
+  dockerdesktop/          # Best-effort local Docker Desktop launcher
+  dockerfile/             # Dockerfile EXPOSE parser
   dockerwatch/            # Docker daemon health and event watching
   envfile/                # .env import/export/refresh helpers
-  dockerfile/             # Dockerfile EXPOSE parser
-  gitsrc/                 # Branch/ref export via git archive
-  githooks/               # post-commit / pre-push hook install and chaining
+  githooks/               # post-commit / pre-push hook install/chaining + trigger reconciliation
+  gitsrc/                 # Branch/ref export and ref/SHA helpers via git
   ignore/                 # .dockerignore / .gitignore matching
-  networking/             # Port leases, proxy, hosts/domain routing
-  store/                  # GORM models, CRUD, auto-migration
+  networking/             # Port leases, proxy, hosts/domain routing, URL selection helpers
+  store/                  # GORM models, CRUD, auto-migration, service-root validation helpers
 
 frontend/src/
   App.tsx                 # Mounted shell; inline Overview/Sandboxes placeholders, Projects/Settings routing
