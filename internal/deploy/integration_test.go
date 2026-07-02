@@ -102,6 +102,7 @@ func TestIntegrationDeploySuccess(t *testing.T) {
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
 EXPOSE 8080
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sh", "-c", "while true; do echo hello; sleep 1; done"]
 `)
 
@@ -309,6 +310,7 @@ func TestIntegrationStop(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sleep", "3600"]
 `)
 
@@ -360,6 +362,7 @@ func TestIntegrationRestart(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sleep", "3600"]
 `)
 
@@ -415,6 +418,7 @@ func TestIntegrationLogStream(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sh", "-c", "for i in 1 2 3 4 5; do echo log-line-$i; sleep 0.2; done; sleep 3600"]
 `)
 
@@ -485,6 +489,7 @@ func TestIntegrationRedeployCancelsPrevious(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sleep", "3600"]
 `)
 
@@ -554,6 +559,7 @@ func TestIntegrationStderrLogs(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sh", "-c", "echo stdout-marker; echo stderr-marker >&2; sleep 3600"]
 `)
 
@@ -619,7 +625,7 @@ func TestIntegrationRedeployCleansOldImage(t *testing.T) {
 
 	e, s, col, projectDir := setupIntegration(t)
 
-	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
@@ -678,7 +684,7 @@ func TestIntegrationStopCleansImage(t *testing.T) {
 
 	e, s, col, projectDir := setupIntegration(t)
 
-	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
@@ -768,7 +774,7 @@ func TestIntegrationRedeployCleansStaleImages(t *testing.T) {
 
 	e, s, col, projectDir := setupIntegration(t)
 
-	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
@@ -843,7 +849,7 @@ func TestIntegrationRedeployKeepsStableHostname(t *testing.T) {
 
 	e, s, col, projectDir := setupIntegration(t)
 
-	writeDockerfile(t, projectDir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, projectDir, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
@@ -966,7 +972,7 @@ func TestIntegrationInternalHostnameResolvesContainerToContainer(t *testing.T) {
 	if err := os.MkdirAll(svc1Dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	writeDockerfile(t, svc1Dir, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, svc1Dir, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 	s.SetNodeSetting("svc1", "service_root", "svc1")
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
@@ -1038,7 +1044,7 @@ func TestIntegrationInternalHostnameNotReachableAcrossProjects(t *testing.T) {
 
 	// Project A: the caller.
 	e1, s1, col1, dirA := setupIntegration(t)
-	writeDockerfile(t, dirA, "FROM alpine:3.20\nCMD [\"sleep\", \"3600\"]\n")
+	writeDockerfile(t, dirA, "FROM alpine:3.20\nHEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true\nCMD [\"sleep\", \"3600\"]\n")
 	s1.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s1.SetNodeSetting("svc1", "service_port", "80")
 
@@ -1101,6 +1107,7 @@ func TestIntegrationImageTag(t *testing.T) {
 	e, s, col, projectDir := setupIntegration(t)
 
 	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sleep", "3600"]
 `)
 

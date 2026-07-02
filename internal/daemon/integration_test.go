@@ -42,6 +42,7 @@ func TestIntegrationDaemonDeploysThroughClient(t *testing.T) {
 
 	projectDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "Dockerfile"), []byte(`FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
 CMD ["sleep", "3600"]
 `), 0o644); err != nil {
 		t.Fatal(err)

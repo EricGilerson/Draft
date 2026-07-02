@@ -1679,19 +1679,26 @@ const (
 // waitForReady blocks until the freshly-started container is ready to receive
 // traffic, or returns an error if it exits or never becomes ready within
 // readinessTimeout. Because the route is not repointed until this returns, the
-// wait is invisible to traffic still hitting the previous container.
+// wait is invisible to traffic still hitting the previous container — and the
+// probe deliberately targets the new container's own published loopback port
+// (127.0.0.1:hostPort), never the shared internal hostname, which still resolves
+// to the old container until the post-wait cutover. That also means readiness
+// never depends on public DNS or the reverse proxy.
 //
 // Readiness signal, in priority order:
 //   - A Docker HEALTHCHECK, when defined, is authoritative: we wait for
-//     "healthy" and fail on "unhealthy" (or on timeout). This is the way to get
-//     strict, app-defined readiness gating for slow-booting services.
-//   - Otherwise the floor is "stayed running past a short settle window without
-//     exiting", which rules out an immediate crash while never false-failing a
-//     service that simply doesn't speak HTTP on the declared port. For web
-//     services an HTTP probe is used only as a fast-path to cut over sooner once
-//     the server answers — it can shorten the wait but never lengthen it.
+//     "healthy" and fail on "unhealthy" (or on timeout).
+//   - A web service (with a published port and no healthcheck) must actually
+//     answer HTTP: we poll the reachability probe and cut over as soon as the
+//     server responds (any status code). If it never answers before the
+//     timeout, the deploy fails and the previous container keeps serving.
+//   - Anything else — a non-web service (database, cache, worker) or a service
+//     with no published port — has no HTTP endpoint to probe, so readiness is
+//     "stayed running past a short settle window without exiting", which rules
+//     out an immediate crash.
 func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, containerID, serviceType string, hostPort int) error {
 	deadline := time.Now().Add(readinessTimeout)
+	isWeb := serviceType == "web" && hostPort > 0
 	var runningSince time.Time
 
 	for {
@@ -1715,7 +1722,8 @@ func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, container
 			}
 
 			if st.Running {
-				if st.Health != nil {
+				switch {
+				case st.Health != nil:
 					// A Docker healthcheck is authoritative when present.
 					switch st.Health.Status {
 					case "healthy":
@@ -1724,15 +1732,18 @@ func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, container
 						return fmt.Errorf("container reported unhealthy")
 					}
 					// "starting" → keep polling until healthy or timeout.
-				} else {
-					// Fast-path: a web service that already answers HTTP is ready
-					// now (any status code means a live server we can route to).
-					if serviceType == "web" && hostPort > 0 {
-						if r := probeReachability("web", hostPort, ""); r.Status == "healthy" || r.Status == "degraded" {
-							return nil
-						}
+				case isWeb:
+					// A web service must actually serve HTTP before we cut over,
+					// so existing traffic is never switched to a port that isn't
+					// answering yet. Any status code means a live server.
+					if r := probeReachability("web", hostPort, ""); r.Status == "healthy" || r.Status == "degraded" {
+						return nil
 					}
-					// Floor: running long enough to rule out an immediate crash.
+					// Not answering yet → keep polling until it does or timeout.
+				default:
+					// No healthcheck and nothing to HTTP-probe (non-web service or
+					// no published port): ready once it has stayed up long enough
+					// not to be an immediate crash.
 					if time.Since(runningSince) >= readinessSettle {
 						return nil
 					}
@@ -1741,6 +1752,9 @@ func (e *Engine) waitForReady(ctx context.Context, cli *client.Client, container
 		}
 
 		if time.Now().After(deadline) {
+			if isWeb {
+				return fmt.Errorf("web service did not answer on 127.0.0.1:%d within %s", hostPort, readinessTimeout)
+			}
 			return fmt.Errorf("timed out after %s", readinessTimeout)
 		}
 		select {
