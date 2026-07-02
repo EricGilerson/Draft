@@ -3,7 +3,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
-    IsGitRepo, ListGitBranches, SetDeployTrigger, GetGitHookStatus,
+    IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, main} from '../../wailsjs/go/models';
 
@@ -52,6 +52,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [branchesLoading, setBranchesLoading] = useState(false);
     const [branchError, setBranchError] = useState('');
     const [deployTrigger, setDeployTrigger] = useState<DeployTrigger>('manual');
+    const [redeployOnPull, setRedeployOnPull] = useState(false);
     const [hookStatus, setHookStatus] = useState<main.GitHookStatus | null>(null);
 
     const saveSetting = useCallback((key: string, value: string) => {
@@ -88,19 +89,32 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         setGitBranch(value);
         setSettings(prev => ({...prev, git_branch: value}));
         SetNodeSetting(nodeId, 'git_branch', value).then(() => {
-            // The trigger is only meaningful with a branch; re-applying it
+            // The triggers are only meaningful with a branch; re-applying them
             // installs or tears down the repo's git hooks to match.
             return SetDeployTrigger(nodeId, projectId, deployTrigger);
+        }).then(() => {
+            if (value) {
+                return SetRedeployOnPull(nodeId, projectId, redeployOnPull);
+            }
+            return SetRedeployOnPull(nodeId, projectId, false);
         }).then(() => {
             refreshHookStatus();
             onServicesChanged?.();
         }).catch(() => onServicesChanged?.());
-    }, [nodeId, projectId, deployTrigger, refreshHookStatus, onServicesChanged]);
+    }, [nodeId, projectId, deployTrigger, redeployOnPull, refreshHookStatus, onServicesChanged]);
 
     const commitDeployTrigger = useCallback((value: DeployTrigger) => {
         setDeployTrigger(value);
         setSettings(prev => ({...prev, deploy_trigger: value}));
         SetDeployTrigger(nodeId, projectId, value)
+            .then(() => refreshHookStatus())
+            .catch(() => {});
+    }, [nodeId, projectId, refreshHookStatus]);
+
+    const commitRedeployOnPull = useCallback((value: boolean) => {
+        setRedeployOnPull(value);
+        setSettings(prev => ({...prev, redeploy_on_pull: value ? 'true' : ''}));
+        SetRedeployOnPull(nodeId, projectId, value)
             .then(() => refreshHookStatus())
             .catch(() => {});
     }, [nodeId, projectId, refreshHookStatus]);
@@ -115,6 +129,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setSettings(s);
             setGitBranch(s.git_branch || '');
             setDeployTrigger((s.deploy_trigger as DeployTrigger) || 'manual');
+            setRedeployOnPull(s.redeploy_on_pull === 'true');
             const df = s.dockerfile || '';
             setDockerfilePath(df);
             setDockerfileInput(df);
@@ -352,6 +367,19 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                             <span className="settings-hint" style={{marginTop: 6}}>
                                 An existing {deployTrigger === 'on_push' ? 'pre-push' : 'post-commit'} hook was found.
                                 Draft chains to it, so your existing hook keeps running.
+                            </span>
+                        )}
+                        <div style={{marginTop: 12}}>
+                            <ToggleRow
+                                label="Redeploy on pull"
+                                desc="Also redeploy whenever a `git pull` (or merge) updates this branch. Installs a local post-merge git hook — nothing is committed to your repo. Covers merge-based pulls only; `git pull --rebase` is not detected."
+                                checked={redeployOnPull}
+                                onToggle={() => commitRedeployOnPull(!redeployOnPull)}
+                            />
+                        </div>
+                        {redeployOnPull && hookStatus?.pullForeign && (
+                            <span className="settings-hint" style={{marginTop: 6}}>
+                                An existing post-merge hook was found. Draft chains to it, so your existing hook keeps running.
                             </span>
                         )}
                     </div>

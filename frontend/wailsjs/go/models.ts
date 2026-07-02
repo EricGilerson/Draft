@@ -388,6 +388,7 @@ export namespace main {
 	    supported: boolean;
 	    commitForeign: boolean;
 	    pushForeign: boolean;
+	    pullForeign: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new GitHookStatus(source);
@@ -398,6 +399,7 @@ export namespace main {
 	        this.supported = source["supported"];
 	        this.commitForeign = source["commitForeign"];
 	        this.pushForeign = source["pushForeign"];
+	        this.pullForeign = source["pullForeign"];
 	    }
 	}
 	export class ProjectService {

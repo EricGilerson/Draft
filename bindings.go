@@ -38,6 +38,7 @@ type GitHookStatus struct {
 	Supported     bool `json:"supported"`
 	CommitForeign bool `json:"commitForeign"`
 	PushForeign   bool `json:"pushForeign"`
+	PullForeign   bool `json:"pullForeign"`
 }
 
 func errString(err error) string {
@@ -536,6 +537,17 @@ func (a *App) SetDeployTrigger(nodeID string, projectID uint, trigger string) er
 	return githooks.SetDeployTrigger(a.ctx, a.store, nodeID, projectID, trigger)
 }
 
+// SetRedeployOnPull toggles the independent "redeploy on pull" behavior for a
+// node: when enabled, Draft installs a post-merge git hook so the service
+// redeploys whenever a `git pull` (or merge) updates its tracked branch. It is
+// orthogonal to the 3-way deploy trigger.
+func (a *App) SetRedeployOnPull(nodeID string, projectID uint, enabled bool) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return githooks.SetRedeployOnPull(a.ctx, a.store, nodeID, projectID, enabled)
+}
+
 // GetGitHookStatus reports whether the project supports git-triggered deploys
 // and whether foreign hooks are present.
 func (a *App) GetGitHookStatus(projectID uint) (GitHookStatus, error) {
@@ -550,5 +562,6 @@ func (a *App) GetGitHookStatus(projectID uint) (GitHookStatus, error) {
 		Supported:     status.Supported,
 		CommitForeign: status.CommitForeign,
 		PushForeign:   status.PushForeign,
+		PullForeign:   status.PullForeign,
 	}, nil
 }

@@ -77,6 +77,8 @@ export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetRedeployOnPull(arg1:string,arg2:number,arg3:boolean):Promise<void>;
+
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function StartDocker():Promise<void>;

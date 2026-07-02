@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"Draft/internal/gitsrc"
+	"Draft/internal/store"
 )
 
 // gitRef is a branch name paired with the commit it points at, as reported by a
@@ -25,13 +26,14 @@ type gitRef struct {
 // daemon derives the relevant sha from repository state instead.
 type recheckRequest struct {
 	Repo  string   `json:"repo"`
-	Event string   `json:"event"` // "on_commit" | "on_push"
+	Event string   `json:"event"` // "on_commit" | "on_push" | "on_pull"
 	Refs  []gitRef `json:"refs"`
 }
 
 const (
 	eventOnCommit = "on_commit"
 	eventOnPush   = "on_push"
+	eventOnPull   = "on_pull"
 )
 
 // FireHook is the body of `draft --git-hook`: it gathers what the git event
@@ -50,6 +52,16 @@ func FireHook(ctx context.Context, repoPath, gitEvent string) error {
 		if branch != "" && sha != "" {
 			req.Refs = append(req.Refs, gitRef{Name: branch, SHA: sha})
 		}
+	case "post-merge":
+		// post-merge fires after `git pull` (merge strategy) or a `git merge`
+		// that updates the working tree. Like post-commit it carries no stdin;
+		// the merged result is now HEAD, so we report HEAD's branch + sha.
+		req.Event = eventOnPull
+		branch := gitOutput(ctx, repoPath, "symbolic-ref", "--quiet", "--short", "HEAD")
+		sha := gitOutput(ctx, repoPath, "rev-parse", "HEAD")
+		if branch != "" && sha != "" {
+			req.Refs = append(req.Refs, gitRef{Name: branch, SHA: sha})
+		}
 	case "pre-push":
 		req.Event = eventOnPush
 		req.Refs = parsePrePush(os.Stdin)
@@ -61,8 +73,9 @@ func FireHook(ctx context.Context, repoPath, gitEvent string) error {
 
 // deliverRecheck sends the payload to a running daemon, or launches one if none
 // is up. When it has to launch, it does not wait for readiness — startup
-// reconciliation handles the just-fired event.
-func deliverRecheck(ctx context.Context, req recheckRequest) error {
+// reconciliation handles the just-fired event. It is a package-level variable
+// so tests can stub daemon delivery.
+var deliverRecheck = func(ctx context.Context, req recheckRequest) error {
 	if c, err := NewClientFromState(); err == nil {
 		pingCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
 		pingErr := c.Ping(pingCtx)
@@ -132,13 +145,17 @@ func normalizeBranch(name string, remotes []string) string {
 // reconcileGitTriggers evaluates every node whose git trigger matches the event
 // and deploys the ones whose tracked branch actually moved past the commit we
 // last built. It is the single gate that ensures we deploy only for genuine
-// commits/pushes of the branch each node tracks — not for unrelated branches.
+// commits/pushes/pulls of the branch each node tracks — not for unrelated
+// branches.
 //
-// With refs (a live hook payload), matching is exact: a node deploys only if
-// its tracked branch is among the refs the event touched, and the pushed/
-// committed sha differs from the last deployed sha. Without refs (a startup
-// reconcile), the daemon derives the relevant sha from repository state: the
-// local branch tip for on_commit, the remote-tracking tip for on_push.
+// Commit and push subscribe via the 3-way deploy_trigger setting; pull
+// subscribes via the independent redeploy_on_pull flag (orthogonal to
+// deploy_trigger). With refs (a live hook payload), matching is exact: a node
+// deploys only if its tracked branch is among the refs the event touched, and
+// the pushed/committed/merged sha differs from the last deployed sha. Without
+// refs (a startup reconcile), the daemon derives the relevant sha from
+// repository state: the local branch tip for on_commit and on_pull, the
+// remote-tracking tip for on_push.
 func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
 	project, err := s.store.GetProjectByPath(req.Repo)
 	if err != nil || project == nil {
@@ -164,34 +181,10 @@ func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
 		if err != nil {
 			continue
 		}
-		trigger := strings.TrimSpace(settings["deploy_trigger"])
-		branch := strings.TrimSpace(settings["git_branch"])
-		if branch == "" || trigger != req.Event {
+		tracked, candidateSHA, ok := s.matchNode(ctx, project, req, settings, payload, remotes)
+		if !ok {
 			continue
 		}
-		tracked := normalizeBranch(branch, remotes)
-
-		var candidateSHA string
-		if len(req.Refs) > 0 {
-			// Hook payload: the tracked branch must be among the touched refs.
-			sha, ok := payload[tracked]
-			if !ok {
-				continue
-			}
-			candidateSHA = sha
-		} else {
-			// Startup reconcile: derive the sha from repo state.
-			ref := "refs/heads/" + tracked
-			if req.Event == eventOnPush {
-				ref = gitsrc.UpstreamRef(ctx, project.Path, tracked)
-			}
-			sha, err := gitsrc.ResolveSHA(ctx, project.Path, ref)
-			if err != nil {
-				continue
-			}
-			candidateSHA = sha
-		}
-
 		if !s.shouldDeploy(node.ID, candidateSHA) {
 			continue
 		}
@@ -200,6 +193,55 @@ func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
 			log.Printf("[git-trigger] deploy %s: %v", node.ID, err)
 		}
 	}
+}
+
+// nodeSubscribes reports whether a node opts into the event being reconciled.
+// Commit and push subscribe via the 3-way deploy_trigger; pull subscribes via
+// the independent redeploy_on_pull flag, which is orthogonal to deploy_trigger.
+func nodeSubscribes(event, trigger, redeployOnPull string) bool {
+	switch event {
+	case eventOnPull:
+		return strings.TrimSpace(redeployOnPull) == "true"
+	default:
+		return strings.TrimSpace(trigger) == event
+	}
+}
+
+// matchNode evaluates a single node against a reconcile request. It returns the
+// normalized tracked branch, the candidate sha to compare against the node's
+// last deployment, and ok=false when the node does not subscribe to the event,
+// has no pinned branch, or its tracked branch was not touched by the event.
+func (s *Server) matchNode(ctx context.Context, project *store.Project, req recheckRequest, settings map[string]string, payload map[string]string, remotes []string) (tracked, candidateSHA string, ok bool) {
+	branch := strings.TrimSpace(settings["git_branch"])
+	if branch == "" {
+		return "", "", false
+	}
+	trigger := strings.TrimSpace(settings["deploy_trigger"])
+	if !nodeSubscribes(req.Event, trigger, settings["redeploy_on_pull"]) {
+		return "", "", false
+	}
+	tracked = normalizeBranch(branch, remotes)
+
+	if len(req.Refs) > 0 {
+		// Hook payload: the tracked branch must be among the touched refs.
+		sha, hit := payload[tracked]
+		if !hit {
+			return tracked, "", false
+		}
+		return tracked, sha, true
+	}
+	// Startup reconcile: derive the sha from repo state. Pull (like commit)
+	// follows the local branch tip — a pull updates the local branch, not just
+	// the remote-tracking ref.
+	ref := "refs/heads/" + tracked
+	if req.Event == eventOnPush {
+		ref = gitsrc.UpstreamRef(ctx, project.Path, tracked)
+	}
+	sha, err := gitsrc.ResolveSHA(ctx, project.Path, ref)
+	if err != nil {
+		return tracked, "", false
+	}
+	return tracked, sha, true
 }
 
 // shouldDeploy reports whether candidateSHA differs from the commit the node was
@@ -246,6 +288,12 @@ func (s *Server) reconcileAllGitTriggersOnStartup(ctx context.Context) {
 			if (trigger == eventOnCommit || trigger == eventOnPush) && !seen[trigger] {
 				seen[trigger] = true
 				s.reconcileGitTriggers(ctx, recheckRequest{Repo: p.Path, Event: trigger})
+			}
+			// Pull is independent of deploy_trigger; fire it once if any node
+			// in the project opted into redeploy-on-pull.
+			if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" && !seen[eventOnPull] {
+				seen[eventOnPull] = true
+				s.reconcileGitTriggers(ctx, recheckRequest{Repo: p.Path, Event: eventOnPull})
 			}
 		}
 	}

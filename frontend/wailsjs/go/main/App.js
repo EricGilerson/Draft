@@ -142,6 +142,10 @@ export function SetNodeSetting(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
 }
 
+export function SetRedeployOnPull(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetRedeployOnPull'](arg1, arg2, arg3);
+}
+
 export function SetServiceRoot(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetServiceRoot'](arg1, arg2, arg3);
 }

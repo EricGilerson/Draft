@@ -32,6 +32,10 @@ const (
 	OnCommit Event = "on_commit"
 	// OnPush installs a pre-push hook: fires when refs are pushed to a remote.
 	OnPush Event = "on_push"
+	// OnPull installs a post-merge hook: fires after `git pull` (the default
+	// merge-based pull) and any `git merge` that updates the working tree. It
+	// does NOT fire for `git pull --rebase`, which uses post-rewrite instead.
+	OnPull Event = "on_pull"
 )
 
 // hookFile maps an Event to the git hook filename that carries it.
@@ -41,6 +45,8 @@ func (e Event) hookFile() (string, error) {
 		return "post-commit", nil
 	case OnPush:
 		return "pre-push", nil
+	case OnPull:
+		return "post-merge", nil
 	default:
 		return "", fmt.Errorf("unknown git trigger event %q", e)
 	}
@@ -211,12 +217,13 @@ func renderScript(event Event, exePath, repoPath, origPath string) string {
 		// chained foreign hook runs afterward and its exit code is propagated,
 		// so it retains the ability to veto the push.
 		invoke = "input=$(cat)\n" +
-			"printf '%s' \"$input\" | " + qExe + " --git-hook --repo " + qRepo + " --event pre-push >/dev/null 2>&1\n" +
+			"printf '%s' \"$input\" | " + qExe + " --git-hook --repo " + qRepo + " --event " + file + " >/dev/null 2>&1\n" +
 			"if [ -x " + qOrig + " ]; then printf '%s' \"$input\" | " + qOrig + " \"$@\"; exit $?; fi\n"
-	default: // OnCommit / post-commit — no stdin; Draft inspects HEAD itself.
-		// post-commit's exit code is ignored by git, so exec-ing the chained
-		// hook (replacing this process) is fine and avoids an extra fork.
-		invoke = qExe + " --git-hook --repo " + qRepo + " --event post-commit </dev/null >/dev/null 2>&1\n" +
+	default: // OnCommit (post-commit) / OnPull (post-merge) — no stdin; Draft inspects HEAD itself.
+		// post-commit's and post-merge's exit codes are ignored by git, so
+		// exec-ing the chained hook (replacing this process) is fine and avoids
+		// an extra fork.
+		invoke = qExe + " --git-hook --repo " + qRepo + " --event " + file + " </dev/null >/dev/null 2>&1\n" +
 			"if [ -x " + qOrig + " ]; then exec " + qOrig + " \"$@\"; fi\n"
 	}
 
