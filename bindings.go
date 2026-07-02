@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"Draft/internal/deploy"
@@ -32,6 +33,10 @@ type ProjectService struct {
 	Dockerfile  string    `json:"dockerfile"`
 	ServiceRoot string    `json:"serviceRoot"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func samePath(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(strings.TrimSpace(a), `/\`), strings.TrimRight(strings.TrimSpace(b), `/\`))
 }
 
 type GitHookStatus struct {
@@ -89,7 +94,24 @@ func (a *App) DeleteNode(id string) error {
 	if a.store == nil {
 		return errNoStore
 	}
-	return a.store.DeleteNode(id)
+	node, err := a.store.GetNode(id)
+	if err != nil {
+		return err
+	}
+	repoRoot, _ := a.store.CachedGitRepoRoot(id)
+	if repoRoot == "" {
+		repoRoot, _ = a.store.ResolveGitRepoRoot(a.ctx, id, node.ProjectID)
+	}
+	if err := a.store.DeleteNode(id); err != nil {
+		return err
+	}
+	if err := a.store.DeleteNodeSettings(id); err != nil {
+		return err
+	}
+	if repoRoot != "" {
+		return githooks.ReconcileRepoHooks(a.ctx, a.store, repoRoot)
+	}
+	return nil
 }
 
 func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {
@@ -425,7 +447,26 @@ func (a *App) SetServiceRoot(nodeID string, projectID uint, rootPath string) err
 	if a.store == nil {
 		return errNoStore
 	}
-	return a.store.SetServiceRoot(nodeID, projectID, rootPath)
+	oldRoot, _ := a.store.CachedGitRepoRoot(nodeID)
+	if oldRoot == "" {
+		oldRoot, _ = a.store.ResolveGitRepoRoot(a.ctx, nodeID, projectID)
+	}
+	if err := a.store.SetServiceRoot(nodeID, projectID, rootPath); err != nil {
+		return err
+	}
+	newRoot, err := a.store.ResolveGitRepoRoot(a.ctx, nodeID, projectID)
+	if err != nil && err != gitsrc.ErrNotRepo {
+		return err
+	}
+	if oldRoot != "" && !samePath(oldRoot, newRoot) {
+		if err := githooks.ReconcileRepoHooks(a.ctx, a.store, oldRoot); err != nil {
+			return err
+		}
+	}
+	if newRoot != "" {
+		return githooks.ReconcileRepoHooks(a.ctx, a.store, newRoot)
+	}
+	return nil
 }
 
 // GetServiceRoot returns the resolved absolute path of the service root,
@@ -491,34 +532,34 @@ func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint) ([]do
 	return ports, nil
 }
 
-// IsGitRepo reports whether the given project's directory is a git repository.
+// IsGitRepo reports whether the given node resolves to a git repository.
 // Used by the UI to decide whether to offer git-branch deploys.
-func (a *App) IsGitRepo(projectID uint) (bool, error) {
+func (a *App) IsGitRepo(nodeID string, projectID uint) (bool, error) {
 	if a.store == nil {
 		return false, errNoStore
 	}
-	project, err := a.store.GetProject(projectID)
-	if err != nil {
-		return false, fmt.Errorf("project not found: %w", err)
+	repoRoot, err := a.store.ResolveGitRepoRoot(a.ctx, nodeID, projectID)
+	if err == gitsrc.ErrNotRepo {
+		return false, nil
 	}
-	return gitsrc.IsRepo(project.Path), nil
+	return err == nil && gitsrc.IsRepo(repoRoot), err
 }
 
 // ListGitBranches returns the local and remote-tracking branch names for the
-// given project's git repository, for populating the branch picker. Returns an
-// empty slice (not an error) if the project is not a git repository.
-func (a *App) ListGitBranches(projectID uint) ([]string, error) {
+// node's resolved git repository, for populating the branch picker. Returns an
+// empty slice (not an error) if the node is not in a git repository.
+func (a *App) ListGitBranches(nodeID string, projectID uint) ([]string, error) {
 	if a.store == nil {
 		return nil, errNoStore
 	}
-	project, err := a.store.GetProject(projectID)
-	if err != nil {
-		return nil, fmt.Errorf("project not found: %w", err)
-	}
-	if !gitsrc.IsRepo(project.Path) {
+	repoRoot, err := a.store.ResolveGitRepoRoot(a.ctx, nodeID, projectID)
+	if err == gitsrc.ErrNotRepo {
 		return []string{}, nil
 	}
-	branches, err := gitsrc.ListBranches(a.ctx, project.Path)
+	if err != nil || !gitsrc.IsRepo(repoRoot) {
+		return []string{}, nil
+	}
+	branches, err := gitsrc.ListBranches(a.ctx, repoRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -548,13 +589,14 @@ func (a *App) SetRedeployOnPull(nodeID string, projectID uint, enabled bool) err
 	return githooks.SetRedeployOnPull(a.ctx, a.store, nodeID, projectID, enabled)
 }
 
-// GetGitHookStatus reports whether the project supports git-triggered deploys
-// and whether foreign hooks are present.
-func (a *App) GetGitHookStatus(projectID uint) (GitHookStatus, error) {
+// GetGitHookStatus reports whether the node's resolved repo supports
+// git-triggered deploys and whether foreign hooks are present.
+func (a *App) GetGitHookStatus(nodeID string, projectID uint) (GitHookStatus, error) {
 	if a.store == nil {
 		return GitHookStatus{}, errNoStore
 	}
-	status, err := githooks.StatusForProject(a.ctx, a.store, projectID)
+	_ = projectID
+	status, err := githooks.StatusForNode(a.ctx, a.store, nodeID)
 	if err != nil {
 		return GitHookStatus{}, err
 	}

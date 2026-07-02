@@ -23,6 +23,30 @@ import (
 // ErrNotRepo is returned when the given path is not inside a git working tree.
 var ErrNotRepo = errors.New("not a git repository")
 
+// RepoRoot returns the top-level working-tree directory for path. The path may
+// itself be the repo root or any descendant within the working tree.
+func RepoRoot(ctx context.Context, path string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if strings.Contains(msg, "not a git repository") || strings.Contains(msg, "outside repository") {
+			return "", ErrNotRepo
+		}
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("resolve repo root: %s", msg)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return "", fmt.Errorf("resolve repo root: empty output")
+	}
+	return filepath.Clean(root), nil
+}
+
 // IsRepo reports whether path is inside a git working tree.
 func IsRepo(path string) bool {
 	cmd := exec.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree")

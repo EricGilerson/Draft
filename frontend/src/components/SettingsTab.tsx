@@ -65,25 +65,28 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const refreshBranches = useCallback(() => {
         setBranchesLoading(true);
         setBranchError('');
-        ListGitBranches(projectId)
+        ListGitBranches(nodeId, projectId)
             .then((list) => setBranches(list || []))
             .catch((e) => setBranchError(typeof e === 'string' ? e : e?.message || 'Failed to list branches'))
             .finally(() => setBranchesLoading(false));
-    }, [projectId]);
+    }, [nodeId, projectId]);
 
     const refreshHookStatus = useCallback(() => {
-        GetGitHookStatus(projectId).then(setHookStatus).catch(() => setHookStatus(null));
-    }, [projectId]);
+        GetGitHookStatus(nodeId, projectId).then(setHookStatus).catch(() => setHookStatus(null));
+    }, [nodeId, projectId]);
 
     useEffect(() => {
-        IsGitRepo(projectId).then((ok) => {
+        IsGitRepo(nodeId, projectId).then((ok) => {
             setIsGitRepo(ok);
             if (ok) {
                 refreshBranches();
                 refreshHookStatus();
+            } else {
+                setBranches([]);
+                setHookStatus(null);
             }
         }).catch(() => setIsGitRepo(false));
-    }, [projectId, refreshBranches, refreshHookStatus]);
+    }, [nodeId, projectId, rootPath, refreshBranches, refreshHookStatus]);
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
@@ -162,6 +165,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             await SetServiceRoot(nodeId, projectId, absolutePath);
             setRootPath(absolutePath);
             setInputValue(absolutePath);
+            refreshBranches();
+            refreshHookStatus();
             onServicesChanged?.();
         } catch (e: any) {
             const msg = typeof e === 'string' ? e : e?.message || 'Failed to set service root';
@@ -170,7 +175,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         } finally {
             setSaving(false);
         }
-    }, [nodeId, projectId, rootPath, onServicesChanged]);
+    }, [nodeId, projectId, rootPath, refreshBranches, refreshHookStatus, onServicesChanged]);
 
     const handleInputCommit = useCallback(() => {
         const trimmed = inputValue.trim();

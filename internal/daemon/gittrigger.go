@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"Draft/internal/gitsrc"
-	"Draft/internal/store"
 )
 
 // gitRef is a branch name paired with the commit it points at, as reported by a
@@ -157,18 +156,14 @@ func normalizeBranch(name string, remotes []string) string {
 // repository state: the local branch tip for on_commit and on_pull, the
 // remote-tracking tip for on_push.
 func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
-	project, err := s.store.GetProjectByPath(req.Repo)
-	if err != nil || project == nil {
+	if !gitsrc.IsRepo(req.Repo) {
 		return
 	}
-	if !gitsrc.IsRepo(project.Path) {
+	nodes, err := s.store.NodesByRepoRoot(ctx, req.Repo)
+	if err != nil || len(nodes) == 0 {
 		return
 	}
-	nodes, err := s.store.ListNodes(project.ID)
-	if err != nil {
-		return
-	}
-	remotes := gitRemotes(ctx, project.Path)
+	remotes := gitRemotes(ctx, req.Repo)
 
 	// Index the payload refs by normalized branch name for exact matching.
 	payload := make(map[string]string, len(req.Refs))
@@ -181,7 +176,7 @@ func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
 		if err != nil {
 			continue
 		}
-		tracked, candidateSHA, ok := s.matchNode(ctx, project, req, settings, payload, remotes)
+		tracked, candidateSHA, ok := s.matchNode(ctx, req.Repo, req, settings, payload, remotes)
 		if !ok {
 			continue
 		}
@@ -211,7 +206,7 @@ func nodeSubscribes(event, trigger, redeployOnPull string) bool {
 // normalized tracked branch, the candidate sha to compare against the node's
 // last deployment, and ok=false when the node does not subscribe to the event,
 // has no pinned branch, or its tracked branch was not touched by the event.
-func (s *Server) matchNode(ctx context.Context, project *store.Project, req recheckRequest, settings map[string]string, payload map[string]string, remotes []string) (tracked, candidateSHA string, ok bool) {
+func (s *Server) matchNode(ctx context.Context, repoRoot string, req recheckRequest, settings map[string]string, payload map[string]string, remotes []string) (tracked, candidateSHA string, ok bool) {
 	branch := strings.TrimSpace(settings["git_branch"])
 	if branch == "" {
 		return "", "", false
@@ -235,9 +230,9 @@ func (s *Server) matchNode(ctx context.Context, project *store.Project, req rech
 	// the remote-tracking ref.
 	ref := "refs/heads/" + tracked
 	if req.Event == eventOnPush {
-		ref = gitsrc.UpstreamRef(ctx, project.Path, tracked)
+		ref = gitsrc.UpstreamRef(ctx, repoRoot, tracked)
 	}
-	sha, err := gitsrc.ResolveSHA(ctx, project.Path, ref)
+	sha, err := gitsrc.ResolveSHA(ctx, repoRoot, ref)
 	if err != nil {
 		return tracked, "", false
 	}
@@ -269,31 +264,37 @@ func (s *Server) reconcileAllGitTriggersOnStartup(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	seen := map[string]bool{}
 	for _, p := range projects {
-		if !gitsrc.IsRepo(p.Path) {
-			continue
-		}
 		nodes, err := s.store.ListNodes(p.ID)
 		if err != nil {
 			continue
 		}
-		// Fire a payload-less reconcile per event kind present on the project.
-		seen := map[string]bool{}
 		for _, node := range nodes {
 			settings, err := s.store.GetNodeSettings(node.ID)
 			if err != nil {
 				continue
 			}
+			repoRoot, err := s.store.ResolveGitRepoRoot(ctx, node.ID, p.ID)
+			if err != nil || repoRoot == "" || !gitsrc.IsRepo(repoRoot) {
+				continue
+			}
 			trigger := strings.TrimSpace(settings["deploy_trigger"])
-			if (trigger == eventOnCommit || trigger == eventOnPush) && !seen[trigger] {
-				seen[trigger] = true
-				s.reconcileGitTriggers(ctx, recheckRequest{Repo: p.Path, Event: trigger})
+			if trigger == eventOnCommit || trigger == eventOnPush {
+				key := repoRoot + "|" + trigger
+				if !seen[key] {
+					seen[key] = true
+					s.reconcileGitTriggers(ctx, recheckRequest{Repo: repoRoot, Event: trigger})
+				}
 			}
 			// Pull is independent of deploy_trigger; fire it once if any node
 			// in the project opted into redeploy-on-pull.
-			if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" && !seen[eventOnPull] {
-				seen[eventOnPull] = true
-				s.reconcileGitTriggers(ctx, recheckRequest{Repo: p.Path, Event: eventOnPull})
+			if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" {
+				key := repoRoot + "|" + eventOnPull
+				if !seen[key] {
+					seen[key] = true
+					s.reconcileGitTriggers(ctx, recheckRequest{Repo: repoRoot, Event: eventOnPull})
+				}
 			}
 		}
 	}

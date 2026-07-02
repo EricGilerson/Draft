@@ -86,3 +86,61 @@ func TestReconcileAllProjectsInstallsHooksAndNormalizesBranch(t *testing.T) {
 		t.Fatalf("git_branch = %q, want main", branch)
 	}
 }
+
+func TestReconcileRepoHooks_ReferenceCountsAcrossProjects(t *testing.T) {
+	repo := newGitRepo(t)
+
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	projectA, err := s.CreateProject("Repo-A", repo, "")
+	if err != nil {
+		t.Fatalf("create project A: %v", err)
+	}
+	projectB, err := s.CreateProject("Repo-B", repo, "")
+	if err != nil {
+		t.Fatalf("create project B: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-a", ProjectID: projectA.ID, Label: "svc-a"}); err != nil {
+		t.Fatalf("create node A: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-b", ProjectID: projectB.ID, Label: "svc-b"}); err != nil {
+		t.Fatalf("create node B: %v", err)
+	}
+	for _, nodeID := range []string{"svc-a", "svc-b"} {
+		if err := s.SetNodeSetting(nodeID, "git_branch", "main"); err != nil {
+			t.Fatalf("set git_branch %s: %v", nodeID, err)
+		}
+		if err := s.SetNodeSetting(nodeID, "deploy_trigger", "on_commit"); err != nil {
+			t.Fatalf("set deploy_trigger %s: %v", nodeID, err)
+		}
+		if _, err := s.ResolveGitRepoRoot(context.Background(), nodeID, map[string]uint{"svc-a": projectA.ID, "svc-b": projectB.ID}[nodeID]); err != nil {
+			t.Fatalf("ResolveGitRepoRoot %s: %v", nodeID, err)
+		}
+	}
+
+	if err := ReconcileAllHooks(context.Background(), s); err != nil {
+		t.Fatalf("ReconcileAllHooks: %v", err)
+	}
+	hookPath := filepath.Join(repo, ".git", "hooks", "post-commit")
+	if _, err := os.Stat(hookPath); err != nil {
+		t.Fatalf("expected shared post-commit hook installed: %v", err)
+	}
+
+	if err := SetDeployTrigger(context.Background(), s, "svc-a", projectA.ID, "manual"); err != nil {
+		t.Fatalf("SetDeployTrigger svc-a manual: %v", err)
+	}
+	if _, err := os.Stat(hookPath); err != nil {
+		t.Fatalf("hook should stay installed while project B still needs it: %v", err)
+	}
+
+	if err := SetDeployTrigger(context.Background(), s, "svc-b", projectB.ID, "manual"); err != nil {
+		t.Fatalf("SetDeployTrigger svc-b manual: %v", err)
+	}
+	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
+		t.Fatalf("expected hook removed after last subscriber disabled it, stat err = %v", err)
+	}
+}

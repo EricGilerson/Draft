@@ -29,7 +29,7 @@ export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
 export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
 
-export function GetGitHookStatus(arg1:number):Promise<main.GitHookStatus>;
+export function GetGitHookStatus(arg1:string,arg2:number):Promise<main.GitHookStatus>;
 
 export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
@@ -43,9 +43,9 @@ export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
-export function IsGitRepo(arg1:number):Promise<boolean>;
+export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
-export function ListGitBranches(arg1:number):Promise<Array<string>>;
+export function ListGitBranches(arg1:string,arg2:number):Promise<Array<string>>;
 
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 

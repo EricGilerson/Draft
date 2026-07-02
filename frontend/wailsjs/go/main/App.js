@@ -46,8 +46,8 @@ export function GetEnvVars(arg1) {
   return window['go']['main']['App']['GetEnvVars'](arg1);
 }
 
-export function GetGitHookStatus(arg1) {
-  return window['go']['main']['App']['GetGitHookStatus'](arg1);
+export function GetGitHookStatus(arg1, arg2) {
+  return window['go']['main']['App']['GetGitHookStatus'](arg1, arg2);
 }
 
 export function GetLocalDomainStatus() {
@@ -74,12 +74,12 @@ export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
 }
 
-export function IsGitRepo(arg1) {
-  return window['go']['main']['App']['IsGitRepo'](arg1);
+export function IsGitRepo(arg1, arg2) {
+  return window['go']['main']['App']['IsGitRepo'](arg1, arg2);
 }
 
-export function ListGitBranches(arg1) {
-  return window['go']['main']['App']['ListGitBranches'](arg1);
+export function ListGitBranches(arg1, arg2) {
+  return window['go']['main']['App']['ListGitBranches'](arg1, arg2);
 }
 
 export function ListNodes(arg1) {

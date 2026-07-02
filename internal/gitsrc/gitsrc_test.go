@@ -49,6 +49,15 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func canonicalPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(resolved)
+}
+
 func TestIsRepo(t *testing.T) {
 	repo := newTestRepo(t)
 	if !IsRepo(repo) {
@@ -58,6 +67,28 @@ func TestIsRepo(t *testing.T) {
 	notRepo := t.TempDir()
 	if IsRepo(notRepo) {
 		t.Fatalf("expected %s to NOT be detected as a repo", notRepo)
+	}
+}
+
+func TestRepoRoot(t *testing.T) {
+	repo := newTestRepo(t)
+	subdir := filepath.Join(repo, "services", "web")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	root, err := RepoRoot(context.Background(), subdir)
+	if err != nil {
+		t.Fatalf("RepoRoot: %v", err)
+	}
+	if root != canonicalPath(t, repo) {
+		t.Fatalf("RepoRoot(%q) = %q, want %q", subdir, root, canonicalPath(t, repo))
+	}
+}
+
+func TestRepoRoot_NotARepo(t *testing.T) {
+	if _, err := RepoRoot(context.Background(), t.TempDir()); err != ErrNotRepo {
+		t.Fatalf("expected ErrNotRepo, got %v", err)
 	}
 }
 

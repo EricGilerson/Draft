@@ -31,7 +31,7 @@ func SetDeployTrigger(ctx context.Context, s *store.Store, nodeID string, projec
 	if err := s.SetNodeSetting(nodeID, "deploy_trigger", trigger); err != nil {
 		return err
 	}
-	return ReconcileProjectHooks(ctx, s, projectID)
+	return reconcileNodeRepoHooks(ctx, s, nodeID, projectID)
 }
 
 // SetRedeployOnPull toggles the independent "redeploy on pull" behavior for a
@@ -47,54 +47,86 @@ func SetRedeployOnPull(ctx context.Context, s *store.Store, nodeID string, proje
 	if err := s.SetNodeSetting(nodeID, "redeploy_on_pull", value); err != nil {
 		return err
 	}
-	return ReconcileProjectHooks(ctx, s, projectID)
+	return reconcileNodeRepoHooks(ctx, s, nodeID, projectID)
 }
 
 // ReconcileProjectHooks ensures the project's installed hooks match what its
 // nodes actually need: a hook exists iff at least one node has the trigger and
 // a pinned branch.
 func ReconcileProjectHooks(ctx context.Context, s *store.Store, projectID uint) error {
-	project, err := s.GetProject(projectID)
-	if err != nil {
-		return fmt.Errorf("project not found: %w", err)
-	}
-	if !gitsrc.IsRepo(project.Path) {
-		// Setting can still be stored, but no hooks are installed in non-git dirs.
-		return nil
-	}
-
 	nodes, err := s.ListNodes(projectID)
 	if err != nil {
 		return err
 	}
+	seen := map[string]bool{}
+	for _, node := range nodes {
+		root, err := s.CachedGitRepoRoot(node.ID)
+		if err != nil {
+			return err
+		}
+		if root == "" {
+			root, err = s.ResolveGitRepoRoot(ctx, node.ID, node.ProjectID)
+			if err != nil {
+				continue
+			}
+		}
+		if root == "" || seen[root] {
+			continue
+		}
+		seen[root] = true
+		if err := ReconcileRepoHooks(ctx, s, root); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReconcileRepoHooks ensures the given repo's installed hooks match what all
+// nodes across all projects need from that repository.
+func ReconcileRepoHooks(ctx context.Context, s *store.Store, repoRoot string) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" || !gitsrc.IsRepo(repoRoot) {
+		return nil
+	}
+	projects, err := s.ListProjects()
+	if err != nil {
+		return fmt.Errorf("list projects: %w", err)
+	}
 
 	wantCommit, wantPush, wantPull := false, false, false
-	for _, node := range nodes {
-		settings, err := s.GetNodeSettings(node.ID)
+	for _, project := range projects {
+		nodes, err := s.ListNodes(project.ID)
 		if err != nil {
-			continue
+			return err
 		}
-		branch := strings.TrimSpace(settings["git_branch"])
-		if branch == "" {
-			continue
-		}
-		if canonical := gitsrc.PreferLocalRef(ctx, project.Path, branch); canonical != "" && canonical != branch {
-			if err := s.SetNodeSetting(node.ID, "git_branch", canonical); err != nil {
-				return err
+		for _, node := range nodes {
+			root, err := s.ResolveGitRepoRoot(ctx, node.ID, project.ID)
+			if err != nil || !storePathEqual(root, repoRoot) {
+				continue
 			}
-			settings["git_branch"] = canonical
-		}
-		switch settings["deploy_trigger"] {
-		case "on_commit":
-			wantCommit = true
-		case "on_push":
-			wantPush = true
-		}
-		// Redeploy-on-pull is independent of the 3-way deploy trigger: any
-		// node with a pinned branch and this flag on installs the post-merge
-		// hook for the repo.
-		if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" {
-			wantPull = true
+			settings, err := s.GetNodeSettings(node.ID)
+			if err != nil {
+				continue
+			}
+			branch := strings.TrimSpace(settings["git_branch"])
+			if branch == "" {
+				continue
+			}
+			if canonical := gitsrc.PreferLocalRef(ctx, repoRoot, branch); canonical != "" && canonical != branch {
+				if err := s.SetNodeSetting(node.ID, "git_branch", canonical); err != nil {
+					return err
+				}
+				settings["git_branch"] = canonical
+			}
+			switch strings.TrimSpace(settings["deploy_trigger"]) {
+			case "on_commit":
+				wantCommit = true
+			case "on_push":
+				wantPush = true
+			}
+			if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" {
+				wantPull = true
+			}
 		}
 	}
 
@@ -102,14 +134,13 @@ func ReconcileProjectHooks(ctx context.Context, s *store.Store, projectID uint) 
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
-
-	if err := applyHook(ctx, project.Path, exe, OnCommit, wantCommit); err != nil {
+	if err := applyHook(ctx, repoRoot, exe, OnCommit, wantCommit); err != nil {
 		return err
 	}
-	if err := applyHook(ctx, project.Path, exe, OnPush, wantPush); err != nil {
+	if err := applyHook(ctx, repoRoot, exe, OnPush, wantPush); err != nil {
 		return err
 	}
-	return applyHook(ctx, project.Path, exe, OnPull, wantPull)
+	return applyHook(ctx, repoRoot, exe, OnPull, wantPull)
 }
 
 func applyHook(ctx context.Context, repoPath, exe string, event Event, want bool) error {
@@ -119,41 +150,104 @@ func applyHook(ctx context.Context, repoPath, exe string, event Event, want bool
 	return Uninstall(ctx, repoPath, event)
 }
 
-// StatusForProject reports whether git-triggered deploys are supported and
-// whether foreign hooks are present for commit/push events.
-func StatusForProject(ctx context.Context, s *store.Store, projectID uint) (GitHookStatus, error) {
-	project, err := s.GetProject(projectID)
+// StatusForNode reports whether git-triggered deploys are supported for the
+// node's resolved repo root and whether foreign hooks are present there.
+func StatusForNode(ctx context.Context, s *store.Store, nodeID string) (GitHookStatus, error) {
+	node, err := s.GetNode(nodeID)
 	if err != nil {
-		return GitHookStatus{}, fmt.Errorf("project not found: %w", err)
+		return GitHookStatus{}, fmt.Errorf("node not found: %w", err)
 	}
-	if !gitsrc.IsRepo(project.Path) {
+	repoRoot, err := s.ResolveGitRepoRoot(ctx, nodeID, node.ProjectID)
+	if err == gitsrc.ErrNotRepo {
 		return GitHookStatus{Supported: false}, nil
 	}
+	if err != nil {
+		return GitHookStatus{}, err
+	}
 	st := GitHookStatus{Supported: true}
-	if _, foreign, err := Status(ctx, project.Path, OnCommit); err == nil {
+	if _, foreign, err := Status(ctx, repoRoot, OnCommit); err == nil {
 		st.CommitForeign = foreign
 	}
-	if _, foreign, err := Status(ctx, project.Path, OnPush); err == nil {
+	if _, foreign, err := Status(ctx, repoRoot, OnPush); err == nil {
 		st.PushForeign = foreign
 	}
-	if _, foreign, err := Status(ctx, project.Path, OnPull); err == nil {
+	if _, foreign, err := Status(ctx, repoRoot, OnPull); err == nil {
 		st.PullForeign = foreign
 	}
 	return st, nil
 }
 
-// ReconcileAllProjects re-evaluates every saved project's hook needs. It
-// continues through per-project failures and returns the first one encountered.
-func ReconcileAllProjects(ctx context.Context, s *store.Store) error {
+// StatusForProject is kept as a compatibility wrapper. When a project contains
+// nodes, it reports the status for the first node's resolved repo root.
+func StatusForProject(ctx context.Context, s *store.Store, projectID uint) (GitHookStatus, error) {
+	nodes, err := s.ListNodes(projectID)
+	if err != nil {
+		return GitHookStatus{}, err
+	}
+	if len(nodes) == 0 {
+		return GitHookStatus{Supported: false}, nil
+	}
+	return StatusForNode(ctx, s, nodes[0].ID)
+}
+
+// ReconcileAllHooks re-evaluates every saved node's repo-root hook needs. It
+// continues through per-repo failures and returns the first one encountered.
+func ReconcileAllHooks(ctx context.Context, s *store.Store) error {
 	projects, err := s.ListProjects()
 	if err != nil {
 		return fmt.Errorf("list projects: %w", err)
 	}
 	var firstErr error
+	seen := map[string]bool{}
 	for _, project := range projects {
-		if err := ReconcileProjectHooks(ctx, s, project.ID); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("sync project %d (%s): %w", project.ID, project.Path, err)
+		nodes, err := s.ListNodes(project.ID)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		for _, node := range nodes {
+			root, err := s.CachedGitRepoRoot(node.ID)
+			if err != nil && firstErr == nil {
+				firstErr = err
+				continue
+			}
+			if root == "" {
+				root, err = s.ResolveGitRepoRoot(ctx, node.ID, project.ID)
+				if err != nil {
+					continue
+				}
+			}
+			if root == "" || seen[root] {
+				continue
+			}
+			seen[root] = true
+			if err := ReconcileRepoHooks(ctx, s, root); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("sync repo %s: %w", root, err)
+			}
 		}
 	}
 	return firstErr
+}
+
+// ReconcileAllProjects is kept as a compatibility wrapper around the new
+// repo-root-centric reconcile behavior.
+func ReconcileAllProjects(ctx context.Context, s *store.Store) error {
+	return ReconcileAllHooks(ctx, s)
+}
+
+func reconcileNodeRepoHooks(ctx context.Context, s *store.Store, nodeID string, projectID uint) error {
+	repoRoot, err := s.ResolveGitRepoRoot(ctx, nodeID, projectID)
+	if err == gitsrc.ErrNotRepo {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return ReconcileRepoHooks(ctx, s, repoRoot)
+}
+
+func storePathEqual(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(strings.TrimSpace(a), `/\`), strings.TrimRight(strings.TrimSpace(b), `/\`))
 }

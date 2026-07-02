@@ -79,7 +79,7 @@ func TestMatchNodePullWithPayload(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer s.Close()
-	project, err := s.CreateProject("Repo", repo, "")
+	_, err = s.CreateProject("Repo", repo, "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestMatchNodePullWithPayload(t *testing.T) {
 
 	// redeploy_on_pull=true, branch=main, payload touches main → match.
 	gotTracked, gotSHA, ok := srv.matchNode(
-		context.Background(), project, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
+		context.Background(), repo, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
 		map[string]string{"git_branch": "main", "deploy_trigger": "manual", "redeploy_on_pull": "true"},
 		payload, remotes,
 	)
@@ -99,7 +99,7 @@ func TestMatchNodePullWithPayload(t *testing.T) {
 
 	// redeploy_on_pull=false → no match, even with matching branch.
 	_, _, ok = srv.matchNode(
-		context.Background(), project, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
+		context.Background(), repo, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
 		map[string]string{"git_branch": "main", "deploy_trigger": "on_commit", "redeploy_on_pull": ""},
 		payload, remotes,
 	)
@@ -109,7 +109,7 @@ func TestMatchNodePullWithPayload(t *testing.T) {
 
 	// redeploy_on_pull=true but payload touches a different branch → no match.
 	_, _, ok = srv.matchNode(
-		context.Background(), project, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "other", SHA: "deadbeef"}}},
+		context.Background(), repo, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "other", SHA: "deadbeef"}}},
 		map[string]string{"git_branch": "main", "deploy_trigger": "manual", "redeploy_on_pull": "true"},
 		map[string]string{"other": "deadbeef"}, remotes,
 	)
@@ -119,7 +119,7 @@ func TestMatchNodePullWithPayload(t *testing.T) {
 
 	// No pinned branch → no match.
 	_, _, ok = srv.matchNode(
-		context.Background(), project, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
+		context.Background(), repo, recheckRequest{Event: eventOnPull, Refs: []gitRef{{Name: "main", SHA: sha}}},
 		map[string]string{"deploy_trigger": "manual", "redeploy_on_pull": "true"},
 		payload, remotes,
 	)
@@ -137,7 +137,7 @@ func TestMatchNodePullStartupDerivesLocalTip(t *testing.T) {
 		t.Fatalf("open store: %v", err)
 	}
 	defer s.Close()
-	project, err := s.CreateProject("Repo", repo, "")
+	_, err = s.CreateProject("Repo", repo, "")
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestMatchNodePullStartupDerivesLocalTip(t *testing.T) {
 	remotes := gitRemotes(context.Background(), repo)
 
 	_, gotSHA, ok := srv.matchNode(
-		context.Background(), project, recheckRequest{Event: eventOnPull},
+		context.Background(), repo, recheckRequest{Event: eventOnPull},
 		map[string]string{"git_branch": "main", "deploy_trigger": "manual", "redeploy_on_pull": "true"},
 		nil, remotes,
 	)

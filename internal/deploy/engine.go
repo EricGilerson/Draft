@@ -144,7 +144,13 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	//   - checkout: materialize the branch into an ephemeral directory, then
 	//     build it like a normal on-disk service (honors ignore files/BuildKit).
 	sourcePath := project.Path
-	gitBranch := gitsrc.PreferLocalRef(ctx, project.Path, strings.TrimSpace(settings["git_branch"]))
+	repoRoot := project.Path
+	if strings.TrimSpace(settings["git_branch"]) != "" {
+		if resolvedRoot, err := e.store.ResolveGitRepoRoot(ctx, nodeID, node.ProjectID); err == nil && resolvedRoot != "" {
+			repoRoot = resolvedRoot
+		}
+	}
+	gitBranch := gitsrc.PreferLocalRef(ctx, repoRoot, strings.TrimSpace(settings["git_branch"]))
 	gitStream := gitBranch != "" && gitStreamEnabled(settings)
 
 	if gitBranch != "" && !gitStream {
@@ -156,13 +162,13 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
 		}
-		contextRel, err := filepath.Rel(project.Path, basePlan.ContextRoot)
+		contextRel, err := filepath.Rel(repoRoot, basePlan.ContextRoot)
 		if err != nil {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
 		}
 
-		archiveDir, err := e.prepareGitSource(ctx, nodeID, project.Path, gitBranch, contextRel)
+		archiveDir, err := e.prepareGitSource(ctx, nodeID, repoRoot, gitBranch, contextRel)
 		if err != nil {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
@@ -196,7 +202,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Service root: %s", plan.ServiceRoot))
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Build context: %s", plan.ContextRoot))
 	if plan.ContextRoot != plan.ServiceRoot {
-		e.emitBuildLog(nodeID, "    Dockerfile is outside the service root; using the project root as build context")
+		e.emitBuildLog(nodeID, "    Dockerfile is outside the service root; using the repository root as build context")
 	}
 
 	// Record the commit being built when a branch is pinned, so the git-trigger
@@ -209,7 +215,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		if i := strings.IndexByte(ref, ':'); i >= 0 {
 			ref = ref[:i]
 		}
-		if sha, err := gitsrc.ResolveSHA(ctx, project.Path, ref); err == nil {
+		if sha, err := gitsrc.ResolveSHA(ctx, repoRoot, ref); err == nil {
 			sourceSHA = sha
 		}
 	}
@@ -310,7 +316,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	var buildErr error
 	if gitStream {
-		buildErr = e.buildImageGitStream(ctx, cli, logFile, nodeID, imageTag, project.Path, gitBranch, plan, deployEnv, buildOvr)
+		buildErr = e.buildImageGitStream(ctx, cli, logFile, nodeID, imageTag, repoRoot, gitBranch, plan, deployEnv, buildOvr)
 	} else {
 		buildErr = e.buildImage(ctx, cli, logFile, nodeID, imageTag, sourcePath, settings, plan, deployEnv, buildOvr)
 	}
@@ -549,9 +555,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 // resolution against the workspace is identical to the on-disk project. This
 // avoids materializing an entire monorepo when a service lives in one
 // subdirectory. Pass "." (or "") to export the whole repository.
-func (e *Engine) prepareGitSource(ctx context.Context, nodeID, projectPath, ref, contextRel string) (string, error) {
-	if !gitsrc.IsRepo(projectPath) {
-		return "", fmt.Errorf("git branch is set but %s is not a git repository", projectPath)
+func (e *Engine) prepareGitSource(ctx context.Context, nodeID, repoPath, ref, contextRel string) (string, error) {
+	if !gitsrc.IsRepo(repoPath) {
+		return "", fmt.Errorf("git branch is set but %s is not a git repository", repoPath)
 	}
 
 	contextRel = filepath.ToSlash(strings.TrimSpace(contextRel))
@@ -576,7 +582,7 @@ func (e *Engine) prepareGitSource(ctx context.Context, nodeID, projectPath, ref,
 
 	e.emitBuildLog(nodeID, fmt.Sprintf("==> Preparing source from git branch %q...", ref))
 
-	if err := gitsrc.ArchiveToDir(ctx, projectPath, treeish, destDir); err != nil {
+	if err := gitsrc.ArchiveToDir(ctx, repoPath, treeish, destDir); err != nil {
 		os.RemoveAll(archiveDir)
 		return "", err
 	}
@@ -830,8 +836,8 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 // repo root the bare ref is used; for a subdirectory the `<ref>:<subdir>` form
 // roots the archive at that subdirectory. A context outside the repo is an
 // error — it cannot be reproduced from a branch archive.
-func gitArchiveTreeish(projectPath, contextRoot, ref string) (string, error) {
-	contextRel, err := filepath.Rel(projectPath, contextRoot)
+func gitArchiveTreeish(repoRoot, contextRoot, ref string) (string, error) {
+	contextRel, err := filepath.Rel(repoRoot, contextRoot)
 	if err != nil {
 		return "", fmt.Errorf("resolve build context within repo: %w", err)
 	}
@@ -850,17 +856,17 @@ func gitArchiveTreeish(projectPath, contextRoot, ref string) (string, error) {
 // It never materializes the branch to disk, so it is the fastest path — but
 // .dockerignore/.gitignore filtering and BuildKit local context do not apply
 // (the tar comes straight from git's object store, not the filesystem).
-func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, projectPath, ref string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
-	if !gitsrc.IsRepo(projectPath) {
-		return fmt.Errorf("git branch is set but %s is not a git repository", projectPath)
+func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, logFile *os.File, nodeID, imageTag, repoRoot, ref string, plan buildContextPlan, deployEnv deploymentEnv, bo buildOverrides) error {
+	if !gitsrc.IsRepo(repoRoot) {
+		return fmt.Errorf("git branch is set but %s is not a git repository", repoRoot)
 	}
-	if err := gitsrc.VerifyRef(ctx, projectPath, ref); err != nil {
+	if err := gitsrc.VerifyRef(ctx, repoRoot, ref); err != nil {
 		return err
 	}
 
 	// Archive only the build-context subtree. `<ref>:<subdir>` roots the archive
 	// at that subdir, so entries line up with plan.RelativeDockerfile.
-	treeish, err := gitArchiveTreeish(projectPath, plan.ContextRoot, ref)
+	treeish, err := gitArchiveTreeish(repoRoot, plan.ContextRoot, ref)
 	if err != nil {
 		return err
 	}
@@ -875,7 +881,7 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	gitCtx, cancelGit := context.WithCancel(ctx)
 	defer cancelGit()
 
-	cmd := e.execCommand(gitCtx, "git", "-C", projectPath, "archive", "--format=tar", treeish)
+	cmd := e.execCommand(gitCtx, "git", "-C", repoRoot, "archive", "--format=tar", treeish)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("git archive: %w", err)

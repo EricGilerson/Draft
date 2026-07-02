@@ -108,7 +108,7 @@ func (a *App) reconcileSavedRepoHooks() {
 	if a.store == nil {
 		return
 	}
-	if err := githooks.ReconcileAllProjects(a.ctx, a.store); err != nil {
+	if err := githooks.ReconcileAllHooks(a.ctx, a.store); err != nil {
 		fmt.Println("githooks:", err)
 	}
 }

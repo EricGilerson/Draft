@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"strings"
 )
@@ -45,11 +46,50 @@ func (s *Store) GetProjectByPath(path string) (*Project, error) {
 		return nil, err
 	}
 	for i := range projects {
-		if strings.EqualFold(strings.TrimRight(projects[i].Path, `/\`), strings.TrimRight(path, `/\`)) {
+		if samePath(projects[i].Path, path) {
 			return &projects[i], nil
 		}
 	}
 	return nil, nil
+}
+
+// NodesByRepoRoot returns all nodes whose resolved repo root matches repoRoot.
+func (s *Store) NodesByRepoRoot(ctx context.Context, repoRoot string) ([]CanvasNode, error) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil, nil
+	}
+	projects, err := s.ListProjects()
+	if err != nil {
+		return nil, err
+	}
+	var matches []CanvasNode
+	for _, project := range projects {
+		nodes, err := s.ListNodes(project.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range nodes {
+			root, err := s.CachedGitRepoRoot(node.ID)
+			if err != nil {
+				return nil, err
+			}
+			if root == "" {
+				root, err = s.ResolveGitRepoRoot(ctx, node.ID, project.ID)
+				if err != nil {
+					continue
+				}
+			}
+			if samePath(root, repoRoot) {
+				matches = append(matches, node)
+			}
+		}
+	}
+	return matches, nil
+}
+
+func samePath(a, b string) bool {
+	return strings.EqualFold(strings.TrimRight(strings.TrimSpace(a), `/\`), strings.TrimRight(strings.TrimSpace(b), `/\`))
 }
 
 // ListProjects returns all projects, newest first.
