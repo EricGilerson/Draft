@@ -2,6 +2,7 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
     min-height: auto;
     padding: 0;
     border: 0;
@@ -36,6 +37,11 @@
     animation: docker-pulse 1.2s ease-in-out infinite;
 }
 
+.docker-indicator.starting .docker-dot {
+    background-color: var(--yellow);
+    animation: docker-pulse 1.2s ease-in-out infinite;
+}
+
 .docker-label {
     color: var(--text-muted);
     font-weight: 700;
@@ -45,6 +51,35 @@
     color: var(--text-faint);
     font-size: 0.7rem;
     font-family: var(--mono);
+}
+
+.docker-start-button {
+    padding: 2px 8px;
+    border: 1px solid rgba(210, 214, 223, 0.18);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.docker-start-button:hover {
+    border-color: rgba(210, 214, 223, 0.32);
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.docker-start-button:focus-visible {
+    outline: 2px solid rgba(104, 189, 120, 0.28);
+    outline-offset: 2px;
+}
+
+.docker-error {
+    color: var(--red);
+    font-size: 0.68rem;
+    font-weight: 700;
 }
 
 @keyframes docker-pulse {

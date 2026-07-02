@@ -1,6 +1,9 @@
 package main
 
-import "Draft/internal/dockerwatch"
+import (
+	"Draft/internal/dockerdesktop"
+	"Draft/internal/dockerwatch"
+)
 
 // CheckDocker returns the last known Docker daemon status from the watcher.
 // The frontend calls this once on mount for an immediate value, then relies on
@@ -15,6 +18,12 @@ func (a *App) CheckDocker() dockerwatch.DaemonStatus {
 		return dockerwatch.DaemonStatus{State: "stopped", Error: err.Error()}
 	}
 	return status
+}
+
+// StartDocker launches the local Docker runtime so the watcher can reconnect
+// and publish the normal "docker:status" transition once the daemon comes up.
+func (a *App) StartDocker() error {
+	return dockerdesktop.Start(a.ctx)
 }
 
 func errString(err error) string {

@@ -150,6 +150,10 @@ export function SetServiceRoot(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetServiceRoot'](arg1, arg2, arg3);
 }
 
+export function StartDocker() {
+  return window['go']['main']['App']['StartDocker']();
+}
+
 export function StartLogStream(arg1) {
   return window['go']['main']['App']['StartLogStream'](arg1);
 }

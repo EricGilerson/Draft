@@ -81,6 +81,8 @@ export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void
 
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
 
+export function StartDocker():Promise<void>;
+
 export function StartLogStream(arg1:string):Promise<void>;
 
 export function StopLogStream(arg1:string):Promise<void>;
