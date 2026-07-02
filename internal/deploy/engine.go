@@ -468,7 +468,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		// previous deployment serving untouched (automatic rollback).
 		e.emitBuildLog(nodeID, fmt.Sprintf("    New container not ready: %v", err))
 		e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
-		stopTO := 10
+		stopTO := stopTimeoutForSettings(settings)
 		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
 		_ = removeContainerAndWait(context.Background(), cli, createResp.ID)
 		_ = removeImageAndWait(context.Background(), cli, dep.ImageTag)
@@ -1118,7 +1118,7 @@ func removeContainerAndWait(ctx context.Context, cli *client.Client, containerID
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil &&
+		if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{}); err != nil &&
 			!errdefs.IsNotFound(err) &&
 			!errdefs.IsConflict(err) &&
 			!strings.Contains(err.Error(), "already in progress") {
@@ -1133,6 +1133,54 @@ func removeContainerAndWait(ctx context.Context, cli *client.Client, containerID
 		time.Sleep(100 * time.Millisecond)
 	}
 	return fmt.Errorf("container %s still exists after removal", containerID)
+}
+
+func stopTimeoutForSettings(settings map[string]string) int {
+	if overrides := parseContainerOverrides(settings); overrides.StopTimeout != nil && *overrides.StopTimeout > 0 {
+		return *overrides.StopTimeout
+	}
+	return 10
+}
+
+func deploymentWasIntentionallyStopped(dep *store.Deployment) bool {
+	return dep != nil && (dep.Status == "stopped" || dep.Status == "interrupted")
+}
+
+func markDeploymentStopped(dep *store.Deployment, now time.Time) {
+	dep.Status = "stopped"
+	dep.Error = ""
+	dep.ContainerStoppedAt = &now
+	dep.FinishedAt = &now
+	dep.LastSeenAt = &now
+	dep.OOMKilled = false
+	exitCode := 0
+	dep.ExitCode = &exitCode
+}
+
+func applyContainerExitResult(dep *store.Deployment, exitCode int, waitErr error) {
+	if deploymentWasIntentionallyStopped(dep) {
+		dep.Status = "stopped"
+		dep.Error = ""
+		dep.OOMKilled = false
+		if dep.ExitCode == nil {
+			cleanExit := 0
+			dep.ExitCode = &cleanExit
+		}
+		return
+	}
+	if waitErr != nil {
+		dep.Status = "failed"
+		dep.Error = "container watch error: " + waitErr.Error()
+		return
+	}
+	dep.ExitCode = &exitCode
+	if exitCode != 0 {
+		dep.Status = "failed"
+		dep.Error = fmt.Sprintf("container exited with code %d", exitCode)
+		return
+	}
+	dep.Status = "stopped"
+	dep.Error = ""
 }
 
 func removeImageAndWait(ctx context.Context, cli *client.Client, imageTag string) error {
@@ -1303,34 +1351,37 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	defer cli.Close()
 
 	statusCh, errCh := cli.ContainerWait(ctx, dep.ContainerID, container.WaitConditionNotRunning)
+	var waitErr error
+	var exitCode int
 	select {
 	case result := <-statusCh:
-		exitCode := int(result.StatusCode)
-		dep.ExitCode = &exitCode
-		if result.StatusCode != 0 {
-			errMsg := fmt.Sprintf("container exited with code %d", result.StatusCode)
-			if result.Error != nil && result.Error.Message != "" {
-				errMsg = result.Error.Message
-			}
-			dep.Status = "failed"
-			dep.Error = errMsg
-		} else {
-			dep.Status = "stopped"
+		exitCode = int(result.StatusCode)
+		if result.Error != nil && result.Error.Message != "" {
+			waitErr = fmt.Errorf("%s", result.Error.Message)
 		}
 	case err := <-errCh:
-		dep.Status = "failed"
-		dep.Error = "container watch error: " + err.Error()
+		waitErr = err
 	case <-ctx.Done():
 		return
 	}
+
+	if latest, err := e.store.GetDeployment(dep.ID); err == nil && latest != nil {
+		dep = latest
+	}
+	applyContainerExitResult(dep, exitCode, waitErr)
 
 	if dep.ContainerID != "" && containerRestarted(ctx, cli, dep.ContainerID, 10*time.Second) {
 		return
 	}
 
 	now := time.Now()
-	dep.ContainerStoppedAt = &now
-	dep.FinishedAt = &now
+	if dep.ContainerStoppedAt == nil {
+		dep.ContainerStoppedAt = &now
+	}
+	if dep.FinishedAt == nil {
+		dep.FinishedAt = &now
+	}
+	dep.LastSeenAt = &now
 
 	// Clean up the stopped container and its image to reclaim disk space.
 	if dep.ContainerID != "" {
@@ -1362,6 +1413,11 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 	if err != nil {
 		return err
 	}
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		settings = nil
+	}
+	stopTimeout := stopTimeoutForSettings(settings)
 
 	for _, d := range deployments {
 		if d.ID == currentID {
@@ -1369,18 +1425,16 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 		}
 
 		if d.Status != "stopped" && d.Status != "failed" && d.Status != "interrupted" {
+			now := time.Now()
+			markDeploymentStopped(&d, now)
+			e.store.UpdateDeployment(&d)
 			if d.ContainerID != "" {
-				timeout := 10
-				cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
+				cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &stopTimeout})
 				_ = removeContainerAndWait(ctx, cli, d.ContainerID)
 			}
 			if d.Hostname != "" && d.Hostname != keepHostname {
 				e.router.Unregister(d.Hostname)
 			}
-			d.Status = "stopped"
-			now := time.Now()
-			d.FinishedAt = &now
-			e.store.UpdateDeployment(&d)
 		} else {
 			// Already terminal — clean up leftover container if still present.
 			if d.ContainerID != "" {
@@ -1417,10 +1471,18 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 		return err
 	}
 	defer cli.Close()
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		settings = nil
+	}
+	stopTimeout := stopTimeoutForSettings(settings)
+
+	now := time.Now()
+	markDeploymentStopped(dep, now)
+	e.store.UpdateDeployment(dep)
 
 	if dep.ContainerID != "" {
-		timeout := 10
-		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
+		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &stopTimeout})
 		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
 			return err
 		}
@@ -1436,12 +1498,6 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 		e.router.Unregister(dep.Hostname)
 	}
 
-	dep.Status = "stopped"
-	now := time.Now()
-	dep.ContainerStoppedAt = &now
-	dep.FinishedAt = &now
-	exitCode := 0
-	dep.ExitCode = &exitCode
 	e.store.UpdateDeployment(dep)
 
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
@@ -1463,8 +1519,12 @@ func (e *Engine) Restart(ctx context.Context, nodeID string) error {
 	}
 	defer cli.Close()
 
-	timeout := 10
-	if err := cli.ContainerRestart(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		settings = nil
+	}
+	stopTimeout := stopTimeoutForSettings(settings)
+	if err := cli.ContainerRestart(ctx, dep.ContainerID, container.StopOptions{Timeout: &stopTimeout}); err != nil {
 		return err
 	}
 
@@ -1619,6 +1679,25 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 				Hostname:     dep.Hostname,
 				HostPort:     dep.HostPort,
 			})
+		} else if deploymentWasIntentionallyStopped(dep) {
+			if dep.FinishedAt == nil {
+				dep.FinishedAt = ptrTime(time.Now())
+			}
+			if dep.ContainerStoppedAt == nil {
+				dep.ContainerStoppedAt = dep.FinishedAt
+			}
+			dep.Status = "stopped"
+			dep.Error = ""
+			dep.OOMKilled = false
+			if dep.ExitCode == nil {
+				exitCode := 0
+				dep.ExitCode = &exitCode
+			}
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
+			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
+			if dep.ImageTag != "" {
+				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+			}
 		} else if inspect.State != nil && inspect.State.ExitCode != 0 {
 			dep.Status = "failed"
 			dep.Error = fmt.Sprintf("container exited with code %d", inspect.State.ExitCode)

@@ -144,6 +144,22 @@ func waitForStatus(col *eventCollector, nodeID, status string, timeout time.Dura
 	return nil
 }
 
+func findDeploymentStatusEvent(col *eventCollector, nodeID string, deploymentID uint, status string) *StatusEvent {
+	for _, ev := range col.get() {
+		if ev.Name != "deploy:status:"+nodeID {
+			continue
+		}
+		se, ok := ev.Data.(StatusEvent)
+		if !ok {
+			continue
+		}
+		if se.DeploymentID == deploymentID && se.Status == status {
+			return &se
+		}
+	}
+	return nil
+}
+
 // TestIntegrationDeploySuccess builds and runs a minimal container,
 // verifies it reaches "running" with a host port assigned.
 func TestIntegrationDeploySuccess(t *testing.T) {
@@ -594,6 +610,89 @@ CMD ["sleep", "3600"]
 	oldDep, _ := s.GetDeployment(firstDeployID)
 	if oldDep.Status != "stopped" {
 		t.Errorf("expected first deployment to be stopped, got %s", oldDep.Status)
+	}
+
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		cleanupContainers(t, cli, deps)
+	})
+}
+
+// TestIntegrationRedeployRetiredDeploymentDoesNotFail verifies that when a
+// redeploy intentionally retires the previous container, the old deployment is
+// recorded as stopped rather than failed, even if Docker must SIGKILL it after
+// the stop grace period expires.
+func TestIntegrationRedeployRetiredDeploymentDoesNotFail(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+
+	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
+CMD ["sh", "-c", "trap '' TERM INT; while true; do sleep 1; done"]
+`)
+
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+	s.SetNodeSetting("svc1", "stop_grace_period", "1")
+
+	e.Deploy(context.Background(), "svc1")
+	running1 := waitForStatus(col, "svc1", "running", 60*time.Second)
+	if running1 == nil {
+		t.Fatal("expected first deploy to reach running")
+	}
+
+	dep1, _ := s.ActiveDeployment("svc1")
+	firstDeployID := dep1.ID
+
+	e.Deploy(context.Background(), "svc1")
+
+	deadline := time.Now().Add(60 * time.Second)
+	var secondRunning *StatusEvent
+	for time.Now().Before(deadline) {
+		for _, ev := range col.get() {
+			if ev.Name != "deploy:status:svc1" {
+				continue
+			}
+			se := ev.Data.(StatusEvent)
+			if se.Status == "running" && se.DeploymentID != firstDeployID {
+				secondRunning = &se
+			}
+		}
+		if secondRunning != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if secondRunning == nil {
+		t.Fatal("expected second deploy to reach running")
+	}
+
+	deadline = time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		oldDep, err := s.GetDeployment(firstDeployID)
+		if err == nil && oldDep.Status != "running" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	oldDep, err := s.GetDeployment(firstDeployID)
+	if err != nil {
+		t.Fatalf("GetDeployment(%d): %v", firstDeployID, err)
+	}
+	if oldDep.Status != "stopped" {
+		t.Fatalf("expected retired deployment to be stopped, got %s (error=%q exit=%v)", oldDep.Status, oldDep.Error, oldDep.ExitCode)
+	}
+	if oldDep.ExitCode != nil && *oldDep.ExitCode == 137 {
+		t.Fatalf("expected retired deployment to avoid SIGKILL exit 137, got exit=%v error=%q", *oldDep.ExitCode, oldDep.Error)
+	}
+	if strings.Contains(oldDep.Error, "137") {
+		t.Fatalf("expected retired deployment to avoid stale 137 error, got %q", oldDep.Error)
+	}
+	if ev := findDeploymentStatusEvent(col, "svc1", firstDeployID, "failed"); ev != nil {
+		t.Fatalf("expected no failed event for retired deployment %d, got error %q", firstDeployID, ev.Error)
 	}
 
 	t.Cleanup(func() {

@@ -679,3 +679,43 @@ func TestLogPath(t *testing.T) {
 		t.Errorf("unexpected log path: %s", path)
 	}
 }
+
+func TestApplyContainerExitResultIntentionalStopPreservesStoppedState(t *testing.T) {
+	exitCode := 0
+	dep := &store.Deployment{
+		Status:    "stopped",
+		ExitCode:  &exitCode,
+		OOMKilled: false,
+	}
+
+	applyContainerExitResult(dep, 137, nil)
+
+	if dep.Status != "stopped" {
+		t.Fatalf("Status = %q, want stopped", dep.Status)
+	}
+	if dep.Error != "" {
+		t.Fatalf("Error = %q, want empty", dep.Error)
+	}
+	if dep.ExitCode == nil || *dep.ExitCode != 0 {
+		t.Fatalf("ExitCode = %#v, want 0", dep.ExitCode)
+	}
+	if dep.OOMKilled {
+		t.Fatal("OOMKilled = true, want false")
+	}
+}
+
+func TestApplyContainerExitResultCrashMarksFailed(t *testing.T) {
+	dep := &store.Deployment{}
+
+	applyContainerExitResult(dep, 137, nil)
+
+	if dep.Status != "failed" {
+		t.Fatalf("Status = %q, want failed", dep.Status)
+	}
+	if dep.Error != "container exited with code 137" {
+		t.Fatalf("Error = %q, want container exited with code 137", dep.Error)
+	}
+	if dep.ExitCode == nil || *dep.ExitCode != 137 {
+		t.Fatalf("ExitCode = %#v, want 137", dep.ExitCode)
+	}
+}
