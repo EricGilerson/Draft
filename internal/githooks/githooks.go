@@ -197,6 +197,27 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// toHookPath normalizes a path before it is embedded into a hook script.
+//
+// On Windows, os.Executable and filepath.Join produce backslash-separated
+// paths like C:\Users\...\draft.exe. Inside single quotes sh treats backslashes
+// as literal, so the script would hand cygwin/MSYS2 a backslash-style path.
+// Cygwin usually accepts those, and MSYS2's automatic path conversion for
+// native-Windows arguments usually leaves already-Windows paths alone — but
+// "usually" is not good enough for something that fails silently (the hook
+// redirects to /dev/null and exits 0). Forward slashes are simultaneously valid
+// Windows paths (accepted by the native Go binary) and unambiguous to cygwin,
+// so we normalize on Windows only.
+//
+// This MUST be a no-op on Unix, where backslash is a legal filename character
+// and must not be rewritten.
+func toHookPath(s string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ReplaceAll(s, `\`, "/")
+	}
+	return s
+}
+
 // renderScript builds the hook body. Draft's invocation always exits 0 on its
 // own line so a Draft-side failure never blocks the user's git command; a
 // chained foreign hook (origPath) runs afterward via exec, preserving its
@@ -204,9 +225,9 @@ func shellQuote(s string) string {
 // push).
 func renderScript(event Event, exePath, repoPath, origPath string) string {
 	file, _ := event.hookFile()
-	qExe := shellQuote(exePath)
-	qRepo := shellQuote(repoPath)
-	qOrig := shellQuote(origPath)
+	qExe := shellQuote(toHookPath(exePath))
+	qRepo := shellQuote(toHookPath(repoPath))
+	qOrig := shellQuote(toHookPath(origPath))
 
 	var invoke string
 	switch event {
@@ -218,6 +239,15 @@ func renderScript(event Event, exePath, repoPath, origPath string) string {
 		// so it retains the ability to veto the push.
 		invoke = "input=$(cat)\n" +
 			"printf '%s' \"$input\" | " + qExe + " --git-hook --repo " + qRepo + " --event " + file + " >/dev/null 2>&1\n" +
+			// NOTE: the [ -x ] guard is a faithful Unix proxy for "this hook is
+			// runnable" because git on Unix will not execute a hook without the
+			// exec bit. On Windows, git-for-Windows runs hooks via its bundled
+			// sh regardless of the (simulated) exec bit, so a foreign hook
+			// without a #! shebang — which cygwin's -x heuristic does not flag
+			// as executable — would be skipped here even though git would have
+			// run it. This is a known narrow limitation; switching to [ -f ]
+			// on Windows would be more correct but would also veto pushes when
+			// a foreign hook file exists but is malformed, so we keep [ -x ].
 			"if [ -x " + qOrig + " ]; then printf '%s' \"$input\" | " + qOrig + " \"$@\"; exit $?; fi\n"
 	default: // OnCommit (post-commit) / OnPull (post-merge) — no stdin; Draft inspects HEAD itself.
 		// post-commit's and post-merge's exit codes are ignored by git, so

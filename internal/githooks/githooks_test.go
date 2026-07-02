@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -190,5 +191,58 @@ func TestHookFiresViaGit(t *testing.T) {
 		!strings.Contains(got, "--repo "+repo) ||
 		!strings.Contains(got, "--event post-commit") {
 		t.Fatalf("hook invoked with unexpected args: %q", got)
+	}
+}
+
+// TestToHookPathPlatformBehavior asserts the platform contract of toHookPath:
+// backslashes are rewritten to forward slashes on Windows and preserved
+// everywhere else (where backslash is a legal filename character).
+func TestToHookPathPlatformBehavior(t *testing.T) {
+	in := `C:\Users\eric\AppData\Local\Draft\draft.exe`
+	out := toHookPath(in)
+	switch runtime.GOOS {
+	case "windows":
+		if strings.Contains(out, `\`) {
+			t.Fatalf("windows: expected backslashes normalized, got %q", out)
+		}
+		if !strings.Contains(out, "C:/Users/eric/AppData/Local/Draft/draft.exe") {
+			t.Fatalf("windows: unexpected normalized path %q", out)
+		}
+	default:
+		if out != in {
+			t.Fatalf("non-windows: backslash must be preserved, got %q want %q", out, in)
+		}
+	}
+}
+
+// TestRenderScriptNormalizesWindowsPaths checks that when the host is Windows,
+// backslash-style exe/repo/orig paths are embedded with forward slashes so
+// cygwin/MSYS2 never has to interpret backslashes inside the quoted strings.
+// On non-Windows hosts the path is preserved verbatim.
+func TestRenderScriptNormalizesWindowsPaths(t *testing.T) {
+	exe := `/opt/draft/draft`
+	repo := `/home/eric/proj`
+	orig := `/home/eric/proj/.git/hooks/post-commit.draft-orig`
+	if runtime.GOOS == "windows" {
+		exe = `C:\Program Files\Draft\draft.exe`
+		repo = `C:\Users\eric\proj`
+		orig = `C:\Users\eric\proj\.git\hooks\post-commit.draft-orig`
+	}
+	body := renderScript(OnCommit, exe, repo, orig)
+	if !strings.Contains(body, "#!/bin/sh") {
+		t.Fatalf("missing shebang:\n%s", body)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if strings.Contains(body, `\`) {
+			t.Fatalf("windows: rendered hook must not contain backslashes:\n%s", body)
+		}
+		if !strings.Contains(body, "C:/Program Files/Draft/draft.exe") {
+			t.Fatalf("windows: exe path not normalized/embedded:\n%s", body)
+		}
+	default:
+		if !strings.Contains(body, exe) {
+			t.Fatalf("unix: exe path not embedded verbatim:\n%s", body)
+		}
 	}
 }
