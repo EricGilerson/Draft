@@ -3,6 +3,8 @@ package store
 import (
 	"errors"
 	"strings"
+
+	"gorm.io/gorm/clause"
 )
 
 var ErrInvalidRoute = errors.New("route requires hostname, project ID, and node ID")
@@ -14,6 +16,30 @@ func (s *Store) CreateRoute(route *Route) (*Route, error) {
 		return nil, ErrInvalidRoute
 	}
 	if err := s.DB.Create(route).Error; err != nil {
+		return nil, err
+	}
+	return route, nil
+}
+
+func (s *Store) UpsertRoute(route *Route) (*Route, error) {
+	route.Hostname = strings.TrimSpace(route.Hostname)
+	route.NodeID = strings.TrimSpace(route.NodeID)
+	if route.Hostname == "" || route.ProjectID == 0 || route.NodeID == "" {
+		return nil, ErrInvalidRoute
+	}
+	if err := s.DB.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "hostname"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"project_id",
+			"node_id",
+			"environment",
+			"protocol",
+			"target_host",
+			"target_port",
+			"host_port",
+			"updated_at",
+		}),
+	}).Create(route).Error; err != nil {
 		return nil, err
 	}
 	return route, nil

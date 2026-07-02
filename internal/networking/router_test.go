@@ -3,7 +3,6 @@ package networking
 import (
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,10 +38,9 @@ func TestRouterRegisterHTTP(t *testing.T) {
 	}
 	defer r.Stop()
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("ok"))
 	}))
-	defer upstream.Close()
 
 	result, err := r.Register(RegisterRequest{
 		Service:    "api",
@@ -195,10 +193,9 @@ func TestRouterUnregisterHTTP(t *testing.T) {
 	}
 	defer r.Stop()
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("ok"))
 	}))
-	defer upstream.Close()
 
 	result, _ := r.Register(RegisterRequest{
 		Service: "api", Project: "myapp", ProjectID: 1, NodeID: "n1", UID: "a3f2",
@@ -248,10 +245,9 @@ func TestRouterUnregisterNode(t *testing.T) {
 	}
 	defer r.Stop()
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Write([]byte("ok"))
 	}))
-	defer upstream.Close()
 
 	r.Register(RegisterRequest{
 		Service: "api", Project: "myapp", ProjectID: 1, NodeID: "n1", UID: "a3f2",

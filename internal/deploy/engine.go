@@ -470,7 +470,8 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
 		stopTO := 10
 		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
-		cli.ContainerRemove(context.Background(), createResp.ID, container.RemoveOptions{})
+		_ = removeContainerAndWait(context.Background(), cli, createResp.ID)
+		_ = removeImageAndWait(context.Background(), cli, dep.ImageTag)
 		e.failDeployment(dep, nodeID, "new container did not become ready: "+err.Error()+" (previous deployment left running)")
 		return
 	}
@@ -1111,6 +1112,67 @@ func ensureDraftNetwork(ctx context.Context, cli *client.Client, name string, pr
 	return nil
 }
 
+func removeContainerAndWait(ctx context.Context, cli *client.Client, containerID string) error {
+	if containerID == "" {
+		return nil
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := cli.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil &&
+			!errdefs.IsNotFound(err) &&
+			!errdefs.IsConflict(err) &&
+			!strings.Contains(err.Error(), "already in progress") {
+			return err
+		}
+		if _, err := cli.ContainerInspect(ctx, containerID); err != nil {
+			if errdefs.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("container %s still exists after removal", containerID)
+}
+
+func removeImageAndWait(ctx context.Context, cli *client.Client, imageTag string) error {
+	if imageTag == "" {
+		return nil
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := cli.ImageRemove(ctx, imageTag, image.RemoveOptions{Force: true}); err != nil &&
+			!errdefs.IsNotFound(err) &&
+			!errdefs.IsConflict(err) &&
+			!strings.Contains(err.Error(), "being used by") {
+			return err
+		}
+		if _, _, err := cli.ImageInspectWithRaw(ctx, imageTag); err != nil {
+			if errdefs.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("image %s still exists after removal", imageTag)
+}
+
+func containerRestarted(ctx context.Context, cli *client.Client, containerID string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		inspect, err := cli.ContainerInspect(ctx, containerID)
+		if err == nil && inspect.State != nil && inspect.State.Running {
+			return true
+		}
+		if err != nil && !errdefs.IsNotFound(err) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
 func internalNetworkAliases(serviceName, hostname string) []string {
 	aliases := []string{serviceName}
 	if hostname != "" && hostname != serviceName {
@@ -1262,23 +1324,32 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 		return
 	}
 
+	if dep.ContainerID != "" && containerRestarted(ctx, cli, dep.ContainerID, 10*time.Second) {
+		return
+	}
+
 	now := time.Now()
 	dep.ContainerStoppedAt = &now
 	dep.FinishedAt = &now
+
+	// Clean up the stopped container and its image to reclaim disk space.
+	if dep.ContainerID != "" {
+		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
+			log.Printf("[deploy] remove stopped container %s: %v", dep.ContainerID, err)
+		}
+	}
+	if dep.ImageTag != "" {
+		if err := removeImageAndWait(ctx, cli, dep.ImageTag); err != nil {
+			log.Printf("[deploy] remove image %s: %v", dep.ImageTag, err)
+		}
+	}
+
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{
 		DeploymentID: dep.ID,
 		Status:       dep.Status,
 		Error:        dep.Error,
 	})
-
-	// Clean up the stopped container and its image to reclaim disk space.
-	if dep.ContainerID != "" {
-		cli.ContainerRemove(ctx, dep.ContainerID, container.RemoveOptions{})
-	}
-	if dep.ImageTag != "" {
-		cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
-	}
 }
 
 // stopPrevious retires every deployment for the node other than currentID:
@@ -1301,7 +1372,7 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 			if d.ContainerID != "" {
 				timeout := 10
 				cli.ContainerStop(ctx, d.ContainerID, container.StopOptions{Timeout: &timeout})
-				cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
+				_ = removeContainerAndWait(ctx, cli, d.ContainerID)
 			}
 			if d.Hostname != "" && d.Hostname != keepHostname {
 				e.router.Unregister(d.Hostname)
@@ -1313,13 +1384,13 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 		} else {
 			// Already terminal — clean up leftover container if still present.
 			if d.ContainerID != "" {
-				cli.ContainerRemove(ctx, d.ContainerID, container.RemoveOptions{})
+				_ = removeContainerAndWait(ctx, cli, d.ContainerID)
 			}
 		}
 
 		// Always remove old images from previous deployments.
 		if d.ImageTag != "" {
-			cli.ImageRemove(ctx, d.ImageTag, image.RemoveOptions{})
+			_ = removeImageAndWait(ctx, cli, d.ImageTag)
 		}
 	}
 	return nil
@@ -1350,11 +1421,15 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 	if dep.ContainerID != "" {
 		timeout := 10
 		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
-		cli.ContainerRemove(ctx, dep.ContainerID, container.RemoveOptions{})
+		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
+			return err
+		}
 	}
 
 	if dep.ImageTag != "" {
-		cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+		if err := removeImageAndWait(ctx, cli, dep.ImageTag); err != nil {
+			return err
+		}
 	}
 
 	if dep.Hostname != "" {

@@ -130,8 +130,8 @@ func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 		TargetPort:  req.TargetPort,
 		HostPort:    hostPort,
 	}
-	if _, err := r.store.CreateRoute(route); err != nil {
-		return nil, fmt.Errorf("create route: %w", err)
+	if _, err := r.store.UpsertRoute(route); err != nil {
+		return nil, fmt.Errorf("upsert route: %w", err)
 	}
 
 	if protocol == "http" {

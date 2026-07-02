@@ -17,7 +17,9 @@ import (
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -51,10 +53,27 @@ func setupIntegration(t *testing.T) (*Engine, *store.Store, *eventCollector, str
 	e := New(s, r, logDir, col.emit)
 	projectDir := t.TempDir()
 
-	s.DB.Create(&store.Project{Name: "integ-test", Path: projectDir})
-	s.DB.Create(&store.CanvasNode{ID: "svc1", ProjectID: 1, Label: "test-svc"})
+	project := &store.Project{
+		Name: integrationProjectName("it"),
+		Path: projectDir,
+	}
+	if err := s.DB.Create(project).Error; err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	if err := s.DB.Create(&store.CanvasNode{ID: "svc1", ProjectID: project.ID, Label: "test-svc"}).Error; err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+	cleanupCLI := requireDocker(t)
+	t.Cleanup(func() {
+		cleanupProjectResources(t, cleanupCLI, s, project.ID, project.Name)
+		cleanupCLI.Close()
+	})
 
 	return e, s, col, projectDir
+}
+
+func integrationProjectName(prefix string) string {
+	return fmt.Sprintf("%s-%08x", prefix, uint32(time.Now().UnixNano()))
 }
 
 func writeDockerfile(t *testing.T, dir, content string) {
@@ -75,6 +94,39 @@ func cleanupContainers(t *testing.T, cli *client.Client, deployments []store.Dep
 		}
 		if d.ImageTag != "" {
 			cli.ImageRemove(ctx, d.ImageTag, image.RemoveOptions{Force: true})
+		}
+	}
+}
+
+func cleanupProjectResources(t *testing.T, cli *client.Client, s *store.Store, projectID uint, projectName string) {
+	t.Helper()
+
+	var deployments []store.Deployment
+	if err := s.DB.Where("project_id = ?", projectID).Find(&deployments).Error; err == nil {
+		cleanupContainers(t, cli, deployments)
+	}
+
+	cleanupDraftNetworks(t, cli, projectID, projectName)
+}
+
+func cleanupDraftNetworks(t *testing.T, cli *client.Client, projectID uint, projectName string) {
+	t.Helper()
+
+	networks, err := cli.NetworkList(context.Background(), dockernetwork.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "draft.managed=true"),
+			filters.Arg("label", fmt.Sprintf("draft.project=%d", projectID)),
+			filters.Arg("label", "draft.projectName="+projectName),
+		),
+	})
+	if err != nil {
+		t.Logf("list draft networks: %v", err)
+		return
+	}
+
+	for _, network := range networks {
+		if err := cli.NetworkRemove(context.Background(), network.ID); err != nil {
+			t.Logf("remove draft network %s: %v", network.Name, err)
 		}
 	}
 }
@@ -1049,18 +1101,10 @@ func TestIntegrationInternalHostnameNotReachableAcrossProjects(t *testing.T) {
 	s1.SetNodeSetting("svc1", "service_port", "80")
 
 	// Project B: the target, in a separate store/project/network entirely.
-	// setupIntegration always creates a project named "integ-test" with
-	// ID 1 in its own fresh store — since the Docker network name is
-	// derived from projectID+projectName (draftNetworkName), and both
-	// stores would independently produce id=1/name="integ-test", they'd
-	// collide onto the *same* Docker network unless we rename one, which
-	// would silently defeat this test (both containers would actually be
-	// reachable). Give project B a distinct name so the two land on
-	// genuinely different networks, matching two unrelated real projects.
+	// setupIntegration gives each fresh store a unique project name, so even
+	// though both stores start their project IDs at 1, they still land on
+	// distinct Draft bridge networks.
 	e2, s2, col2, dirB := setupIntegration(t)
-	if err := s2.DB.Model(&store.Project{}).Where("id = ?", 1).Update("name", "integ-test-b").Error; err != nil {
-		t.Fatalf("rename project B: %v", err)
-	}
 	writeDockerfile(t, dirB, `FROM alpine:3.20
 RUN apk add --no-cache python3 && mkdir -p /www && echo -n "internal-hello" > /www/index.html
 CMD ["python3", "-m", "http.server", "8080", "--directory", "/www"]
@@ -1122,7 +1166,11 @@ CMD ["sleep", "3600"]
 	}
 
 	dep, _ := s.ActiveDeployment("svc1")
-	expectedPrefix := "draft-integ-test-test-svc:"
+	project, err := s.GetProject(dep.ProjectID)
+	if err != nil {
+		t.Fatalf("load project: %v", err)
+	}
+	expectedPrefix := fmt.Sprintf("draft-%s-test-svc:", sanitize(project.Name))
 	if !strings.HasPrefix(dep.ImageTag, expectedPrefix) {
 		t.Errorf("expected image tag prefix %q, got %q", expectedPrefix, dep.ImageTag)
 	}

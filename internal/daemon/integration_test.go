@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,9 @@ import (
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
@@ -53,7 +56,7 @@ CMD ["sleep", "3600"]
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	project, err := s.CreateProject("Daemon Integration", projectDir, "")
+	project, err := s.CreateProject(fmt.Sprintf("dit-%08x", uint32(time.Now().UnixNano())), projectDir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +69,31 @@ CMD ["sleep", "3600"]
 	if err := s.SetNodeSetting("svc1", "service_port", "80"); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		deps, _ := s.ListDeployments("svc1")
+		for _, dep := range deps {
+			if dep.ContainerID != "" {
+				timeout := 1
+				_ = cli.ContainerStop(context.Background(), dep.ContainerID, container.StopOptions{Timeout: &timeout})
+				_ = cli.ContainerRemove(context.Background(), dep.ContainerID, container.RemoveOptions{Force: true})
+			}
+			if dep.ImageTag != "" {
+				_, _ = cli.ImageRemove(context.Background(), dep.ImageTag, image.RemoveOptions{Force: true})
+			}
+		}
+		networks, err := cli.NetworkList(context.Background(), dockernetwork.ListOptions{
+			Filters: filters.NewArgs(
+				filters.Arg("label", "draft.managed=true"),
+				filters.Arg("label", fmt.Sprintf("draft.project=%d", project.ID)),
+				filters.Arg("label", "draft.projectName="+project.Name),
+			),
+		})
+		if err == nil {
+			for _, network := range networks {
+				_ = cli.NetworkRemove(context.Background(), network.ID)
+			}
+		}
+	})
 
 	router := networking.NewRouter(s, "127.0.0.1:0")
 	if err := router.Start(); err != nil {
@@ -99,15 +127,6 @@ CMD ["sleep", "3600"]
 	if log == "" {
 		t.Fatal("expected persisted build log")
 	}
-
-	t.Cleanup(func() {
-		timeout := 1
-		_ = cli.ContainerStop(context.Background(), dep.ContainerID, container.StopOptions{Timeout: &timeout})
-		_ = cli.ContainerRemove(context.Background(), dep.ContainerID, container.RemoveOptions{Force: true})
-		if dep.ImageTag != "" {
-			_, _ = cli.ImageRemove(context.Background(), dep.ImageTag, image.RemoveOptions{Force: true})
-		}
-	})
 
 	cancel()
 	select {

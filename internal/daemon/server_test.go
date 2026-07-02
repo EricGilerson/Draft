@@ -53,8 +53,7 @@ func clientForHTTPServer(t *testing.T, ts *httptest.Server, token string) *Clien
 
 func TestServerAuthAllowsHealthAndProtectsOtherRoutes(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 
 	resp, err := ts.Client().Get(ts.URL + "/health")
 	if err != nil {
@@ -77,8 +76,7 @@ func TestServerAuthAllowsHealthAndProtectsOtherRoutes(t *testing.T) {
 
 func TestClientDeploymentAndBuildLogEndpoints(t *testing.T) {
 	srv, s, logDir := newTestServer(t)
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 	c := clientForHTTPServer(t, ts, srv.state.Token)
 
 	dep, err := s.CreateDeployment(&store.Deployment{
@@ -123,8 +121,7 @@ func TestClientDeploymentAndBuildLogEndpoints(t *testing.T) {
 func TestClientLocalDomainStatusEndpoint(t *testing.T) {
 	srv, s, _ := newTestServer(t)
 	srv.router = networking.NewRouter(s, "127.0.0.1:54321")
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 	c := clientForHTTPServer(t, ts, srv.state.Token)
 
 	status, err := c.LocalDomainStatus(context.Background())
@@ -144,8 +141,7 @@ func TestClientLocalDomainStatusEndpoint(t *testing.T) {
 
 func TestClientCommandsReachServer(t *testing.T) {
 	srv, s, _ := newTestServer(t)
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 	c := clientForHTTPServer(t, ts, srv.state.Token)
 
 	if _, err := s.CreateDeployment(&store.Deployment{NodeID: "svc1", ProjectID: 1, Status: "building"}); err != nil {
@@ -165,8 +161,7 @@ func TestClientCommandsReachServer(t *testing.T) {
 
 func TestEventsStreamEmitsActiveSnapshotsAndLiveEvents(t *testing.T) {
 	srv, s, _ := newTestServer(t)
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 	c := clientForHTTPServer(t, ts, srv.state.Token)
 
 	if _, err := s.CreateDeployment(&store.Deployment{
@@ -216,8 +211,7 @@ func TestEventsStreamEmitsActiveSnapshotsAndLiveEvents(t *testing.T) {
 
 func TestClientSubscribeEventsDecodesServerSentEvents(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	ts := httptest.NewServer(srv.routes())
-	defer ts.Close()
+	ts := newIPv4Server(t, srv.routes())
 	c := clientForHTTPServer(t, ts, srv.state.Token)
 
 	ctx, cancel := context.WithCancel(context.Background())

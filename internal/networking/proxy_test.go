@@ -3,17 +3,15 @@ package networking
 import (
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"testing"
 )
 
 func TestProxyRouting(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("hello from upstream"))
 	}))
-	defer upstream.Close()
 
 	p := NewProxy("127.0.0.1:0")
 	if err := p.Start(); err != nil {
