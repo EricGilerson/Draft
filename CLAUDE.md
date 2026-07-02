@@ -1,119 +1,156 @@
 # Draft
 
-A native desktop app (Wails v2: Go backend + React frontend) that provides a visual, drag-and-drop
-canvas for managing local Docker services during development. Think "local Railway" — dynamic port
-management, automatic .env sync, and a visual topology graph, all running on macOS/Windows without
-needing a hosted Linux server.
+Draft is a native desktop app built with Wails v2 (Go backend + React frontend). It manages local Docker services as a visual workspace: projects contain service nodes on a canvas, Draft builds and runs those services, assigns ports, injects environment wiring, and exposes stable local hostnames.
 
-## Tech stack
+## Tech Stack
 
 | Layer | Choice |
 |-------|--------|
-| Framework | Wails v2 (Go 1.25 + native webview) |
-| Frontend | React 18 + TypeScript + Vite, @xyflow/react (React Flow) for canvas |
-| Backend | Go, Docker SDK (`github.com/docker/docker`), GORM |
-| Storage | `modernc.org/sqlite` via `glebarez/sqlite` (pure Go, no CGO) |
-| Icons | lucide-react |
+| Desktop shell | Wails v2 |
+| Backend | Go 1.25 |
+| Frontend | React 18 + TypeScript + Vite |
+| Canvas | `@xyflow/react` |
+| Storage | GORM + `glebarez/sqlite` / `modernc.org/sqlite` |
+| Docker integration | Docker SDK + optional `docker buildx` CLI path |
+| Icons | `lucide-react` |
 
-## Architecture
+## Runtime Architecture
 
+```text
+┌─────────────┐     Wails IPC + daemon HTTP/SSE     ┌──────────────────┐
+│  Wails App  │ ◄──────────────────────────────────► │     Daemon       │
+│  frontend   │                                      │  (--daemon flag) │
+└─────────────┘                                      └────────┬─────────┘
+                                                              │
+                                         ┌────────────────────┼────────────────────┐
+                                         │                    │                    │
+                                     SQLite store        Deploy engine        Local router
+                                                         Docker builds        hostnames/proxy
+                                                         logs/metrics         hosts-file mode
 ```
-┌─────────────┐       IPC (HTTP + token)       ┌──────────────────┐
-│  Wails App  │ ◄────────────────────────────► │     Daemon       │
-│  (frontend) │                                 │  (--daemon flag) │
-└─────────────┘                                 └────────┬─────────┘
-                                                         │
-                                         ┌───────────────┼───────────────┐
-                                         │               │               │
-                                    Store (SQLite)  Deploy Engine   Networking
-                                                    (Docker SDK)   (reverse proxy)
-```
 
-**Daemon** — background process owning the SQLite store, Docker orchestration engine, SSE event hub,
-and HTTP API server (token-authenticated). Reconciles Docker container state on startup via labels.
+- `main.go` starts either the desktop app, the background daemon (`--daemon`), or a fast git-hook entrypoint (`--git-hook`).
+- The Wails app binds thin methods in top-level `*.go` files and talks to the daemon for long-running work.
+- The daemon owns the store, deployment engine, Docker watch hub, local routing/proxy, and SSE event stream.
+- The daemon is single-instance. It writes state (addr/token/pid), reuses an existing healthy daemon, and idles out after inactivity.
 
-**Frontend ↔ Backend** — Wails IPC for bound methods + daemon HTTP API for long-running ops (deploy,
-logs, metrics). Events delivered via SSE stream and Wails `EventsOn`.
+## Current Project Layout
 
-## Project layout
-
-```
-app.go                    # Main Wails-bound App struct (all frontend-callable methods)
-main.go                   # Entrypoint, daemon flag handling
-deployments.go, docker.go, nodes.go, services.go, env.go,
-metrics.go, projects.go, node_settings.go, local_domain.go, url.go
-                          # Wails-bound method files (thin wrappers → daemon client)
+```text
+main.go                    # Wails app startup, daemon mode, git-hook mode
+app.go                     # App lifecycle, daemon bootstrap, event bridge
+projects.go, nodes.go, services.go, deployments.go,
+env.go, metrics.go, docker.go, node_settings.go,
+local_domain.go, url.go, git_triggers.go
+                          # Wails-bound methods
 
 internal/
-  store/                  # SQLite via GORM — models, CRUD (projects, nodes, deployments, env_vars, routes, port_leases, node_settings)
-  daemon/                 # HTTP server + client, SSE events, reconciliation, idle timeout
-  deploy/                 # Docker build & run engine, metrics collection, reachability probes
-  networking/             # Reverse proxy, hostname routing, hosts file management, port leases
-  dockerwatch/            # Docker event stream hub (event-driven, no polling)
-  dockerfile/             # EXPOSE directive parser
-  envfile/                # .env file read/write with conflict detection
-  ignore/                 # .dockerignore / .gitignore filtering
+  daemon/                 # HTTP API, SSE hub, daemon lifecycle, git-trigger reconcile
+  deploy/                 # Build/run engine, metrics, env resolution, BuildKit/legacy paths
+  dockerwatch/            # Docker daemon health and event watching
+  envfile/                # .env import/export/refresh helpers
+  dockerfile/             # Dockerfile EXPOSE parser
+  gitsrc/                 # Branch/ref export via git archive
+  githooks/               # post-commit / pre-push hook install and chaining
+  ignore/                 # .dockerignore / .gitignore matching
+  networking/             # Port leases, proxy, hosts/domain routing
+  store/                  # GORM models, CRUD, auto-migration
 
 frontend/src/
-  App.tsx                 # Root: sidebar nav, project selection, event subscriptions
-  views/                  # ProjectsView, OverviewView, SandboxesView, SettingsView
+  App.tsx                 # Mounted shell; inline Overview/Sandboxes placeholders, Projects/Settings routing
   components/
-    ProjectCanvas.tsx     # React Flow graph (drag-and-drop nodes)
-    ServiceNode.tsx       # Custom node renderer
-    NodeDetailPanel.tsx   # Right-side panel with tabs:
-      OverviewTab.tsx       # Deploy/stop/restart, build log viewer
-      DeploymentsTab.tsx    # Deployment history timeline
-      VariablesTab.tsx      # Env var CRUD, .env import/export/sync
-      LogsTab.tsx           # Real-time container logs
-      MetricsTab.tsx        # CPU, memory, network graphs, reachability
-      SettingsTab.tsx       # Dockerfile, root path, port, volumes, labels
-    Sidebar.tsx, DockerIndicator.tsx, ActivityTicker.tsx,
-    CreateProjectDialog.tsx, StatusBadge.tsx, ServicePill.tsx, ...
-  lib/
-    dashboardData.ts      # Status colors, relative time, project decoration
-    logStreamManager.ts   # Log stream subscription management
+    Sidebar.tsx           # Left nav + current brand mark
+    ProjectCanvas.tsx     # Canvas, read-only env-reference edges, node selection
+    NodeDetailPanel.tsx   # Service detail drawer with tabs
+    OverviewTab.tsx       # Deploy/stop/restart + build output + URLs
+    DeploymentsTab.tsx    # Deployment history
+    VariablesTab.tsx      # Env vars, previews, linking, .env sync
+    LogsTab.tsx           # Live container logs
+    MetricsTab.tsx        # CPU/memory/network/reachability
+    SettingsTab.tsx       # Service build/runtime/network/security settings
+  views/
+    ProjectsView.tsx      # Project list / project cards
+    SettingsView.tsx      # App settings design pass only; local UI state, no backend persistence
 ```
 
-## Database tables (GORM auto-migrated)
+## Data Model
 
-| Table | Purpose |
-|-------|---------|
-| `projects` | Registered projects (name, path, description) |
-| `canvas_nodes` | Visual nodes on canvas (project_id, label, x, y) |
-| `deployments` | Build+run cycles (status, image_tag, container_id, timestamps, exit_code) |
-| `env_vars` | Per-node env vars (key, value, scope: runtime/build/both, source) |
-| `routes` | Hostname → container mappings (protocol, target_host/port, host_port) |
-| `port_leases` | Cross-project host port authority |
-| `node_settings` | Extensible KV config per node |
+Primary store tables:
 
-## What's implemented
+- `projects`
+- `canvas_nodes`
+- `deployments`
+- `env_vars`
+- `routes`
+- `port_leases`
+- `node_settings`
 
-- Project creation & management
-- Canvas with drag-and-drop nodes (React Flow)
-- Service deployment: Docker build + run with streaming build logs
-- Service lifecycle: stop, restart, status tracking
-- Deployment history with timeline UI
-- Environment variables: manual edit, .env import/export, scope (runtime/build/both), conflict detection
-- Live container logs (streaming)
-- Service metrics: CPU, memory, network I/O, uptime, reachability probes
-- Docker daemon status indicator + activity ticker
-- Port management (cross-project authority, auto-assignment)
-- Node settings: dockerfile path, service root, ports, volumes, labels
-- Local domain routing infrastructure (hostname → container reverse proxy)
-- Upload progress bar (event-driven)
+Important model details:
 
-## Not yet implemented
+- `canvas_nodes.uid` is the stable per-node hostname suffix.
+- `deployments.source_sha` records the commit built for pinned git-branch deploys.
+- `node_settings` is the extensible feature surface; most per-service behavior is driven by KV settings rather than schema changes.
 
-- Sandboxes (ephemeral environments, fork/branch workflows)
-- Git branch pinning & virtual checkouts (planned: `git archive` for ephemeral, `git worktree` for persistent)
-- Dynamic variable linking (`${{ service.VAR }}` Railway-style references)
-- Overview dashboard (placeholder only)
-- App-level settings persistence (UI exists, backend not wired)
+## What Is Implemented
 
-## Conventions
+- Project creation and project listing.
+- Canvas nodes with persisted positions, rename, delete, and add-service flow.
+- Docker build + run deployments with streaming build logs.
+- Deployment history, active deployment lookup, stop, restart, and cancel-build behavior.
+- Docker status indicator and daemon-backed activity/event updates.
+- Live container logs and service metrics.
+- Port leasing plus local hostname/routing support.
+- Service root and Dockerfile selection, including EXPOSE parsing.
+- `.env` import, export, refresh, conflict reporting, and suggested env-file path.
+- Dynamic env references between services using `@{Service.ATTR}`-style links, preview resolution, and read-only connection edges on the canvas.
+- Draft-injected runtime vars such as `DRAFT_INTERNAL_URL`, `DRAFT_PUBLIC_URL`, and related service/project identity values.
+- Deploy-from-git for pinned branches/refs without touching the working tree.
+- Automatic redeploy triggers on commit or push via local git hooks, with chaining to pre-existing foreign hooks.
+- Rich per-service settings for build, runtime command, restart policy, health checks, resource limits, volume mounts, lifecycle hooks, security flags, and custom labels.
 
-- **No CGO on Windows** — all deps must be pure Go to keep the Windows build CGO-free.
-- **macOS** — CGO required (WebKit binding); universal binary via `wails build -platform darwin/universal`.
-- **Docker labels** are runtime source-of-truth; reconciled on daemon startup.
-- **Event-driven** — prefer Docker event streams and SSE over polling.
-- Go may not be on PATH in fresh shells on Windows — prepend standard Go bin paths when needed.
+## Build And Deploy Behavior
+
+- Default source mode is the working tree on disk.
+- If `git_branch` is set, Draft deploys committed content from that ref instead of the live working tree.
+- Pinned git deploys have two modes:
+  - Stream mode (`git_stream` default on): pipe `git archive` output directly to Docker. Fastest, but `.dockerignore`, `.gitignore`, and BuildKit local-context behavior do not apply.
+  - Checkout mode (`git_stream=false`): export the ref into a temp directory and build from that on-disk workspace. Slower, but it can honor ignore rules and BuildKit local-context behavior.
+- BuildKit local-context is optional and best-effort. Draft uses `docker buildx build --load` only when the current settings are compatible with the legacy context semantics.
+- If BuildKit local-context would change ignore behavior, widen the context incorrectly, or otherwise diverge from Draft's legacy tar path, Draft logs the reason and falls back to the legacy Docker SDK upload path.
+- `.gitignore`-based context filtering blocks the BuildKit local-context path entirely.
+- Root `.dockerignore` compatibility is required before BuildKit local-context is used when Draft's `.dockerignore` toggle is on.
+
+## Git Trigger Behavior
+
+- Trigger values are `manual`, `on_commit`, and `on_push`.
+- Triggers only matter when a node also has a pinned `git_branch`.
+- Hook installation is per repo, not per node. Draft reference-counts hook need across all nodes in the project.
+- Hooks are written into the repo's actual hooks directory using `git rev-parse --git-path hooks`, so `core.hooksPath` and worktrees are honored.
+- Draft never overwrites a foreign hook destructively; it preserves and chains to it via `.draft-orig`.
+- On startup, the daemon reconciles missed commit/push events by comparing tracked branch SHAs against `deployments.source_sha`.
+
+## Frontend Reality
+
+- `frontend/src/App.tsx` is the real mounted shell.
+- Overview and Sandboxes are intentionally placeholder empty states in the mounted app, even though `frontend/src/views/OverviewView.tsx` and `SandboxesView.tsx` exist.
+- `SettingsView.tsx` is also intentionally non-persistent today; its controls are local-only design scaffolding until a backend contract exists.
+- The main user workflow today is Projects list -> open project canvas -> use the node detail panel tabs.
+
+## Not Yet Implemented
+
+- Real sandboxes / ephemeral environments.
+- Branch/worktree UX beyond the current pinned-ref deploy path.
+- A real Overview dashboard.
+- Persistent app-level settings backend for `SettingsView`.
+
+## Conventions And Constraints
+
+- Prefer the live mounted path over adjacent placeholder components.
+- Docker labels are the runtime source of truth and daemon reconcile matters on startup.
+- Prefer event-driven updates (SSE / Docker events) over polling.
+- Keep Windows compatibility in mind; the repo is intentionally using pure-Go SQLite to avoid CGO on Windows.
+- macOS still requires CGO for the Wails/WebKit build.
+- When reasoning about build regressions in this repo, separate:
+  - source mode: working tree vs pinned git ref
+  - transport mode: BuildKit local-context vs legacy tar upload
+  - ignore semantics: Draft filters vs `.dockerignore` / `.gitignore`
