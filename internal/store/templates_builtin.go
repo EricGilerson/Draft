@@ -165,4 +165,19 @@ CMD ["nginx", "-g", "daemon off;"]
 		Port:        3306,
 		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"MYSQL_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
 	},
+	{
+		Name:        "MongoDB",
+		Description: "Document database. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "mongodb",
+		Color:       "#47A248",
+		Mode:        "image",
+		Image:       "mongo:7",
+		Port:        27017,
+		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
+		// create a root user in the `admin` database and auto-enable --auth, so
+		// no CmdOverride is needed (unlike Redis). The connection URL uses
+		// authSource=admin because that's where the root user lives.
+		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}?authSource=admin","scope":"runtime"}]`,
+	},
 }

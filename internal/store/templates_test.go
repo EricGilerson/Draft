@@ -319,6 +319,12 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 			mustExpr:   []string{"REDIS_PASSWORD", "REDIS_URL", "PUBLIC_REDIS_URL"},
 			mustNotLit: []string{"REDIS_PASSWORD"},
 		},
+		{
+			name:       "MongoDB",
+			mustHave:   []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:   []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustNotLit: []string{"MONGO_INITDB_ROOT_PASSWORD"},
+		},
 	}
 	for _, c := range cases {
 		tpl, ok := byName[c.name]
@@ -366,5 +372,43 @@ func TestBuiltinRedisTemplateEnforcesAuthViaCmdOverride(t *testing.T) {
 	}
 	if !strings.Contains(redis.CmdOverride, "{{draft.password}}") {
 		t.Errorf("Redis CmdOverride must use {{draft.password}}, got %q", redis.CmdOverride)
+	}
+}
+
+func TestBuiltinMongoTemplateAuthViaEnvWithAuthSource(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var mongo *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "MongoDB" {
+			mongo = &list[i]
+			break
+		}
+	}
+	if mongo == nil {
+		t.Fatal("MongoDB built-in not seeded")
+	}
+	// The official mongo entrypoint auto-enables --auth when both ROOT_* vars
+	// are set, so — unlike Redis — no CmdOverride should be present.
+	if mongo.CmdOverride != "" {
+		t.Errorf("MongoDB should rely on env-driven auth, got CmdOverride %q", mongo.CmdOverride)
+	}
+	keys := templateEnvKeys(t, mongo)
+	if keys["MONGO_INITDB_ROOT_USERNAME"] != "{{draft.db_user}}" {
+		t.Errorf("MONGO_INITDB_ROOT_USERNAME = %q, want {{draft.db_user}}", keys["MONGO_INITDB_ROOT_USERNAME"])
+	}
+	if keys["MONGO_INITDB_ROOT_PASSWORD"] != "{{draft.password}}" {
+		t.Errorf("MONGO_INITDB_ROOT_PASSWORD = %q, want {{draft.password}}", keys["MONGO_INITDB_ROOT_PASSWORD"])
+	}
+	// Root user lives in the `admin` db, so the connection URL must carry
+	// authSource=admin or auth fails.
+	if !strings.Contains(keys["DATABASE_URL"], "authSource=admin") {
+		t.Errorf("DATABASE_URL must include authSource=admin, got %q", keys["DATABASE_URL"])
+	}
+	if !strings.Contains(keys["PUBLIC_DATABASE_URL"], "authSource=admin") {
+		t.Errorf("PUBLIC_DATABASE_URL must include authSource=admin, got %q", keys["PUBLIC_DATABASE_URL"])
 	}
 }
