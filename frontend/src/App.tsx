@@ -13,6 +13,7 @@ import {decorateProjects} from './lib/dashboardData';
 import ProjectCanvas from './components/ProjectCanvas';
 import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
+import TemplatesView from './views/TemplatesView';
 import {main, store} from '../wailsjs/go/models';
 
 function App() {
@@ -136,6 +137,8 @@ function App() {
                                     chip="Coming soon"
                                 />
                             </div>
+                        ) : view === 'templates' ? (
+                            <TemplatesView/>
                         ) : (
                             <SettingsView/>
                         )}

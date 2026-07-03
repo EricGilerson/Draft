@@ -9,13 +9,19 @@ import {dockerfile} from '../models';
 
 export function CheckDocker():Promise<dockerwatch.DaemonStatus>;
 
+export function CloneServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
+
 export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<store.CanvasNode>;
 
 export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store.Project>;
 
+export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.ServiceTemplate>;
+
 export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteNode(arg1:string):Promise<void>;
+
+export function DeleteServiceTemplate(arg1:number):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
 
@@ -41,6 +47,8 @@ export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
+export function GetServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
+
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
@@ -54,6 +62,8 @@ export function ListProjectServices(arg1:number):Promise<Array<main.ProjectServi
 export function ListProjects():Promise<Array<store.Project>>;
 
 export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
+
+export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
 
@@ -92,3 +102,5 @@ export function StopService(arg1:string):Promise<void>;
 export function SuggestEnvFile(arg1:string,arg2:number):Promise<string>;
 
 export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;
+
+export function UpdateServiceTemplate(arg1:store.ServiceTemplate):Promise<void>;

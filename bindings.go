@@ -607,3 +607,55 @@ func (a *App) GetGitHookStatus(nodeID string, projectID uint) (GitHookStatus, er
 		PullForeign:   status.PullForeign,
 	}, nil
 }
+
+// ── Service templates ───────────────────────────────────────────────────────
+
+// ListServiceTemplates returns the global template library: built-ins first,
+// then user templates, each group ordered by name.
+func (a *App) ListServiceTemplates() ([]store.ServiceTemplate, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.ListTemplates()
+}
+
+// GetServiceTemplate returns a single template by ID.
+func (a *App) GetServiceTemplate(id uint) (*store.ServiceTemplate, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.GetTemplate(id)
+}
+
+// CreateServiceTemplate inserts a new user template. Builtin is forced false.
+func (a *App) CreateServiceTemplate(t store.ServiceTemplate) (*store.ServiceTemplate, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.CreateTemplate(&t)
+}
+
+// UpdateServiceTemplate updates a user template. Built-ins are rejected.
+func (a *App) UpdateServiceTemplate(t store.ServiceTemplate) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.UpdateTemplate(&t)
+}
+
+// DeleteServiceTemplate removes a user template. Built-ins are rejected.
+func (a *App) DeleteServiceTemplate(id uint) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.DeleteTemplate(id)
+}
+
+// CloneServiceTemplate produces a user-owned copy of a template (built-in or
+// user) with a " (copy)" name suffix, and returns it for immediate editing.
+func (a *App) CloneServiceTemplate(id uint) (*store.ServiceTemplate, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.CloneTemplate(id)
+}

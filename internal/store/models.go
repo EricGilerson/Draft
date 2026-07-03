@@ -15,11 +15,11 @@ type Project struct {
 
 // CanvasNode is a single node on a project's visual canvas.
 type CanvasNode struct {
-	ID        string    `gorm:"primaryKey" json:"id"`
-	ProjectID uint      `gorm:"index;not null" json:"projectId"`
-	Label     string    `gorm:"not null" json:"label"`
-	X         float64   `json:"x"`
-	Y         float64   `json:"y"`
+	ID        string  `gorm:"primaryKey" json:"id"`
+	ProjectID uint    `gorm:"index;not null" json:"projectId"`
+	Label     string  `gorm:"not null" json:"label"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
 	// UID is a short, stable identifier used to build the node's Draft hostname
 	// (service.project.environment.uid.draft.local). It's generated once and
 	// never changes, so the hostname stays valid across redeploys and other
@@ -65,11 +65,11 @@ type NodeSetting struct {
 
 // Deployment tracks a single build+run cycle for a service node.
 type Deployment struct {
-	ID                 uint       `gorm:"primaryKey" json:"id"`
-	NodeID             string     `gorm:"index;not null" json:"nodeId"`
-	ProjectID          uint       `gorm:"index;not null" json:"projectId"`
-	ImageTag           string     `json:"imageTag"`
-	ContainerID        string     `json:"containerId"`
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	NodeID      string `gorm:"index;not null" json:"nodeId"`
+	ProjectID   uint   `gorm:"index;not null" json:"projectId"`
+	ImageTag    string `json:"imageTag"`
+	ContainerID string `json:"containerId"`
 	// SourceSHA is the git commit this deployment was built from, when the node
 	// is pinned to a git branch/ref. Empty for working-tree deploys. It is the
 	// baseline the git-trigger reconciler diffs against to decide whether a
@@ -105,6 +105,32 @@ type EnvVar struct {
 	EnvFile   string    `json:"envFile"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ServiceTemplate is a reusable blueprint for creating a service node. Built-in
+// templates are seeded by the store and are locked (not editable/deletable);
+// users clone them or create their own. The Dockerfile is embedded so a later
+// "create service" flow can stamp a node from a template in one step — Draft
+// writes the Dockerfile body into the service root at creation time.
+type ServiceTemplate struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Name        string    `gorm:"not null" json:"name"`
+	Description string    `json:"description"`
+	Category    string    `json:"category"`                             // "web" | "datastore" | "language"
+	Icon        string    `json:"icon"`                                 // simple-icons slug, e.g. "nextdotjs"
+	Color       string    `json:"color"`                                // optional brand hex; empty = currentColor
+	Mode        string    `gorm:"not null;default:'build'" json:"mode"` // "build" | "image"
+	Image       string    `json:"image"`                                // image name when Mode=="image" (datastores)
+	Port        int       `json:"port"`
+	Dockerfile  string    `gorm:"type:text" json:"dockerfile"` // embedded Dockerfile content
+	CmdOverride string    `json:"cmdOverride"`
+	Entrypoint  string    `json:"entrypoint"`
+	WorkingDir  string    `json:"workingDir"`
+	EnvVars     string    `gorm:"type:text" json:"envVars"` // JSON: [{"key","value","scope"}]
+	Labels      string    `gorm:"type:text" json:"labels"`  // JSON: {"key":"value"}
+	Builtin     bool      `gorm:"not null;default:false" json:"builtin"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 type EnvVarConflict struct {

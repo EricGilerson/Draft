@@ -6,6 +6,10 @@ export function CheckDocker() {
   return window['go']['main']['App']['CheckDocker']();
 }
 
+export function CloneServiceTemplate(arg1) {
+  return window['go']['main']['App']['CloneServiceTemplate'](arg1);
+}
+
 export function CreateNode(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['CreateNode'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -14,12 +18,20 @@ export function CreateProject(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3);
 }
 
+export function CreateServiceTemplate(arg1) {
+  return window['go']['main']['App']['CreateServiceTemplate'](arg1);
+}
+
 export function DeleteEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvVar'](arg1, arg2);
 }
 
 export function DeleteNode(arg1) {
   return window['go']['main']['App']['DeleteNode'](arg1);
+}
+
+export function DeleteServiceTemplate(arg1) {
+  return window['go']['main']['App']['DeleteServiceTemplate'](arg1);
 }
 
 export function DeployService(arg1) {
@@ -70,6 +82,10 @@ export function GetServiceRoot(arg1, arg2) {
   return window['go']['main']['App']['GetServiceRoot'](arg1, arg2);
 }
 
+export function GetServiceTemplate(arg1) {
+  return window['go']['main']['App']['GetServiceTemplate'](arg1);
+}
+
 export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
 }
@@ -96,6 +112,10 @@ export function ListProjects() {
 
 export function ListReferenceTargets(arg1) {
   return window['go']['main']['App']['ListReferenceTargets'](arg1);
+}
+
+export function ListServiceTemplates() {
+  return window['go']['main']['App']['ListServiceTemplates']();
 }
 
 export function ParseDockerfileExpose(arg1, arg2) {
@@ -172,4 +192,8 @@ export function SuggestEnvFile(arg1, arg2) {
 
 export function UpdateNode(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateNode'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateServiceTemplate(arg1) {
+  return window['go']['main']['App']['UpdateServiceTemplate'](arg1);
 }

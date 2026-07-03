@@ -33,6 +33,7 @@ var registeredModels = []any{
 	&NodeSetting{},
 	&Deployment{},
 	&EnvVar{},
+	&ServiceTemplate{},
 }
 
 // Store wraps the GORM handle to the local database.
@@ -57,6 +58,11 @@ func Open(dsn string) (*Store, error) {
 	if err := s.Migrate(); err != nil {
 		_ = s.Close()
 		return nil, err
+	}
+	if err := s.SeedBuiltins(); err != nil {
+		// Seeding is best-effort: a failure here shouldn't make the whole store
+		// unusable. The next successful Open will retry.
+		log.Printf("store: seed built-in templates: %v", err)
 	}
 	return s, nil
 }

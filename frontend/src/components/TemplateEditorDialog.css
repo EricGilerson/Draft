@@ -1,0 +1,111 @@
+/* Widen the dialog and give the editor more vertical room than the default
+   720px / 420px body. :has() targets only dialogs that contain the editor. */
+.dialog-overlay:has(.template-editor) .dialog {
+    max-width: 820px;
+}
+
+.dialog-overlay:has(.template-editor) .dialog-body {
+    max-height: 72vh;
+}
+
+.template-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.template-editor-readonly-note {
+    margin: 0;
+    padding: 8px 10px;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    background: var(--canvas-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.template-editor-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.template-editor-seg {
+    display: flex;
+    gap: 6px;
+}
+
+.template-editor-dockerfile {
+    width: 100%;
+    min-height: 180px;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    resize: vertical;
+    white-space: pre;
+}
+
+.template-editor-icon-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--canvas-bg);
+}
+
+.template-editor-icon-slug {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.template-editor-icon-search {
+    margin-bottom: 8px;
+}
+
+.template-editor-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+    gap: 6px;
+    padding: 10px;
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--canvas-bg);
+}
+
+.template-editor-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.template-editor-icon-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.template-editor-icon-btn.active {
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    color: var(--text);
+}
+
+/* Scope dropdown inside the env-var KV row — keep it narrower than the
+   key/value inputs. */
+.settings-kv-scope {
+    max-width: 110px;
+    flex: 0 0 110px;
+}
