@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 var (
@@ -119,25 +121,54 @@ func (s *Store) uniqueCloneName(base string) string {
 	}
 }
 
-// SeedBuiltins inserts the curated built-in templates when none exist yet.
-// Seeding matches on Name so it is idempotent across Opens and never produces
-// duplicates even if some built-ins were already present.
+// SeedBuiltins reconciles the curated built-in templates against the store.
+// Missing built-ins are inserted; existing built-ins with the same Name are
+// updated in place so edits to the curated definitions (e.g. Dockerfile
+// changes) land on the next Open without producing duplicates. User-owned
+// templates are never touched here.
 func (s *Store) SeedBuiltins() error {
-	var count int64
-	if err := s.DB.Model(&ServiceTemplate{}).Count(&count).Error; err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
 	for _, t := range builtinTemplates {
+		t.Name = strings.TrimSpace(t.Name)
+		if t.Name == "" {
+			continue
+		}
 		t.Builtin = true
 		if t.Mode == "" {
 			t.Mode = "build"
+		}
+		var existing ServiceTemplate
+		err := s.DB.Where("name = ?", t.Name).First(&existing).Error
+		if err == nil {
+			if !existing.Builtin {
+				// A user-owned template claims this name; leave it alone.
+				continue
+			}
+			existing.Description = t.Description
+			existing.Category = t.Category
+			existing.Icon = t.Icon
+			existing.Color = t.Color
+			existing.Mode = t.Mode
+			existing.Image = t.Image
+			existing.Port = t.Port
+			existing.Dockerfile = t.Dockerfile
+			existing.EnvVars = t.EnvVars
+			existing.Builtin = true
+			if err := s.DB.Save(&existing).Error; err != nil {
+				return err
+			}
+			continue
+		}
+		if !errors.Is(err, ErrTemplateNotFound) && !isRecordNotFound(err) {
+			return err
 		}
 		if err := s.DB.Create(&t).Error; err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// isRecordNotFound reports whether err is GORM's record-not-found error.
+func isRecordNotFound(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound)
 }

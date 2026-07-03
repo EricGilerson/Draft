@@ -30,6 +30,73 @@ func TestSeedBuiltinsPopulatesLibrary(t *testing.T) {
 	}
 }
 
+func TestSeedBuiltinsReconcilesExistingBuiltin(t *testing.T) {
+	s := openTemp(t)
+
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var next *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "Next.js" {
+			next = &list[i]
+			break
+		}
+	}
+	if next == nil {
+		t.Fatal("Next.js template not seeded")
+	}
+	original := next.Dockerfile
+	if !strings.Contains(original, "next start") && !strings.Contains(original, `"npm", "start"`) {
+		t.Fatalf("unexpected baseline dockerfile: %q", original)
+	}
+	// Corrupt the stored built-in to simulate a stale seed from an older version.
+	next.Dockerfile = "FROM node:20-alpine\nCMD [\"npm\", \"run\", \"dev\"]\n"
+	if err := s.DB.Save(next).Error; err != nil {
+		t.Fatalf("tamper: %v", err)
+	}
+
+	if err := s.SeedBuiltins(); err != nil {
+		t.Fatalf("SeedBuiltins (reconcile): %v", err)
+	}
+
+	got, err := s.GetTemplate(next.ID)
+	if err != nil {
+		t.Fatalf("GetTemplate: %v", err)
+	}
+	if got.Dockerfile != original {
+		t.Errorf("SeedBuiltins did not reconcile stale built-in: got %q, want %q", got.Dockerfile, original)
+	}
+	if !got.Builtin {
+		t.Error("reconciled template lost Builtin flag")
+	}
+}
+
+func TestSeedBuiltinsLeavesUserTemplateWithNameCollision(t *testing.T) {
+	s := openTemp(t)
+
+	// A user-owned template that happens to share a name with a built-in must
+	// not be clobbered or have its content overwritten by SeedBuiltins.
+	user, err := s.CreateTemplate(&ServiceTemplate{Name: "Vite", Port: 5173, Dockerfile: "FROM scratch"})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+	if err := s.SeedBuiltins(); err != nil {
+		t.Fatalf("SeedBuiltins: %v", err)
+	}
+	got, err := s.GetTemplate(user.ID)
+	if err != nil {
+		t.Fatalf("GetTemplate: %v", err)
+	}
+	if got.Builtin {
+		t.Error("user template was promoted to builtin")
+	}
+	if got.Dockerfile != "FROM scratch" {
+		t.Errorf("user template content was overwritten: got %q", got.Dockerfile)
+	}
+}
+
 func TestSeedBuiltinsIsIdempotent(t *testing.T) {
 	s := openTemp(t)
 	before, err := s.ListTemplates()

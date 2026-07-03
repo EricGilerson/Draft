@@ -12,93 +12,121 @@ package store
 var builtinTemplates = []ServiceTemplate{
 	{
 		Name:        "Next.js",
-		Description: "React framework with dev server, hot reload, and SSR.",
+		Description: "Production Next.js: multi-stage build served by `next start`.",
 		Category:    "web",
 		Icon:        "nextdotjs",
 		Color:       "#000000",
 		Mode:        "build",
 		Port:        3000,
-		Dockerfile: `FROM node:20-alpine
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci --omit=dev
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
 COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/next.config.* ./
 EXPOSE 3000
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]
 `,
-		EnvVars: `[{"key":"NODE_ENV","value":"development","scope":"runtime"},{"key":"PORT","value":"3000","scope":"runtime"}]`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"PORT","value":"3000","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Node.js",
-		Description: "Generic Node.js service from package.json.",
+		Description: "Generic Node.js service run via `npm start`.",
 		Category:    "language",
 		Icon:        "nodedotjs",
 		Color:       "#5FA04E",
 		Mode:        "build",
 		Port:        3000,
-		Dockerfile: `FROM node:20-alpine
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM node:20-alpine
 WORKDIR /app
+ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm install
+RUN npm ci --omit=dev && npm cache clean --force
 COPY . .
 EXPOSE 3000
 CMD ["npm", "start"]
 `,
-		EnvVars: `[{"key":"NODE_ENV","value":"development","scope":"runtime"}]`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"}]`,
 	},
 	{
 		Name:        "FastAPI / Uvicorn",
-		Description: "ASGI Python service served by Uvicorn.",
+		Description: "ASGI Python service served by Gunicorn with Uvicorn workers.",
 		Category:    "web",
 		Icon:        "fastapi",
 		Color:       "#009688",
 		Mode:        "build",
 		Port:        8000,
-		Dockerfile: `FROM python:3.12-slim
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM python:3.12-slim
 WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8000"]
 `,
 		EnvVars: `[{"key":"PYTHONUNBUFFERED","value":"1","scope":"runtime"},{"key":"UVICORN_HOST","value":"0.0.0.0","scope":"runtime"},{"key":"UVICORN_PORT","value":"8000","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Flask",
-		Description: "Lightweight WSGI Python service.",
+		Description: "Lightweight WSGI Python service served by Gunicorn.",
 		Category:    "web",
 		Icon:        "flask",
 		Color:       "#000000",
 		Mode:        "build",
 		Port:        5000,
-		Dockerfile: `FROM python:3.12-slim
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM python:3.12-slim
 WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 EXPOSE 5000
-CMD ["flask", "run", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["gunicorn", "app:app", "-w", "2", "-b", "0.0.0.0:5000"]
 `,
 		EnvVars: `[{"key":"FLASK_APP","value":"app.py","scope":"runtime"},{"key":"PYTHONUNBUFFERED","value":"1","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Vite",
-		Description: "Vite dev server for React/Vue/Svelte SPAs.",
+		Description: "Production Vite SPA: build then serve static assets with nginx.",
 		Category:    "web",
 		Icon:        "vite",
 		Color:       "#646CFF",
 		Mode:        "build",
 		Port:        5173,
-		Dockerfile: `FROM node:20-alpine
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 COPY . .
+RUN npm run build
+
+FROM nginx:1.27-alpine AS runner
+RUN sed -i 's/listen[[:space:]]*80;/listen 5173;/' /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+CMD ["nginx", "-g", "daemon off;"]
 `,
-		EnvVars: `[{"key":"NODE_ENV","value":"development","scope":"runtime"}]`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"}]`,
 	},
 	{
 		Name:        "PostgreSQL",
