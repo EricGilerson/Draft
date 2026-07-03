@@ -223,7 +223,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                     <div className="form-field">
                         <label className="form-label">Category</label>
                         <select
-                            className="input settings-select"
+                            className="input"
                             value={draft.category}
                             onChange={(e) => set('category', e.target.value)}
                             disabled={readOnly}
