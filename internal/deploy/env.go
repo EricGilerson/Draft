@@ -53,7 +53,7 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		if _, reserved := generatedEnvKeys[v.Key]; reserved {
 			return deploymentEnv{}, fmt.Errorf("%s is reserved for Draft-generated deployment values", v.Key)
 		}
-		value, err := e.resolveValue(in.ProjectID, v.Value, map[string]bool{in.NodeID: true})
+		value, err := e.resolveValue(in.NodeID, in.ProjectID, v.Value, map[string]bool{in.NodeID: true})
 		if err != nil {
 			return deploymentEnv{}, fmt.Errorf("%s: %w", v.Key, err)
 		}

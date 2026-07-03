@@ -98,12 +98,29 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 	}, nil
 }
 
-// resolveValue substitutes every @{Label.ATTR} token in raw with its resolved
-// value, recursing into a referenced node's own variables when ATTR isn't a
-// generated address attribute. visited tracks node IDs on the current
-// resolution path (seeded with the starting node) so a reference cycle fails
-// fast with a readable error instead of recursing forever.
-func (e *Engine) resolveValue(projectID uint, raw string, visited map[string]bool) (string, error) {
+// resolveValue substitutes every {{draft.X}} template expression (resolved
+// against the owning node's identity) and every @{Label.ATTR} reference token
+// in raw with its resolved value. Template expressions expand first, against
+// selfNodeID's identity, so a value like "@{db.DATABASE_URL}" picks up the db's
+// own already-expanded {{draft.*}} connection string when it recurses.
+// projectID is the (constant) project scope for label lookups; selfNodeID is
+// the node whose value is being resolved and changes per recursion level.
+// visited tracks node IDs on the current reference path (seeded with the
+// starting node) so a reference cycle fails fast with a readable error instead
+// of recursing forever.
+func (e *Engine) resolveValue(selfNodeID string, projectID uint, raw string, visited map[string]bool) (string, error) {
+	if strings.Contains(raw, "{{draft.") {
+		in, err := e.nodeExprInput(selfNodeID)
+		if err != nil {
+			return "", fmt.Errorf("resolve draft expressions for %q: %w", selfNodeID, err)
+		}
+		expanded, err := resolveTemplateExprs(in, raw)
+		if err != nil {
+			return "", err
+		}
+		raw = expanded
+	}
+
 	matches := refPattern.FindAllStringSubmatchIndex(raw, -1)
 	if matches == nil {
 		return raw, nil
@@ -115,7 +132,7 @@ func (e *Engine) resolveValue(projectID uint, raw string, visited map[string]boo
 		out.WriteString(raw[last:m[0]])
 		label := raw[m[2]:m[3]]
 		attrName := raw[m[4]:m[5]]
-		resolved, err := e.resolveNodeAttr(projectID, label, attrName, visited)
+		resolved, err := e.resolveNodeAttr(selfNodeID, projectID, label, attrName, visited)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", raw[m[0]:m[1]], err)
 		}
@@ -126,7 +143,7 @@ func (e *Engine) resolveValue(projectID uint, raw string, visited map[string]boo
 	return out.String(), nil
 }
 
-func (e *Engine) resolveNodeAttr(projectID uint, label, attrName string, visited map[string]bool) (string, error) {
+func (e *Engine) resolveNodeAttr(selfNodeID string, projectID uint, label, attrName string, visited map[string]bool) (string, error) {
 	node, err := e.store.GetNodeByLabel(projectID, label)
 	if err != nil {
 		return "", fmt.Errorf("no service named %q", label)
@@ -152,7 +169,9 @@ func (e *Engine) resolveNodeAttr(projectID uint, label, attrName string, visited
 
 	visited[node.ID] = true
 	defer delete(visited, node.ID)
-	return e.resolveValue(projectID, v.Value, visited)
+	// The referenced node owns this value, so its draft expressions resolve
+	// against the referenced node's identity, not the caller's.
+	return e.resolveValue(node.ID, projectID, v.Value, visited)
 }
 
 func isGeneratedAttr(attrName string) bool {
@@ -179,7 +198,7 @@ func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	}
 	resolved := make([]store.EnvVar, len(vars))
 	for i, v := range vars {
-		value, err := e.resolveValue(node.ProjectID, v.Value, map[string]bool{nodeID: true})
+		value, err := e.resolveValue(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", v.Key, err)
 		}
@@ -209,7 +228,7 @@ func (e *Engine) PreviewEnvVars(nodeID string) (map[string]EnvPreview, error) {
 	}
 	out := make(map[string]EnvPreview, len(vars))
 	for _, v := range vars {
-		value, err := e.resolveValue(node.ProjectID, v.Value, map[string]bool{nodeID: true})
+		value, err := e.resolveValue(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			out[v.Key] = EnvPreview{Error: err.Error()}
 			continue

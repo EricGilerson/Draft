@@ -151,3 +151,37 @@
     color: var(--text);
     padding: 6px 10px;
 }
+
+.template-editor-tokens {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0 8px;
+    padding: 8px;
+    background: var(--canvas-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.template-editor-tokens-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-right: 2px;
+}
+
+.template-editor-token {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.7rem;
+    padding: 3px 6px;
+    color: var(--text);
+    background: var(--bg, transparent);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.template-editor-token:hover {
+    border-color: var(--accent, var(--border));
+    color: var(--accent, var(--text));
+}

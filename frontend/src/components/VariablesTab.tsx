@@ -621,6 +621,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             </div>
 
             <div className="var-add-col">
+                <span className="settings-hint">Values support @{'{Service.ATTR}'} cross-service references and {`{{draft.X}}`} identity expressions (e.g. {`{{draft.password}}`}, {`{{draft.internal_hostname}}`}).</span>
                 <div className="var-add">
                     <input
                         placeholder="KEY"

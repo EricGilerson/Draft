@@ -32,6 +32,27 @@ const SCOPES: {value: string; label: string}[] = [
     {value: 'both', label: 'both'},
 ];
 
+// DRAFT_TOKENS is the catalog of {{draft.X}} placeholder expressions template
+// authors can drop into env-var values (and cmd/entrypoint). Draft expands them
+// at node-creation time and in the live preview path to identity-derived
+// values, so two DBs in different projects/environments never collide. Keep
+// this in sync with internal/deploy/template_expr.go resolveExprToken.
+const DRAFT_TOKENS: {token: string; hint: string}[] = [
+    {token: '{{draft.db_name}}', hint: 'Unique DB name (proj_env_svc)'},
+    {token: '{{draft.db_user}}', hint: 'Unique DB user (proj_env_svc)'},
+    {token: '{{draft.password}}', hint: 'Per-node derived password'},
+    {token: '{{draft.uuid}}', hint: 'Random one-time uuid'},
+    {token: '{{draft.internal_hostname}}', hint: 'Docker-network hostname'},
+    {token: '{{draft.internal_url}}', hint: 'Internal http URL'},
+    {token: '{{draft.public_hostname}}', hint: 'Host-side hostname'},
+    {token: '{{draft.public_url}}', hint: 'Public http URL'},
+    {token: '{{draft.service_port}}', hint: 'Configured container port'},
+    {token: '{{draft.service}}', hint: 'Sanitized service label'},
+    {token: '{{draft.project}}', hint: 'Sanitized project name'},
+    {token: '{{draft.environment}}', hint: 'Environment name'},
+    {token: '{{draft.uid}}', hint: 'Node permanent UID'},
+];
+
 function blankTemplate(): store.ServiceTemplate {
     return new store.ServiceTemplate({
         name: '',
@@ -86,6 +107,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
     const [iconQuery, setIconQuery] = useState('');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [focusedEnv, setFocusedEnv] = useState<number | null>(null);
 
     const readOnly = currentMode === 'view';
 
@@ -133,6 +155,18 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
         const done = UpdateServiceTemplate(payload);
         done.then(() => { setSubmitting(false); onSaved(); })
             .catch((e) => { setSubmitting(false); setError(typeof e === 'string' ? e : e?.message || 'Failed to save template'); });
+    };
+
+    const insertToken = (token: string) => {
+        setEnvEntries((prev) => {
+            if (prev.length === 0) {
+                return [{key: '', value: token, scope: 'runtime'}];
+            }
+            const i = focusedEnv != null ? focusedEnv : prev.length - 1;
+            const next = [...prev];
+            next[i] = {...next[i], value: (next[i].value ?? '') + token};
+            return next;
+        });
     };
 
     const create = () => {
@@ -369,6 +403,22 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                 <div className="form-field">
                     <label className="form-label">Default env vars</label>
                     <span className="settings-hint">Seeded onto services created from this template.</span>
+                    {!readOnly && (
+                        <div className="template-editor-tokens">
+                            <span className="template-editor-tokens-label">Draft expressions:</span>
+                            {DRAFT_TOKENS.map((t) => (
+                                <button
+                                    key={t.token}
+                                    type="button"
+                                    className="template-editor-token"
+                                    onClick={() => insertToken(t.token)}
+                                    title={t.hint}
+                                >
+                                    {t.token}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {envEntries.map((entry, i) => (
                         <div key={i} className="settings-kv-row">
                             <input
@@ -383,6 +433,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                             <input
                                 className="input settings-kv-input"
                                 value={entry.value}
+                                onFocus={() => setFocusedEnv(i)}
                                 onChange={(e) => {
                                     const next = [...envEntries]; next[i] = {...entry, value: e.target.value}; setEnvEntries(next);
                                 }}

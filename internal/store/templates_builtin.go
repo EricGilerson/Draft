@@ -42,7 +42,7 @@ COPY --from=builder /app/next.config.* ./
 EXPOSE 3000
 CMD ["npm", "start"]
 `,
-		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"PORT","value":"3000","scope":"runtime"}]`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"HOSTNAME","value":"0.0.0.0","scope":"runtime"},{"key":"PORT","value":"3000","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Node.js",
@@ -62,7 +62,7 @@ COPY . .
 EXPOSE 3000
 CMD ["npm", "start"]
 `,
-		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"}]`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"HOSTNAME","value":"0.0.0.0","scope":"runtime"}]`,
 	},
 	{
 		Name:        "FastAPI / Uvicorn",
@@ -82,7 +82,7 @@ COPY . .
 EXPOSE 8000
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8000"]
 `,
-		EnvVars: `[{"key":"PYTHONUNBUFFERED","value":"1","scope":"runtime"},{"key":"UVICORN_HOST","value":"0.0.0.0","scope":"runtime"},{"key":"UVICORN_PORT","value":"8000","scope":"runtime"}]`,
+		EnvVars: `[{"key":"PYTHONUNBUFFERED","value":"1","scope":"runtime"},{"key":"UVICORN_HOST","value":"0.0.0.0","scope":"runtime"},{"key":"UVICORN_PORT","value":"{{draft.service_port}}","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Flask",
@@ -137,7 +137,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "postgres:16-alpine",
 		Port:        5432,
-		EnvVars:     `[{"key":"POSTGRES_USER","value":"draft","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"draft","scope":"runtime"},{"key":"POSTGRES_DB","value":"draft","scope":"runtime"}]`,
+		EnvVars: `[{"key":"POSTGRES_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"POSTGRES_DB","value":"{{draft.db_name}}","scope":"runtime"},{"key":"POSTGRES_HOST_AUTH_METHOD","value":"scram-sha-256","scope":"runtime"},{"key":"PGDATA","value":"/var/lib/postgresql/data","scope":"runtime"},{"key":"DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Redis",
@@ -148,6 +148,11 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "redis:7-alpine",
 		Port:        6379,
+		// The official redis image reads no env var for auth, so REDIS_PASSWORD
+		// alone is a no-op. CmdOverride enforces it via --requirepass; Draft
+		// expands {{draft.*}} in CmdOverride at stamp time.
+		CmdOverride: "redis-server --requirepass {{draft.password}} --appendonly yes",
+		EnvVars:     `[{"key":"REDIS_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"REDIS_URL","value":"redis://:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/0","scope":"runtime"},{"key":"PUBLIC_REDIS_URL","value":"redis://:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/0","scope":"runtime"}]`,
 	},
 	{
 		Name:        "MySQL",
@@ -158,6 +163,6 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "mysql:8",
 		Port:        3306,
-		EnvVars:     `[{"key":"MYSQL_ROOT_PASSWORD","value":"draft","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"draft","scope":"runtime"}]`,
+		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"MYSQL_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
 	},
 }

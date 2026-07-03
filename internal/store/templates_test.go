@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -260,5 +261,110 @@ func TestCreateTemplateValidatesName(t *testing.T) {
 	s := openTemp(t)
 	if _, err := s.CreateTemplate(&ServiceTemplate{Name: "   "}); !errors.Is(err, ErrInvalidTemplate) {
 		t.Errorf("blank name: got %v, want ErrInvalidTemplate", err)
+	}
+}
+
+// templateEnvKeys parses a template's EnvVars JSON and returns the set of keys.
+func templateEnvKeys(t *testing.T, tpl *ServiceTemplate) map[string]string {
+	t.Helper()
+	var entries []struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if tpl.EnvVars == "" {
+		return map[string]string{}
+	}
+	if err := json.Unmarshal([]byte(tpl.EnvVars), &entries); err != nil {
+		t.Fatalf("template %q has invalid EnvVars JSON: %v", tpl.Name, err)
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		out[e.Key] = e.Value
+	}
+	return out
+}
+
+func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	byName := map[string]*ServiceTemplate{}
+	for i := range list {
+		byName[list[i].Name] = &list[i]
+	}
+
+	cases := []struct {
+		name       string
+		mustHave   []string
+		mustExpr   []string // keys whose value must be a {{draft.*}} expression
+		mustNotLit []string // keys whose value must NOT be the old "draft" literal
+	}{
+		{
+			name:       "PostgreSQL",
+			mustHave:   []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_HOST_AUTH_METHOD", "PGDATA", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:   []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustNotLit: []string{"POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB"},
+		},
+		{
+			name:       "MySQL",
+			mustHave:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_ROOT_HOST", "MYSQL_LOG_CONSOLE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustNotLit: []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"},
+		},
+		{
+			name:       "Redis",
+			mustHave:   []string{"REDIS_PASSWORD", "REDIS_URL", "PUBLIC_REDIS_URL"},
+			mustExpr:   []string{"REDIS_PASSWORD", "REDIS_URL", "PUBLIC_REDIS_URL"},
+			mustNotLit: []string{"REDIS_PASSWORD"},
+		},
+	}
+	for _, c := range cases {
+		tpl, ok := byName[c.name]
+		if !ok {
+			t.Errorf("missing built-in %q", c.name)
+			continue
+		}
+		keys := templateEnvKeys(t, tpl)
+		for _, k := range c.mustHave {
+			if _, ok := keys[k]; !ok {
+				t.Errorf("%q missing required env var %q", c.name, k)
+			}
+		}
+		for _, k := range c.mustExpr {
+			if v := keys[k]; !strings.Contains(v, "{{draft.") {
+				t.Errorf("%q env var %q should use a {{draft.*}} expression, got %q", c.name, k, v)
+			}
+		}
+		for _, k := range c.mustNotLit {
+			if v := keys[k]; v == "draft" {
+				t.Errorf("%q env var %q still uses hardcoded literal %q", c.name, k, v)
+			}
+		}
+	}
+}
+
+func TestBuiltinRedisTemplateEnforcesAuthViaCmdOverride(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var redis *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "Redis" {
+			redis = &list[i]
+			break
+		}
+	}
+	if redis == nil {
+		t.Fatal("Redis built-in not seeded")
+	}
+	if !strings.Contains(redis.CmdOverride, "--requirepass") {
+		t.Errorf("Redis CmdOverride must enforce auth via --requirepass, got %q", redis.CmdOverride)
+	}
+	if !strings.Contains(redis.CmdOverride, "{{draft.password}}") {
+		t.Errorf("Redis CmdOverride must use {{draft.password}}, got %q", redis.CmdOverride)
 	}
 }
