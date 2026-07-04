@@ -113,7 +113,10 @@ func Status(ctx context.Context, repoPath string, event Event) (installed, forei
 // Install writes Draft's hook for the event into the repository, wiring it to
 // invoke exePath in --git-hook mode. If a foreign hook already occupies the
 // slot, it is preserved as <file>.draft-orig and chained from Draft's script so
-// the user's existing tooling keeps running.
+// the user's existing tooling keeps running. If a foreign hook has changed
+// since we preserved it (e.g. a husky re-init rewrote its wrapper), the backup
+// is refreshed so we chain to the foreign tool's current hook and Uninstall
+// restores the current one rather than a stale copy.
 func Install(ctx context.Context, repoPath, exePath string, event Event) error {
 	file, err := event.hookFile()
 	if err != nil {
@@ -129,13 +132,20 @@ func Install(ctx context.Context, repoPath, exePath string, event Event) error {
 	hookPath := filepath.Join(dir, file)
 	origPath := hookPath + ".draft-orig"
 
-	// Preserve a pre-existing foreign hook exactly once. If our script is
-	// already there we leave any prior .draft-orig untouched.
+	// Preserve a pre-existing foreign hook. If our script is already in the
+	// slot we leave any prior .draft-orig untouched — the foreign tool can't
+	// have rewritten the slot while our marker is on it. If a foreign hook
+	// occupies the slot and a backup already exists, refresh the backup when
+	// the foreign hook has changed since we preserved it.
 	if data, err := os.ReadFile(hookPath); err == nil {
 		if !bytes.Contains(data, []byte(marker)) {
-			if _, statErr := os.Stat(origPath); os.IsNotExist(statErr) {
+			if prev, perr := os.ReadFile(origPath); os.IsNotExist(perr) {
 				if err := os.Rename(hookPath, origPath); err != nil {
 					return fmt.Errorf("back up existing %s hook: %w", file, err)
+				}
+			} else if perr == nil && !bytes.Equal(prev, data) {
+				if err := os.WriteFile(origPath, data, 0o755); err != nil {
+					return fmt.Errorf("refresh %s hook backup: %w", file, err)
 				}
 			}
 		}
@@ -152,11 +162,26 @@ func Install(ctx context.Context, repoPath, exePath string, event Event) error {
 	if runtime.GOOS != "windows" {
 		_ = os.Chmod(hookPath, 0o755)
 	}
+	// When the hooks directory lives inside the worktree (e.g. husky-style
+	// core.hooksPath pointing at .husky/_), our managed hook and its .draft-orig
+	// backup would otherwise surface as untracked files in `git status`. Hide
+	// them via .git/info/exclude — a per-clone, untracked, never-committed file,
+	// the same class of local artifact as .git/hooks itself — so we never touch
+	// the user's committed .gitignore.
+	if hookPat, origPat, ok := excludePatterns(ctx, repoPath, hookPath); ok {
+		if err := addExcludes(ctx, repoPath, event, hookPat, origPat); err != nil {
+			return fmt.Errorf("hide %s hook from git status: %w", file, err)
+		}
+	}
 	return nil
 }
 
 // Uninstall removes Draft's hook for the event. If a foreign hook was chained
-// (preserved as <file>.draft-orig), it is restored to its original slot.
+// (preserved as <file>.draft-orig), it is restored to its original slot. If our
+// managed hook is already gone but a backup remains (orphaned by a foreign tool
+// or the user removing our script), the backup is restored so the user's
+// tooling keeps running. Draft's .git/info/exclude entries for the event are
+// always cleaned up.
 func Uninstall(ctx context.Context, repoPath string, event Event) error {
 	file, err := event.hookFile()
 	if err != nil {
@@ -171,23 +196,39 @@ func Uninstall(ctx context.Context, repoPath string, event Event) error {
 
 	data, err := os.ReadFile(hookPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		if !os.IsNotExist(err) {
+			return err
 		}
-		return err
+		// Our managed hook is already gone. If a chained foreign backup
+		// remains, restore it to the canonical slot so the user's tooling
+		// keeps working.
+		if _, statErr := os.Stat(origPath); statErr == nil {
+			if rerr := os.Rename(origPath, hookPath); rerr != nil {
+				return rerr
+			}
+		}
+		return removeExcludes(ctx, repoPath, event)
 	}
-	// Only remove a script that is actually ours; never touch a foreign hook.
+	// A hook exists but isn't ours: never touch the slot. But if a .draft-orig
+	// backup is also present, we once managed this slot and a foreign tool has
+	// since reclaimed it, leaving a stale backup — discard the backup along
+	// with our exclude entries.
 	if !bytes.Contains(data, []byte(marker)) {
-		return nil
+		if _, statErr := os.Stat(origPath); statErr == nil {
+			_ = os.Remove(origPath)
+		}
+		return removeExcludes(ctx, repoPath, event)
 	}
 	if err := os.Remove(hookPath); err != nil {
 		return err
 	}
 	// Restore any chained foreign hook.
 	if _, statErr := os.Stat(origPath); statErr == nil {
-		return os.Rename(origPath, hookPath)
+		if rerr := os.Rename(origPath, hookPath); rerr != nil {
+			return rerr
+		}
 	}
-	return nil
+	return removeExcludes(ctx, repoPath, event)
 }
 
 // shellQuote wraps s in single quotes for a POSIX sh script, escaping any
@@ -261,4 +302,174 @@ func renderScript(event Event, exePath, repoPath, origPath string) string {
 		"# " + marker + " event=" + file + " — managed by Draft; remove via the app\n" +
 		invoke +
 		"exit 0\n"
+}
+
+// excludeBlockBegin and excludeBlockEnd bracket Draft's ignore entries in
+// .git/info/exclude. Tagging both with the marker lets addExcludes replace our
+// block and removeExcludes delete exactly our block, without ever touching the
+// user's own ignore rules.
+func excludeBlockBegin(file string) string { return "# " + marker + " begin event=" + file + "\n" }
+func excludeBlockEnd(file string) string   { return "# " + marker + " end event=" + file + "\n" }
+
+// gitDir resolves the repository's git directory (e.g. ".git") as an absolute
+// path via `git rev-parse --absolute-git-dir`.
+func gitDir(ctx context.Context, repoPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--absolute-git-dir")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("resolve git dir: %s", msg)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// excludeFilePath returns the path to the repo's .git/info/exclude — the
+// per-clone ignore file that is never tracked or committed.
+func excludeFilePath(ctx context.Context, repoPath string) (string, error) {
+	dir, err := gitDir(ctx, repoPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "info", "exclude"), nil
+}
+
+// removeExcludeBlock strips every Draft-managed block for the given hook file
+// from content. A malformed block (begin without a matching end) is left
+// untouched rather than risk deleting user content.
+func removeExcludeBlock(content, file string) string {
+	begin := excludeBlockBegin(file)
+	end := excludeBlockEnd(file)
+	for {
+		i := strings.Index(content, begin)
+		if i < 0 {
+			return content
+		}
+		rel := content[i:]
+		j := strings.Index(rel, end)
+		if j < 0 {
+			return content
+		}
+		content = content[:i] + rel[j+len(end):]
+	}
+}
+
+// addExcludes appends Draft's ignore block for the event to .git/info/exclude,
+// creating the file (and the info/ directory) if needed. It is idempotent: an
+// existing block for the same event is replaced in place rather than duplicated.
+func addExcludes(ctx context.Context, repoPath string, event Event, hookPat, origPat string) error {
+	file, err := event.hookFile()
+	if err != nil {
+		return err
+	}
+	exPath, err := excludeFilePath(ctx, repoPath)
+	if err != nil {
+		return err
+	}
+	body, err := os.ReadFile(exPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	content := removeExcludeBlock(string(body), file)
+	content = strings.TrimRight(content, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	content += excludeBlockBegin(file) + hookPat + "\n" + origPat + "\n" + excludeBlockEnd(file)
+	if err := os.MkdirAll(filepath.Dir(exPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(exPath, []byte(content), 0o644)
+}
+
+// removeExcludes strips Draft's ignore block for the event from
+// .git/info/exclude. A missing file, an unresolvable git dir, or a missing
+// block are all no-ops; the user's own ignore rules are never touched.
+func removeExcludes(ctx context.Context, repoPath string, event Event) error {
+	file, err := event.hookFile()
+	if err != nil {
+		return err
+	}
+	exPath, err := excludeFilePath(ctx, repoPath)
+	if err != nil {
+		// addExcludes is only reached when excludePatterns already resolved the
+		// git dir, so if we can't resolve it here there is nothing to clean up.
+		return nil
+	}
+	body, err := os.ReadFile(exPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	trimmed := removeExcludeBlock(string(body), file)
+	if trimmed == string(body) {
+		return nil
+	}
+	return os.WriteFile(exPath, []byte(trimmed), 0o644)
+}
+
+// resolveReal returns the symlink-free form of p, falling back to p if the path
+// cannot be evaluated. macOS places temp dirs under /var which symlinks to
+// /private/var, and git reports the real form via --show-toplevel while our
+// hook path may carry the symlink form — normalizing keeps the two comparable.
+func resolveReal(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
+
+// pathIsUnder reports whether p is contained within base (both absolute).
+func pathIsUnder(p, base string) bool {
+	rel, err := filepath.Rel(base, p)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel != "." && !strings.HasPrefix(rel, "../") && rel != ".."
+}
+
+// excludePatterns reports whether the managed hook file lives inside the
+// worktree but outside the git directory — the case where git would otherwise
+// surface our files as untracked (e.g. husky-style core.hooksPath). When true
+// it returns the gitignore patterns (relative to the worktree root, with
+// forward slashes) for the managed hook and its .draft-orig backup. When the
+// hooks dir is under .git (the default) or outside the worktree, ok is false
+// and no excludes are needed.
+func excludePatterns(ctx context.Context, repoPath, hookPath string) (hookPat, origPat string, ok bool) {
+	rootOut, err := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", "", false
+	}
+	worktree := strings.TrimSpace(string(rootOut))
+	if worktree == "" {
+		return "", "", false
+	}
+	gDir, err := gitDir(ctx, repoPath)
+	if err != nil {
+		return "", "", false
+	}
+	absHook, err := filepath.Abs(hookPath)
+	if err != nil {
+		return "", "", false
+	}
+	worktree = resolveReal(worktree)
+	gDir = resolveReal(gDir)
+	absHook = resolveReal(absHook)
+	if !pathIsUnder(absHook, worktree) || pathIsUnder(absHook, gDir) {
+		return "", "", false
+	}
+	rel, err := filepath.Rel(worktree, absHook)
+	if err != nil {
+		return "", "", false
+	}
+	hookPat = filepath.ToSlash(rel)
+	origPat = hookPat + ".draft-orig"
+	return hookPat, origPat, true
 }

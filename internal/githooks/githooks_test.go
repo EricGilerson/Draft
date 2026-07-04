@@ -246,3 +246,240 @@ func TestRenderScriptNormalizesWindowsPaths(t *testing.T) {
 		}
 	}
 }
+
+// runGitInTest runs git in dir and fails the test on error.
+func runGitInTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// TestInstallHidesWorktreeHooksViaExclude simulates a husky-style layout where
+// core.hooksPath points into the worktree. Draft's managed hook and its
+// .draft-orig backup would otherwise appear as untracked files; the install
+// must add tagged entries to .git/info/exclude so they stay hidden, and
+// uninstall must remove them.
+func TestInstallHidesWorktreeHooksViaExclude(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	hooksDir := filepath.Join(repo, ".husky", "_")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir hooks: %v", err)
+	}
+	runGitInTest(t, repo, "config", "core.hooksPath", ".husky/_")
+
+	if err := Install(ctx, repo, "/opt/draft/draft", OnCommit); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	hp := filepath.Join(hooksDir, "post-commit")
+	if _, err := os.Stat(hp); err != nil {
+		t.Fatalf("expected hook installed in worktree hooksPath: %v", err)
+	}
+
+	// The hook file must not surface in `git status` (excluded).
+	out, err := exec.Command("git", "-C", repo, "status", "--porcelain").Output()
+	if err != nil {
+		t.Fatalf("git status: %v", err)
+	}
+	if strings.Contains(string(out), "post-commit") {
+		t.Fatalf("hook should be excluded from git status, got:\n%s", out)
+	}
+
+	exclude, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatalf("read exclude: %v", err)
+	}
+	if !strings.Contains(string(exclude), marker) || !strings.Contains(string(exclude), ".husky/_/post-commit") {
+		t.Fatalf("exclude missing draft block:\n%s", exclude)
+	}
+
+	if err := Uninstall(ctx, repo, OnCommit); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if _, err := os.Stat(hp); !os.IsNotExist(err) {
+		t.Fatalf("expected hook removed, stat err = %v", err)
+	}
+	exclude2, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	if err != nil {
+		t.Fatalf("read exclude after uninstall: %v", err)
+	}
+	if strings.Contains(string(exclude2), marker) {
+		t.Fatalf("exclude should not retain draft block after uninstall:\n%s", exclude2)
+	}
+}
+
+// TestDefaultHooksDirIsNeverExcluded ensures that when hooks live under .git
+// (the default), Draft does NOT write anything to .git/info/exclude — git
+// already hides .git/ from status, so an exclude entry would be pointless noise
+// in the user's per-clone ignore file.
+func TestDefaultHooksDirIsNeverExcluded(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	excludePath := filepath.Join(repo, ".git", "info", "exclude")
+	before, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude before: %v", err)
+	}
+
+	if err := Install(ctx, repo, "/opt/draft/draft", OnCommit); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	after, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("exclude must be untouched for default .git/hooks, got:\n%s", after)
+	}
+
+	if err := Uninstall(ctx, repo, OnCommit); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	final, err := os.ReadFile(excludePath)
+	if err != nil {
+		t.Fatalf("read exclude final: %v", err)
+	}
+	if string(final) != string(before) {
+		t.Fatalf("exclude must be untouched after uninstall, got:\n%s", final)
+	}
+}
+
+// TestInstallRefreshesStaleForeignHookBackup covers the husky-re-init case: a
+// foreign tool rewrites the canonical slot after Draft preserved it. The next
+// install must refresh the .draft-orig backup to the foreign tool's current
+// hook, and uninstall must restore that current hook — never a stale copy.
+func TestInstallRefreshesStaleForeignHookBackup(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := newRepo(t)
+	ctx := context.Background()
+
+	hooksDir := filepath.Join(repo, ".husky", "_")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	runGitInTest(t, repo, "config", "core.hooksPath", ".husky/_")
+
+	hp := filepath.Join(hooksDir, "post-commit")
+	orig := hp + ".draft-orig"
+
+	v1 := "#!/bin/sh\necho husky-v1\n"
+	if err := os.WriteFile(hp, []byte(v1), 0o755); err != nil {
+		t.Fatalf("write foreign v1: %v", err)
+	}
+	if err := Install(ctx, repo, "/opt/draft/draft", OnCommit); err != nil {
+		t.Fatalf("Install 1: %v", err)
+	}
+	if b, _ := os.ReadFile(orig); string(b) != v1 {
+		t.Fatalf("backup should be v1, got %q", b)
+	}
+
+	// Foreign tool rewrites the slot (e.g. husky re-init).
+	v2 := "#!/bin/sh\necho husky-v2\n"
+	if err := os.WriteFile(hp, []byte(v2), 0o755); err != nil {
+		t.Fatalf("overwrite foreign v2: %v", err)
+	}
+	if err := Install(ctx, repo, "/opt/draft/draft", OnCommit); err != nil {
+		t.Fatalf("Install 2: %v", err)
+	}
+	if b, _ := os.ReadFile(orig); string(b) != v2 {
+		t.Fatalf("backup should refresh to v2, got %q", b)
+	}
+
+	if err := Uninstall(ctx, repo, OnCommit); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	r, err := os.ReadFile(hp)
+	if err != nil {
+		t.Fatalf("expected foreign hook restored: %v", err)
+	}
+	if string(r) != v2 {
+		t.Fatalf("restored hook = %q, want v2 %q", r, v2)
+	}
+	if _, err := os.Stat(orig); !os.IsNotExist(err) {
+		t.Fatalf("expected backup removed after restore, stat err = %v", err)
+	}
+}
+
+// TestUninstallRestoresOrphanedBackup covers the case where Draft's managed hook
+// is removed out from under us (by a foreign tool or the user) while the
+// .draft-orig backup remains. Uninstall must restore the backup to the slot so
+// the user's tooling keeps running.
+func TestUninstallRestoresOrphanedBackup(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	hp := hookPath(t, repo, "post-commit")
+	orig := hp + ".draft-orig"
+
+	foreign := "#!/bin/sh\necho mine\n"
+	if err := os.MkdirAll(filepath.Dir(hp), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(hp, []byte(foreign), 0o755); err != nil {
+		t.Fatalf("write foreign: %v", err)
+	}
+	if err := Install(ctx, repo, "/opt/draft/draft", OnCommit); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	// Simulate our managed hook being deleted while the backup is orphaned.
+	if err := os.Remove(hp); err != nil {
+		t.Fatalf("remove managed hook: %v", err)
+	}
+	if err := Uninstall(ctx, repo, OnCommit); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	r, err := os.ReadFile(hp)
+	if err != nil {
+		t.Fatalf("expected foreign hook restored from orphan: %v", err)
+	}
+	if string(r) != foreign {
+		t.Fatalf("restored = %q, want %q", r, foreign)
+	}
+	if _, err := os.Stat(orig); !os.IsNotExist(err) {
+		t.Fatalf("expected orphan removed after restore, stat err = %v", err)
+	}
+}
+
+// TestUninstallCleansStaleBackupWhenForeignReclaimedSlot covers the case where a
+// foreign tool has rewritten the canonical slot (no marker) while a stale
+// .draft-orig from a prior Draft install remains. Uninstall must discard the
+// stale backup and leave the foreign tool's current hook in place.
+func TestUninstallCleansStaleBackupWhenForeignReclaimedSlot(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	hp := hookPath(t, repo, "post-commit")
+	orig := hp + ".draft-orig"
+
+	if err := os.MkdirAll(filepath.Dir(hp), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	current := "#!/bin/sh\necho foreign-current\n"
+	if err := os.WriteFile(hp, []byte(current), 0o755); err != nil {
+		t.Fatalf("write current foreign: %v", err)
+	}
+	if err := os.WriteFile(orig, []byte("#!/bin/sh\necho stale\n"), 0o755); err != nil {
+		t.Fatalf("write stale backup: %v", err)
+	}
+	if err := Uninstall(ctx, repo, OnCommit); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	r, err := os.ReadFile(hp)
+	if err != nil || string(r) != current {
+		t.Fatalf("current foreign hook must be untouched, got %q err %v", r, err)
+	}
+	if _, err := os.Stat(orig); !os.IsNotExist(err) {
+		t.Fatalf("expected stale backup removed, stat err = %v", err)
+	}
+}
