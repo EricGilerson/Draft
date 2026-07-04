@@ -76,6 +76,12 @@ type Deployment struct {
 	// commit/push actually changed the tracked branch since the last deploy.
 	SourceSHA          string     `json:"sourceSha"`
 	Status             string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
+	// Sequence is the 1-based, per-node deploy counter (the 1st, 2nd, 3rd...
+	// deploy of THIS service). It's the number shown in the image tag and
+	// container name, scoped to the service rather than the app-wide deployment
+	// primary key (ID), so two services with unrelated deploy histories don't
+	// make each other's build numbers jump.
+	Sequence           int        `gorm:"not null;default:0" json:"sequence"`
 	Hostname           string     `json:"hostname"`
 	HostPort           int        `json:"hostPort"`
 	Error              string     `json:"error"`

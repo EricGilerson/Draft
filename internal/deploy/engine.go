@@ -268,7 +268,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	imageTag := fmt.Sprintf("draft-%s-%s:%d", projectName, serviceName, dep.ID)
+	imageTag := fmt.Sprintf("draft-%s-%s:%d", projectName, serviceName, dep.Sequence)
 	dep.ImageTag = imageTag
 	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
@@ -369,7 +369,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
 
 	containerPort := nat.Port(portStr + "/tcp")
-	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.ID)
+	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.Sequence)
 	networkName := draftNetworkName(node.ProjectID, projectName, environment)
 	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
 		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())

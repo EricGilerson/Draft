@@ -545,6 +545,7 @@ export namespace store {
 	    containerId: string;
 	    sourceSha: string;
 	    status: string;
+	    sequence: number;
 	    hostname: string;
 	    hostPort: number;
 	    error: string;
@@ -584,6 +585,7 @@ export namespace store {
 	        this.containerId = source["containerId"];
 	        this.sourceSha = source["sourceSha"];
 	        this.status = source["status"];
+	        this.sequence = source["sequence"];
 	        this.hostname = source["hostname"];
 	        this.hostPort = source["hostPort"];
 	        this.error = source["error"];

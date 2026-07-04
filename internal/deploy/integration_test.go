@@ -1273,8 +1273,11 @@ CMD ["sleep", "3600"]
 	if !strings.HasPrefix(dep.ImageTag, expectedPrefix) {
 		t.Errorf("expected image tag prefix %q, got %q", expectedPrefix, dep.ImageTag)
 	}
-	if !strings.Contains(dep.ImageTag, fmt.Sprintf(":%d", dep.ID)) {
-		t.Errorf("expected deployment ID in image tag, got %q", dep.ImageTag)
+	if !strings.Contains(dep.ImageTag, fmt.Sprintf(":%d", dep.Sequence)) {
+		t.Errorf("expected per-service sequence in image tag, got %q", dep.ImageTag)
+	}
+	if dep.Sequence != 1 {
+		t.Errorf("expected first deploy of svc1 to have sequence 1, got %d", dep.Sequence)
 	}
 
 	t.Cleanup(func() {

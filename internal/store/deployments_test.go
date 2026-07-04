@@ -134,6 +134,45 @@ func TestListDeploymentsEmpty(t *testing.T) {
 	}
 }
 
+func TestCreateDeploymentAssignsPerNodeSequence(t *testing.T) {
+	s := openTemp(t)
+	s.DB.Create(&Project{Name: "p1", Path: "/p1"})
+	s.DB.Create(&CanvasNode{ID: "n1", ProjectID: 1, Label: "svc"})
+	s.DB.Create(&CanvasNode{ID: "n2", ProjectID: 1, Label: "other"})
+
+	// Interleave deploys across two services: the per-node sequence must track
+	// only this service's deploys, not the app-wide deployment primary key.
+	a1, _ := s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "building"})
+	b1, _ := s.CreateDeployment(&Deployment{NodeID: "n2", ProjectID: 1, Status: "building"})
+	b2, _ := s.CreateDeployment(&Deployment{NodeID: "n2", ProjectID: 1, Status: "running"})
+	a2, _ := s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "running"})
+
+	if a1.Sequence != 1 || a2.Sequence != 2 {
+		t.Errorf("n1 sequence = %d, %d; want 1, 2", a1.Sequence, a2.Sequence)
+	}
+	if b1.Sequence != 1 || b2.Sequence != 2 {
+		t.Errorf("n2 sequence = %d, %d; want 1, 2", b1.Sequence, b2.Sequence)
+	}
+	// Global IDs are still interleaved/app-wide; only the sequence is per-node.
+	if a2.ID <= b2.ID {
+		t.Errorf("expected app-wide ID to keep growing globally; a2.ID=%d b2.ID=%d", a2.ID, b2.ID)
+	}
+}
+
+func TestCreateDeploymentPreservesExplicitSequence(t *testing.T) {
+	s := openTemp(t)
+	s.DB.Create(&Project{Name: "p1", Path: "/p1"})
+	s.DB.Create(&CanvasNode{ID: "n1", ProjectID: 1, Label: "svc"})
+
+	dep, err := s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "building", Sequence: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dep.Sequence != 42 {
+		t.Errorf("expected explicit sequence preserved, got %d", dep.Sequence)
+	}
+}
+
 func TestDeploymentFinishedAt(t *testing.T) {
 	s := openTemp(t)
 	s.DB.Create(&Project{Name: "p1", Path: "/p1"})

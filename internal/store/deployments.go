@@ -3,10 +3,28 @@ package store
 import "gorm.io/gorm"
 
 func (s *Store) CreateDeployment(d *Deployment) (*Deployment, error) {
+	if d.Sequence == 0 {
+		seq, err := s.nextDeploymentSequence(d.NodeID)
+		if err != nil {
+			return nil, err
+		}
+		d.Sequence = seq
+	}
 	if err := s.DB.Create(d).Error; err != nil {
 		return nil, err
 	}
 	return d, nil
+}
+
+// nextDeploymentSequence returns the next 1-based sequence number for a node's
+// deploy history (count of existing rows for the node + 1). Deployments are
+// never deleted, so this is monotonic per service.
+func (s *Store) nextDeploymentSequence(nodeID string) (int, error) {
+	var count int64
+	if err := s.DB.Model(&Deployment{}).Where("node_id = ?", nodeID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count) + 1, nil
 }
 
 func (s *Store) GetDeployment(id uint) (*Deployment, error) {
