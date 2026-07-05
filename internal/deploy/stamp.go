@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,10 +28,12 @@ type CreateNodeFromTemplateRequest struct {
 
 // CreateNodeFromTemplateResult is the stamp result returned to the frontend.
 // Warnings carry non-fatal notes (e.g. an existing Dockerfile was left alone)
-// so the wizard can surface them without blocking creation.
+// so the wizard can surface them without blocking creation. DeployStarted is
+// true when an image-mode stamp kicked off a background deploy (pull + run).
 type CreateNodeFromTemplateResult struct {
-	Node     store.CanvasNode `json:"node"`
-	Warnings []string         `json:"warnings"`
+	Node           store.CanvasNode `json:"node"`
+	Warnings       []string         `json:"warnings"`
+	DeployStarted  bool             `json:"deployStarted"`
 }
 
 // templateEnvEntry is the JSON shape of a ServiceTemplate.EnvVars row.
@@ -248,7 +251,29 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	}
 
 	result.Node = *node
+
+	// Image-mode services (datastores and custom image templates) are fully
+	// configured by stamping — no source tree or Dockerfile is required. Start
+	// them immediately so connection URLs and env refs are live without a
+	// manual Deploy click. Build-mode stamps stay manual: source may be missing
+	// and the build can take a long time.
+	if tpl.Mode == store.ModeImage {
+		settings, err := e.store.GetNodeSettings(req.ID)
+		if err == nil && imageModeDeployable(settings) {
+			_ = e.Deploy(context.Background(), req.ID)
+			result.DeployStarted = true
+		}
+	}
+
 	return result, nil
+}
+
+// imageModeDeployable reports whether stamped settings are enough for the
+// image-pull deploy path (image + port, no dockerfile).
+func imageModeDeployable(settings map[string]string) bool {
+	return strings.TrimSpace(settings["image"]) != "" &&
+		strings.TrimSpace(settings["service_port"]) != "" &&
+		strings.TrimSpace(settings["dockerfile"]) == ""
 }
 
 // stampResolvedSetting writes a single template-derived setting, resolving

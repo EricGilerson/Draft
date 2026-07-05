@@ -28,7 +28,7 @@ export default function VolumeMountEdge({
                 strokeWidth: selected ? 2.4 : 1.6,
             }}
             className="volume-mount-edge-path"
-            interactionWidth={16}
+            interactionWidth={6}
         />
     );
 }

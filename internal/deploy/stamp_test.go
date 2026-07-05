@@ -97,6 +97,9 @@ func TestStampFromBuildTemplate(t *testing.T) {
 	if strings.Contains(byKey["NODE_ENV"].Value, "{{draft.") {
 		t.Errorf("NODE_ENV still contains an unresolved expression: %q", byKey["NODE_ENV"].Value)
 	}
+	if res.DeployStarted {
+		t.Error("build-mode stamp should not auto-deploy")
+	}
 }
 
 func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
@@ -117,7 +120,9 @@ func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateNodeFromTemplate: %v", err)
 	}
-	_ = res
+	if !res.DeployStarted {
+		t.Error("image-mode stamp should auto-deploy")
+	}
 
 	settings, _ := s.GetNodeSettings("db1")
 	if settings["image"] != "postgres:16-alpine" {

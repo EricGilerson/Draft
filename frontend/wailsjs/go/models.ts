@@ -47,6 +47,7 @@ export namespace deploy {
 	export class CreateNodeFromTemplateResult {
 	    node: store.CanvasNode;
 	    warnings: string[];
+	    deployStarted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateNodeFromTemplateResult(source);
@@ -56,6 +57,7 @@ export namespace deploy {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.node = this.convertValues(source["node"], store.CanvasNode);
 	        this.warnings = source["warnings"];
+	        this.deployStarted = source["deployStarted"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

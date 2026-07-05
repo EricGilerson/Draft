@@ -238,7 +238,6 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     selectable: true,
                     focusable: true,
                     reconnectable: false,
-                    zIndex: 2,
                     data: {
                         mountPath: entry.containerPath,
                         readOnly: !!entry.readOnly,
@@ -407,13 +406,16 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     };
 
     const handleCreated = (node: store.CanvasNode, template?: store.ServiceTemplate) => {
+        // Image-mode stamps auto-deploy on the backend; show starting until SSE
+        // updates the badge. Build-mode and blank nodes stay stopped.
+        const initialStatus = template?.mode === 'image' ? 'starting' : 'stopped';
         const flowNode: Node<ServiceNodeData> = {
             id: node.id,
             type: 'service',
             position: {x: node.x, y: node.y},
             data: {
                 label: node.label,
-                status: 'stopped',
+                status: initialStatus,
                 templateId: node.templateId || undefined,
                 icon: template?.icon,
                 iconColor: template?.color,
