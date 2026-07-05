@@ -840,6 +840,7 @@ export namespace store {
 	    color: string;
 	    mode: string;
 	    image: string;
+	    imageTags: string;
 	    port: number;
 	    dockerfile: string;
 	    cmdOverride: string;
@@ -868,6 +869,7 @@ export namespace store {
 	        this.color = source["color"];
 	        this.mode = source["mode"];
 	        this.image = source["image"];
+	        this.imageTags = source["imageTags"];
 	        this.port = source["port"];
 	        this.dockerfile = source["dockerfile"];
 	        this.cmdOverride = source["cmdOverride"];

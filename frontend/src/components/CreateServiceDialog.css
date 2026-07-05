@@ -144,6 +144,11 @@
     flex: 1;
 }
 
+/* Custom image ref input revealed when the version dropdown is set to Custom… */
+.csd-custom-image-input {
+    margin-top: 6px;
+}
+
 .csd-hint {
     font-size: 11px;
     color: var(--text-faint);

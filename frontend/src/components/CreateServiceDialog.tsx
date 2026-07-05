@@ -8,6 +8,7 @@ import {
 import {deploy, store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import TemplateIcon from './TemplateIcon';
+import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 import './CreateServiceDialog.css';
 
 type TemplateSchema = {
@@ -57,6 +58,11 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
     const [label, setLabel] = useState('');
     const [serviceRoot, setServiceRoot] = useState('');
     const [overrides, setOverrides] = useState<Record<string, string>>({});
+    // imageChoice is the select's value: a full ref from the curated list, or
+    // CUSTOM_IMAGE_VALUE when the user picks "Custom…". imageCustom holds the
+    // free-text ref when in custom mode. Effective ref is computed in create().
+    const [imageChoice, setImageChoice] = useState('');
+    const [imageCustom, setImageCustom] = useState('');
     const [step, setStep] = useState<Step>('template');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -78,6 +84,15 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         if (!selected) return {};
         return parseSchema(selected.schema);
     }, [selected]);
+
+    // Curated version options for image-mode templates. Empty for build-mode or
+    // templates without a curated list — the picker falls back to free-text.
+    const imageOptions = useMemo(() => {
+        if (!selected || selected.mode !== 'image' || !selected.image) return [];
+        return buildImageOptions(selected.image, selected.imageTags);
+    }, [selected]);
+
+    const isImageMode = !!selected && selected.mode === 'image';
 
     // Steps come from the template schema; fall back to a sensible default.
     const steps = useMemo<Step[]>(() => {
@@ -127,6 +142,11 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         setOverrides({});
         setError('');
         setWarnings([]);
+        // Default the version picker to the template's default image ref; clear
+        // any prior custom text. For build-mode templates these stay empty and
+        // the picker isn't rendered.
+        setImageChoice(t.mode === 'image' && t.image ? t.image : '');
+        setImageCustom('');
         // Default overrides from the schema's field defaults.
         const seeded: Record<string, string> = {};
         if (schema?.settings) {
@@ -147,6 +167,8 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         setOverrides({});
         setError('');
         setWarnings([]);
+        setImageChoice('');
+        setImageCustom('');
         setStep('identity');
     };
 
@@ -188,6 +210,22 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                 setError('Pick a template first.');
                 return;
             }
+            // Compose the effective image ref from the version picker: a curated
+            // ref, the custom free-text, or fall back to the template default.
+            let effectiveOverrides = overrides;
+            if (isImageMode) {
+                let imageRef = '';
+                if (imageChoice === CUSTOM_IMAGE_VALUE) {
+                    imageRef = imageCustom.trim();
+                } else if (imageChoice) {
+                    imageRef = imageChoice;
+                } else if (selected.image) {
+                    imageRef = selected.image;
+                }
+                if (imageRef) {
+                    effectiveOverrides = {...overrides, image: imageRef};
+                }
+            }
             const req = new deploy.CreateNodeFromTemplateRequest({
                 id,
                 label: name,
@@ -196,7 +234,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                 y: position.y,
                 templateId: selected.id,
                 serviceRoot: serviceRoot.trim(),
-                overrides,
+                overrides: effectiveOverrides,
             });
             const res = await CreateNodeFromTemplate(req);
             onCreated(res.node, selected);
@@ -209,7 +247,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         } finally {
             setBusy(false);
         }
-    }, [blankMode, selected, label, projectId, position, serviceRoot, overrides, onCreated]);
+    }, [blankMode, selected, label, projectId, position, serviceRoot, overrides, onCreated, isImageMode, imageChoice, imageCustom]);
 
     const close = () => {
         if (busy) return;
@@ -339,6 +377,48 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                                 </div>
                             </div>
                         )}
+                        {!blankMode && isImageMode && imageOptions.length > 0 && (
+                            <label className="csd-field">
+                                <span className="csd-field-label">Version</span>
+                                <select
+                                    className="input select-styled"
+                                    value={imageChoice}
+                                    onChange={(e) => setImageChoice(e.target.value)}
+                                >
+                                    {imageOptions.map((opt) => (
+                                        <option key={opt.ref} value={opt.ref}>{opt.label}</option>
+                                    ))}
+                                    <option value={CUSTOM_IMAGE_VALUE}>Custom…</option>
+                                </select>
+                                {imageChoice === CUSTOM_IMAGE_VALUE && (
+                                    <input
+                                        className="input csd-custom-image-input"
+                                        placeholder="e.g. postgres:15-alpine"
+                                        value={imageCustom}
+                                        onChange={(e) => setImageCustom(e.target.value)}
+                                        autoFocus
+                                    />
+                                )}
+                                <span className="csd-hint">
+                                    Pick a curated version or choose Custom to type any image ref.
+                                </span>
+                            </label>
+                        )}
+                        {!blankMode && isImageMode && imageOptions.length === 0 && (
+                            <label className="csd-field">
+                                <span className="csd-field-label">Image</span>
+                                <input
+                                    className="input"
+                                    placeholder={selected?.image || 'e.g. postgres:16-alpine'}
+                                    value={imageCustom}
+                                    onChange={(e) => {
+                                        setImageChoice(CUSTOM_IMAGE_VALUE);
+                                        setImageCustom(e.target.value);
+                                    }}
+                                />
+                                <span className="csd-hint">No curated versions for this template — type any image ref.</span>
+                            </label>
+                        )}
                         {!blankMode && schema.serviceRoot !== 'hidden' && (
                             <label className="csd-field">
                                 <span className="csd-field-label">
@@ -444,6 +524,16 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                                         {selected?.mode === 'image' ? `Image · ${selected?.image || '—'}` : 'Build'}
                                     </span>
                                 </div>
+                                {isImageMode && (
+                                    <div className="csd-review-row">
+                                        <span className="csd-review-key">Image</span>
+                                        <span className="csd-review-val">
+                                            {imageChoice === CUSTOM_IMAGE_VALUE
+                                                ? (imageCustom.trim() || selected?.image || '—')
+                                                : (imageChoice || selected?.image || '—')}
+                                        </span>
+                                    </div>
+                                )}
                                 {schema.serviceRoot !== 'hidden' && (
                                     <div className="csd-review-row">
                                         <span className="csd-review-key">Service root</span>

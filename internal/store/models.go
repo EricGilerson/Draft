@@ -133,6 +133,7 @@ type ServiceTemplate struct {
 	Color       string    `json:"color"`                                // optional brand hex; empty = currentColor
 	Mode        string    `gorm:"not null;default:'build'" json:"mode"` // "build" | "image"
 	Image       string    `json:"image"`                                // image name when Mode=="image" (datastores)
+	ImageTags   string    `gorm:"type:text" json:"imageTags"`           // JSON: ["16-alpine","16",...] curated tags for image-mode templates; base name comes from Image
 	Port        int       `json:"port"`
 	Dockerfile  string    `gorm:"type:text" json:"dockerfile"` // embedded Dockerfile content
 	CmdOverride string    `json:"cmdOverride"`

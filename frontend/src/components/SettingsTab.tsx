@@ -7,6 +7,7 @@ import {
     GetNode, GetServiceTemplate,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, main, store} from '../../wailsjs/go/models';
+import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
@@ -66,6 +67,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
 
     const [template, setTemplate] = useState<store.ServiceTemplate | null>(null);
     const [imageInput, setImageInput] = useState('');
+    // Explicit "custom" mode for the image picker. We can't derive this from
+    // imageInput alone: when the current image happens to match a curated ref
+    // (e.g. the template default), selecting Custom… would otherwise re-derive
+    // the select value back to that curated ref and hide the free-text field.
+    const [imageCustomMode, setImageCustomMode] = useState(false);
 
     const schema = useMemo<TemplateSchema>(() => parseSchema(template?.schema || ''), [template]);
     const hiddenSections = useMemo<Set<string>>(() => new Set(schema.hideSections || []), [schema]);
@@ -73,6 +79,18 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     // settings (image set + no dockerfile) so blank nodes that someone pointed
     // at an image still get the image-mode UI.
     const isImageMode = template ? template.mode === 'image' : (!!settings.image && !settings.dockerfile);
+    // Curated version options for image-mode templates with a tag list. When
+    // present, the Image section renders a version dropdown plus a Custom…
+    // free-text fallback; otherwise it stays a plain free-text input.
+    const imageOptions = useMemo(() => {
+        if (!template || template.mode !== 'image' || !template.image) return [];
+        return buildImageOptions(template.image, template.imageTags);
+    }, [template]);
+    // The select shows Custom… when the user explicitly switched to custom mode
+    // OR when the current image isn't one of the curated refs.
+    const imageIsCurated = imageOptions.some((o) => o.ref === imageInput);
+    const imageSelectValue = imageCustomMode || !imageIsCurated ? CUSTOM_IMAGE_VALUE : imageInput;
+    const showImageCustomField = imageCustomMode || (!imageIsCurated && !!imageInput);
     const sectionHidden = (id: string) => hiddenSections.has(id);
 
     const [isGitRepo, setIsGitRepo] = useState(false);
@@ -181,6 +199,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setPort(p);
             setPortInput(p);
             setImageInput(s.image || '');
+            setImageCustomMode(false);
             setUseDockerignore(s.use_dockerignore === 'true');
             setUseGitignore(s.use_gitignore === 'true');
             setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
@@ -477,18 +496,60 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <h3 className="settings-section-title">Image</h3>
                     <div className="form-field">
                         <label className="form-label">Container Image</label>
-                        <span className="settings-hint">The registry image to pull and run (e.g. postgres:16-alpine).</span>
-                        <input
-                            className="input"
-                            value={imageInput}
-                            onChange={(e) => setImageInput(e.target.value)}
-                            onBlur={() => commitImage()}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') commitImage();
-                                if (e.key === 'Escape') setImageInput(settings.image || '');
-                            }}
-                            placeholder="e.g. postgres:16-alpine"
-                        />
+                        <span className="settings-hint">
+                            The registry image to pull and run. Pick a curated version or choose Custom to type any ref.
+                        </span>
+                        {imageOptions.length > 0 ? (
+                            <>
+                                <select
+                                    className="input select-styled"
+                                    value={imageSelectValue}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        if (v === CUSTOM_IMAGE_VALUE) {
+                                            setImageCustomMode(true);
+                                            // Seed the free-text field with the current ref so
+                                            // the user can tweak it rather than starting blank.
+                                            setImageInput(imageInput || settings.image || '');
+                                        } else {
+                                            setImageCustomMode(false);
+                                            setImageInput(v);
+                                            commitImage(v);
+                                        }
+                                    }}
+                                >
+                                    {imageOptions.map((opt) => (
+                                        <option key={opt.ref} value={opt.ref}>{opt.label}</option>
+                                    ))}
+                                    <option value={CUSTOM_IMAGE_VALUE}>Custom…</option>
+                                </select>
+                                {showImageCustomField && (
+                                    <input
+                                        className="input"
+                                        value={imageInput}
+                                        onChange={(e) => setImageInput(e.target.value)}
+                                        onBlur={() => commitImage()}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') commitImage();
+                                            if (e.key === 'Escape') setImageInput(settings.image || '');
+                                        }}
+                                        placeholder="e.g. postgres:15-alpine"
+                                    />
+                                )}
+                            </>
+                        ) : (
+                            <input
+                                className="input"
+                                value={imageInput}
+                                onChange={(e) => setImageInput(e.target.value)}
+                                onBlur={() => commitImage()}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitImage();
+                                    if (e.key === 'Escape') setImageInput(settings.image || '');
+                                }}
+                                placeholder="e.g. postgres:16-alpine"
+                            />
+                        )}
                     </div>
                 </div>
             )}

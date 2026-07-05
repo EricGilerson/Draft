@@ -109,8 +109,12 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	}
 
 	if tpl.Mode == store.ModeImage {
-		if tpl.Image != "" {
-			if err := e.store.SetNodeSetting(req.ID, "image", tpl.Image); err != nil {
+		// An explicit "image" override (from the wizard's version picker) wins;
+		// otherwise fall back to the template's default Image ref. Empty means
+		// "no image stamped" — the user can set it later in Settings.
+		imageRef := overrideOr(req.Overrides, "image", tpl.Image)
+		if imageRef != "" {
+			if err := e.store.SetNodeSetting(req.ID, "image", imageRef); err != nil {
 				cleanup()
 				return nil, err
 			}
@@ -194,7 +198,7 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	// is routed to env vars (Source=manual, wins over the generated default);
 	// every other key is routed to node_settings.
 	for key, value := range req.Overrides {
-		if key == "dockerfile" || key == "service_port" {
+		if key == "dockerfile" || key == "service_port" || key == "image" {
 			continue // already handled above
 		}
 		if spec, ok := schema.Settings[key]; ok && spec.Type == "env" {

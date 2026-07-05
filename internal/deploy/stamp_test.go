@@ -149,6 +149,29 @@ func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
 	}
 }
 
+func TestStampFromImageTemplateHonorsImageOverride(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	tpl := findBuiltin(t, s, "PostgreSQL")
+
+	if _, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+		ID:         "dbv",
+		Label:      "db",
+		ProjectID:  p.ID,
+		TemplateID: tpl.ID,
+		Overrides:  map[string]string{"image": "postgres:15-alpine"},
+	}); err != nil {
+		t.Fatalf("CreateNodeFromTemplate: %v", err)
+	}
+
+	settings, _ := s.GetNodeSettings("dbv")
+	if settings["image"] != "postgres:15-alpine" {
+		t.Errorf("image override = %q, want postgres:15-alpine (override should win over template default)", settings["image"])
+	}
+}
+
 func TestStampWritesDockerfileOnlyWhenAbsent(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

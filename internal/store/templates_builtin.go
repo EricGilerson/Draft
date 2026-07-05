@@ -55,6 +55,17 @@ func mustEncodeSchema(s TemplateSchema) string {
 	return out
 }
 
+// Curated image tag lists for the datastore built-ins. The first entry is the
+// template's default (it matches the tag in Image); the rest are common
+// alternatives the user can pick from in the create wizard / Settings → Image
+// without typing a full ref. Users can always type a custom ref too.
+var (
+	postgresImageTags = `["16-alpine","16","15-alpine","15","14-alpine","14","latest"]`
+	redisImageTags    = `["7-alpine","7","6-alpine","6","latest"]`
+	mysqlImageTags    = `["8","8.0","8-debian","latest"]`
+	mongoImageTags    = `["7","7-jammy","6","6-jammy","latest"]`
+)
+
 var builtinTemplates = []ServiceTemplate{
 	{
 		Name:        "Next.js",
@@ -189,6 +200,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "postgres:16-alpine",
 		Port:        5432,
 		Schema:      imageTemplateSchema,
+		ImageTags:   postgresImageTags,
 		// DB user/name use the official image's standard defaults (postgres/postgres)
 		// rather than being derived from the project, so credentials read the way a
 		// freshly-installed Postgres would. The password stays per-node derived so
@@ -205,6 +217,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "redis:7-alpine",
 		Port:        6379,
 		Schema:      imageTemplateSchema,
+		ImageTags:   redisImageTags,
 		// The official redis image reads no env var for auth, so REDIS_PASSWORD
 		// alone is a no-op. CmdOverride enforces it via --requirepass; Draft
 		// expands {{draft.*}} in CmdOverride at stamp time.
@@ -221,6 +234,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "mysql:8",
 		Port:        3306,
 		Schema:      imageTemplateSchema,
+		ImageTags:   mysqlImageTags,
 		// Standard defaults: root is the admin (password derived per node), and
 		// an `mysql` app user is created with access to the `appdb` database. Both
 		// are fixed conventions independent of the project name.
@@ -236,6 +250,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "mongo:7",
 		Port:        27017,
 		Schema:      imageTemplateSchema,
+		ImageTags:   mongoImageTags,
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
 		// no CmdOverride is needed (unlike Redis). The connection URL uses

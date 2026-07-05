@@ -513,4 +513,74 @@ func TestCloneTemplateCarriesSchema(t *testing.T) {
 	if clone.Schema != pg.Schema {
 		t.Errorf("clone schema = %q, want %q (clone must carry schema)", clone.Schema, pg.Schema)
 	}
+	if clone.ImageTags != pg.ImageTags {
+		t.Errorf("clone imageTags = %q, want %q (clone must carry imageTags)", clone.ImageTags, pg.ImageTags)
+	}
+}
+
+// TestBuiltinDBTemplatesCarryImageTags asserts each datastore built-in ships a
+// curated tag list, and that the tag of the default Image ref is the FIRST tag
+// (so the version picker's default option matches the template default).
+func TestBuiltinDBTemplatesCarryImageTags(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	for _, tpl := range list {
+		if tpl.Mode != ModeImage {
+			continue
+		}
+		tags, err := ParseImageTags(tpl.ImageTags)
+		if err != nil {
+			t.Errorf("built-in %q has invalid ImageTags: %v", tpl.Name, err)
+			continue
+		}
+		if len(tags) == 0 {
+			t.Errorf("built-in %q has no curated ImageTags", tpl.Name)
+			continue
+		}
+		_, defaultTag := SplitImageRef(tpl.Image)
+		if tags[0] != defaultTag {
+			t.Errorf("built-in %q first ImageTag %q should match default image tag %q", tpl.Name, tags[0], defaultTag)
+		}
+	}
+}
+
+// TestCreateTemplateNormalizesImageTags verifies the tag list is trimmed +
+// deduped on create and update, and malformed JSON is rejected.
+func TestCreateTemplateNormalizesImageTags(t *testing.T) {
+	s := openTemp(t)
+	tpl, err := s.CreateTemplate(&ServiceTemplate{
+		Name:      "Custom DB",
+		Mode:      "image",
+		Image:     "foo:1",
+		Port:      5000,
+		ImageTags: `["1"," 1 ","","2"]`,
+	})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+	if tpl.ImageTags != `["1","2"]` {
+		t.Errorf("ImageTags not normalized: %q", tpl.ImageTags)
+	}
+	if err := s.UpdateTemplate(&ServiceTemplate{
+		ID:        tpl.ID,
+		Name:      "Custom DB",
+		Mode:      "image",
+		Image:     "foo:1",
+		ImageTags: `["3","3"]`,
+	}); err != nil {
+		t.Fatalf("UpdateTemplate: %v", err)
+	}
+	got, err := s.GetTemplate(tpl.ID)
+	if err != nil {
+		t.Fatalf("GetTemplate: %v", err)
+	}
+	if got.ImageTags != `["3"]` {
+		t.Errorf("ImageTags after update = %q, want [\"3\"]", got.ImageTags)
+	}
+	if _, err := s.CreateTemplate(&ServiceTemplate{Name: "Bad Tags", Mode: "image", Image: "x:1", ImageTags: "{not json"}); err == nil {
+		t.Error("expected error for malformed ImageTags, got nil")
+	}
 }
