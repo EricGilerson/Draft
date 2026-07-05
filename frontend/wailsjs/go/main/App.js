@@ -14,6 +14,10 @@ export function CreateNode(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['CreateNode'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function CreateNodeFromTemplate(arg1) {
+  return window['go']['main']['App']['CreateNodeFromTemplate'](arg1);
+}
+
 export function CreateProject(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3);
 }
@@ -64,6 +68,10 @@ export function GetGitHookStatus(arg1, arg2) {
 
 export function GetLocalDomainStatus() {
   return window['go']['main']['App']['GetLocalDomainStatus']();
+}
+
+export function GetNode(arg1) {
+  return window['go']['main']['App']['GetNode'](arg1);
 }
 
 export function GetNodeSettings(arg1) {

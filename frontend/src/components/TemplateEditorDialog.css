@@ -185,3 +185,28 @@
     border-color: var(--accent, var(--border));
     color: var(--accent, var(--text));
 }
+
+.template-editor-cap-checks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 6px 12px;
+    margin-top: 6px;
+}
+
+.template-editor-cap-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.template-editor-cap-check input {
+    margin: 0;
+}
+
+.template-editor-cap-check:has(input:disabled) {
+    opacity: 0.6;
+    cursor: default;
+}

@@ -20,6 +20,50 @@ type Props = {
 type EnvEntry = {key: string; value: string; scope: string};
 type LabelEntry = {key: string; value: string};
 
+type TemplateSchema = {
+    serviceRoot?: 'optional' | 'hidden';
+    dockerfile?: 'optional' | 'hidden';
+    wizardSteps?: {id: string; title: string}[];
+    settings?: Record<string, {default?: string; hidden?: boolean; label?: string; type?: string; options?: string[]}>;
+    hideSections?: string[];
+};
+
+const SECTION_OPTIONS: {id: string; label: string}[] = [
+    {id: 'source', label: 'Source / git branch'},
+    {id: 'dockerfile', label: 'Dockerfile'},
+    {id: 'buildContext', label: 'Build context'},
+    {id: 'buildConfiguration', label: 'Build configuration'},
+    {id: 'runtimeCommand', label: 'Runtime command'},
+    {id: 'restart', label: 'Restart policy'},
+    {id: 'healthcheck', label: 'Health check'},
+    {id: 'resources', label: 'Resource limits'},
+    {id: 'volumes', label: 'Volumes'},
+    {id: 'lifecycle', label: 'Lifecycle hooks'},
+    {id: 'security', label: 'Security'},
+    {id: 'labels', label: 'Custom labels'},
+];
+
+function parseSchema(raw?: string): TemplateSchema {
+    if (!raw) return {};
+    try {
+        return JSON.parse(raw) as TemplateSchema;
+    } catch {
+        return {};
+    }
+}
+
+function serializeSchema(s: TemplateSchema): string {
+    // Drop empty fields so the stored column stays compact.
+    const out: TemplateSchema = {};
+    if (s.serviceRoot) out.serviceRoot = s.serviceRoot;
+    if (s.dockerfile) out.dockerfile = s.dockerfile;
+    if (s.wizardSteps && s.wizardSteps.length) out.wizardSteps = s.wizardSteps;
+    if (s.settings && Object.keys(s.settings).length) out.settings = s.settings;
+    if (s.hideSections && s.hideSections.length) out.hideSections = s.hideSections;
+    const json = JSON.stringify(out);
+    return json === '{}' ? '' : json;
+}
+
 const CATEGORIES: {value: string; label: string}[] = [
     {value: 'web', label: 'Web'},
     {value: 'datastore', label: 'Datastore'},
@@ -108,6 +152,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [focusedEnv, setFocusedEnv] = useState<number | null>(null);
+    const [schema, setSchema] = useState<TemplateSchema>(() => parseSchema(template?.schema));
 
     const readOnly = currentMode === 'view';
 
@@ -115,7 +160,20 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
         setDraft(template ? new store.ServiceTemplate(template) : blankTemplate());
         setEnvEntries(parseEnvVars(template?.envVars));
         setLabelEntries(parseLabels(template?.labels));
+        setSchema(parseSchema(template?.schema));
     }, [template]);
+
+    const updateSchema = (next: TemplateSchema) => {
+        setSchema(next);
+        set('schema', serializeSchema(next));
+    };
+
+    const toggleHideSection = (id: string) => {
+        const set = new Set(schema.hideSections || []);
+        if (set.has(id)) set.delete(id);
+        else set.add(id);
+        updateSchema({...schema, hideSections: Array.from(set)});
+    };
 
     const set = <K extends keyof store.ServiceTemplate>(key: K, value: store.ServiceTemplate[K]) => {
         setDraft((prev) => {
@@ -512,6 +570,58 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                             <Plus size={12}/> Add label
                         </button>
                     )}
+                </div>
+
+                <div className="form-field">
+                    <label className="form-label">Capabilities</label>
+                    <span className="settings-hint">
+                        Drives the create-service wizard and which Settings sections are hidden for services
+                        built from this template. Built-in templates are curated; clones and custom templates
+                        are fully editable here.
+                    </span>
+
+                    <div className="template-editor-row">
+                        <div className="form-field">
+                            <label className="form-label">Service root</label>
+                            <select
+                                className="input"
+                                value={schema.serviceRoot || (draft.mode === 'image' ? 'hidden' : 'optional')}
+                                onChange={(e) => updateSchema({...schema, serviceRoot: e.target.value as 'optional' | 'hidden'})}
+                                disabled={readOnly}
+                            >
+                                <option value="optional">Optional (user can pick)</option>
+                                <option value="hidden">Hidden (never shown)</option>
+                            </select>
+                        </div>
+                        <div className="form-field">
+                            <label className="form-label">Dockerfile</label>
+                            <select
+                                className="input"
+                                value={schema.dockerfile || (draft.mode === 'image' ? 'hidden' : 'optional')}
+                                onChange={(e) => updateSchema({...schema, dockerfile: e.target.value as 'optional' | 'hidden'})}
+                                disabled={readOnly || draft.mode === 'image'}
+                            >
+                                <option value="optional">Optional</option>
+                                <option value="hidden">Hidden</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <label className="form-label" style={{marginTop: 10}}>Hidden Settings sections</label>
+                    <span className="settings-hint">Tick the sections to hide for services created from this template.</span>
+                    <div className="template-editor-cap-checks">
+                        {SECTION_OPTIONS.map((opt) => (
+                            <label key={opt.id} className="template-editor-cap-check">
+                                <input
+                                    type="checkbox"
+                                    checked={(schema.hideSections || []).includes(opt.id)}
+                                    onChange={() => toggleHideSection(opt.id)}
+                                    disabled={readOnly}
+                                />
+                                <span>{opt.label}</span>
+                            </label>
+                        ))}
+                    </div>
                 </div>
 
                 {error && <p className="form-error">{error}</p>}

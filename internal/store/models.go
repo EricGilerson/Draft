@@ -24,9 +24,15 @@ type CanvasNode struct {
 	// (service.project.environment.uid.draft.local). It's generated once and
 	// never changes, so the hostname stays valid across redeploys and other
 	// services on the same Docker network can depend on it.
-	UID       string    `gorm:"not null;default:''" json:"uid"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	UID string `gorm:"not null;default:''" json:"uid"`
+	// TemplateID is the ServiceTemplate this node was created from, or 0 for a
+	// blank/legacy node. Stored so the canvas can render the template icon and
+	// a future "re-apply template" action can find the source. 0 is treated as
+	// "no template" everywhere; it is not a foreign key so deleting a template
+	// never orphans nodes.
+	TemplateID uint      `gorm:"index;default:0" json:"templateId"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // Route maps a Draft-managed hostname to a container target. HTTP services
@@ -134,6 +140,10 @@ type ServiceTemplate struct {
 	WorkingDir  string    `json:"workingDir"`
 	EnvVars     string    `gorm:"type:text" json:"envVars"` // JSON: [{"key","value","scope"}]
 	Labels      string    `gorm:"type:text" json:"labels"`  // JSON: {"key":"value"}
+	// Schema is a JSON-encoded TemplateSchema that drives the create-service
+	// wizard (which steps/fields apply) and the Settings tab (which sections to
+	// hide). Empty means "use the default for Mode"; see template_schema.go.
+	Schema      string    `gorm:"type:text" json:"schema"`
 	Builtin     bool      `gorm:"not null;default:false" json:"builtin"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`

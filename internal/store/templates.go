@@ -34,6 +34,20 @@ func (s *Store) GetTemplate(id uint) (*ServiceTemplate, error) {
 	return &t, nil
 }
 
+// normalizeTemplateSchema validates the Schema column on a template about to be
+// saved: it must parse as a TemplateSchema, and any unset mode fields are filled
+// from the default for the template's Mode. The encoded result is returned. A
+// malformed schema is rejected with a clear error so a bad template can't ship
+// a zero schema into the wizard.
+func normalizeTemplateSchema(raw, mode string) (string, error) {
+	s, err := ParseTemplateSchema(raw)
+	if err != nil {
+		return "", err
+	}
+	s = NormalizeSchema(s, mode)
+	return EncodeTemplateSchema(s)
+}
+
 // CreateTemplate inserts a new user template. Builtin is forced false so the
 // curated defaults can never be impersonated or overwritten via this path.
 func (s *Store) CreateTemplate(t *ServiceTemplate) (*ServiceTemplate, error) {
@@ -48,6 +62,11 @@ func (s *Store) CreateTemplate(t *ServiceTemplate) (*ServiceTemplate, error) {
 	if t.Mode == "" {
 		t.Mode = "build"
 	}
+	normalized, err := normalizeTemplateSchema(t.Schema, t.Mode)
+	if err != nil {
+		return nil, err
+	}
+	t.Schema = normalized
 	if err := s.DB.Create(t).Error; err != nil {
 		return nil, err
 	}
@@ -73,6 +92,14 @@ func (s *Store) UpdateTemplate(t *ServiceTemplate) error {
 	}
 	// Builtin is immutable from this path regardless of the input.
 	t.Builtin = false
+	if t.Mode == "" {
+		t.Mode = "build"
+	}
+	normalized, err := normalizeTemplateSchema(t.Schema, t.Mode)
+	if err != nil {
+		return err
+	}
+	t.Schema = normalized
 	return s.DB.Save(t).Error
 }
 
@@ -151,7 +178,12 @@ func (s *Store) SeedBuiltins() error {
 			existing.Image = t.Image
 			existing.Port = t.Port
 			existing.Dockerfile = t.Dockerfile
+			existing.CmdOverride = t.CmdOverride
+			existing.Entrypoint = t.Entrypoint
+			existing.WorkingDir = t.WorkingDir
 			existing.EnvVars = t.EnvVars
+			existing.Labels = t.Labels
+			existing.Schema = t.Schema
 			existing.Builtin = true
 			if err := s.DB.Save(&existing).Error; err != nil {
 				return err

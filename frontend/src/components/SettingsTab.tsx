@@ -1,13 +1,31 @@
 import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw} from 'lucide-react';
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
     IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
+    GetNode, GetServiceTemplate,
 } from '../../wailsjs/go/main/App';
-import {dockerfile, main} from '../../wailsjs/go/models';
+import {dockerfile, main, store} from '../../wailsjs/go/models';
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
+
+type TemplateSchema = {
+    serviceRoot?: 'optional' | 'hidden';
+    dockerfile?: 'optional' | 'hidden';
+    wizardSteps?: {id: string; title: string}[];
+    settings?: Record<string, {default?: string; hidden?: boolean; label?: string; type?: string; options?: string[]}>;
+    hideSections?: string[];
+};
+
+function parseSchema(raw: string): TemplateSchema {
+    if (!raw) return {};
+    try {
+        return JSON.parse(raw) as TemplateSchema;
+    } catch {
+        return {};
+    }
+}
 
 type SettingsTabProps = {
     nodeId: string;
@@ -45,6 +63,17 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
     const [labels, setLabels] = useState<LabelEntry[]>([]);
+
+    const [template, setTemplate] = useState<store.ServiceTemplate | null>(null);
+    const [imageInput, setImageInput] = useState('');
+
+    const schema = useMemo<TemplateSchema>(() => parseSchema(template?.schema || ''), [template]);
+    const hiddenSections = useMemo<Set<string>>(() => new Set(schema.hideSections || []), [schema]);
+    // Image mode is determined by the template when available; fall back to the
+    // settings (image set + no dockerfile) so blank nodes that someone pointed
+    // at an image still get the image-mode UI.
+    const isImageMode = template ? template.mode === 'image' : (!!settings.image && !settings.dockerfile);
+    const sectionHidden = (id: string) => hiddenSections.has(id);
 
     const [isGitRepo, setIsGitRepo] = useState(false);
     const [gitBranch, setGitBranch] = useState('');
@@ -127,6 +156,18 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setRootPath(path || '');
             setInputValue(path || '');
         });
+        // Resolve the node's template (if any) so the template schema can drive
+        // which settings sections are shown/hidden, and so image-mode nodes get
+        // the image field instead of the Dockerfile field.
+        GetNode(nodeId)
+            .then((node) => {
+                if (node?.templateId) {
+                    return GetServiceTemplate(node.templateId).then(setTemplate).catch(() => setTemplate(null));
+                }
+                setTemplate(null);
+                return Promise.resolve();
+            })
+            .catch(() => setTemplate(null));
         GetNodeSettings(nodeId).then((s) => {
             if (!s) s = {};
             setSettings(s);
@@ -139,6 +180,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             const p = s.service_port || '';
             setPort(p);
             setPortInput(p);
+            setImageInput(s.image || '');
             setUseDockerignore(s.use_dockerignore === 'true');
             setUseGitignore(s.use_gitignore === 'true');
             setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
@@ -157,6 +199,16 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             }
         });
     }, [nodeId, projectId]);
+
+    const commitImage = useCallback((value?: string) => {
+        const trimmed = (value ?? imageInput).trim();
+        if (trimmed === (settings.image || '')) return;
+        SetNodeSetting(nodeId, 'image', trimmed).then(() => {
+            setImageInput(trimmed);
+            setSettings(prev => ({...prev, image: trimmed}));
+            onServicesChanged?.();
+        });
+    }, [nodeId, imageInput, settings.image, onServicesChanged]);
 
     const saveRoot = useCallback(async (absolutePath: string) => {
         setError('');
@@ -298,6 +350,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     return (
         <div className="settings-tab">
             {/* ── Source ── */}
+            {!sectionHidden('source') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Source</h3>
                 {isGitRepo && (
@@ -416,8 +469,32 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     {displayPath && !error && <span className="settings-resolved">{displayPath}</span>}
                 </div>
             </div>
+            )}
+
+            {/* ── Image (image-mode nodes) ── */}
+            {isImageMode && (
+                <div className="settings-section">
+                    <h3 className="settings-section-title">Image</h3>
+                    <div className="form-field">
+                        <label className="form-label">Container Image</label>
+                        <span className="settings-hint">The registry image to pull and run (e.g. postgres:16-alpine).</span>
+                        <input
+                            className="input"
+                            value={imageInput}
+                            onChange={(e) => setImageInput(e.target.value)}
+                            onBlur={() => commitImage()}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') commitImage();
+                                if (e.key === 'Escape') setImageInput(settings.image || '');
+                            }}
+                            placeholder="e.g. postgres:16-alpine"
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* ── Docker ── */}
+            {!isImageMode && !sectionHidden('dockerfile') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Docker</h3>
                 <div className="form-field">
@@ -441,8 +518,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     </div>
                 </div>
             </div>
+            )}
 
             {/* ── Build Context ── */}
+            {!isImageMode && !sectionHidden('buildContext') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Build Context</h3>
                 {gitBranch && (
@@ -457,14 +536,17 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 <ToggleRow label=".gitignore" desc="Exclude files matched by .gitignore patterns found anywhere in the service root." checked={useGitignore} onToggle={toggleGitignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
                 <ToggleRow label="BuildKit local context" desc="Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft's legacy tar upload path for maximum compatibility." checked={useBuildkitLocalContext} onToggle={toggleBuildkitLocalContext} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
             </div>
+            )}
 
             {/* ── Build Configuration ── */}
+            {!isImageMode && !sectionHidden('buildConfiguration') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Build Configuration</h3>
                 <SettingInput label="Target Stage" hint="For multi-stage builds, specify which stage to build (--target)." settingKey="build_target" value={getSetting('build_target')} onSave={saveSetting} placeholder="e.g. production" />
                 <SettingInput label="Platform" hint="Target platform for the build (e.g. linux/amd64, linux/arm64)." settingKey="build_platform" value={getSetting('build_platform')} onSave={saveSetting} placeholder="e.g. linux/amd64" />
                 <ToggleRow label="No Cache" desc="Force a full rebuild without using any cached layers." checked={getSetting('build_no_cache') === 'true'} onToggle={() => saveSetting('build_no_cache', getSetting('build_no_cache') === 'true' ? '' : 'true')} />
             </div>
+            )}
 
             {/* ── Networking ── */}
             <div className="settings-section">
@@ -517,6 +599,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             </div>
 
             {/* ── Runtime Command ── */}
+            {!sectionHidden('runtimeCommand') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Runtime Command</h3>
                 <SettingInput label="Command" hint="Override the Dockerfile CMD. Supports shell syntax (e.g. node server.js --port 3000)." settingKey="cmd_override" value={getSetting('cmd_override')} onSave={saveSetting} placeholder='e.g. node server.js' />
@@ -524,8 +607,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 <SettingInput label="Working Directory" hint="Override the container working directory (WORKDIR)." settingKey="working_dir" value={getSetting('working_dir')} onSave={saveSetting} placeholder="e.g. /app" />
                 <SettingInput label="User" hint="Run the container as this user/UID (e.g. node, 1000, 1000:1000)." settingKey="run_user" value={getSetting('run_user')} onSave={saveSetting} placeholder="e.g. node" />
             </div>
+            )}
 
             {/* ── Restart Policy ── */}
+            {!sectionHidden('restart') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Restart Policy</h3>
                 <div className="form-field">
@@ -546,8 +631,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <SettingInput label="Max Retries" hint="Maximum number of restart attempts before giving up." settingKey="restart_max_retries" value={getSetting('restart_max_retries')} onSave={saveSetting} placeholder="e.g. 5" type="number" />
                 )}
             </div>
+            )}
 
             {/* ── Health Check ── */}
+            {!sectionHidden('healthcheck') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Health Check</h3>
                 <ToggleRow label="Disable Health Check" desc="Ignore any HEALTHCHECK instruction in the Dockerfile." checked={getSetting('healthcheck_disable') === 'true'} onToggle={() => saveSetting('healthcheck_disable', getSetting('healthcheck_disable') === 'true' ? '' : 'true')} />
@@ -559,8 +646,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <SettingInput label="Retries" hint="Number of consecutive failures before marking as unhealthy." settingKey="healthcheck_retries" value={getSetting('healthcheck_retries')} onSave={saveSetting} placeholder="e.g. 3" type="number" />
                 </>)}
             </div>
+            )}
 
             {/* ── Resource Limits ── */}
+            {!sectionHidden('resources') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Resource Limits</h3>
                 <SettingInput label="CPU Limit" hint="Maximum CPU cores (e.g. 1.5 = 1.5 cores, 0.5 = half a core)." settingKey="cpu_limit" value={getSetting('cpu_limit')} onSave={saveSetting} placeholder="e.g. 1.5" />
@@ -568,8 +657,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 <SettingInput label="Memory Reservation" hint="Soft memory limit — Docker will try to keep usage below this." settingKey="memory_reservation" value={getSetting('memory_reservation')} onSave={saveSetting} placeholder="e.g. 256m" />
                 <SettingInput label="PID Limit" hint="Maximum number of processes in the container." settingKey="pids_limit" value={getSetting('pids_limit')} onSave={saveSetting} placeholder="e.g. 100" type="number" />
             </div>
+            )}
 
             {/* ── Volumes ── */}
+            {!sectionHidden('volumes') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Volumes</h3>
                 <span className="settings-hint">Bind mount host directories into the container.</span>
@@ -618,8 +709,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <Plus size={12} /> Add Volume
                 </button>
             </div>
+            )}
 
             {/* ── Lifecycle Hooks ── */}
+            {!sectionHidden('lifecycle') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Lifecycle Hooks</h3>
                 <SettingInput label="Pre-Build" hint="Shell command to run on your machine before building the image. If you're streaming from a git branch (the “Stream branch to Docker” option), any files this command generates on disk won't be included — the build context comes straight from git. Turn that option off to build from a full checkout that picks them up." settingKey="pre_build_cmd" value={getSetting('pre_build_cmd')} onSave={saveSetting} placeholder="e.g. npm run generate" />
@@ -643,8 +736,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 </div>
                 <SettingInput label="Stop Grace Period" hint="Seconds to wait after stop signal before force-killing." settingKey="stop_grace_period" value={getSetting('stop_grace_period')} onSave={saveSetting} placeholder="e.g. 10" type="number" />
             </div>
+            )}
 
             {/* ── Security ── */}
+            {!sectionHidden('security') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Security</h3>
                 <ToggleRow label="Privileged" desc="Run the container with full host privileges. Use with caution." checked={getSetting('privileged') === 'true'} onToggle={() => saveSetting('privileged', getSetting('privileged') === 'true' ? '' : 'true')} />
@@ -653,8 +748,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 <SettingInput label="Add Capabilities" hint="Comma-separated Linux capabilities to add (e.g. SYS_PTRACE, NET_ADMIN)." settingKey="cap_add" value={getSetting('cap_add')} onSave={saveSetting} placeholder="e.g. SYS_PTRACE, NET_ADMIN" />
                 <SettingInput label="Drop Capabilities" hint="Comma-separated Linux capabilities to drop." settingKey="cap_drop" value={getSetting('cap_drop')} onSave={saveSetting} placeholder="e.g. NET_RAW, MKNOD" />
             </div>
+            )}
 
             {/* ── Custom Labels ── */}
+            {!sectionHidden('labels') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Custom Labels</h3>
                 <span className="settings-hint">Key-value labels applied to the container. Draft labels are added automatically.</span>
@@ -691,6 +788,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <Plus size={12} /> Add Label
                 </button>
             </div>
+            )}
         </div>
     );
 }

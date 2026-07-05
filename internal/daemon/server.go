@@ -155,6 +155,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/deploy", s.handleDeploy)
+	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -200,6 +201,19 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.Deploy(context.Background(), req.NodeID))
+}
+
+func (s *Server) handleCreateNodeFromTemplate(w http.ResponseWriter, r *http.Request) {
+	var req deploy.CreateNodeFromTemplateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	res, err := s.engine.CreateNodeFromTemplate(req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) handleGitRecheck(w http.ResponseWriter, r *http.Request) {

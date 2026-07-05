@@ -83,6 +83,21 @@ func (a *App) CreateNode(id, label string, projectID uint, x, y float64) (*store
 	return a.store.CreateNode(node)
 }
 
+// CreateNodeFromTemplate stamps a new service node out of a template via the
+// daemon (which owns the deploy engine that resolves {{draft.*}} at stamp
+// time). Returns the created node plus non-fatal warnings (e.g. an existing
+// Dockerfile was left unchanged).
+func (a *App) CreateNodeFromTemplate(req deploy.CreateNodeFromTemplateRequest) (*deploy.CreateNodeFromTemplateResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.CreateNodeFromTemplate(a.ctx, req)
+}
+
 func (a *App) UpdateNode(id string, x, y float64, label string) error {
 	if a.store == nil {
 		return errNoStore
@@ -119,6 +134,15 @@ func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {
 		return nil, errNoStore
 	}
 	return a.store.ListNodes(projectID)
+}
+
+// GetNode returns a single canvas node by id, including its TemplateID so the
+// frontend can render the template icon and apply the template's schema.
+func (a *App) GetNode(id string) (*store.CanvasNode, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.GetNode(id)
 }
 
 func (a *App) ListProjectServices(projectID uint) ([]ProjectService, error) {

@@ -6,8 +6,54 @@ package store
 //
 // Dockerfiles are embedded so the later "create service" flow can write them
 // into a service root without the user needing to author one. Datastore entries
-// use Mode=="image" and carry an image name instead of a Dockerfile; image-pull
-// deploy support lands in a follow-up, but the templates are representable now.
+// use Mode=="image" and carry an image name instead of a Dockerfile; the
+// image-pull deploy path runs them straight from the registry.
+//
+// Each built-in also carries a Schema (see template_schema.go) that drives the
+// create-service wizard and the Settings tab. The two canned schemas below keep
+// the slice literal readable.
+
+// buildTemplateSchema is the schema for the build-mode built-ins: everything
+// optional, full 4-step wizard, no hidden Settings sections.
+var buildTemplateSchema = mustEncodeSchema(TemplateSchema{
+	ServiceRoot: SchemaOptional,
+	Dockerfile:  SchemaOptional,
+	WizardSteps: []WizardStep{
+		{ID: "template", Title: "Template"},
+		{ID: "identity", Title: "Name & options"},
+		{ID: "source", Title: "Service root"},
+		{ID: "review", Title: "Review"},
+	},
+})
+
+// imageTemplateSchema is the schema for the image-mode datastore built-ins:
+// service root and Dockerfile are irrelevant, the source/build Settings
+// sections are hidden, and the wizard skips the source step.
+var imageTemplateSchema = mustEncodeSchema(TemplateSchema{
+	ServiceRoot: SchemaHidden,
+	Dockerfile:  SchemaHidden,
+	HideSections: []string{
+		SectionSource,
+		SectionDockerfile,
+		SectionBuildContext,
+		SectionBuildConfig,
+		SectionRuntimeCommand,
+		SectionVolumes,
+	},
+	WizardSteps: []WizardStep{
+		{ID: "template", Title: "Template"},
+		{ID: "identity", Title: "Name & options"},
+		{ID: "review", Title: "Review"},
+	},
+})
+
+func mustEncodeSchema(s TemplateSchema) string {
+	out, err := EncodeTemplateSchema(s)
+	if err != nil {
+		panic(err)
+	}
+	return out
+}
 
 var builtinTemplates = []ServiceTemplate{
 	{
@@ -18,6 +64,7 @@ var builtinTemplates = []ServiceTemplate{
 		Color:       "#000000",
 		Mode:        "build",
 		Port:        3000,
+		Schema:      buildTemplateSchema,
 		Dockerfile: `# syntax=docker/dockerfile:1
 FROM node:20-alpine AS deps
 WORKDIR /app
@@ -52,6 +99,7 @@ CMD ["npm", "start"]
 		Color:       "#5FA04E",
 		Mode:        "build",
 		Port:        3000,
+		Schema:      buildTemplateSchema,
 		Dockerfile: `# syntax=docker/dockerfile:1
 FROM node:20-alpine
 WORKDIR /app
@@ -72,6 +120,7 @@ CMD ["npm", "start"]
 		Color:       "#009688",
 		Mode:        "build",
 		Port:        8000,
+		Schema:      buildTemplateSchema,
 		Dockerfile: `# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 WORKDIR /app
@@ -92,6 +141,7 @@ CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-w", "2
 		Color:       "#000000",
 		Mode:        "build",
 		Port:        5000,
+		Schema:      buildTemplateSchema,
 		Dockerfile: `# syntax=docker/dockerfile:1
 FROM python:3.12-slim
 WORKDIR /app
@@ -112,6 +162,7 @@ CMD ["gunicorn", "app:app", "-w", "2", "-b", "0.0.0.0:5000"]
 		Color:       "#646CFF",
 		Mode:        "build",
 		Port:        5173,
+		Schema:      buildTemplateSchema,
 		Dockerfile: `# syntax=docker/dockerfile:1
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -137,6 +188,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "postgres:16-alpine",
 		Port:        5432,
+		Schema:      imageTemplateSchema,
 		EnvVars: `[{"key":"POSTGRES_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"POSTGRES_DB","value":"{{draft.db_name}}","scope":"runtime"},{"key":"POSTGRES_HOST_AUTH_METHOD","value":"scram-sha-256","scope":"runtime"},{"key":"PGDATA","value":"/var/lib/postgresql/data","scope":"runtime"},{"key":"DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
 	},
 	{
@@ -148,6 +200,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "redis:7-alpine",
 		Port:        6379,
+		Schema:      imageTemplateSchema,
 		// The official redis image reads no env var for auth, so REDIS_PASSWORD
 		// alone is a no-op. CmdOverride enforces it via --requirepass; Draft
 		// expands {{draft.*}} in CmdOverride at stamp time.
@@ -163,6 +216,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "mysql:8",
 		Port:        3306,
+		Schema:      imageTemplateSchema,
 		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"MYSQL_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
 	},
 	{
@@ -174,6 +228,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Mode:        "image",
 		Image:       "mongo:7",
 		Port:        27017,
+		Schema:      imageTemplateSchema,
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
 		// no CmdOverride is needed (unlike Redis). The connection URL uses

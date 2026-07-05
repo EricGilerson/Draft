@@ -18,6 +18,64 @@ export namespace deploy {
 	        this.targetAttr = source["targetAttr"];
 	    }
 	}
+	export class CreateNodeFromTemplateRequest {
+	    id: string;
+	    label: string;
+	    projectId: number;
+	    x: number;
+	    y: number;
+	    templateId: number;
+	    serviceRoot: string;
+	    overrides: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateNodeFromTemplateRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.projectId = source["projectId"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.templateId = source["templateId"];
+	        this.serviceRoot = source["serviceRoot"];
+	        this.overrides = source["overrides"];
+	    }
+	}
+	export class CreateNodeFromTemplateResult {
+	    node: store.CanvasNode;
+	    warnings: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateNodeFromTemplateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.node = this.convertValues(source["node"], store.CanvasNode);
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DeploymentHistorySummary {
 	    totalDeployments: number;
 	    recentWindow: number;
@@ -498,6 +556,7 @@ export namespace store {
 	    x: number;
 	    y: number;
 	    uid: string;
+	    templateId: number;
 	    // Go type: time
 	    createdAt: any;
 	    // Go type: time
@@ -515,6 +574,7 @@ export namespace store {
 	        this.x = source["x"];
 	        this.y = source["y"];
 	        this.uid = source["uid"];
+	        this.templateId = source["templateId"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }
@@ -787,6 +847,7 @@ export namespace store {
 	    workingDir: string;
 	    envVars: string;
 	    labels: string;
+	    schema: string;
 	    builtin: boolean;
 	    // Go type: time
 	    createdAt: any;
@@ -814,6 +875,7 @@ export namespace store {
 	        this.workingDir = source["workingDir"];
 	        this.envVars = source["envVars"];
 	        this.labels = source["labels"];
+	        this.schema = source["schema"];
 	        this.builtin = source["builtin"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);

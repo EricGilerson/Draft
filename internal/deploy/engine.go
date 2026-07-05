@@ -118,6 +118,28 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 
 	dockerfilePath := settings["dockerfile"]
 	portStr := settings["service_port"]
+	imageRef := strings.TrimSpace(settings["image"])
+	// Image-mode services (datastores + custom image templates) skip the build
+	// entirely: they only need a port and an image to pull. Build-mode services
+	// still require a Dockerfile path.
+	if imageRef != "" && dockerfilePath == "" {
+		if portStr == "" {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "service_port is required"})
+			return
+		}
+		var node store.CanvasNode
+		if err := e.store.DB.First(&node, "id = ?", nodeID).Error; err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "node not found"})
+			return
+		}
+		project, err := e.store.GetProject(node.ProjectID)
+		if err != nil {
+			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "project not found"})
+			return
+		}
+		e.runImageDeploy(ctx, nodeID, settings, &node, project)
+		return
+	}
 	if dockerfilePath == "" || portStr == "" {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "dockerfile and port are required settings"})
 		return
@@ -244,8 +266,6 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	}
 	serviceName := addr.ServiceName
 	projectName := addr.ProjectName
-	environment := addr.Environment
-	hostname := addr.InternalHostname
 	uid, err := e.store.EnsureNodeUID(nodeID)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve node identity: " + err.Error()})
@@ -362,186 +382,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		}
 	}
 
-	e.emitBuildLog(nodeID, "==> Creating container...")
-	dep.Status = "starting"
-	dep.LastSeenAt = ptrTime(time.Now())
-	e.store.UpdateDeployment(dep)
-	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
-
-	containerPort := nat.Port(portStr + "/tcp")
-	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.Sequence)
-	networkName := draftNetworkName(node.ProjectID, projectName, environment)
-	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
-		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())
-		return
-	}
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
-
-	labels := map[string]string{
-		"draft.project":    fmt.Sprintf("%d", node.ProjectID),
-		"draft.node":       nodeID,
-		"draft.deployment": fmt.Sprintf("%d", dep.ID),
-	}
-	for k, v := range overrides.Labels {
-		labels[k] = v
-	}
-
-	containerCfg := &container.Config{
-		Image:        imageTag,
-		Env:          deployEnv.RuntimeEnv,
-		Labels:       labels,
-		ExposedPorts: nat.PortSet{containerPort: struct{}{}},
-	}
-	if len(overrides.Cmd) > 0 {
-		containerCfg.Cmd = overrides.Cmd
-	}
-	if len(overrides.Entrypoint) > 0 {
-		containerCfg.Entrypoint = overrides.Entrypoint
-	}
-	if overrides.WorkingDir != "" {
-		containerCfg.WorkingDir = overrides.WorkingDir
-	}
-	if overrides.User != "" {
-		containerCfg.User = overrides.User
-	}
-	if overrides.StopSignal != "" {
-		containerCfg.StopSignal = overrides.StopSignal
-	}
-	if overrides.Healthcheck != nil {
-		containerCfg.Healthcheck = overrides.Healthcheck
-	}
-	if overrides.StopTimeout != nil {
-		containerCfg.StopTimeout = overrides.StopTimeout
-	}
-
-	hostCfg := &container.HostConfig{
-		PortBindings: nat.PortMap{
-			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "0"}},
-		},
-		RestartPolicy:  overrides.RestartPolicy,
-		Resources:      overrides.Resources,
-		Mounts:         overrides.Mounts,
-		Privileged:     overrides.Privileged,
-		ReadonlyRootfs: overrides.ReadonlyRootfs,
-		CapAdd:         overrides.CapAdd,
-		CapDrop:        overrides.CapDrop,
-		Init:           overrides.Init,
-	}
-
-	createResp, err := cli.ContainerCreate(ctx, containerCfg, hostCfg, &dockernetwork.NetworkingConfig{
-		EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
-			networkName: {
-				Aliases: internalNetworkAliases(serviceName, hostname),
-			},
-		},
-	}, nil, containerName)
-	if err != nil {
-		e.failDeployment(dep, nodeID, "container create failed: "+err.Error())
-		return
-	}
-
-	dep.ContainerID = createResp.ID
-	dep.LastSeenAt = ptrTime(time.Now())
-	e.store.UpdateDeployment(dep)
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Container: %s (%s)", containerName, createResp.ID[:12]))
-
-	e.emitBuildLog(nodeID, "==> Starting container...")
-	if err := cli.ContainerStart(ctx, createResp.ID, container.StartOptions{}); err != nil {
-		e.failDeployment(dep, nodeID, "container start failed: "+err.Error())
-		return
-	}
-
-	inspect, err := cli.ContainerInspect(ctx, createResp.ID)
-	if err != nil {
-		e.failDeployment(dep, nodeID, "container inspect failed: "+err.Error())
-		return
-	}
-
-	var hostPort int
-	bindings := inspect.NetworkSettings.Ports[containerPort]
-	if len(bindings) > 0 {
-		fmt.Sscanf(bindings[0].HostPort, "%d", &hostPort)
-	}
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Listening on 127.0.0.1:%d (container port %s)", hostPort, portStr))
-
-	// Verify the new container is actually serving before switching traffic to
-	// it. Until Register() runs below, the route still points at the previous
-	// deployment, so this wait causes no downtime for existing traffic.
-	e.emitBuildLog(nodeID, "==> Waiting for new container to become ready...")
-	if err := e.waitForReady(ctx, cli, createResp.ID, hostPort); err != nil {
-		// The new container never became ready: tear it down and leave the
-		// previous deployment serving untouched (automatic rollback).
-		e.emitBuildLog(nodeID, fmt.Sprintf("    New container not ready: %v", err))
-		e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
-		stopTO := stopTimeoutForSettings(settings)
-		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
-		_ = removeContainerAndWait(context.Background(), cli, createResp.ID)
-		_ = removeImageAndWait(context.Background(), cli, dep.ImageTag)
-		e.failDeployment(dep, nodeID, "new container did not become ready: "+err.Error()+" (previous deployment left running)")
-		return
-	}
-	e.emitBuildLog(nodeID, "    Ready")
-
-	e.emitBuildLog(nodeID, "==> Registering route...")
-	regResult, err := e.router.Register(networking.RegisterRequest{
-		Service:     serviceName,
-		Project:     projectName,
-		ProjectID:   node.ProjectID,
-		NodeID:      nodeID,
-		UID:         uid,
-		Environment: environment,
-		Protocol:    "http",
-		TargetHost:  "127.0.0.1",
-		TargetPort:  hostPort,
-	})
-	if err != nil {
-		log.Printf("[deploy] route registration failed (non-fatal): %v", err)
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
-	} else if regResult != nil {
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Route: %s → 127.0.0.1:%d", regResult.Hostname, hostPort))
-	}
-
-	dep.Status = "running"
-	dep.HostPort = hostPort
-	dep.ContainerStartedAt = ptrTime(time.Now())
-	dep.ContainerStoppedAt = nil
-	dep.FinishedAt = nil
-	dep.LastSeenAt = ptrTime(time.Now())
-	if regResult != nil {
-		dep.Hostname = regResult.Hostname
-	}
-	e.store.UpdateDeployment(dep)
-
-	// Traffic now flows to the new container; retire the previous deployment(s).
-	// The current hostname is preserved — it was just repointed to the new
-	// container and is shared across this node's deployments, so unregistering
-	// it here would tear down the live route we just established.
-	e.emitBuildLog(nodeID, "==> Retiring previous deployment...")
-	if err := e.stopPrevious(ctx, cli, nodeID, dep.ID, dep.Hostname); err != nil {
-		log.Printf("[deploy] warning: retire previous: %v", err)
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
-	} else {
-		e.emitBuildLog(nodeID, "    Done")
-	}
-
-	if hooks.PostDeploy != "" {
-		if err := runLifecycleHook(ctx, "post-deploy", hooks.PostDeploy, plan.ServiceRoot, func(line string) {
-			e.emitBuildLog(nodeID, line)
-		}); err != nil {
-			log.Printf("[deploy] post-deploy hook failed (non-fatal): %v", err)
-		}
-	}
-
-	e.emitBuildLog(nodeID, "==> Deployed successfully!")
-
-	e.emitStatus(nodeID, StatusEvent{
-		DeploymentID: dep.ID,
-		Status:       "running",
-		Hostname:     dep.Hostname,
-		HostPort:     hostPort,
-	})
-
-	go e.watchContainer(context.Background(), dep, nodeID)
+	e.startContainerAndRegister(ctx, cli, dep, &node, settings, deployEnv, overrides, hooks, plan.ServiceRoot, imageTag, portStr, addr, uid)
 }
 
 // prepareGitSource materializes the given branch/ref of the project's git

@@ -412,3 +412,96 @@ func TestBuiltinMongoTemplateAuthViaEnvWithAuthSource(t *testing.T) {
 		t.Errorf("PUBLIC_DATABASE_URL must include authSource=admin, got %q", keys["PUBLIC_DATABASE_URL"])
 	}
 }
+
+func TestBuiltinTemplatesCarrySchema(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	for _, tpl := range list {
+		if tpl.Schema == "" {
+			t.Errorf("built-in %q has empty Schema", tpl.Name)
+			continue
+		}
+		schema, err := ParseTemplateSchema(tpl.Schema)
+		if err != nil {
+			t.Errorf("built-in %q has invalid Schema: %v", tpl.Name, err)
+			continue
+		}
+		switch tpl.Mode {
+		case ModeImage:
+			if schema.ServiceRoot != SchemaHidden || schema.Dockerfile != SchemaHidden {
+				t.Errorf("image template %q should hide serviceRoot+dockerfile, got %+v", tpl.Name, schema)
+			}
+		case ModeBuild:
+			if schema.ServiceRoot != SchemaOptional {
+				t.Errorf("build template %q serviceRoot should be optional, got %q", tpl.Name, schema.ServiceRoot)
+			}
+		}
+	}
+}
+
+func TestCreateTemplateNormalizesSchema(t *testing.T) {
+	s := openTemp(t)
+	// Empty schema on a build template should normalize to the default build schema.
+	tpl, err := s.CreateTemplate(&ServiceTemplate{Name: "Custom Build", Mode: "build", Port: 4000})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+	schema, err := ParseTemplateSchema(tpl.Schema)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if schema.ServiceRoot != SchemaOptional || schema.Dockerfile != SchemaOptional {
+		t.Errorf("default build schema not applied: %+v", schema)
+	}
+	if len(schema.WizardSteps) != 4 {
+		t.Errorf("expected 4 wizard steps, got %d", len(schema.WizardSteps))
+	}
+
+	// Image template with empty schema should hide source/dockerfile.
+	img, err := s.CreateTemplate(&ServiceTemplate{Name: "Custom DB", Mode: "image", Image: "foo:1", Port: 5000})
+	if err != nil {
+		t.Fatalf("CreateTemplate image: %v", err)
+	}
+	imgSchema, err := ParseTemplateSchema(img.Schema)
+	if err != nil {
+		t.Fatalf("parse image: %v", err)
+	}
+	if imgSchema.ServiceRoot != SchemaHidden {
+		t.Errorf("image serviceRoot should be hidden, got %q", imgSchema.ServiceRoot)
+	}
+}
+
+func TestCreateTemplateRejectsMalformedSchema(t *testing.T) {
+	s := openTemp(t)
+	if _, err := s.CreateTemplate(&ServiceTemplate{Name: "Bad", Mode: "build", Schema: "{not json"}); err == nil {
+		t.Error("expected error for malformed schema, got nil")
+	}
+}
+
+func TestCloneTemplateCarriesSchema(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var pg *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "PostgreSQL" {
+			pg = &list[i]
+			break
+		}
+	}
+	if pg == nil {
+		t.Fatal("PostgreSQL not seeded")
+	}
+	clone, err := s.CloneTemplate(pg.ID)
+	if err != nil {
+		t.Fatalf("CloneTemplate: %v", err)
+	}
+	if clone.Schema != pg.Schema {
+		t.Errorf("clone schema = %q, want %q (clone must carry schema)", clone.Schema, pg.Schema)
+	}
+}

@@ -55,7 +55,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         autoScroll.current = scrollHeight - scrollTop - clientHeight < 40;
     };
 
-    const canDeploy = settings.dockerfile && settings.service_port;
+    // Build-mode services need a Dockerfile + port; image-mode services need an
+    // image + port. Either path is deployable.
+    const canDeploy = !!settings.service_port && (!!settings.dockerfile || !!settings.image);
 
     const handleDeploy = async () => {
         setError('');
@@ -144,7 +146,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         className="btn btn-primary"
                         onClick={handleDeploy}
                         disabled={!canDeploy || !!pendingAction}
-                        title={!canDeploy ? 'Set Dockerfile and Port in Settings first' : 'Deploy service'}
+                        title={!canDeploy ? 'Set an image or Dockerfile and a port in Settings first' : 'Deploy service'}
                     >
                         {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
                         {pendingAction === 'deploying' ? 'Deploying…' : 'Deploy'}
@@ -211,7 +213,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
             {!canDeploy && (
                 <span className="overview-hint">
-                    Configure Dockerfile and Port in the Settings tab before deploying.
+                    Set an image (or Dockerfile) and a port in the Settings tab before deploying.
                 </span>
             )}
 

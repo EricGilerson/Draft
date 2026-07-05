@@ -11,14 +11,15 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Maximize2, Minus, Plus, PlusCircle, X} from 'lucide-react';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Maximize2, Minus, Plus, PlusCircle} from 'lucide-react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {CreateNode, DeleteNode, GetDeployments, GetProjectConnections, ListNodes, UpdateNode} from '../../wailsjs/go/main/App';
+import {DeleteNode, GetDeployments, GetProjectConnections, ListNodes, ListServiceTemplates, UpdateNode} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
 import NodeDetailPanel from './NodeDetailPanel';
 import ResizablePanel from './ResizablePanel';
+import CreateServiceDialog from './CreateServiceDialog';
 import './ProjectCanvas.css';
 
 type ProjectCanvasProps = {
@@ -30,6 +31,9 @@ type ServiceNodeData = {
     label: string;
     status: string;
     deploymentId?: number;
+    templateId?: number;
+    icon?: string;
+    iconColor?: string;
 };
 
 function CanvasControls() {
@@ -72,25 +76,26 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-let nodeCounter = 0;
-
-function generateId(): string {
-    nodeCounter++;
-    const hex = nodeCounter.toString(16).padStart(4, '0');
-    const rand = Math.random().toString(16).slice(2, 10);
-    return `svc-${hex}-${rand}`;
-}
-
 export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
     const [nodes, setNodes, onNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-    const [showAddPopover, setShowAddPopover] = useState(false);
-    const [newNodeName, setNewNodeName] = useState('');
-    const [addNodeError, setAddNodeError] = useState<string | null>(null);
+    const [showCreate, setShowCreate] = useState(false);
+    const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
 
     const nodeTypes = useMemo(() => ({service: ServiceNode}), []);
+
+    const templateById = useMemo(() => {
+        const m = new Map<number, store.ServiceTemplate>();
+        for (const t of templates) m.set(t.id, t);
+        return m;
+    }, [templates]);
+
+    useEffect(() => {
+        ListServiceTemplates()
+            .then((list) => setTemplates(list ?? []))
+            .catch(() => {});
+    }, []);
 
     const selectedNode = useMemo(
         () => nodes.find((n) => n.id === selectedNodeId) ?? null,
@@ -100,6 +105,18 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     useEffect(() => {
         ListNodes(project.id).then(async (saved) => {
             if (!saved || saved.length === 0) return;
+            // Make sure templates are loaded so we can attach icon metadata to
+            // nodes created from a template. If the templates list isn't ready
+            // yet, fetch it once more so the first paint has icons.
+            let tpls = templates;
+            if (tpls.length === 0) {
+                try {
+                    tpls = await ListServiceTemplates();
+                    setTemplates(tpls ?? []);
+                } catch { /* leave icons blank */ }
+            }
+            const tplMap = new Map<number, store.ServiceTemplate>();
+            for (const t of tpls) tplMap.set(t.id, t);
             const flowNodes = await Promise.all(
                 saved.map(async (n) => {
                     let status = 'stopped';
@@ -112,17 +129,25 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                             deploymentId = dep.id;
                         }
                     } catch { /* no deployment history */ }
+                    const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
                     return {
                         id: n.id,
                         type: 'service' as const,
                         position: {x: n.x, y: n.y},
-                        data: {label: n.label, status, deploymentId},
+                        data: {
+                            label: n.label,
+                            status,
+                            deploymentId,
+                            templateId: n.templateId || undefined,
+                            icon: tpl?.icon,
+                            iconColor: tpl?.color,
+                        },
                     };
                 }),
             );
             setNodes(flowNodes);
         });
-    }, [project.id, setNodes]);
+    }, [project.id, setNodes, templates]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -195,31 +220,28 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         [onNodesChange, nodes, onServicesChanged, selectedNodeId],
     );
 
-    const addNode = useCallback(() => {
-        const id = generateId();
-        const label = newNodeName.trim() || id;
-        const x = 120 + Math.random() * 300;
-        const y = 140 + Math.random() * 200;
+    const openCreate = () => {
+        setShowCreate(true);
+    };
 
-        setAddNodeError(null);
-        CreateNode(id, label, project.id, x, y).then(() => {
-            const node: Node<ServiceNodeData> = {
-                id,
-                type: 'service',
-                position: {x, y},
-                data: {label, status: 'stopped'},
-            };
-            setNodes((prev) => [...prev, node]);
-            onServicesChanged?.();
-            setNewNodeName('');
-            setShowAddPopover(false);
-        }).catch((e) => {
-            // Leave the popover open with the attempted name so the user
-            // can fix it (e.g. a duplicate service name) instead of losing
-            // it silently.
-            setAddNodeError(String(e));
-        });
-    }, [newNodeName, onServicesChanged, setNodes, project.id]);
+    const handleCreated = (node: store.CanvasNode, template?: store.ServiceTemplate) => {
+        const flowNode: Node<ServiceNodeData> = {
+            id: node.id,
+            type: 'service',
+            position: {x: node.x, y: node.y},
+            data: {
+                label: node.label,
+                status: 'stopped',
+                templateId: node.templateId || undefined,
+                icon: template?.icon,
+                iconColor: template?.color,
+            },
+        };
+        setNodes((prev) => [...prev, flowNode]);
+        onServicesChanged?.();
+        setShowCreate(false);
+        setSelectedNodeId(node.id);
+    };
 
     const renameNode = useCallback((nodeId: string, newLabel: string) => {
         const node = nodes.find((n) => n.id === nodeId);
@@ -233,13 +255,6 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         });
     }, [onServicesChanged, setNodes, nodes]);
 
-    const openPopover = () => {
-        setShowAddPopover(true);
-        setNewNodeName('');
-        setAddNodeError(null);
-        setTimeout(() => inputRef.current?.focus(), 0);
-    };
-
     return (
         <div className="project-canvas-layout">
             <div className="project-canvas" aria-label={`${project.name} canvas`}>
@@ -250,45 +265,9 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                 </div>
 
                 <div className="canvas-add-wrapper">
-                    <button className="btn btn-primary canvas-add-btn" onClick={openPopover}>
+                    <button className="btn btn-primary canvas-add-btn" onClick={openCreate}>
                         <PlusCircle size={15}/> Add Service
                     </button>
-                    {showAddPopover && (
-                        <div className="canvas-add-popover">
-                            <div className="canvas-add-popover-header">
-                                <span>New service</span>
-                                <button className="dialog-close" onClick={() => {
-                                    setShowAddPopover(false);
-                                    setAddNodeError(null);
-                                }}>
-                                    <X size={14}/>
-                                </button>
-                            </div>
-                            <div className="canvas-add-popover-body">
-                                <input
-                                    ref={inputRef}
-                                    className="input"
-                                    value={newNodeName}
-                                    onChange={(e) => {
-                                        setNewNodeName(e.target.value);
-                                        setAddNodeError(null);
-                                    }}
-                                    placeholder="Service name (optional)"
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') addNode();
-                                        if (e.key === 'Escape') {
-                                            setShowAddPopover(false);
-                                            setAddNodeError(null);
-                                        }
-                                    }}
-                                />
-                                {addNodeError && <p className="form-error">{addNodeError}</p>}
-                                <button className="btn btn-primary" onClick={addNode}>
-                                    Add
-                                </button>
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <ReactFlow
@@ -323,6 +302,15 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                         onServicesChanged={onServicesChanged}
                     />
                 </ResizablePanel>
+            )}
+
+            {showCreate && (
+                <CreateServiceDialog
+                    projectId={project.id}
+                    position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
+                    onClose={() => setShowCreate(false)}
+                    onCreated={handleCreated}
+                />
             )}
         </div>
     );

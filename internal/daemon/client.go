@@ -108,6 +108,17 @@ func (c *Client) StartLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/start", nodeID)
 }
 
+// CreateNodeFromTemplate stamps a new canvas node out of a template via the
+// daemon (which owns the deploy engine needed to resolve {{draft.*}} at stamp
+// time). Returns the created node plus any non-fatal warnings.
+func (c *Client) CreateNodeFromTemplate(ctx context.Context, req deploy.CreateNodeFromTemplateRequest) (*deploy.CreateNodeFromTemplateResult, error) {
+	var out deploy.CreateNodeFromTemplateResult
+	if err := c.postJSON(ctx, "/node/create-from-template", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) StopLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/stop", nodeID)
 }

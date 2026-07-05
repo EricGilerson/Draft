@@ -1,0 +1,244 @@
+.csd-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 220px;
+}
+
+.csd-search-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.csd-loading {
+    color: var(--text-faint);
+    padding: 24px 0;
+    text-align: center;
+}
+
+.csd-template-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.csd-group-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    margin: 0 0 8px;
+}
+
+.csd-template-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.csd-template-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.csd-template-card:hover {
+    border-color: var(--border-strong);
+}
+
+.csd-template-card.is-selected {
+    border-color: var(--accent);
+    background: var(--surface-raised);
+}
+
+.csd-template-card-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+}
+
+.csd-template-card-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.csd-template-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.csd-template-card-sub {
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.csd-blank-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text);
+}
+
+.csd-blank-card strong {
+    font-size: 13px;
+}
+
+.csd-blank-card span {
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.csd-identity-step,
+.csd-source-step,
+.csd-review-step {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.csd-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.csd-field-label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.csd-optional {
+    color: var(--text-faint);
+    font-weight: 400;
+}
+
+.csd-root-row {
+    display: flex;
+    gap: 8px;
+}
+
+.csd-root-row .input {
+    flex: 1;
+}
+
+.csd-hint {
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.csd-template-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+}
+
+.csd-summary-name {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.csd-summary-sub {
+    font-size: 11px;
+    color: var(--text-faint);
+}
+
+.csd-overrides {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.csd-review-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.csd-review-key {
+    color: var(--text-faint);
+}
+
+.csd-review-val {
+    color: var(--text);
+    text-align: right;
+}
+
+.csd-review-warnings {
+    margin-top: 6px;
+}
+
+.csd-warning-line {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin: 2px 0;
+}
+
+.csd-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.csd-footer-stepper {
+    display: flex;
+    gap: 6px;
+}
+
+.csd-step-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--border-strong);
+}
+
+.csd-step-dot.is-active {
+    background: var(--accent);
+}
+
+.csd-step-dot.is-done {
+    background: var(--text-muted);
+}
+
+.csd-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.csd-warnings {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-right: 4px;
+}
