@@ -145,3 +145,14 @@
     max-width: 15px;
     max-height: 15px;
 }
+
+.canvas-edge-markers {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.project-canvas .react-flow__edge-volumeMount .react-flow__edge-path {
+    cursor: pointer;
+}

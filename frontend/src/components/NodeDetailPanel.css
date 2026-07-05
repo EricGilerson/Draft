@@ -858,3 +858,39 @@ select.input.settings-select option {
 .volume-in-use {
     color: var(--warning, #b80);
 }
+
+.volume-detail-icon {
+    color: rgba(212, 184, 132, 0.95);
+    border-color: rgba(196, 168, 118, 0.28);
+    background: rgba(196, 168, 118, 0.08);
+}
+
+.volume-detail-titles {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.volume-detail-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.volume-detail-parent {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    cursor: pointer;
+    transition: color 0.12s ease;
+}
+
+.volume-detail-parent:hover {
+    color: var(--accent-text);
+}

@@ -5,6 +5,7 @@ import {
     Controls,
     type Node,
     type Edge,
+    type NodeChange,
     ReactFlow,
     useReactFlow,
     useNodesState,
@@ -12,14 +13,32 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import {Maximize2, Minus, Plus, PlusCircle} from 'lucide-react';
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {DeleteNode, GetDeployments, GetProjectConnections, ListNodes, ListServiceTemplates, UpdateNode} from '../../wailsjs/go/main/App';
-import {store} from '../../wailsjs/go/models';
+import {
+    DeleteNode,
+    GetDeployments,
+    GetNodeSettings,
+    GetProjectConnections,
+    ListManagedVolumes,
+    ListNodes,
+    ListServiceTemplates,
+    UpdateNode,
+} from '../../wailsjs/go/main/App';
+import {deploy, store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
+import VolumeNode, {type VolumeNodeData} from './VolumeNode';
+import VolumeMountEdge from './VolumeMountEdge';
 import NodeDetailPanel from './NodeDetailPanel';
+import VolumeDetailPanel from './VolumeDetailPanel';
 import ResizablePanel from './ResizablePanel';
 import CreateServiceDialog from './CreateServiceDialog';
+import {parseVolumeEntries, type VolumeEntry} from './VolumeEditor';
+import {
+    CanvasSelectionContext,
+    parseVolumeNodeId,
+    type SelectedVolume,
+} from './canvasSelection';
 import './ProjectCanvas.css';
 
 type ProjectCanvasProps = {
@@ -34,7 +53,20 @@ type ServiceNodeData = {
     templateId?: number;
     icon?: string;
     iconColor?: string;
+    volumeCount?: number;
 };
+
+const VOLUME_OFFSET_X = 208;
+const VOLUME_OFFSET_Y = 14;
+const VOLUME_STACK_GAP = 54;
+
+function volumeNodeId(parentNodeId: string, index: number) {
+    return `vol:${parentNodeId}:${index}`;
+}
+
+function isVolumeNodeId(id: string) {
+    return id.startsWith('vol:');
+}
 
 function CanvasControls() {
     const {zoomIn, zoomOut, fitView} = useReactFlow();
@@ -77,13 +109,18 @@ function serviceStatusFromDeployment(status: string): string {
 }
 
 export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
-    const [nodes, setNodes, onNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+    const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
+    const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
+    const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
+    const [managedVolumesByNode, setManagedVolumesByNode] = useState<Record<string, deploy.ManagedVolume[]>>({});
     const [showCreate, setShowCreate] = useState(false);
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+    const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
+    const nodeClickRef = useRef(false);
 
-    const nodeTypes = useMemo(() => ({service: ServiceNode}), []);
+    const nodeTypes = useMemo(() => ({service: ServiceNode, volume: VolumeNode}), []);
+    const edgeTypes = useMemo(() => ({volumeMount: VolumeMountEdge}), []);
 
     const templateById = useMemo(() => {
         const m = new Map<number, store.ServiceTemplate>();
@@ -98,8 +135,134 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     }, []);
 
     const selectedNode = useMemo(
-        () => nodes.find((n) => n.id === selectedNodeId) ?? null,
-        [nodes, selectedNodeId],
+        () => serviceNodes.find((n) => n.id === selectedNodeId) ?? null,
+        [serviceNodes, selectedNodeId],
+    );
+
+    const refreshVolumeMounts = useCallback(async (nodeIds: string[]) => {
+        if (nodeIds.length === 0) {
+            setVolumeMountsByNode({});
+            setManagedVolumesByNode({});
+            return;
+        }
+        const [settingsPairs, managedPairs] = await Promise.all([
+            Promise.all(nodeIds.map(async (id) => {
+                try {
+                    const settings = await GetNodeSettings(id);
+                    return [id, parseVolumeEntries(settings?.volume_mounts)] as const;
+                } catch {
+                    return [id, [] as VolumeEntry[]] as const;
+                }
+            })),
+            Promise.all(nodeIds.map(async (id) => {
+                try {
+                    const list = await ListManagedVolumes(project.id, id);
+                    return [id, list ?? []] as const;
+                } catch {
+                    return [id, [] as deploy.ManagedVolume[]] as const;
+                }
+            })),
+        ]);
+        const mountsMap = Object.fromEntries(settingsPairs);
+        setVolumeMountsByNode(mountsMap);
+        setManagedVolumesByNode(Object.fromEntries(managedPairs));
+        setServiceNodes((prev) =>
+            prev.map((n) => ({
+                ...n,
+                data: {...n.data, volumeCount: (mountsMap[n.id] || []).length},
+            })),
+        );
+    }, [project.id, setServiceNodes]);
+
+    const selectVolume = useCallback((volume: SelectedVolume) => {
+        nodeClickRef.current = true;
+        setSelectedVolume(volume);
+        setSelectedNodeId(null);
+    }, []);
+
+    const volumeNodes = useMemo(() => {
+        const selectedVolumeNodeId = selectedVolume
+            ? volumeNodeId(selectedVolume.parentNodeId, selectedVolume.index)
+            : null;
+        const result: Node<VolumeNodeData>[] = [];
+        for (const svc of serviceNodes) {
+            const mounts = volumeMountsByNode[svc.id] || [];
+            const managed = managedVolumesByNode[svc.id] || [];
+            const managedByTarget = new Map(managed.filter((v) => v.target).map((v) => [v.target, v]));
+            mounts.forEach((entry, index) => {
+                const managedVol = managedByTarget.get(entry.containerPath);
+                const resolvedName = entry.type === 'volume'
+                    ? ((entry.source || '').trim() || managedVol?.name || '')
+                    : '';
+                const id = volumeNodeId(svc.id, index);
+                result.push({
+                    id,
+                    type: 'volume',
+                    position: {
+                        x: svc.position.x + VOLUME_OFFSET_X,
+                        y: svc.position.y + VOLUME_OFFSET_Y + index * VOLUME_STACK_GAP,
+                    },
+                    draggable: false,
+                    selectable: true,
+                    selected: id === selectedVolumeNodeId,
+                    data: {
+                        ...entry,
+                        parentNodeId: svc.id,
+                        parentLabel: (svc.data.label as string) || svc.id,
+                        index,
+                        resolvedName,
+                        usageBytes: managedVol?.size,
+                    },
+                });
+            });
+        }
+        return result;
+    }, [serviceNodes, volumeMountsByNode, managedVolumesByNode, selectedVolume]);
+
+    const volumeEdges = useMemo(() => {
+        const result: Edge[] = [];
+        for (const svc of serviceNodes) {
+            const mounts = volumeMountsByNode[svc.id] || [];
+            const parentLabel = (svc.data.label as string) || svc.id;
+            mounts.forEach((entry, index) => {
+                const id = volumeNodeId(svc.id, index);
+                const edgeSelected = selectedVolume?.parentNodeId === svc.id && selectedVolume.index === index;
+                result.push({
+                    id: `${id}->${svc.id}`,
+                    type: 'volumeMount',
+                    source: id,
+                    target: svc.id,
+                    sourceHandle: 'volume-mount',
+                    targetHandle: 'volume-mount',
+                    selected: edgeSelected,
+                    selectable: true,
+                    focusable: true,
+                    reconnectable: false,
+                    zIndex: 2,
+                    data: {
+                        mountPath: entry.containerPath,
+                        readOnly: !!entry.readOnly,
+                        parentNodeId: svc.id,
+                        index,
+                        parentLabel,
+                    },
+                });
+            });
+        }
+        return result;
+    }, [serviceNodes, volumeMountsByNode, selectedVolume]);
+
+    const nodes = useMemo(
+        () => [
+            ...serviceNodes.map((n) => ({...n, selected: n.id === selectedNodeId})),
+            ...volumeNodes,
+        ],
+        [serviceNodes, volumeNodes, selectedNodeId],
+    );
+
+    const edges = useMemo(
+        () => [...connectionEdges, ...volumeEdges],
+        [connectionEdges, volumeEdges],
     );
 
     useEffect(() => {
@@ -145,9 +308,10 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     };
                 }),
             );
-            setNodes(flowNodes);
+            setServiceNodes(flowNodes);
+            refreshVolumeMounts(flowNodes.map((n) => n.id));
         });
-    }, [project.id, setNodes, templates]);
+    }, [project.id, setServiceNodes, templates, refreshVolumeMounts]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -168,10 +332,10 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     style: {stroke: 'var(--text-faint)', strokeDasharray: '4 3'},
                     labelStyle: {fill: 'var(--text-faint)', fontSize: 10},
                 }));
-                setEdges(flowEdges);
+                setConnectionEdges(flowEdges);
             })
             .catch(() => {});
-    }, [project.id, selectedNodeId, setEdges]);
+    }, [project.id, selectedNodeId, selectedVolume, setConnectionEdges]);
 
     useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', (payload: any) => {
@@ -181,7 +345,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             const deploymentId: number | undefined = event?.deploymentId;
             if (!nodeId || !deployStatus) return;
             const uiStatus = serviceStatusFromDeployment(deployStatus);
-            setNodes((prev) =>
+            setServiceNodes((prev) =>
                 prev.map((n) =>
                     n.id === nodeId
                         ? {
@@ -191,7 +355,8 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                                 if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
                                     return n.data;
                                 }
-                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId};
+                                const volumeCount = (volumeMountsByNode[nodeId] || []).length;
+                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId, volumeCount};
                             })(),
                         }
                         : n,
@@ -199,26 +364,43 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             );
         });
         return unsubscribe;
-    }, [setNodes]);
+    }, [setServiceNodes, volumeMountsByNode]);
 
     const handleNodesChange = useCallback(
-        (changes: Parameters<typeof onNodesChange>[0]) => {
-            onNodesChange(changes);
+        (changes: NodeChange[]) => {
+            const serviceChanges = changes.filter((change) => !('id' in change && isVolumeNodeId(change.id)));
+            onServiceNodesChange(serviceChanges as NodeChange<Node<ServiceNodeData>>[]);
 
-            for (const change of changes) {
+            for (const change of serviceChanges) {
                 if (change.type === 'position' && change.dragging === false && change.position) {
-                    const node = nodes.find((n) => n.id === change.id);
+                    const node = serviceNodes.find((n) => n.id === change.id);
                     const label = (node?.data?.label as string) || change.id;
                     UpdateNode(change.id, change.position.x, change.position.y, label);
                 }
                 if (change.type === 'remove') {
                     DeleteNode(change.id).then(() => onServicesChanged?.());
                     if (selectedNodeId === change.id) setSelectedNodeId(null);
+                    if (selectedVolume?.parentNodeId === change.id) setSelectedVolume(null);
+                    setVolumeMountsByNode((prev) => {
+                        const next = {...prev};
+                        delete next[change.id];
+                        return next;
+                    });
                 }
             }
         },
-        [onNodesChange, nodes, onServicesChanged, selectedNodeId],
+        [onServiceNodesChange, serviceNodes, onServicesChanged, selectedNodeId, selectedVolume],
     );
+
+    const handleVolumesChanged = useCallback(() => {
+        refreshVolumeMounts(serviceNodes.map((n) => n.id));
+        onServicesChanged?.();
+    }, [refreshVolumeMounts, serviceNodes, onServicesChanged]);
+
+    const notifyServicesChanged = useCallback(() => {
+        refreshVolumeMounts(serviceNodes.map((n) => n.id));
+        onServicesChanged?.();
+    }, [refreshVolumeMounts, serviceNodes, onServicesChanged]);
 
     const openCreate = () => {
         setShowCreate(true);
@@ -235,25 +417,82 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                 templateId: node.templateId || undefined,
                 icon: template?.icon,
                 iconColor: template?.color,
+                volumeCount: 0,
             },
         };
-        setNodes((prev) => [...prev, flowNode]);
+        setServiceNodes((prev) => {
+            const next = [...prev, flowNode];
+            refreshVolumeMounts(next.map((n) => n.id));
+            return next;
+        });
         onServicesChanged?.();
         setShowCreate(false);
         setSelectedNodeId(node.id);
     };
 
     const renameNode = useCallback((nodeId: string, newLabel: string) => {
-        const node = nodes.find((n) => n.id === nodeId);
+        const node = serviceNodes.find((n) => n.id === nodeId);
         return UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel).then(() => {
-            setNodes((prev) =>
+            setServiceNodes((prev) =>
                 prev.map((n) =>
                     n.id === nodeId ? {...n, data: {...n.data, label: newLabel}} : n,
                 ),
             );
             onServicesChanged?.();
         });
-    }, [onServicesChanged, setNodes, nodes]);
+    }, [onServicesChanged, setServiceNodes, serviceNodes]);
+
+    const handleNodeClick = useCallback((_e: MouseEvent, node: Node) => {
+        nodeClickRef.current = true;
+        const parsed = parseVolumeNodeId(node.id);
+        if (parsed || node.type === 'volume') {
+            const data = node.data as VolumeNodeData;
+            selectVolume({
+                parentNodeId: parsed?.parentNodeId ?? data.parentNodeId,
+                index: parsed?.index ?? data.index,
+                parentLabel: data.parentLabel,
+            });
+            return;
+        }
+        setSelectedNodeId(node.id);
+        setSelectedVolume(null);
+    }, [selectVolume]);
+
+    const handleEdgeClick = useCallback((_e: MouseEvent, edge: Edge) => {
+        if (edge.type !== 'volumeMount' || !edge.data) return;
+        nodeClickRef.current = true;
+        const data = edge.data as {
+            parentNodeId?: string;
+            index?: number;
+            parentLabel?: string;
+        };
+        if (typeof data.parentNodeId !== 'string' || typeof data.index !== 'number') return;
+        selectVolume({
+            parentNodeId: data.parentNodeId,
+            index: data.index,
+            parentLabel: data.parentLabel,
+        });
+    }, [selectVolume]);
+
+    const handlePaneClick = useCallback(() => {
+        requestAnimationFrame(() => {
+            if (nodeClickRef.current) {
+                nodeClickRef.current = false;
+                return;
+            }
+            setSelectedNodeId(null);
+            setSelectedVolume(null);
+        });
+    }, []);
+
+    const selectedVolumeParentLabel = selectedVolume?.parentLabel
+        || serviceNodes.find((n) => n.id === selectedVolume?.parentNodeId)?.data.label
+        || 'Service';
+
+    const canvasSelection = useMemo(
+        () => ({selectVolume}),
+        [selectVolume],
+    );
 
     return (
         <div className="project-canvas-layout">
@@ -270,16 +509,19 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     </button>
                 </div>
 
+                <CanvasSelectionContext.Provider value={canvasSelection}>
                 <ReactFlow
                     colorMode="dark"
                     nodes={nodes}
                     edges={edges}
                     onNodesChange={handleNodesChange}
-                    onEdgesChange={onEdgesChange}
+                    onEdgesChange={() => {}}
                     edgesReconnectable={false}
-                    onNodeClick={(_e, node) => setSelectedNodeId(node.id)}
-                    onPaneClick={() => setSelectedNodeId(null)}
+                    onNodeClick={handleNodeClick}
+                    onEdgeClick={handleEdgeClick}
+                    onPaneClick={handlePaneClick}
                     nodeTypes={nodeTypes}
+                    edgeTypes={edgeTypes}
                     fitView
                     minZoom={0.4}
                     maxZoom={1.6}
@@ -288,9 +530,27 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     <Background variant={BackgroundVariant.Dots} gap={22} size={1}/>
                     <CanvasControls/>
                 </ReactFlow>
+                </CanvasSelectionContext.Provider>
             </div>
 
-            {selectedNode && (
+            {selectedVolume && (
+                <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640} storageKey="draft:volume-detail-width">
+                    <VolumeDetailPanel
+                        parentNodeId={selectedVolume.parentNodeId}
+                        parentLabel={selectedVolumeParentLabel as string}
+                        volumeIndex={selectedVolume.index}
+                        projectId={project.id}
+                        onClose={() => setSelectedVolume(null)}
+                        onOpenService={() => {
+                            setSelectedNodeId(selectedVolume.parentNodeId);
+                            setSelectedVolume(null);
+                        }}
+                        onVolumesChanged={handleVolumesChanged}
+                    />
+                </ResizablePanel>
+            )}
+
+            {selectedNode && !selectedVolume && (
                 <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640} storageKey="draft:node-detail-width">
                     <NodeDetailPanel
                         nodeId={selectedNode.id}
@@ -299,7 +559,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                         projectPath={project.path}
                         onClose={() => setSelectedNodeId(null)}
                         onRename={renameNode}
-                        onServicesChanged={onServicesChanged}
+                        onServicesChanged={notifyServicesChanged}
                     />
                 </ResizablePanel>
             )}

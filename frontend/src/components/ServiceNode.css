@@ -1,9 +1,11 @@
 .service-node {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
     min-width: 160px;
+    max-width: 200px;
     border-radius: 8px;
     border: 1px solid var(--border-strong);
     border-left: 2px solid var(--accent);
@@ -50,6 +52,27 @@
     text-overflow: ellipsis;
 }
 
+.service-node-status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.service-node-volumes {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 999px;
+    border: 1px solid rgba(196, 168, 118, 0.24);
+    background: rgba(196, 168, 118, 0.08);
+    color: rgba(212, 184, 132, 0.92);
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
 .service-node-status {
     font-family: var(--mono);
     font-size: 0.6rem;
@@ -69,4 +92,13 @@
 
 .service-node--starting .service-node-status {
     color: var(--yellow);
+}
+
+.service-node-mount-handle {
+    width: 8px !important;
+    height: 8px !important;
+    right: -4px !important;
+    border: 1px solid rgba(228, 200, 148, 0.85) !important;
+    background: rgba(212, 184, 132, 0.35) !important;
+    box-shadow: 0 0 0 3px rgba(212, 184, 132, 0.12);
 }
