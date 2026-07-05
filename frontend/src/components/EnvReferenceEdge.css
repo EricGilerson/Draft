@@ -1,0 +1,12 @@
+.env-reference-edge-label {
+    position: absolute;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    background: var(--surface);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    pointer-events: none;
+    white-space: nowrap;
+}

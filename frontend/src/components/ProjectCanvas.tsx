@@ -29,6 +29,7 @@ import {deploy, store} from '../../wailsjs/go/models';
 import ServiceNode from './ServiceNode';
 import VolumeNode, {type VolumeNodeData} from './VolumeNode';
 import VolumeMountEdge from './VolumeMountEdge';
+import EnvReferenceEdge from './EnvReferenceEdge';
 import NodeDetailPanel from './NodeDetailPanel';
 import VolumeDetailPanel from './VolumeDetailPanel';
 import ResizablePanel from './ResizablePanel';
@@ -120,7 +121,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     const nodeClickRef = useRef(false);
 
     const nodeTypes = useMemo(() => ({service: ServiceNode, volume: VolumeNode}), []);
-    const edgeTypes = useMemo(() => ({volumeMount: VolumeMountEdge}), []);
+    const edgeTypes = useMemo(() => ({volumeMount: VolumeMountEdge, envReference: EnvReferenceEdge}), []);
 
     const templateById = useMemo(() => {
         const m = new Map<number, store.ServiceTemplate>();
@@ -327,14 +328,12 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     id: `${c.sourceNodeId}:${c.sourceKey}->${c.targetNodeId}`,
                     source: c.sourceNodeId,
                     target: c.targetNodeId,
-                    sourceHandle: 'env-out',
-                    targetHandle: 'env-in',
+                    type: 'envReference',
                     label: c.sourceKey,
                     selectable: false,
                     focusable: false,
                     reconnectable: false,
                     style: {stroke: 'var(--text-faint)', strokeDasharray: '4 3'},
-                    labelStyle: {fill: 'var(--text-faint)', fontSize: 10},
                 }));
                 setConnectionEdges(flowEdges);
             })
