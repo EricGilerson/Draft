@@ -565,8 +565,8 @@ CMD ["sleep", "3600"]
 
 	t.Run("volumes", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		entries := []volumeEntry{
-			{HostPath: tmpDir, ContainerPath: "/mnt/test", ReadOnly: true},
+		entries := []VolumeSpec{
+			{Type: VolumeTypeBind, HostPath: tmpDir, ContainerPath: "/mnt/test", ReadOnly: true},
 		}
 		jsonBytes, _ := json.Marshal(entries)
 

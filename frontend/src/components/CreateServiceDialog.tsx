@@ -9,7 +9,10 @@ import {deploy, store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import TemplateIcon from './TemplateIcon';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
+import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import './CreateServiceDialog.css';
+
+type VolumeCapability = {show?: boolean; editable?: boolean};
 
 type TemplateSchema = {
     serviceRoot?: 'optional' | 'hidden';
@@ -17,6 +20,7 @@ type TemplateSchema = {
     wizardSteps?: {id: string; title: string}[];
     settings?: Record<string, {default?: string; hidden?: boolean; label?: string; type?: string; options?: string[]}>;
     hideSections?: string[];
+    volumes?: VolumeCapability;
 };
 
 function parseSchema(raw: string): TemplateSchema {
@@ -36,7 +40,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const CATEGORY_ORDER = ['web', 'datastore', 'language'];
 
-type Step = 'template' | 'identity' | 'source' | 'review';
+type Step = 'template' | 'identity' | 'source' | 'volumes' | 'review';
 
 type Props = {
     projectId: number;
@@ -63,6 +67,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
     // free-text ref when in custom mode. Effective ref is computed in create().
     const [imageChoice, setImageChoice] = useState('');
     const [imageCustom, setImageCustom] = useState('');
+    const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
     const [step, setStep] = useState<Step>('template');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -105,10 +110,14 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
     }, [schema, blankMode]);
 
     const showSourceStep = !blankMode && schema.serviceRoot !== 'hidden' && steps.includes('source');
+    const showVolumesStep = !blankMode && !!schema.volumes?.show && steps.includes('volumes');
+    const volumesEditable = !!schema.volumes?.editable;
     const effectiveSteps: Step[] = useMemo(() => {
-        if (showSourceStep) return steps;
-        return steps.filter((s) => s !== 'source');
-    }, [steps, showSourceStep]);
+        let s = steps;
+        if (!showSourceStep) s = s.filter((x) => x !== 'source');
+        if (!showVolumesStep) s = s.filter((x) => x !== 'volumes');
+        return s;
+    }, [steps, showSourceStep, showVolumesStep]);
 
     const currentIdx = effectiveSteps.indexOf(step);
     const canGoBack = currentIdx > 0;
@@ -147,6 +156,11 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         // the picker isn't rendered.
         setImageChoice(t.mode === 'image' && t.image ? t.image : '');
         setImageCustom('');
+        // Seed the volumes editor from the template's defaults (e.g. the
+        // Postgres /var/lib/postgresql/data named volume). The user edits these
+        // on the Volumes step; if the template has no Volumes capability the
+        // step is skipped and an empty list is stamped.
+        setVolumes(parseVolumeEntries(t.volumes));
         // Default overrides from the schema's field defaults.
         const seeded: Record<string, string> = {};
         if (schema?.settings) {
@@ -169,6 +183,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         setWarnings([]);
         setImageChoice('');
         setImageCustom('');
+        setVolumes([]);
         setStep('identity');
     };
 
@@ -226,6 +241,12 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                     effectiveOverrides = {...overrides, image: imageRef};
                 }
             }
+            // Only send volume_mounts when the wizard actually exposed the
+            // Volumes step; otherwise let stamp.go apply the template default
+            // (which is empty for templates without a Volumes capability).
+            if (showVolumesStep) {
+                effectiveOverrides = {...effectiveOverrides, volume_mounts: serializeVolumeEntries(volumes)};
+            }
             const req = new deploy.CreateNodeFromTemplateRequest({
                 id,
                 label: name,
@@ -247,7 +268,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         } finally {
             setBusy(false);
         }
-    }, [blankMode, selected, label, projectId, position, serviceRoot, overrides, onCreated, isImageMode, imageChoice, imageCustom]);
+    }, [blankMode, selected, label, projectId, position, serviceRoot, overrides, onCreated, isImageMode, imageChoice, imageCustom, showVolumesStep, volumes]);
 
     const close = () => {
         if (busy) return;
@@ -501,6 +522,24 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                     </div>
                 )}
 
+                {step === 'volumes' && (
+                    <div className="csd-volumes-step">
+                        <p className="csd-step-intro">
+                            Persistent storage for this service. Named volumes are Docker-managed — Draft mints
+                            a stable name from this service's identity on first deploy, so data survives
+                            redeploys. Edit the defaults below or add more.
+                        </p>
+                        <VolumeEditor
+                            entries={volumes}
+                            onChange={setVolumes}
+                            editable={volumesEditable}
+                        />
+                        {!volumesEditable && volumes.length === 0 && (
+                            <span className="csd-hint">This template defines no volumes.</span>
+                        )}
+                    </div>
+                )}
+
                 {step === 'review' && (
                     <div className="csd-review-step">
                         <div className="csd-review-row">
@@ -546,6 +585,16 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                                         {overrides.service_port || selected?.port || '—'}
                                     </span>
                                 </div>
+                                {showVolumesStep && (
+                                    <div className="csd-review-row">
+                                        <span className="csd-review-key">Volumes</span>
+                                        <span className="csd-review-val">
+                                            {volumes.length === 0
+                                                ? 'None (ephemeral)'
+                                                : volumes.map((v) => `${v.type === 'volume' ? 'vol' : 'bind'}:${v.containerPath}`).join(', ')}
+                                        </span>
+                                    </div>
+                                )}
                             </>
                         )}
                         {warnings.length > 0 && (

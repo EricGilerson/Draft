@@ -113,10 +113,18 @@
 
 .csd-identity-step,
 .csd-source-step,
+.csd-volumes-step,
 .csd-review-step {
     display: flex;
     flex-direction: column;
     gap: 14px;
+}
+
+.csd-step-intro {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
 }
 
 .csd-field {

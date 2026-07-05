@@ -177,6 +177,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/preview", s.handlePreviewEnv)
 	mux.HandleFunc("/env/reference-targets", s.handleReferenceTargets)
 	mux.HandleFunc("/connections", s.handleConnections)
+	mux.HandleFunc("/volumes", s.handleListVolumes)
+	mux.HandleFunc("/volumes/delete", s.handleDeleteVolume)
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	return s.auth(mux)
 }
@@ -638,6 +640,53 @@ func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, conns)
+}
+
+// handleListVolumes returns Draft-managed Docker volumes, optionally filtered by
+// nodeId and/or projectId query params. Used by the per-node Volumes management
+// UI and (later) a project-wide orphan view. nodeId filtering works even after
+// the node row is deleted because it matches the draft.node label on the volume.
+func (s *Server) handleListVolumes(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var projectID *uint
+	if v := q.Get("projectId"); v != "" {
+		pid, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			http.Error(w, "bad projectId", http.StatusBadRequest)
+			return
+		}
+		p := uint(pid)
+		projectID = &p
+	}
+	vols, err := s.engine.ListManagedVolumes(r.Context(), projectID, q.Get("nodeId"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, vols)
+}
+
+// handleDeleteVolume removes a Draft-managed volume by name. force=true also
+// removes volumes still referenced by a container; the binding defaults to
+// false so a running service's volume can't be yanked accidentally.
+func (s *Server) handleDeleteVolume(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name  string `json:"name"`
+		Force bool   `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.engine.DeleteManagedVolume(r.Context(), req.Name, req.Force); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {

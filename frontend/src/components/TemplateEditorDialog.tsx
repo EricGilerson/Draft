@@ -6,6 +6,7 @@ import {
 import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import TemplateIcon, {TEMPLATE_ICON_OPTIONS} from './TemplateIcon';
+import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import './TemplateEditorDialog.css';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -20,12 +21,15 @@ type Props = {
 type EnvEntry = {key: string; value: string; scope: string};
 type LabelEntry = {key: string; value: string};
 
+type VolumeCapability = {show?: boolean; editable?: boolean};
+
 type TemplateSchema = {
     serviceRoot?: 'optional' | 'hidden';
     dockerfile?: 'optional' | 'hidden';
     wizardSteps?: {id: string; title: string}[];
     settings?: Record<string, {default?: string; hidden?: boolean; label?: string; type?: string; options?: string[]}>;
     hideSections?: string[];
+    volumes?: VolumeCapability;
 };
 
 const SECTION_OPTIONS: {id: string; label: string}[] = [
@@ -60,6 +64,7 @@ function serializeSchema(s: TemplateSchema): string {
     if (s.wizardSteps && s.wizardSteps.length) out.wizardSteps = s.wizardSteps;
     if (s.settings && Object.keys(s.settings).length) out.settings = s.settings;
     if (s.hideSections && s.hideSections.length) out.hideSections = s.hideSections;
+    if (s.volumes) out.volumes = s.volumes;
     const json = JSON.stringify(out);
     return json === '{}' ? '' : json;
 }
@@ -148,6 +153,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
     const [draft, setDraft] = useState<store.ServiceTemplate>(() => template ? new store.ServiceTemplate(template) : blankTemplate());
     const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() => parseEnvVars(template?.envVars));
     const [labelEntries, setLabelEntries] = useState<LabelEntry[]>(() => parseLabels(template?.labels));
+    const [volumeEntries, setVolumeEntries] = useState<VolumeEntry[]>(() => parseVolumeEntries(template?.volumes));
     const [iconQuery, setIconQuery] = useState('');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -160,6 +166,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
         setDraft(template ? new store.ServiceTemplate(template) : blankTemplate());
         setEnvEntries(parseEnvVars(template?.envVars));
         setLabelEntries(parseLabels(template?.labels));
+        setVolumeEntries(parseVolumeEntries(template?.volumes));
         setSchema(parseSchema(template?.schema));
     }, [template]);
 
@@ -202,6 +209,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
             name: draft.name.trim(),
             envVars: JSON.stringify(env),
             labels: JSON.stringify(labels),
+            volumes: serializeVolumeEntries(volumeEntries),
         });
     };
 
@@ -249,6 +257,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                 setDraft(new store.ServiceTemplate(cloned));
                 setEnvEntries(parseEnvVars(cloned.envVars));
                 setLabelEntries(parseLabels(cloned.labels));
+                setVolumeEntries(parseVolumeEntries(cloned.volumes));
             })
             .catch((e) => { setSubmitting(false); setError(typeof e === 'string' ? e : e?.message || 'Failed to clone template'); });
     };
@@ -573,6 +582,20 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                 </div>
 
                 <div className="form-field">
+                    <label className="form-label">Default volumes</label>
+                    <span className="settings-hint">
+                        Volumes seeded onto services created from this template. Use a Named volume for
+                        persistent data (e.g. a database's data directory) — Draft mints a stable name per
+                        service instance at deploy time.
+                    </span>
+                    <VolumeEditor
+                        entries={volumeEntries}
+                        onChange={setVolumeEntries}
+                        editable={!readOnly}
+                    />
+                </div>
+
+                <div className="form-field">
                     <label className="form-label">Capabilities</label>
                     <span className="settings-hint">
                         Drives the create-service wizard and which Settings sections are hidden for services
@@ -605,6 +628,33 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                                 <option value="hidden">Hidden</option>
                             </select>
                         </div>
+                    </div>
+
+                    <label className="form-label" style={{marginTop: 10}}>Volumes wizard step</label>
+                    <span className="settings-hint">
+                        Show a Volumes step in the create-service wizard for this template, and whether the
+                        user can edit the defaults there. The template's Default volumes above are seeded
+                        regardless.
+                    </span>
+                    <div className="template-editor-cap-checks">
+                        <label className="template-editor-cap-check">
+                            <input
+                                type="checkbox"
+                                checked={!!schema.volumes?.show}
+                                onChange={() => updateSchema({...schema, volumes: {...schema.volumes, show: !schema.volumes?.show}})}
+                                disabled={readOnly}
+                            />
+                            <span>Show volumes step</span>
+                        </label>
+                        <label className="template-editor-cap-check">
+                            <input
+                                type="checkbox"
+                                checked={!!schema.volumes?.editable}
+                                onChange={() => updateSchema({...schema, volumes: {...schema.volumes, editable: !schema.volumes?.editable}})}
+                                disabled={readOnly || !schema.volumes?.show}
+                            />
+                            <span>Editable in wizard</span>
+                        </label>
                     </div>
 
                     <label className="form-label" style={{marginTop: 10}}>Hidden Settings sections</label>

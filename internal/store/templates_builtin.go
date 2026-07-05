@@ -28,7 +28,10 @@ var buildTemplateSchema = mustEncodeSchema(TemplateSchema{
 
 // imageTemplateSchema is the schema for the image-mode datastore built-ins:
 // service root and Dockerfile are irrelevant, the source/build Settings
-// sections are hidden, and the wizard skips the source step.
+// sections are hidden, and the wizard skips the source step. Volumes are
+// intentionally NOT hidden — datastores are the services that most need
+// persistent storage, so a Volumes wizard step and Settings section are shown
+// and seeded from the template's Volumes defaults.
 var imageTemplateSchema = mustEncodeSchema(TemplateSchema{
 	ServiceRoot: SchemaHidden,
 	Dockerfile:  SchemaHidden,
@@ -38,11 +41,12 @@ var imageTemplateSchema = mustEncodeSchema(TemplateSchema{
 		SectionBuildContext,
 		SectionBuildConfig,
 		SectionRuntimeCommand,
-		SectionVolumes,
 	},
+	Volumes: &VolumeCapability{Show: true, Editable: true},
 	WizardSteps: []WizardStep{
 		{ID: "template", Title: "Template"},
 		{ID: "identity", Title: "Name & options"},
+		{ID: "volumes", Title: "Volumes"},
 		{ID: "review", Title: "Review"},
 	},
 })
@@ -64,6 +68,19 @@ var (
 	redisImageTags    = `["7-alpine","7","6-alpine","6","latest"]`
 	mysqlImageTags    = `["8","8.0","8-debian","latest"]`
 	mongoImageTags    = `["7","7-jammy","6","6-jammy","latest"]`
+)
+
+// Default volume mounts for the datastore built-ins. Each is a Draft-managed
+// named volume (type:"volume", empty source => Draft mints a deterministic
+// name from the node identity at deploy time). This is what makes a freshly
+// created database persist across redeploys — without it, every stop/redeploy
+// would lose all data. Targets match each official image's documented data
+// directory so the entrypoint writes into the mounted volume.
+var (
+	postgresVolumes = `[{"type":"volume","containerPath":"/var/lib/postgresql/data"}]`
+	mysqlVolumes    = `[{"type":"volume","containerPath":"/var/lib/mysql"}]`
+	mongoVolumes    = `[{"type":"volume","containerPath":"/data/db"},{"type":"volume","containerPath":"/data/configdb"}]`
+	redisVolumes    = `[{"type":"volume","containerPath":"/data"}]`
 )
 
 var builtinTemplates = []ServiceTemplate{
@@ -201,6 +218,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Port:        5432,
 		Schema:      imageTemplateSchema,
 		ImageTags:   postgresImageTags,
+		Volumes:     postgresVolumes,
 		// DB user/name use the official image's standard defaults (postgres/postgres)
 		// rather than being derived from the project, so credentials read the way a
 		// freshly-installed Postgres would. The password stays per-node derived so
@@ -218,6 +236,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Port:        6379,
 		Schema:      imageTemplateSchema,
 		ImageTags:   redisImageTags,
+		Volumes:     redisVolumes,
 		// The official redis image reads no env var for auth, so REDIS_PASSWORD
 		// alone is a no-op. CmdOverride enforces it via --requirepass; Draft
 		// expands {{draft.*}} in CmdOverride at stamp time.
@@ -235,6 +254,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Port:        3306,
 		Schema:      imageTemplateSchema,
 		ImageTags:   mysqlImageTags,
+		Volumes:     mysqlVolumes,
 		// Standard defaults: root is the admin (password derived per node), and
 		// an `mysql` app user is created with access to the `appdb` database. Both
 		// are fixed conventions independent of the project name.
@@ -251,6 +271,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Port:        27017,
 		Schema:      imageTemplateSchema,
 		ImageTags:   mongoImageTags,
+		Volumes:     mongoVolumes,
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
 		// no CmdOverride is needed (unlike Redis). The connection URL uses

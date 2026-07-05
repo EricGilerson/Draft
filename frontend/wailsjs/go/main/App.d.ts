@@ -21,6 +21,8 @@ export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.
 
 export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
 
+export function DeleteManagedVolume(arg1:string,arg2:boolean):Promise<void>;
+
 export function DeleteNode(arg1:string):Promise<void>;
 
 export function DeleteServiceTemplate(arg1:number):Promise<void>;
@@ -58,6 +60,8 @@ export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSync
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
 export function ListGitBranches(arg1:string,arg2:number):Promise<Array<string>>;
+
+export function ListManagedVolumes(arg1:number,arg2:string):Promise<Array<deploy.ManagedVolume>>;
 
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 

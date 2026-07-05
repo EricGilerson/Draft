@@ -22,6 +22,16 @@ type TemplateSchema struct {
 	WizardSteps   []WizardStep         `json:"wizardSteps,omitempty"`
 	Settings      map[string]FieldSpec `json:"settings,omitempty"`      // key = node_settings key
 	HideSections  []string             `json:"hideSections,omitempty"`  // SettingsTab section ids to hide
+	Volumes       *VolumeCapability    `json:"volumes,omitempty"`       // volumes wizard step + editability
+}
+
+// VolumeCapability controls whether the create-service wizard renders a
+// Volumes step for services stamped from this template, and whether the user
+// can edit the template's default volume list there. The template's Volumes
+// column carries the defaults; this only governs wizard presentation.
+type VolumeCapability struct {
+	Show     bool `json:"show,omitempty"`     // render the "Volumes" wizard step
+	Editable bool `json:"editable,omitempty"` // user may add/remove/edit entries in the wizard
 }
 
 // WizardStep is a single step in the create-service wizard. Steps are authored
@@ -166,5 +176,5 @@ func NormalizeSchema(s TemplateSchema, mode string) TemplateSchema {
 
 func isZeroSchema(s TemplateSchema) bool {
 	return s.ServiceRoot == "" && s.Dockerfile == "" && len(s.WizardSteps) == 0 &&
-		len(s.Settings) == 0 && len(s.HideSections) == 0
+		len(s.Settings) == 0 && len(s.HideSections) == 0 && s.Volumes == nil
 }

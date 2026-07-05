@@ -141,6 +141,13 @@ type ServiceTemplate struct {
 	WorkingDir  string    `json:"workingDir"`
 	EnvVars     string    `gorm:"type:text" json:"envVars"` // JSON: [{"key","value","scope"}]
 	Labels      string    `gorm:"type:text" json:"labels"`  // JSON: {"key":"value"}
+	// Volumes is a JSON array of TemplateVolume (see volumes.go): default volume
+	// mounts seeded onto services created from this template. Datastore built-ins
+	// carry a Draft-managed named volume for their data directory so a freshly
+	// created Postgres/MySQL/Mongo/Redis persists across redeploys. Empty for
+	// build-mode web/language templates. The create wizard lets the user edit
+	// these defaults before stamping.
+	Volumes     string    `gorm:"type:text" json:"volumes"` // JSON: [{type, source, target, readOnly, sizeHint, labels}]
 	// Schema is a JSON-encoded TemplateSchema that drives the create-service
 	// wizard (which steps/fields apply) and the Settings tab (which sections to
 	// hide). Empty means "use the default for Mode"; see template_schema.go.

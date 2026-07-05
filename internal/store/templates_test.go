@@ -518,6 +518,137 @@ func TestCloneTemplateCarriesSchema(t *testing.T) {
 	}
 }
 
+// TestBuiltinDBTemplatesCarryVolumes asserts each datastore built-in ships a
+// Draft-managed named volume for its data directory, so a freshly created
+// database persists across redeploys. Build-mode built-ins have no volumes.
+func TestBuiltinDBTemplatesCarryVolumes(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	for _, tpl := range list {
+		vols, err := ParseTemplateVolumes(tpl.Volumes)
+		if err != nil {
+			t.Errorf("built-in %q has invalid Volumes: %v", tpl.Name, err)
+			continue
+		}
+		if tpl.Mode == ModeImage {
+			if len(vols) == 0 {
+				t.Errorf("datastore built-in %q should ship at least one default volume", tpl.Name)
+				continue
+			}
+			for _, v := range vols {
+				if v.Type != "volume" {
+					t.Errorf("built-in %q volume %q should be type volume, got %q", tpl.Name, v.ContainerPath, v.Type)
+				}
+				if v.ContainerPath == "" {
+					t.Errorf("built-in %q has a volume with no containerPath", tpl.Name)
+				}
+			}
+		} else if len(vols) != 0 {
+			t.Errorf("build built-in %q should have no default volumes, got %d", tpl.Name, len(vols))
+		}
+	}
+}
+
+// TestBuiltinDBTemplatesShowVolumesSection asserts the image schema no longer
+// hides the Volumes Settings section (datastores need it) and exposes a
+// volumes wizard step.
+func TestBuiltinDBTemplatesShowVolumesSection(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	found := false
+	for _, tpl := range list {
+		if tpl.Mode != ModeImage {
+			continue
+		}
+		schema, err := ParseTemplateSchema(tpl.Schema)
+		if err != nil {
+			t.Fatalf("built-in %q schema: %v", tpl.Name, err)
+		}
+		for _, hid := range schema.HideSections {
+			if hid == SectionVolumes {
+				t.Errorf("built-in %q should not hide the volumes section", tpl.Name)
+			}
+		}
+		if schema.Volumes == nil || !schema.Volumes.Show {
+			t.Errorf("built-in %q should expose a volumes wizard capability", tpl.Name)
+		}
+		hasVolumesStep := false
+		for _, st := range schema.WizardSteps {
+			if st.ID == "volumes" {
+				hasVolumesStep = true
+			}
+		}
+		if !hasVolumesStep {
+			t.Errorf("built-in %q wizard should include a volumes step", tpl.Name)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("no image-mode built-in found to test")
+	}
+}
+
+func TestCloneTemplateCarriesVolumes(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var pg *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "PostgreSQL" {
+			pg = &list[i]
+			break
+		}
+	}
+	if pg == nil {
+		t.Fatal("PostgreSQL not seeded")
+	}
+	clone, err := s.CloneTemplate(pg.ID)
+	if err != nil {
+		t.Fatalf("CloneTemplate: %v", err)
+	}
+	if clone.Volumes != pg.Volumes {
+		t.Errorf("clone volumes = %q, want %q (clone must carry volumes)", clone.Volumes, pg.Volumes)
+	}
+}
+
+func TestCreateTemplateNormalizesVolumes(t *testing.T) {
+	s := openTemp(t)
+	tpl, err := s.CreateTemplate(&ServiceTemplate{
+		Name:    "Vol Template",
+		Mode:    "image",
+		Image:   "foo:1",
+		Port:    5000,
+		Volumes: `[{"type":"volume","containerPath":"/data"},{"containerPath":"  "},{"type":"volume","containerPath":"/cache","sizeHint":"  10g  "}]`,
+	})
+	if err != nil {
+		t.Fatalf("CreateTemplate: %v", err)
+	}
+	vols, err := ParseTemplateVolumes(tpl.Volumes)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(vols) != 2 {
+		t.Fatalf("expected 2 volumes after normalize, got %d", len(vols))
+	}
+	if vols[0].ContainerPath != "/data" || vols[0].Type != "volume" {
+		t.Errorf("vol[0] = %+v", vols[0])
+	}
+	if vols[1].SizeHint != "10g" {
+		t.Errorf("sizeHint not trimmed: %q", vols[1].SizeHint)
+	}
+	if _, err := s.CreateTemplate(&ServiceTemplate{Name: "Bad Vol", Mode: "image", Image: "x:1", Port: 1, Volumes: "{not json"}); err == nil {
+		t.Error("expected error for malformed volumes JSON, got nil")
+	}
+}
+
 // TestBuiltinDBTemplatesCarryImageTags asserts each datastore built-in ships a
 // curated tag list, and that the tag of the default Image ref is the FIRST tag
 // (so the version picker's default option matches the template default).

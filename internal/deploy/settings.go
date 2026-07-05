@@ -202,36 +202,13 @@ func parseResources(settings map[string]string) container.Resources {
 	return r
 }
 
-type volumeEntry struct {
-	HostPath      string `json:"hostPath"`
-	ContainerPath string `json:"containerPath"`
-	ReadOnly      bool   `json:"readOnly"`
-}
-
+// parseVolumeMounts reads node_settings.volume_mounts and returns Docker
+// mounts. Auto-named volumes (type=="volume" with empty source) get an empty
+// Source here; ensureNamedVolumes fills it in at deploy time once the node
+// identity is known. Legacy rows without a "type" are treated as bind mounts,
+// and bind mounts fall back to the pre-volume "hostPath" field for back-compat.
 func parseVolumeMounts(settings map[string]string) []mount.Mount {
-	v := strings.TrimSpace(settings["volume_mounts"])
-	if v == "" {
-		return nil
-	}
-
-	var entries []volumeEntry
-	if json.Unmarshal([]byte(v), &entries) != nil {
-		return nil
-	}
-
-	mounts := make([]mount.Mount, 0, len(entries))
-	for _, e := range entries {
-		if e.HostPath == "" || e.ContainerPath == "" {
-			continue
-		}
-		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   e.HostPath,
-			Target:   e.ContainerPath,
-			ReadOnly: e.ReadOnly,
-		})
-	}
-	return mounts
+	return SpecsToMounts(ParseVolumeSpecs(settings["volume_mounts"]))
 }
 
 func runLifecycleHook(ctx context.Context, label, cmd, workDir string, logFn func(string)) error {

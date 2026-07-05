@@ -162,6 +162,22 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 		}
 	}
 
+	// 6.5. Stamp volume mounts. An explicit wizard override wins; otherwise the
+	// template's Volumes default is used (this is what makes a freshly created
+	// datastore persist — the Postgres/MySQL/Mongo/Redis built-ins ship a
+	// Draft-managed named volume for their data directory). Empty means no
+	// volumes stamped; the user can add them later in Settings.
+	volumeMounts := strings.TrimSpace(req.Overrides["volume_mounts"])
+	if volumeMounts == "" {
+		volumeMounts = strings.TrimSpace(tpl.Volumes)
+	}
+	if volumeMounts != "" {
+		if err := e.store.SetNodeSetting(req.ID, "volume_mounts", volumeMounts); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("stamp volume_mounts: %w", err)
+		}
+	}
+
 	// 7. Seed env vars from the template, resolving {{draft.*}} per value.
 	entries, err := parseTemplateEnvVars(tpl.EnvVars)
 	if err != nil {
@@ -198,7 +214,7 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	// is routed to env vars (Source=manual, wins over the generated default);
 	// every other key is routed to node_settings.
 	for key, value := range req.Overrides {
-		if key == "dockerfile" || key == "service_port" || key == "image" {
+		if key == "dockerfile" || key == "service_port" || key == "image" || key == "volume_mounts" {
 			continue // already handled above
 		}
 		if spec, ok := schema.Settings[key]; ok && spec.Type == "env" {

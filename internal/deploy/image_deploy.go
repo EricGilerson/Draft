@@ -62,6 +62,21 @@ func (e *Engine) startContainerAndRegister(
 	}
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
 
+	// Resolve auto-named volumes against this node's identity and create them
+	// in Docker (idempotent). Bind mounts and volumes with an explicit name
+	// pass through unchanged. Done here — right before ContainerCreate — so
+	// both the build and image deploy paths get it for free, and so the Docker
+	// client we already opened is reused.
+	resolvedMounts, err := e.ensureNamedVolumes(ctx, cli, node, addr, uid, ParseVolumeSpecs(settings["volume_mounts"]))
+	if err != nil {
+		e.failDeployment(dep, nodeID, "volume setup failed: "+err.Error())
+		return
+	}
+	overrides.Mounts = resolvedMounts
+	if len(resolvedMounts) > 0 {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Volumes: %d", len(resolvedMounts)))
+	}
+
 	labels := map[string]string{
 		"draft.project":    fmt.Sprintf("%d", node.ProjectID),
 		"draft.node":       nodeID,

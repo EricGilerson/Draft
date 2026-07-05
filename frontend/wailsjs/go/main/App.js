@@ -30,6 +30,10 @@ export function DeleteEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvVar'](arg1, arg2);
 }
 
+export function DeleteManagedVolume(arg1, arg2) {
+  return window['go']['main']['App']['DeleteManagedVolume'](arg1, arg2);
+}
+
 export function DeleteNode(arg1) {
   return window['go']['main']['App']['DeleteNode'](arg1);
 }
@@ -104,6 +108,10 @@ export function IsGitRepo(arg1, arg2) {
 
 export function ListGitBranches(arg1, arg2) {
   return window['go']['main']['App']['ListGitBranches'](arg1, arg2);
+}
+
+export function ListManagedVolumes(arg1, arg2) {
+  return window['go']['main']['App']['ListManagedVolumes'](arg1, arg2);
 }
 
 export function ListNodes(arg1) {

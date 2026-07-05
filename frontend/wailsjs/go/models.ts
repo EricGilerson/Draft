@@ -180,6 +180,38 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class ManagedVolume {
+	    name: string;
+	    labels: Record<string, string>;
+	    mountpoint: string;
+	    driver: string;
+	    createdAt: string;
+	    size: number;
+	    refCount: number;
+	    projectId: number;
+	    nodeId: string;
+	    target: string;
+	    environment: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ManagedVolume(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.labels = source["labels"];
+	        this.mountpoint = source["mountpoint"];
+	        this.driver = source["driver"];
+	        this.createdAt = source["createdAt"];
+	        this.size = source["size"];
+	        this.refCount = source["refCount"];
+	        this.projectId = source["projectId"];
+	        this.nodeId = source["nodeId"];
+	        this.target = source["target"];
+	        this.environment = source["environment"];
+	    }
+	}
 	export class MetricPoint {
 	    // Go type: time
 	    timestamp: any;
@@ -848,6 +880,7 @@ export namespace store {
 	    workingDir: string;
 	    envVars: string;
 	    labels: string;
+	    volumes: string;
 	    schema: string;
 	    builtin: boolean;
 	    // Go type: time
@@ -877,6 +910,7 @@ export namespace store {
 	        this.workingDir = source["workingDir"];
 	        this.envVars = source["envVars"];
 	        this.labels = source["labels"];
+	        this.volumes = source["volumes"];
 	        this.schema = source["schema"];
 	        this.builtin = source["builtin"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);

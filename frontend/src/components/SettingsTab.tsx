@@ -4,10 +4,11 @@ import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
     IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
-    GetNode, GetServiceTemplate,
+    GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume,
 } from '../../wailsjs/go/main/App';
-import {dockerfile, main, store} from '../../wailsjs/go/models';
+import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
+import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
@@ -35,12 +36,6 @@ type SettingsTabProps = {
     onServicesChanged?: () => void;
 };
 
-type VolumeEntry = {
-    hostPath: string;
-    containerPath: string;
-    readOnly: boolean;
-};
-
 type LabelEntry = {
     key: string;
     value: string;
@@ -63,6 +58,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
 
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
+    const [managedVolumes, setManagedVolumes] = useState<deploy.ManagedVolume[]>([]);
     const [labels, setLabels] = useState<LabelEntry[]>([]);
 
     const [template, setTemplate] = useState<store.ServiceTemplate | null>(null);
@@ -121,6 +117,12 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const refreshHookStatus = useCallback(() => {
         GetGitHookStatus(nodeId, projectId).then(setHookStatus).catch(() => setHookStatus(null));
     }, [nodeId, projectId]);
+
+    const refreshManagedVolumes = useCallback(() => {
+        ListManagedVolumes(projectId, nodeId)
+            .then((list) => setManagedVolumes(list ?? []))
+            .catch(() => setManagedVolumes([]));
+    }, [projectId, nodeId]);
 
     useEffect(() => {
         IsGitRepo(nodeId, projectId).then((ok) => {
@@ -205,8 +207,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
             setGitStream(s.git_stream !== 'false');
             if (s.volume_mounts) {
-                try { setVolumes(JSON.parse(s.volume_mounts)); } catch { setVolumes([]); }
+                setVolumes(parseVolumeEntries(s.volume_mounts));
             }
+            refreshManagedVolumes();
             if (s.custom_labels) {
                 try {
                     const obj = JSON.parse(s.custom_labels);
@@ -348,8 +351,29 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
 
     const saveVolumes = useCallback((vols: VolumeEntry[]) => {
         setVolumes(vols);
-        saveSetting('volume_mounts', JSON.stringify(vols));
+        saveSetting('volume_mounts', serializeVolumeEntries(vols));
     }, [saveSetting]);
+
+    const deleteDockerVolume = useCallback(async (name: string) => {
+        if (!name) return;
+        // force=false: Docker refuses if a container still uses it, which is the
+        // safe default — the caller sees the error instead of yanking live data.
+        try {
+            await DeleteManagedVolume(name, false);
+            refreshManagedVolumes();
+        } catch {
+            // Surface failures to the existing error line in the Source section.
+            setError(`Failed to delete volume ${name}. It may still be in use — stop the service first.`);
+        }
+    }, [refreshManagedVolumes]);
+
+    const managedByTarget = useMemo(() => {
+        const m: Record<string, deploy.ManagedVolume> = {};
+        for (const v of managedVolumes) {
+            if (v.target) m[v.target] = v;
+        }
+        return m;
+    }, [managedVolumes]);
 
     const saveLabels = useCallback((lbls: LabelEntry[]) => {
         setLabels(lbls);
@@ -365,6 +389,28 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         : '';
 
     const restartPolicy = getSetting('restart_policy') || 'no';
+
+    // Volumes section, extracted so it can be placed high for image-mode nodes
+    // (right after Image — datastores care about storage more than ports) and at
+    // its usual lower spot for build-mode nodes.
+    const volumesSection = !sectionHidden('volumes') && (
+        <div className="settings-section">
+            <h3 className="settings-section-title">Volumes</h3>
+            <span className="settings-hint">
+                Persistent storage for this service. Named volumes are Docker-managed — Draft mints a
+                stable name from this service's identity so data survives redeploys. Bind mounts point
+                at a host directory.
+            </span>
+            <VolumeEditor
+                entries={volumes}
+                onChange={saveVolumes}
+                managedByTarget={managedByTarget}
+                onDeleteVolume={deleteDockerVolume}
+            />
+        </div>
+    );
+    const imageModeVolumes = isImageMode && volumesSection;
+    const buildModeVolumes = !isImageMode && volumesSection;
 
     return (
         <div className="settings-tab">
@@ -554,6 +600,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                 </div>
             )}
 
+            {/* ── Volumes (image-mode: high, right after Image) ── */}
+            {imageModeVolumes}
+
             {/* ── Docker ── */}
             {!isImageMode && !sectionHidden('dockerfile') && (
             <div className="settings-section">
@@ -720,57 +769,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
             </div>
             )}
 
-            {/* ── Volumes ── */}
-            {!sectionHidden('volumes') && (
-            <div className="settings-section">
-                <h3 className="settings-section-title">Volumes</h3>
-                <span className="settings-hint">Bind mount host directories into the container.</span>
-                {volumes.map((vol, i) => (
-                    <div key={i} className="settings-kv-row">
-                        <input
-                            className="input settings-kv-input"
-                            value={vol.hostPath}
-                            onChange={(e) => {
-                                const updated = [...volumes];
-                                updated[i] = {...updated[i], hostPath: e.target.value};
-                                setVolumes(updated);
-                            }}
-                            onBlur={() => saveVolumes(volumes)}
-                            placeholder="Host path"
-                        />
-                        <input
-                            className="input settings-kv-input"
-                            value={vol.containerPath}
-                            onChange={(e) => {
-                                const updated = [...volumes];
-                                updated[i] = {...updated[i], containerPath: e.target.value};
-                                setVolumes(updated);
-                            }}
-                            onBlur={() => saveVolumes(volumes)}
-                            placeholder="Container path"
-                        />
-                        <label className="settings-kv-check" title="Read-only">
-                            <input
-                                type="checkbox"
-                                checked={vol.readOnly}
-                                onChange={(e) => {
-                                    const updated = [...volumes];
-                                    updated[i] = {...updated[i], readOnly: e.target.checked};
-                                    saveVolumes(updated);
-                                }}
-                            />
-                            <span className="settings-kv-check-label">RO</span>
-                        </label>
-                        <button className="btn btn-ghost settings-kv-remove" onClick={() => saveVolumes(volumes.filter((_, j) => j !== i))} title="Remove">
-                            <Trash2 size={12} />
-                        </button>
-                    </div>
-                ))}
-                <button className="btn btn-ghost settings-add-btn" onClick={() => { setVolumes([...volumes, {hostPath: '', containerPath: '', readOnly: false}]); }}>
-                    <Plus size={12} /> Add Volume
-                </button>
-            </div>
-            )}
+            {/* ── Volumes (build-mode position) ── */}
+            {buildModeVolumes}
 
             {/* ── Lifecycle Hooks ── */}
             {!sectionHidden('lifecycle') && (

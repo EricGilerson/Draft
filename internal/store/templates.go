@@ -70,6 +70,9 @@ func (s *Store) CreateTemplate(t *ServiceTemplate) (*ServiceTemplate, error) {
 	if t.ImageTags, err = NormalizeImageTags(t.ImageTags); err != nil {
 		return nil, err
 	}
+	if t.Volumes, err = NormalizeTemplateVolumes(t.Volumes); err != nil {
+		return nil, err
+	}
 	if err := s.DB.Create(t).Error; err != nil {
 		return nil, err
 	}
@@ -104,6 +107,9 @@ func (s *Store) UpdateTemplate(t *ServiceTemplate) error {
 	}
 	t.Schema = normalized
 	if t.ImageTags, err = NormalizeImageTags(t.ImageTags); err != nil {
+		return err
+	}
+	if t.Volumes, err = NormalizeTemplateVolumes(t.Volumes); err != nil {
 		return err
 	}
 	return s.DB.Save(t).Error
@@ -189,9 +195,10 @@ func (s *Store) SeedBuiltins() error {
 			existing.WorkingDir = t.WorkingDir
 			existing.EnvVars = t.EnvVars
 			existing.Labels = t.Labels
-			existing.Schema = t.Schema
-			existing.ImageTags = t.ImageTags
-			existing.Builtin = true
+		existing.Schema = t.Schema
+		existing.ImageTags = t.ImageTags
+		existing.Volumes = t.Volumes
+		existing.Builtin = true
 			if err := s.DB.Save(&existing).Error; err != nil {
 				return err
 			}

@@ -268,6 +268,29 @@ func (c *Client) GetProjectConnections(ctx context.Context, projectID uint) ([]d
 	return out, err
 }
 
+// ListManagedVolumes returns Draft-managed Docker volumes, optionally filtered
+// by node and/or project. An empty nodeID lists all Draft-managed volumes in
+// the (optional) project scope.
+func (c *Client) ListManagedVolumes(ctx context.Context, projectID *uint, nodeID string) ([]deploy.ManagedVolume, error) {
+	var sb strings.Builder
+	sb.WriteString("/volumes?")
+	if projectID != nil {
+		sb.WriteString(fmt.Sprintf("projectId=%d&", *projectID))
+	}
+	if nodeID != "" {
+		sb.WriteString("nodeId=" + url.QueryEscape(nodeID) + "&")
+	}
+	var out []deploy.ManagedVolume
+	err := c.get(ctx, sb.String(), &out)
+	return out, err
+}
+
+// DeleteManagedVolume removes a Draft-managed volume by name. force=true removes
+// it even if a container still references it.
+func (c *Client) DeleteManagedVolume(ctx context.Context, name string, force bool) error {
+	return c.postJSON(ctx, "/volumes/delete", map[string]any{"name": name, "force": force}, nil)
+}
+
 func (c *Client) SubscribeEvents(ctx context.Context, fn func(string, any)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url("/events"), nil)
 	if err != nil {

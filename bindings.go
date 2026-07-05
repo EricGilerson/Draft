@@ -184,6 +184,43 @@ func (a *App) DeployService(nodeID string) error {
 	return c.Deploy(a.ctx, nodeID)
 }
 
+// ListManagedVolumes returns Draft-managed Docker volumes. When nodeID is empty,
+// all Draft-managed volumes in the (optional) project scope are returned; when
+// nodeID is set, only that node's volumes. nodeId filtering matches the
+// draft.node label stamped at volume creation, so it still works after a node
+// row is deleted — that's how the "keep and surface" deletion policy finds
+// orphaned volumes later.
+func (a *App) ListManagedVolumes(projectID int, nodeID string) ([]deploy.ManagedVolume, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	var pid *uint
+	if projectID > 0 {
+		p := uint(projectID)
+		pid = &p
+	}
+	return c.ListManagedVolumes(a.ctx, pid, nodeID)
+}
+
+// DeleteManagedVolume removes a Draft-managed Docker volume by name. Only
+// volumes labelled draft.managed=true may be removed through this path, so an
+// arbitrary Docker volume can't be nuked by name. force removes the volume even
+// if a container still references it; callers should default to false.
+func (a *App) DeleteManagedVolume(name string, force bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteManagedVolume(a.ctx, name, force)
+}
+
 func (a *App) StopService(nodeID string) error {
 	c, err := a.ensureDaemon()
 	if err != nil {
