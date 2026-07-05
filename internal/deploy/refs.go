@@ -292,10 +292,18 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 }
 
 // nodesThatReach returns every node ID with a reference path (direct or
-// transitive) to target, via a reverse BFS over conns.
+// transitive) to target, via a reverse BFS over conns. Only connections to a
+// custom variable key count as edges here: a reference to a generated attr
+// (hostname/port/URL) resolves immediately with no recursion — see
+// resolveNodeAttr's isGeneratedAttr short-circuit — so it can never
+// contribute to an actual cycle and shouldn't block the reverse link in the
+// picker.
 func nodesThatReach(target string, conns []Connection) map[string]bool {
 	incoming := map[string][]string{}
 	for _, c := range conns {
+		if isGeneratedAttr(c.TargetAttr) {
+			continue
+		}
 		incoming[c.TargetNodeID] = append(incoming[c.TargetNodeID], c.SourceNodeID)
 	}
 	reach := map[string]bool{}

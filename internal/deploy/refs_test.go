@@ -159,17 +159,22 @@ func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 		t.Fatalf("connections = %+v", conns)
 	}
 
-	// api already references db (api -> db), so db must NOT offer api as a
-	// target: db -> api would close the loop back through the existing
-	// api -> db reference.
+	// api -> db only references db's generated DRAFT_INTERNAL_URL attr, which
+	// resolves immediately with no recursion (see resolveNodeAttr's
+	// isGeneratedAttr short-circuit). That can never form a real cycle, so db
+	// must still be able to offer api as a reference target.
 	dbTargets, err := e.ListReferenceTargets(db.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	foundAPI := false
 	for _, target := range dbTargets {
 		if target.NodeID == api.ID {
-			t.Fatalf("api should be excluded from db's reference targets (would cycle), targets = %+v", dbTargets)
+			foundAPI = true
 		}
+	}
+	if !foundAPI {
+		t.Fatalf("expected db to still be able to reference api (generated-attr refs can't cycle), targets = %+v", dbTargets)
 	}
 
 	// Nothing references api yet, so api can still (redundantly or not)
@@ -186,5 +191,32 @@ func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 	}
 	if !foundDB {
 		t.Fatalf("expected api to still be able to reference db, targets = %+v", apiTargets)
+	}
+}
+
+func TestListReferenceTargetsBlocksCustomKeyCycle(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	_, api, db := setupRefTestNodes(t, s)
+
+	// api references one of db's own custom variables (not a generated
+	// attr), so that reference does recurse through db's value at resolve
+	// time. db must not be offered api as a target, since picking it could
+	// close a real cycle.
+	if err := s.SetEnvVar(db.ID, "PASSWORD", "hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(api.ID, "DB_PASSWORD", "@{db.PASSWORD}"); err != nil {
+		t.Fatal(err)
+	}
+
+	dbTargets, err := e.ListReferenceTargets(db.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range dbTargets {
+		if target.NodeID == api.ID {
+			t.Fatalf("api should be excluded from db's reference targets (would cycle through a custom key), targets = %+v", dbTargets)
+		}
 	}
 }
