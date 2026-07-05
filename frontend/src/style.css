@@ -132,6 +132,21 @@ button {
     color: var(--text);
 }
 
+.btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(180, 48, 48, 0.14);
+    border-color: rgba(200, 72, 72, 0.45);
+    color: #ffb4b4;
+}
+
+.btn-danger:not(:disabled):hover {
+    background: rgba(180, 48, 48, 0.24);
+    border-color: rgba(220, 88, 88, 0.65);
+    color: #ffd0d0;
+}
+
 /* Inputs */
 .input {
     width: 100%;

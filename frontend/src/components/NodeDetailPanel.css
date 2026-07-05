@@ -501,6 +501,21 @@
     gap: 24px;
 }
 
+.settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.settings-section .settings-hint {
+    display: block;
+    margin: 0;
+}
+
+.settings-section .settings-section-title {
+    margin-bottom: 0;
+}
+
 .settings-section-title {
     margin: 0 0 14px;
     font-size: 0.78rem;
@@ -893,4 +908,98 @@ select.input.settings-select option {
 
 .volume-detail-parent:hover {
     color: var(--accent-text);
+}
+
+.settings-section--danger {
+    margin-top: 8px;
+    padding: 14px;
+    border: 1px solid rgba(200, 72, 72, 0.28);
+    border-radius: var(--radius);
+    background: rgba(180, 48, 48, 0.06);
+    gap: 12px;
+}
+
+.settings-delete-btn {
+    align-self: flex-start;
+    margin-top: 4px;
+}
+
+.settings-delete-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.settings-delete-lead {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+    font-size: 0.82rem;
+}
+
+.settings-delete-warning {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(200, 72, 72, 0.28);
+    background: rgba(180, 48, 48, 0.08);
+    color: var(--danger, #e88);
+    line-height: 1.5;
+    font-size: 0.78rem;
+}
+
+.settings-delete-note {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    line-height: 1.5;
+    font-size: 0.78rem;
+}
+
+.settings-delete-dependents {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.settings-delete-dependent-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-delete-dependent-list li {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+}
+
+.settings-delete-dependent-service {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.settings-delete-dependent-token {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.settings-delete-dialog-footer {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    width: 100%;
 }

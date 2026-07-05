@@ -69,11 +69,15 @@ export function ListProjectServices(arg1:number):Promise<Array<main.ProjectServi
 
 export function ListProjects():Promise<Array<store.Project>>;
 
+export function ListReferenceIssues(arg1:string):Promise<Array<deploy.ReferenceIssue>>;
+
 export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
 
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
+
+export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 

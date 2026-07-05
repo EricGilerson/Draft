@@ -117,16 +117,47 @@ func (a *App) DeleteNode(id string) error {
 	if repoRoot == "" {
 		repoRoot, _ = a.store.ResolveGitRepoRoot(a.ctx, id, node.ProjectID)
 	}
-	if err := a.store.DeleteNode(id); err != nil {
+	c, err := a.ensureDaemon()
+	if err != nil {
 		return err
 	}
-	if err := a.store.DeleteNodeSettings(id); err != nil {
+	if c == nil {
+		return errNoStore
+	}
+	if err := c.DeleteService(a.ctx, id); err != nil {
 		return err
 	}
 	if repoRoot != "" {
 		return githooks.ReconcileRepoHooks(a.ctx, a.store, repoRoot)
 	}
 	return nil
+}
+
+// PreviewDeleteService summarizes what deleting a service will stop, remove,
+// and leave behind — especially other services whose variables still reference
+// this one.
+func (a *App) PreviewDeleteService(nodeID string) (*deploy.DeleteServicePreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewDeleteService(a.ctx, nodeID)
+}
+
+// ListReferenceIssues returns unresolved @{Label.ATTR} tokens in nodeID's env
+// vars (unknown service or missing variable on a known service).
+func (a *App) ListReferenceIssues(nodeID string) ([]deploy.ReferenceIssue, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListReferenceIssues(a.ctx, nodeID)
 }
 
 func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {

@@ -126,6 +126,10 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListReferenceIssues(arg1) {
+  return window['go']['main']['App']['ListReferenceIssues'](arg1);
+}
+
 export function ListReferenceTargets(arg1) {
   return window['go']['main']['App']['ListReferenceTargets'](arg1);
 }
@@ -136,6 +140,10 @@ export function ListServiceTemplates() {
 
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+}
+
+export function PreviewDeleteService(arg1) {
+  return window['go']['main']['App']['PreviewDeleteService'](arg1);
 }
 
 export function PreviewEnvVars(arg1) {

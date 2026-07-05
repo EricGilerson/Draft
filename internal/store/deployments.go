@@ -71,6 +71,11 @@ func (s *Store) LatestDeployment(nodeID string) (*Deployment, error) {
 	return &d, nil
 }
 
+// DeleteDeploymentsByNode removes every deployment row for a node.
+func (s *Store) DeleteDeploymentsByNode(nodeID string) error {
+	return s.DB.Delete(&Deployment{}, "node_id = ?", nodeID).Error
+}
+
 func (s *Store) ListDeployments(nodeID string) ([]Deployment, error) {
 	var deployments []Deployment
 	if err := s.DB.Where("node_id = ?", nodeID).Order("created_at desc").Find(&deployments).Error; err != nil {

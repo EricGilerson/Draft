@@ -156,6 +156,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/deploy", s.handleDeploy)
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
+	mux.HandleFunc("/node/delete", s.handleDeleteService)
+	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -176,6 +178,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/export", s.handleExportEnv)
 	mux.HandleFunc("/env/preview", s.handlePreviewEnv)
 	mux.HandleFunc("/env/reference-targets", s.handleReferenceTargets)
+	mux.HandleFunc("/env/reference-issues", s.handleReferenceIssues)
 	mux.HandleFunc("/connections", s.handleConnections)
 	mux.HandleFunc("/volumes", s.handleListVolumes)
 	mux.HandleFunc("/volumes/delete", s.handleDeleteVolume)
@@ -216,6 +219,27 @@ func (s *Server) handleCreateNodeFromTemplate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, res)
+}
+
+func (s *Server) handleDeleteService(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.engine.DeleteService(context.Background(), req.NodeID))
+}
+
+func (s *Server) handlePreviewDeleteService(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	preview, err := s.engine.PreviewDeleteService(context.Background(), req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, preview)
 }
 
 func (s *Server) handleGitRecheck(w http.ResponseWriter, r *http.Request) {
@@ -626,6 +650,20 @@ func (s *Server) handleReferenceTargets(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, targets)
+}
+
+func (s *Server) handleReferenceIssues(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	issues, err := s.engine.ListReferenceIssues(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, issues)
 }
 
 func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {

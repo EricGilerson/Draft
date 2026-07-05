@@ -324,6 +324,111 @@ type Connection struct {
 	TargetAttr   string `json:"targetAttr"`
 }
 
+// ReferenceIssue describes a @{Label.ATTR} token in an env var value that
+// cannot be resolved — unknown service, missing variable, etc.
+type ReferenceIssue struct {
+	VarKey string `json:"varKey"`
+	Token  string `json:"token"`
+	Reason string `json:"reason"`
+}
+
+// ListReferenceIssues scans nodeID's env vars for reference tokens that point
+// at a missing service or attribute. Used for inline UI warnings without
+// waiting for full recursive preview resolution.
+func (e *Engine) ListReferenceIssues(nodeID string) ([]ReferenceIssue, error) {
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := e.store.ListNodes(node.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	labelToNode := make(map[string]*store.CanvasNode, len(nodes))
+	for i := range nodes {
+		key := strings.ToLower(strings.TrimSpace(nodes[i].Label))
+		labelToNode[key] = &nodes[i]
+	}
+
+	vars, err := e.store.ListEnvVars(nodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	var issues []ReferenceIssue
+	for _, v := range vars {
+		for _, m := range refPattern.FindAllStringSubmatch(v.Value, -1) {
+			label, attrName := m[1], m[2]
+			token := m[0]
+			target, ok := labelToNode[strings.ToLower(strings.TrimSpace(label))]
+			if !ok {
+				issues = append(issues, ReferenceIssue{
+					VarKey: v.Key,
+					Token:  token,
+					Reason: fmt.Sprintf("no service named %q", label),
+				})
+				continue
+			}
+			if isGeneratedAttr(attrName) {
+				continue
+			}
+			if _, err := e.store.GetEnvVar(target.ID, attrName); err != nil {
+				issues = append(issues, ReferenceIssue{
+					VarKey: v.Key,
+					Token:  token,
+					Reason: fmt.Sprintf("%q has no variable named %q", label, attrName),
+				})
+			}
+		}
+	}
+	return issues, nil
+}
+
+// ListServiceDependents returns every other service in the project whose env
+// vars still reference nodeID (by label). Reference values are not modified.
+func (e *Engine) ListServiceDependents(nodeID string) ([]ReferenceDependent, error) {
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := e.store.ListNodes(node.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	idToLabel := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		idToLabel[n.ID] = n.Label
+	}
+
+	conns, err := e.GetProjectConnections(node.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []ReferenceDependent
+	for _, c := range conns {
+		if c.TargetNodeID != nodeID {
+			continue
+		}
+		out = append(out, ReferenceDependent{
+			SourceNodeID: c.SourceNodeID,
+			SourceLabel:  idToLabel[c.SourceNodeID],
+			VarKey:       c.SourceKey,
+			Token:        fmt.Sprintf("@{%s.%s}", node.Label, c.TargetAttr),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SourceLabel != out[j].SourceLabel {
+			return out[i].SourceLabel < out[j].SourceLabel
+		}
+		if out[i].VarKey != out[j].VarKey {
+			return out[i].VarKey < out[j].VarKey
+		}
+		return out[i].Token < out[j].Token
+	})
+	return out, nil
+}
+
 // GetProjectConnections scans every node's env vars in the project for
 // reference tokens and returns the resulting edges, for the canvas to render
 // read-only (no drag-to-connect — connections are only created via the

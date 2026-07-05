@@ -30,9 +30,10 @@ type NodeDetailPanelProps = {
     onClose: () => void;
     onRename: (nodeId: string, newLabel: string) => Promise<void>;
     onServicesChanged?: () => void;
+    onServiceDeleted?: (nodeId: string) => void;
 };
 
-export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPath, onClose, onRename, onServicesChanged}: NodeDetailPanelProps) {
+export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPath, onClose, onRename, onServicesChanged, onServiceDeleted}: NodeDetailPanelProps) {
     const [activeTab, setActiveTab] = useState('overview');
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(nodeLabel);
@@ -129,7 +130,16 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                 {activeTab === 'variables' && <VariablesTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
                 {activeTab === 'metrics' && <MetricsTab nodeId={nodeId} />}
-                {activeTab === 'settings' && <SettingsTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} onServicesChanged={onServicesChanged} />}
+                {activeTab === 'settings' && (
+                    <SettingsTab
+                        nodeId={nodeId}
+                        projectId={projectId}
+                        projectPath={projectPath}
+                        serviceLabel={nodeLabel}
+                        onServicesChanged={onServicesChanged}
+                        onServiceDeleted={() => onServiceDeleted?.(nodeId)}
+                    />
+                )}
             </div>
         </div>
     );

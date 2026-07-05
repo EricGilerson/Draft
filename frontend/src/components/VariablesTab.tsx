@@ -3,7 +3,7 @@ import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plu
 import {
     GetEnvVars, SetEnvVar, DeleteEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
-    PreviewEnvVars, ListReferenceTargets,
+    PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
@@ -148,6 +148,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
+    const [referenceIssues, setReferenceIssues] = useState<deploy.ReferenceIssue[]>([]);
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
@@ -184,10 +185,19 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
+    const loadReferenceIssues = async () => {
+        try {
+            setReferenceIssues(await ListReferenceIssues(nodeId) || []);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const refreshAll = async () => {
         await load();
         await loadPreviews();
         await loadLinkTargets();
+        await loadReferenceIssues();
     };
 
     const loadSettings = async () => {
@@ -670,7 +680,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 {vars.length === 0 && (
                     <div className="variables-empty">No Draft variables yet.</div>
                 )}
-                {vars.map(v => (
+                {vars.map(v => {
+                    const varIssues = referenceIssues.filter((issue) => issue.varKey === v.key);
+                    return (
                     <div key={v.key} className="var-row">
                         <div className="var-key-cell">
                             <div className="var-key" title={v.key}>{v.key}</div>
@@ -733,7 +745,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                     <Trash2 size={14}/>
                                 </button>
                             </div>
-                            {previews[v.key]?.error && (
+                            {varIssues.map((issue) => (
+                                <div key={`${issue.token}:${issue.reason}`} className="var-preview var-preview--error">
+                                    {issue.token}: {issue.reason}
+                                </div>
+                            ))}
+                            {previews[v.key]?.error && varIssues.length === 0 && (
                                 <div className="var-preview var-preview--error">{previews[v.key].error}</div>
                             )}
                             {!previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value && (
@@ -755,7 +772,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             {linker?.mode === 'existing' && linker.localKey === v.key && renderLinkerPanel()}
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             <RuntimeVarsSection />

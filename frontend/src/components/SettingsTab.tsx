@@ -5,10 +5,12 @@ import {
     GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
     IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume,
+    PreviewDeleteService, DeleteNode,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
+import Dialog from './Dialog';
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
@@ -33,7 +35,9 @@ type SettingsTabProps = {
     nodeId: string;
     projectId: number;
     projectPath: string;
+    serviceLabel: string;
     onServicesChanged?: () => void;
+    onServiceDeleted?: () => void;
 };
 
 type LabelEntry = {
@@ -41,7 +45,7 @@ type LabelEntry = {
     value: string;
 };
 
-export default function SettingsTab({nodeId, projectId, projectPath, onServicesChanged}: SettingsTabProps) {
+export default function SettingsTab({nodeId, projectId, projectPath, serviceLabel, onServicesChanged, onServiceDeleted}: SettingsTabProps) {
     const [rootPath, setRootPath] = useState('');
     const [inputValue, setInputValue] = useState('');
     const [error, setError] = useState('');
@@ -97,6 +101,12 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
     const [deployTrigger, setDeployTrigger] = useState<DeployTrigger>('manual');
     const [redeployOnPull, setRedeployOnPull] = useState(false);
     const [hookStatus, setHookStatus] = useState<main.GitHookStatus | null>(null);
+
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+    const [deletePreview, setDeletePreview] = useState<deploy.DeleteServicePreview | null>(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
+    const [deleting, setDeleting] = useState(false);
 
     const saveSetting = useCallback((key: string, value: string) => {
         setSettings(prev => ({...prev, [key]: value}));
@@ -381,6 +391,37 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
         lbls.forEach(l => { if (l.key) obj[l.key] = l.value; });
         saveSetting('custom_labels', JSON.stringify(obj));
     }, [saveSetting]);
+
+    const openDeleteDialog = useCallback(async () => {
+        setDeleteError('');
+        setDeleteLoading(true);
+        setShowDeleteDialog(true);
+        try {
+            setDeletePreview(await PreviewDeleteService(nodeId));
+        } catch (e: unknown) {
+            const msg = typeof e === 'string' ? e : (e as Error)?.message || 'Failed to load delete preview';
+            setDeleteError(msg);
+            setDeletePreview(null);
+        } finally {
+            setDeleteLoading(false);
+        }
+    }, [nodeId]);
+
+    const confirmDelete = useCallback(async () => {
+        setDeleteError('');
+        setDeleting(true);
+        try {
+            await DeleteNode(nodeId);
+            setShowDeleteDialog(false);
+            onServiceDeleted?.();
+            onServicesChanged?.();
+        } catch (e: unknown) {
+            const msg = typeof e === 'string' ? e : (e as Error)?.message || 'Failed to delete service';
+            setDeleteError(msg);
+        } finally {
+            setDeleting(false);
+        }
+    }, [nodeId, onServiceDeleted, onServicesChanged]);
 
     const displayPath = rootPath
         ? (rootPath.toLowerCase().startsWith(projectPath.toLowerCase())
@@ -849,6 +890,75 @@ export default function SettingsTab({nodeId, projectId, projectPath, onServicesC
                     <Plus size={12} /> Add Label
                 </button>
             </div>
+            )}
+
+            <div className="settings-section settings-section--danger">
+                <h3 className="settings-section-title">Delete Service</h3>
+                <p className="settings-hint">
+                    Permanently remove <strong>{serviceLabel}</strong> from this project. Draft-managed Docker volumes
+                    are kept so data can be recovered or cleaned up later; bind mounts on disk are not deleted.
+                </p>
+                <button className="btn btn-danger settings-delete-btn" onClick={openDeleteDialog}>
+                    <Trash2 size={14} /> Delete service…
+                </button>
+            </div>
+
+            {showDeleteDialog && (
+                <Dialog
+                    title={`Delete “${serviceLabel}”?`}
+                    onClose={() => !deleting && setShowDeleteDialog(false)}
+                    footer={
+                        <div className="settings-delete-dialog-footer">
+                            <button className="btn btn-ghost" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-danger" onClick={confirmDelete} disabled={deleting || deleteLoading}>
+                                {deleting ? 'Deleting…' : 'Delete service'}
+                            </button>
+                        </div>
+                    }
+                >
+                    {deleteLoading && <p className="settings-hint">Loading…</p>}
+                    {!deleteLoading && deletePreview && (
+                        <div className="settings-delete-dialog">
+                            <p className="settings-delete-lead">
+                                This removes the service from the canvas, stops any running container, and deletes its
+                                settings, variables, and deployment history. This cannot be undone.
+                            </p>
+                            {deletePreview.isRunning && (
+                                <p className="settings-delete-warning">
+                                    A container for this service is currently running and will be stopped.
+                                </p>
+                            )}
+                            {deletePreview.managedVolumeCount > 0 && (
+                                <p className="settings-delete-note">
+                                    {deletePreview.managedVolumeCount} Draft-managed Docker volume
+                                    {deletePreview.managedVolumeCount === 1 ? '' : 's'} will be kept (orphaned) so you can
+                                    delete them separately if needed.
+                                </p>
+                            )}
+                            {deletePreview.dependents.length > 0 && (
+                                <div className="settings-delete-dependents">
+                                    <p className="settings-delete-warning">
+                                        Other services still reference this one. Their variable values will <strong>not</strong> be
+                                        changed, but deploy and preview will break until you update them:
+                                    </p>
+                                    <ul className="settings-delete-dependent-list">
+                                        {deletePreview.dependents.map((dep) => (
+                                            <li key={`${dep.sourceNodeId}:${dep.varKey}:${dep.token}`}>
+                                                <span className="settings-delete-dependent-service">
+                                                    {dep.sourceLabel}.{dep.varKey}
+                                                </span>
+                                                <span className="settings-delete-dependent-token">{dep.token}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {deleteError && <p className="form-error">{deleteError}</p>}
+                </Dialog>
             )}
         </div>
     );

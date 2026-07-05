@@ -119,6 +119,18 @@ func (c *Client) CreateNodeFromTemplate(ctx context.Context, req deploy.CreateNo
 	return &out, nil
 }
 
+func (c *Client) DeleteService(ctx context.Context, nodeID string) error {
+	return c.postNode(ctx, "/node/delete", nodeID)
+}
+
+func (c *Client) PreviewDeleteService(ctx context.Context, nodeID string) (*deploy.DeleteServicePreview, error) {
+	var out deploy.DeleteServicePreview
+	if err := c.postJSON(ctx, "/node/delete-preview", nodeRequest{NodeID: nodeID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) StopLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/stop", nodeID)
 }
@@ -259,6 +271,12 @@ func (c *Client) PreviewEnvVars(ctx context.Context, nodeID string) (map[string]
 func (c *Client) ListReferenceTargets(ctx context.Context, nodeID string) ([]deploy.ReferenceTarget, error) {
 	var out []deploy.ReferenceTarget
 	err := c.postJSON(ctx, "/env/reference-targets", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
+func (c *Client) ListReferenceIssues(ctx context.Context, nodeID string) ([]deploy.ReferenceIssue, error) {
+	var out []deploy.ReferenceIssue
+	err := c.postJSON(ctx, "/env/reference-issues", nodeRequest{NodeID: nodeID}, &out)
 	return out, err
 }
 

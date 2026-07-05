@@ -444,6 +444,18 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         });
     }, [onServicesChanged, setServiceNodes, serviceNodes]);
 
+    const handleServiceDeleted = useCallback((nodeId: string) => {
+        setServiceNodes((prev) => prev.filter((n) => n.id !== nodeId));
+        if (selectedNodeId === nodeId) setSelectedNodeId(null);
+        if (selectedVolume?.parentNodeId === nodeId) setSelectedVolume(null);
+        setVolumeMountsByNode((prev) => {
+            const next = {...prev};
+            delete next[nodeId];
+            return next;
+        });
+        onServicesChanged?.();
+    }, [onServicesChanged, selectedNodeId, selectedVolume, setServiceNodes]);
+
     const handleNodeClick = useCallback((_e: MouseEvent, node: Node) => {
         nodeClickRef.current = true;
         const parsed = parseVolumeNodeId(node.id);
@@ -562,6 +574,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                         onClose={() => setSelectedNodeId(null)}
                         onRename={renameNode}
                         onServicesChanged={notifyServicesChanged}
+                        onServiceDeleted={handleServiceDeleted}
                     />
                 </ResizablePanel>
             )}
