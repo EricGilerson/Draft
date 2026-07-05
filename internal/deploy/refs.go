@@ -332,15 +332,25 @@ type ReferenceIssue struct {
 	Reason string `json:"reason"`
 }
 
+// ListReferenceIssuesFromStore scans nodeID's env vars for broken reference
+// tokens using SQLite only.
+func ListReferenceIssuesFromStore(s *store.Store, nodeID string) ([]ReferenceIssue, error) {
+	return listReferenceIssues(s, nodeID)
+}
+
 // ListReferenceIssues scans nodeID's env vars for reference tokens that point
 // at a missing service or attribute. Used for inline UI warnings without
 // waiting for full recursive preview resolution.
 func (e *Engine) ListReferenceIssues(nodeID string) ([]ReferenceIssue, error) {
-	node, err := e.store.GetNode(nodeID)
+	return listReferenceIssues(e.store, nodeID)
+}
+
+func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error) {
+	node, err := s.GetNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := e.store.ListNodes(node.ProjectID)
+	nodes, err := s.ListNodes(node.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +360,7 @@ func (e *Engine) ListReferenceIssues(nodeID string) ([]ReferenceIssue, error) {
 		labelToNode[key] = &nodes[i]
 	}
 
-	vars, err := e.store.ListEnvVars(nodeID)
+	vars, err := s.ListEnvVars(nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -372,7 +382,7 @@ func (e *Engine) ListReferenceIssues(nodeID string) ([]ReferenceIssue, error) {
 			if isGeneratedAttr(attrName) {
 				continue
 			}
-			if _, err := e.store.GetEnvVar(target.ID, attrName); err != nil {
+			if _, err := s.GetEnvVar(target.ID, attrName); err != nil {
 				issues = append(issues, ReferenceIssue{
 					VarKey: v.Key,
 					Token:  token,
@@ -384,14 +394,24 @@ func (e *Engine) ListReferenceIssues(nodeID string) ([]ReferenceIssue, error) {
 	return issues, nil
 }
 
+// ListServiceDependentsFromStore returns services whose env vars reference
+// nodeID, using SQLite only.
+func ListServiceDependentsFromStore(s *store.Store, nodeID string) ([]ReferenceDependent, error) {
+	return listServiceDependents(s, nodeID)
+}
+
 // ListServiceDependents returns every other service in the project whose env
 // vars still reference nodeID (by label). Reference values are not modified.
 func (e *Engine) ListServiceDependents(nodeID string) ([]ReferenceDependent, error) {
-	node, err := e.store.GetNode(nodeID)
+	return listServiceDependents(e.store, nodeID)
+}
+
+func listServiceDependents(s *store.Store, nodeID string) ([]ReferenceDependent, error) {
+	node, err := s.GetNode(nodeID)
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := e.store.ListNodes(node.ProjectID)
+	nodes, err := s.ListNodes(node.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +420,7 @@ func (e *Engine) ListServiceDependents(nodeID string) ([]ReferenceDependent, err
 		idToLabel[n.ID] = n.Label
 	}
 
-	conns, err := e.GetProjectConnections(node.ProjectID)
+	conns, err := getProjectConnections(s, node.ProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +446,9 @@ func (e *Engine) ListServiceDependents(nodeID string) ([]ReferenceDependent, err
 		}
 		return out[i].Token < out[j].Token
 	})
+	if out == nil {
+		out = []ReferenceDependent{}
+	}
 	return out, nil
 }
 
@@ -434,7 +457,11 @@ func (e *Engine) ListServiceDependents(nodeID string) ([]ReferenceDependent, err
 // read-only (no drag-to-connect — connections are only created via the
 // variable picker).
 func (e *Engine) GetProjectConnections(projectID uint) ([]Connection, error) {
-	nodes, err := e.store.ListNodes(projectID)
+	return getProjectConnections(e.store, projectID)
+}
+
+func getProjectConnections(s *store.Store, projectID uint) ([]Connection, error) {
+	nodes, err := s.ListNodes(projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +472,7 @@ func (e *Engine) GetProjectConnections(projectID uint) ([]Connection, error) {
 
 	var conns []Connection
 	for _, n := range nodes {
-		vars, err := e.store.ListEnvVars(n.ID)
+		vars, err := s.ListEnvVars(n.ID)
 		if err != nil {
 			return nil, err
 		}

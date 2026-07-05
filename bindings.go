@@ -119,12 +119,15 @@ func (a *App) DeleteNode(id string) error {
 	}
 	c, err := a.ensureDaemon()
 	if err != nil {
-		return err
+		return a.deleteNodeWithStoreFallback(id, repoRoot, err)
 	}
 	if c == nil {
 		return errNoStore
 	}
 	if err := c.DeleteService(a.ctx, id); err != nil {
+		if err2 := a.deleteNodeWithStoreFallback(id, repoRoot, err); err2 == nil {
+			return nil
+		}
 		return err
 	}
 	if repoRoot != "" {
@@ -133,31 +136,60 @@ func (a *App) DeleteNode(id string) error {
 	return nil
 }
 
+func (a *App) deleteNodeWithStoreFallback(id, repoRoot string, cause error) error {
+	if cause != nil && !isDaemonUnavailable(cause) {
+		return cause
+	}
+	if err := deploy.DeleteServiceFromStore(a.store, id); err != nil {
+		return err
+	}
+	if repoRoot != "" {
+		return githooks.ReconcileRepoHooks(a.ctx, a.store, repoRoot)
+	}
+	return nil
+}
+
+func isDaemonUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "404") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "daemon did not become ready")
+}
+
 // PreviewDeleteService summarizes what deleting a service will stop, remove,
 // and leave behind — especially other services whose variables still reference
 // this one.
 func (a *App) PreviewDeleteService(nodeID string) (*deploy.DeleteServicePreview, error) {
-	c, err := a.ensureDaemon()
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	preview, err := deploy.PreviewDeleteServiceFromStore(a.store, nodeID)
 	if err != nil {
 		return nil, err
 	}
-	if c == nil {
-		return nil, errNoStore
+	// Prefer live Docker volume count when the daemon is up-to-date.
+	if c, err := a.ensureDaemon(); err == nil && c != nil {
+		if live, err := c.PreviewDeleteService(a.ctx, nodeID); err == nil && live != nil {
+			preview.ManagedVolumeCount = live.ManagedVolumeCount
+			preview.IsRunning = live.IsRunning
+			if live.Dependents != nil {
+				preview.Dependents = live.Dependents
+			}
+		}
 	}
-	return c.PreviewDeleteService(a.ctx, nodeID)
+	return preview, nil
 }
 
 // ListReferenceIssues returns unresolved @{Label.ATTR} tokens in nodeID's env
 // vars (unknown service or missing variable on a known service).
 func (a *App) ListReferenceIssues(nodeID string) ([]deploy.ReferenceIssue, error) {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return nil, err
-	}
-	if c == nil {
+	if a.store == nil {
 		return nil, errNoStore
 	}
-	return c.ListReferenceIssues(a.ctx, nodeID)
+	return deploy.ListReferenceIssuesFromStore(a.store, nodeID)
 }
 
 func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {

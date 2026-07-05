@@ -21,6 +21,20 @@ export default function ServiceNode({data}: NodeProps) {
 
     return (
         <div className={`service-node service-node--${status}`}>
+            <Handle
+                type="target"
+                position={Position.Left}
+                id="env-in"
+                className="service-node-env-handle"
+                isConnectable={false}
+            />
+            <Handle
+                type="source"
+                position={Position.Bottom}
+                id="env-out"
+                className="service-node-env-handle"
+                isConnectable={false}
+            />
             {volumeCount > 0 && (
                 <Handle
                     type="target"

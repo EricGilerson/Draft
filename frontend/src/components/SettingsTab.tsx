@@ -31,6 +31,13 @@ function parseSchema(raw: string): TemplateSchema {
     }
 }
 
+type DeletePreview = {
+    label: string;
+    isRunning: boolean;
+    managedVolumeCount: number;
+    dependents: deploy.ReferenceDependent[];
+};
+
 type SettingsTabProps = {
     nodeId: string;
     projectId: number;
@@ -103,7 +110,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const [hookStatus, setHookStatus] = useState<main.GitHookStatus | null>(null);
 
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-    const [deletePreview, setDeletePreview] = useState<deploy.DeleteServicePreview | null>(null);
+    const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [deleteError, setDeleteError] = useState('');
     const [deleting, setDeleting] = useState(false);
@@ -397,7 +404,13 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         setDeleteLoading(true);
         setShowDeleteDialog(true);
         try {
-            setDeletePreview(await PreviewDeleteService(nodeId));
+            const preview = await PreviewDeleteService(nodeId);
+            setDeletePreview({
+                label: preview?.label ?? serviceLabel,
+                isRunning: preview?.isRunning ?? false,
+                managedVolumeCount: preview?.managedVolumeCount ?? 0,
+                dependents: preview?.dependents ?? [],
+            });
         } catch (e: unknown) {
             const msg = typeof e === 'string' ? e : (e as Error)?.message || 'Failed to load delete preview';
             setDeleteError(msg);
@@ -937,14 +950,14 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                                     delete them separately if needed.
                                 </p>
                             )}
-                            {deletePreview.dependents.length > 0 && (
+                            {(deletePreview.dependents ?? []).length > 0 && (
                                 <div className="settings-delete-dependents">
                                     <p className="settings-delete-warning">
                                         Other services still reference this one. Their variable values will <strong>not</strong> be
                                         changed, but deploy and preview will break until you update them:
                                     </p>
                                     <ul className="settings-delete-dependent-list">
-                                        {deletePreview.dependents.map((dep) => (
+                                        {(deletePreview.dependents ?? []).map((dep) => (
                                             <li key={`${dep.sourceNodeId}:${dep.varKey}:${dep.token}`}>
                                                 <span className="settings-delete-dependent-service">
                                                     {dep.sourceLabel}.{dep.varKey}

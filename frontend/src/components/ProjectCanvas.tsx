@@ -318,12 +318,17 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     // selection changes, since that's when a service's variables were just
     // edited.
     useEffect(() => {
+        const nodeIds = new Set(serviceNodes.map((n) => n.id));
         GetProjectConnections(project.id)
             .then((conns) => {
-                const flowEdges: Edge[] = (conns || []).map((c) => ({
+                const flowEdges: Edge[] = (conns || [])
+                    .filter((c) => nodeIds.has(c.sourceNodeId) && nodeIds.has(c.targetNodeId))
+                    .map((c) => ({
                     id: `${c.sourceNodeId}:${c.sourceKey}->${c.targetNodeId}`,
                     source: c.sourceNodeId,
                     target: c.targetNodeId,
+                    sourceHandle: 'env-out',
+                    targetHandle: 'env-in',
                     label: c.sourceKey,
                     selectable: false,
                     focusable: false,
@@ -334,7 +339,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                 setConnectionEdges(flowEdges);
             })
             .catch(() => {});
-    }, [project.id, selectedNodeId, selectedVolume, setConnectionEdges]);
+    }, [project.id, selectedNodeId, selectedVolume, setConnectionEdges, serviceNodes]);
 
     useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', (payload: any) => {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"Draft/internal/store"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -26,6 +28,38 @@ type DeleteServicePreview struct {
 	Dependents         []ReferenceDependent `json:"dependents"`
 }
 
+// PreviewDeleteServiceFromStore builds a delete preview from SQLite only. It
+// does not query Docker for live managed-volume sizes; use the daemon path
+// when an accurate count matters.
+func PreviewDeleteServiceFromStore(s *store.Store, nodeID string) (*DeleteServicePreview, error) {
+	node, err := s.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	dependents, err := ListServiceDependentsFromStore(s, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if dependents == nil {
+		dependents = []ReferenceDependent{}
+	}
+	active, err := s.ActiveDeployment(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	settings, _ := s.GetNodeSettings(nodeID)
+	managedCount := 0
+	if settings != nil {
+		managedCount = countConfiguredManagedVolumes(settings["volume_mounts"])
+	}
+	return &DeleteServicePreview{
+		Label:              node.Label,
+		IsRunning:          active != nil,
+		ManagedVolumeCount: managedCount,
+		Dependents:         dependents,
+	}, nil
+}
+
 // PreviewDeleteService returns the label, runtime state, managed-volume count,
 // and other services that still reference this one.
 func (e *Engine) PreviewDeleteService(ctx context.Context, nodeID string) (*DeleteServicePreview, error) {
@@ -36,6 +70,9 @@ func (e *Engine) PreviewDeleteService(ctx context.Context, nodeID string) (*Dele
 	dependents, err := e.ListServiceDependents(nodeID)
 	if err != nil {
 		return nil, err
+	}
+	if dependents == nil {
+		dependents = []ReferenceDependent{}
 	}
 	active, err := e.store.ActiveDeployment(nodeID)
 	if err != nil {
@@ -108,4 +145,36 @@ func (e *Engine) DeleteService(ctx context.Context, nodeID string) error {
 		return err
 	}
 	return e.store.DeleteNode(nodeID)
+}
+
+// DeleteServiceFromStore removes a node's store rows without stopping containers
+// or unregistering routes. Used when the daemon is unavailable or stale.
+func DeleteServiceFromStore(s *store.Store, nodeID string) error {
+	if _, err := s.GetNode(nodeID); err != nil {
+		return err
+	}
+	if err := s.DeleteEnvVarsByNode(nodeID); err != nil {
+		return err
+	}
+	if err := s.DeleteDeploymentsByNode(nodeID); err != nil {
+		return err
+	}
+	if err := s.DeleteNodeSettings(nodeID); err != nil {
+		return err
+	}
+	return s.DeleteNode(nodeID)
+}
+
+func countConfiguredManagedVolumes(raw string) int {
+	count := 0
+	for _, spec := range ParseVolumeSpecs(raw) {
+		t := spec.Type
+		if t == "" {
+			t = VolumeTypeBind
+		}
+		if t == VolumeTypeVolume {
+			count++
+		}
+	}
+	return count
 }

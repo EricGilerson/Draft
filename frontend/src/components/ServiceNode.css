@@ -102,3 +102,10 @@
     background: rgba(212, 184, 132, 0.35) !important;
     box-shadow: 0 0 0 3px rgba(212, 184, 132, 0.12);
 }
+
+.service-node-env-handle {
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0;
+    pointer-events: none;
+}
