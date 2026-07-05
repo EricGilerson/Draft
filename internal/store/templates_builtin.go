@@ -189,7 +189,11 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "postgres:16-alpine",
 		Port:        5432,
 		Schema:      imageTemplateSchema,
-		EnvVars: `[{"key":"POSTGRES_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"POSTGRES_DB","value":"{{draft.db_name}}","scope":"runtime"},{"key":"POSTGRES_HOST_AUTH_METHOD","value":"scram-sha-256","scope":"runtime"},{"key":"PGDATA","value":"/var/lib/postgresql/data","scope":"runtime"},{"key":"DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"postgres://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
+		// DB user/name use the official image's standard defaults (postgres/postgres)
+		// rather than being derived from the project, so credentials read the way a
+		// freshly-installed Postgres would. The password stays per-node derived so
+		// two Postgres instances in different projects never share a secret.
+		EnvVars: `[{"key":"POSTGRES_USER","value":"postgres","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"POSTGRES_DB","value":"postgres","scope":"runtime"},{"key":"POSTGRES_HOST_AUTH_METHOD","value":"scram-sha-256","scope":"runtime"},{"key":"PGDATA","value":"/var/lib/postgresql/data","scope":"runtime"},{"key":"DATABASE_URL","value":"postgres://postgres:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/postgres","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"postgres://postgres:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/postgres","scope":"runtime"}]`,
 	},
 	{
 		Name:        "Redis",
@@ -217,7 +221,10 @@ CMD ["nginx", "-g", "daemon off;"]
 		Image:       "mysql:8",
 		Port:        3306,
 		Schema:      imageTemplateSchema,
-		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"MYSQL_USER","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}","scope":"runtime"}]`,
+		// Standard defaults: root is the admin (password derived per node), and
+		// an `mysql` app user is created with access to the `appdb` database. Both
+		// are fixed conventions independent of the project name.
+		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"appdb","scope":"runtime"},{"key":"MYSQL_USER","value":"mysql","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://mysql:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://mysql:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/appdb","scope":"runtime"}]`,
 	},
 	{
 		Name:        "MongoDB",
@@ -232,7 +239,9 @@ CMD ["nginx", "-g", "daemon off;"]
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
 		// no CmdOverride is needed (unlike Redis). The connection URL uses
-		// authSource=admin because that's where the root user lives.
-		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"{{draft.db_user}}","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"{{draft.db_name}}","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://{{draft.db_user}}:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/{{draft.db_name}}?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://{{draft.db_user}}:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/{{draft.db_name}}?authSource=admin","scope":"runtime"}]`,
+		// authSource=admin because that's where the root user lives. The root
+		// username is the conventional `root` (independent of the project), and
+		// MONGO_INITDB_DATABASE seeds an `appdb` for the app to use.
+		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"root","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"appdb","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"}]`,
 	},
 }

@@ -296,22 +296,25 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		mustHave   []string
-		mustExpr   []string // keys whose value must be a {{draft.*}} expression
-		mustNotLit []string // keys whose value must NOT be the old "draft" literal
+		name        string
+		mustHave    []string
+		mustExpr    []string // keys whose value must be a {{draft.*}} expression
+		mustLiteral map[string]string
+		mustNotLit  []string // keys whose value must NOT be the old "draft" literal
 	}{
 		{
 			name:       "PostgreSQL",
 			mustHave:   []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_HOST_AUTH_METHOD", "PGDATA", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustNotLit: []string{"POSTGRES_PASSWORD", "POSTGRES_USER", "POSTGRES_DB"},
+			mustExpr:   []string{"POSTGRES_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustLiteral: map[string]string{"POSTGRES_USER": "postgres", "POSTGRES_DB": "postgres"},
+			mustNotLit: []string{"POSTGRES_PASSWORD"},
 		},
 		{
 			name:       "MySQL",
 			mustHave:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_ROOT_HOST", "MYSQL_LOG_CONSOLE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustNotLit: []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"},
+			mustExpr:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustLiteral: map[string]string{"MYSQL_DATABASE": "appdb", "MYSQL_USER": "mysql"},
+			mustNotLit: []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD"},
 		},
 		{
 			name:       "Redis",
@@ -322,7 +325,8 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 		{
 			name:       "MongoDB",
 			mustHave:   []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:   []string{"MONGO_INITDB_ROOT_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustLiteral: map[string]string{"MONGO_INITDB_ROOT_USERNAME": "root", "MONGO_INITDB_DATABASE": "appdb"},
 			mustNotLit: []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		},
 	}
@@ -341,6 +345,11 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 		for _, k := range c.mustExpr {
 			if v := keys[k]; !strings.Contains(v, "{{draft.") {
 				t.Errorf("%q env var %q should use a {{draft.*}} expression, got %q", c.name, k, v)
+			}
+		}
+		for k, want := range c.mustLiteral {
+			if v := keys[k]; v != want {
+				t.Errorf("%q env var %q = %q, want literal %q", c.name, k, v, want)
 			}
 		}
 		for _, k := range c.mustNotLit {
@@ -397,8 +406,8 @@ func TestBuiltinMongoTemplateAuthViaEnvWithAuthSource(t *testing.T) {
 		t.Errorf("MongoDB should rely on env-driven auth, got CmdOverride %q", mongo.CmdOverride)
 	}
 	keys := templateEnvKeys(t, mongo)
-	if keys["MONGO_INITDB_ROOT_USERNAME"] != "{{draft.db_user}}" {
-		t.Errorf("MONGO_INITDB_ROOT_USERNAME = %q, want {{draft.db_user}}", keys["MONGO_INITDB_ROOT_USERNAME"])
+	if keys["MONGO_INITDB_ROOT_USERNAME"] != "root" {
+		t.Errorf("MONGO_INITDB_ROOT_USERNAME = %q, want root", keys["MONGO_INITDB_ROOT_USERNAME"])
 	}
 	if keys["MONGO_INITDB_ROOT_PASSWORD"] != "{{draft.password}}" {
 		t.Errorf("MONGO_INITDB_ROOT_PASSWORD = %q, want {{draft.password}}", keys["MONGO_INITDB_ROOT_PASSWORD"])
