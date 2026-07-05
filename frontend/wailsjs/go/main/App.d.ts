@@ -65,6 +65,8 @@ export function ListManagedVolumes(arg1:number,arg2:string):Promise<Array<deploy
 
 export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
+export function ListNodesWithReferenceIssues(arg1:number):Promise<Array<string>>;
+
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
 
 export function ListProjects():Promise<Array<store.Project>>;

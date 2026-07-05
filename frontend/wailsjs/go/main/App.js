@@ -118,6 +118,10 @@ export function ListNodes(arg1) {
   return window['go']['main']['App']['ListNodes'](arg1);
 }
 
+export function ListNodesWithReferenceIssues(arg1) {
+  return window['go']['main']['App']['ListNodesWithReferenceIssues'](arg1);
+}
+
 export function ListProjectServices(arg1) {
   return window['go']['main']['App']['ListProjectServices'](arg1);
 }

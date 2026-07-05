@@ -402,6 +402,29 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 	return issues, nil
 }
 
+// ListNodesWithReferenceIssues returns the IDs of every node in the project
+// that has at least one unresolved @{Label.ATTR} token in its env vars.
+func ListNodesWithReferenceIssues(s *store.Store, projectID uint) ([]string, error) {
+	nodes, err := s.ListNodes(projectID)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range nodes {
+		issues, err := listReferenceIssues(s, n.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(issues) > 0 {
+			out = append(out, n.ID)
+		}
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out, nil
+}
+
 // ListServiceDependentsFromStore returns services whose env vars reference
 // nodeID, using SQLite only.
 func ListServiceDependentsFromStore(s *store.Store, nodeID string) ([]ReferenceDependent, error) {

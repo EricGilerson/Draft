@@ -1,5 +1,5 @@
 import {Handle, Position, type NodeProps} from '@xyflow/react';
-import {Box, HardDrive} from 'lucide-react';
+import {AlertCircle, Box, HardDrive} from 'lucide-react';
 import TemplateIcon from './TemplateIcon';
 import './ServiceNode.css';
 
@@ -10,6 +10,7 @@ type ServiceNodeData = {
     icon?: string;
     iconColor?: string;
     volumeCount?: number;
+    hasReferenceIssues?: boolean;
 };
 
 export default function ServiceNode({data}: NodeProps) {
@@ -18,9 +19,18 @@ export default function ServiceNode({data}: NodeProps) {
     const status = d.status || 'stopped';
     const icon = d.icon;
     const volumeCount = d.volumeCount ?? 0;
+    const hasReferenceIssues = d.hasReferenceIssues ?? false;
 
     return (
         <div className={`service-node service-node--${status}`}>
+            {hasReferenceIssues && (
+                <span
+                    className="service-node-ref-warning"
+                    title="This service has broken variable references. Open Variables to fix them."
+                >
+                    <AlertCircle size={14} strokeWidth={2.25} />
+                </span>
+            )}
             <Handle
                 type="target"
                 position={Position.Left}

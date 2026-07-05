@@ -40,6 +40,36 @@ func TestListServiceDependents(t *testing.T) {
 	_ = project
 }
 
+func TestListNodesWithReferenceIssues(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	project, api, db := setupRefTestNodes(t, s)
+
+	if err := s.SetEnvVar(api.ID, "GHOST", "@{missing.DRAFT_INTERNAL_URL}"); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := ListNodesWithReferenceIssues(s, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != api.ID {
+		t.Fatalf("ids = %+v", ids)
+	}
+
+	if err := e.DeleteService(context.Background(), db.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err = ListNodesWithReferenceIssues(s, project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != api.ID {
+		t.Fatalf("expected api after db delete, ids = %+v", ids)
+	}
+}
+
 func TestListReferenceIssues(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

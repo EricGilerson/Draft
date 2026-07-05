@@ -22,6 +22,7 @@ import {
     GetProjectConnections,
     ListManagedVolumes,
     ListNodes,
+    ListNodesWithReferenceIssues,
     ListServiceTemplates,
     UpdateNode,
 } from '../../wailsjs/go/main/App';
@@ -55,6 +56,7 @@ type ServiceNodeData = {
     icon?: string;
     iconColor?: string;
     volumeCount?: number;
+    hasReferenceIssues?: boolean;
 };
 
 const VOLUME_OFFSET_X = 208;
@@ -173,6 +175,20 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                 data: {...n.data, volumeCount: (mountsMap[n.id] || []).length},
             })),
         );
+    }, [project.id, setServiceNodes]);
+
+    const refreshReferenceIssueNodes = useCallback(() => {
+        ListNodesWithReferenceIssues(project.id)
+            .then((ids) => {
+                const flagged = new Set(ids ?? []);
+                setServiceNodes((prev) =>
+                    prev.map((n) => ({
+                        ...n,
+                        data: {...n.data, hasReferenceIssues: flagged.has(n.id)},
+                    })),
+                );
+            })
+            .catch(() => {});
     }, [project.id, setServiceNodes]);
 
     const selectVolume = useCallback((volume: SelectedVolume) => {
@@ -310,8 +326,9 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             );
             setServiceNodes(flowNodes);
             refreshVolumeMounts(flowNodes.map((n) => n.id));
+            refreshReferenceIssueNodes();
         });
-    }, [project.id, setServiceNodes, templates, refreshVolumeMounts]);
+    }, [project.id, setServiceNodes, templates, refreshVolumeMounts, refreshReferenceIssueNodes]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -339,6 +356,10 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
             })
             .catch(() => {});
     }, [project.id, selectedNodeId, selectedVolume, setConnectionEdges, serviceNodes]);
+
+    useEffect(() => {
+        refreshReferenceIssueNodes();
+    }, [refreshReferenceIssueNodes, selectedNodeId]);
 
     useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', (payload: any) => {
@@ -402,8 +423,9 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
 
     const notifyServicesChanged = useCallback(() => {
         refreshVolumeMounts(serviceNodes.map((n) => n.id));
+        refreshReferenceIssueNodes();
         onServicesChanged?.();
-    }, [refreshVolumeMounts, serviceNodes, onServicesChanged]);
+    }, [refreshVolumeMounts, refreshReferenceIssueNodes, serviceNodes, onServicesChanged]);
 
     const openCreate = () => {
         setShowCreate(true);

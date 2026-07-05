@@ -109,3 +109,21 @@
     opacity: 0;
     pointer-events: none;
 }
+
+.service-node-ref-warning {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(220, 88, 88, 0.55);
+    background: rgba(120, 24, 24, 0.92);
+    color: #ffb4b4;
+    box-shadow: 0 0 0 2px rgba(8, 9, 7, 0.85);
+    cursor: help;
+    z-index: 2;
+}

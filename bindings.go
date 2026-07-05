@@ -192,6 +192,15 @@ func (a *App) ListReferenceIssues(nodeID string) ([]deploy.ReferenceIssue, error
 	return deploy.ListReferenceIssuesFromStore(a.store, nodeID)
 }
 
+// ListNodesWithReferenceIssues returns node IDs in the project whose env vars
+// contain at least one broken @{Label.ATTR} reference.
+func (a *App) ListNodesWithReferenceIssues(projectID int) ([]string, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return deploy.ListNodesWithReferenceIssues(a.store, uint(projectID))
+}
+
 func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {
 	if a.store == nil {
 		return nil, errNoStore
