@@ -11,6 +11,20 @@ export function isImmediateSetting(key: string): boolean {
     return IMMEDIATE_SETTING_KEYS.has(key);
 }
 
+export function settingsValuesEqual(a: string, b: string): boolean {
+    const normalize = (value: string): string => {
+        const v = value.trim().toLowerCase();
+        if (v === '' || v === 'false' || v === '0' || v === 'no' || v === 'off') {
+            return '';
+        }
+        if (v === 'true' || v === '1' || v === 'yes' || v === 'on') {
+            return 'true';
+        }
+        return value.trim();
+    };
+    return normalize(a) === normalize(b);
+}
+
 export type SettingStagingState = {
     key: string;
     applied: string;
@@ -29,8 +43,8 @@ export function getSettingStagingState(
     const applied = appliedSettings[key] ?? '';
     const staged = key in stagedSettings ? stagedSettings[key] : undefined;
     const draft = key in draftSettings ? draftSettings[key] : undefined;
-    const isStaged = staged !== undefined && staged !== applied;
-    const isDraft = draft !== undefined && draft !== (staged ?? applied);
+    const isStaged = staged !== undefined && !settingsValuesEqual(staged, applied);
+    const isDraft = draft !== undefined && !settingsValuesEqual(draft, staged ?? applied);
     return {key, applied, staged, draft, isStaged, isDraft};
 }
 

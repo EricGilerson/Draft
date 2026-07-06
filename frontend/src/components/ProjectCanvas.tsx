@@ -160,7 +160,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                     return [
                         id,
                         parseVolumeEntries(effective.volume_mounts),
-                        !!status?.hasStagedChanges && (applied.volume_mounts || '') !== (staged.volume_mounts || ''),
+                        'volume_mounts' in staged,
                     ] as const;
                 } catch {
                     return [id, [] as VolumeEntry[], false] as const;

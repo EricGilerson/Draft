@@ -41,10 +41,27 @@ func (s *Store) StageNodeSettings(nodeID string, settings map[string]string) err
 	if nodeID == "" {
 		return ErrInvalidNode
 	}
+	applied, err := s.GetNodeSettings(nodeID)
+	if err != nil {
+		return err
+	}
+	if applied == nil {
+		applied = map[string]string{}
+	}
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		for key, value := range settings {
 			key = strings.TrimSpace(key)
-			if key == "" {
+			if key == "" || IsImmediateSetting(key) {
+				continue
+			}
+			appliedValue, ok := applied[key]
+			if !ok {
+				appliedValue = ""
+			}
+			if settingValuesEqual(appliedValue, value) {
+				if err := tx.Delete(&NodeSettingStaged{}, "node_id = ? AND key = ?", nodeID, key).Error; err != nil {
+					return err
+				}
 				continue
 			}
 			row := NodeSettingStaged{NodeID: nodeID, Key: key, Value: value}
@@ -90,6 +107,14 @@ func (s *Store) StageEnvVarChanges(nodeID string, upserts []EnvVarStageUpsert, d
 	if nodeID == "" {
 		return ErrInvalidNode
 	}
+	applied, err := s.ListEnvVars(nodeID)
+	if err != nil {
+		return err
+	}
+	appliedByKey := map[string]EnvVar{}
+	for _, v := range applied {
+		appliedByKey[v.Key] = v
+	}
 	return s.DB.Transaction(func(tx *gorm.DB) error {
 		for _, u := range upserts {
 			key := strings.TrimSpace(u.Key)
@@ -108,14 +133,20 @@ func (s *Store) StageEnvVarChanges(nodeID string, upserts []EnvVarStageUpsert, d
 			default:
 				return fmt.Errorf("invalid env scope %q", scope)
 			}
-			row := EnvVarStaged{
+			staged := EnvVarStaged{
 				NodeID: nodeID,
 				Key:    key,
 				Value:  u.Value,
 				Scope:  scope,
 				Delete: false,
 			}
-			if err := tx.Save(&row).Error; err != nil {
+			if envVarStageIsNoOp(applied, staged) {
+				if err := tx.Delete(&EnvVarStaged{}, "node_id = ? AND key = ?", nodeID, key).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if err := tx.Save(&staged).Error; err != nil {
 				return err
 			}
 		}
@@ -127,12 +158,18 @@ func (s *Store) StageEnvVarChanges(nodeID string, upserts []EnvVarStageUpsert, d
 			if err := validateEnvKey(key); err != nil {
 				return err
 			}
-			row := EnvVarStaged{
+			staged := EnvVarStaged{
 				NodeID: nodeID,
 				Key:    key,
 				Delete: true,
 			}
-			if err := tx.Save(&row).Error; err != nil {
+			if envVarStageIsNoOp(applied, staged) {
+				if err := tx.Delete(&EnvVarStaged{}, "node_id = ? AND key = ?", nodeID, key).Error; err != nil {
+					return err
+				}
+				continue
+			}
+			if err := tx.Save(&staged).Error; err != nil {
 				return err
 			}
 		}
@@ -162,22 +199,7 @@ func (s *Store) DiscardAllStagedChanges(nodeID string) error {
 }
 
 func (s *Store) HasStagedChanges(nodeID string) (bool, error) {
-	nodeID = strings.TrimSpace(nodeID)
-	if nodeID == "" {
-		return false, ErrInvalidNode
-	}
-	var settingCount int64
-	if err := s.DB.Model(&NodeSettingStaged{}).Where("node_id = ?", nodeID).Count(&settingCount).Error; err != nil {
-		return false, err
-	}
-	if settingCount > 0 {
-		return true, nil
-	}
-	var envCount int64
-	if err := s.DB.Model(&EnvVarStaged{}).Where("node_id = ?", nodeID).Count(&envCount).Error; err != nil {
-		return false, err
-	}
-	return envCount > 0, nil
+	return s.hasMeaningfulStagedChanges(nodeID)
 }
 
 func (s *Store) EffectiveNodeSettings(nodeID string) (map[string]string, error) {

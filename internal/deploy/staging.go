@@ -56,6 +56,8 @@ type NodeConfigStatus struct {
 
 func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus, error) {
 	_ = s.StripImmediateStagedSettings(nodeID)
+	_ = s.PruneNoOpStagedSettings(nodeID)
+	_ = s.PruneNoOpStagedEnvVars(nodeID)
 
 	applied, err := s.GetNodeSettings(nodeID)
 	if err != nil {
@@ -74,10 +76,16 @@ func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus
 	for key := range store.ImmediateSettingKeys {
 		delete(staged, key)
 	}
+	staged = store.MeaningfulStagedSettings(applied, staged)
 	stagedEnv, err := s.ListStagedEnvVarChanges(nodeID)
 	if err != nil {
 		return nil, err
 	}
+	envApplied, err := s.ListEnvVars(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	stagedEnv = store.MeaningfulStagedEnvChanges(envApplied, stagedEnv)
 	envChanges := make([]StagedEnvVarChange, 0, len(stagedEnv))
 	for _, row := range stagedEnv {
 		envChanges = append(envChanges, StagedEnvVarChange{
@@ -87,13 +95,15 @@ func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus
 			Delete: row.Delete,
 		})
 	}
-	hasSettingsStaged := len(staged) > 0
-	hasEnvStaged := len(envChanges) > 0
+	hasStaged, err := s.HasStagedChanges(nodeID)
+	if err != nil {
+		return nil, err
+	}
 	status := &NodeConfigStatus{
 		AppliedSettings:  applied,
 		StagedSettings:   staged,
 		StagedEnvChanges: envChanges,
-		HasStagedChanges: hasSettingsStaged || hasEnvStaged,
+		HasStagedChanges: hasStaged,
 	}
 	active, err := s.ActiveDeployment(nodeID)
 	if err != nil {

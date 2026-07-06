@@ -16,7 +16,7 @@ import {
     StageNodeSettings,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
-import {isImmediateSetting} from './settingStaging';
+import {isImmediateSetting, settingsValuesEqual} from './settingStaging';
 
 export type EnvDraftUpsert = {
     key: string;
@@ -134,7 +134,7 @@ export function ServiceConfigEditorProvider({
         }
         setDraftSettings((prev) => {
             const committed = mergeSettings(appliedSettings, stagedSettings);
-            if ((committed[key] || '') === value) {
+            if (settingsValuesEqual(committed[key] || '', value)) {
                 if (!(key in prev)) return prev;
                 const next = {...prev};
                 delete next[key];
