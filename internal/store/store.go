@@ -31,8 +31,10 @@ var registeredModels = []any{
 	&Route{},
 	&PortLease{},
 	&NodeSetting{},
+	&NodeSettingStaged{},
 	&Deployment{},
 	&EnvVar{},
+	&EnvVarStaged{},
 	&ServiceTemplate{},
 }
 

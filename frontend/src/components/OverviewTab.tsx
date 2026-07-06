@@ -2,9 +2,8 @@ import {Play, Square, RotateCcw, ExternalLink, AlertCircle, Loader2} from 'lucid
 import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
-    GetNodeSettings,
     DeployService, StopService, RestartService,
-    GetActiveDeployment, GetLocalDomainStatus,
+    GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
 } from '../../wailsjs/go/main/App';
 import {networking, store} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
@@ -19,6 +18,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
+    const [hasStagedChanges, setHasStagedChanges] = useState(false);
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
@@ -26,7 +26,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
-        GetNodeSettings(nodeId).then(s => setSettings(s || {}));
+        GetNodeConfigStatus(nodeId).then((status) => {
+            const applied = status?.appliedSettings || {};
+            const staged = status?.stagedSettings || {};
+            setSettings({...applied, ...staged});
+            setHasStagedChanges(!!status?.hasStagedChanges);
+        });
         GetLocalDomainStatus().then(setLocalDomain).catch(() => setLocalDomain(null));
     }, [nodeId]);
 
@@ -125,6 +130,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     </button>
                 )}
             </div>
+
+            {hasStagedChanges && (
+                <div className="overview-staged-banner">
+                    Staged settings will apply on the next deploy.
+                </div>
+            )}
 
             {error && (
                 <div className="overview-error">

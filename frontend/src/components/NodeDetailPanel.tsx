@@ -6,6 +6,8 @@ import VariablesTab from './VariablesTab';
 import LogsTab from './LogsTab';
 import MetricsTab from './MetricsTab';
 import SettingsTab from './SettingsTab';
+import ServiceDraftBar from './ServiceDraftBar';
+import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import './NodeDetailPanel.css';
 
 type Tab = {
@@ -33,12 +35,22 @@ type NodeDetailPanelProps = {
     onServiceDeleted?: (nodeId: string) => void;
 };
 
-export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPath, onClose, onRename, onServicesChanged, onServiceDeleted}: NodeDetailPanelProps) {
+function NodeDetailPanelBody({
+    nodeId,
+    nodeLabel,
+    projectId,
+    projectPath,
+    onClose,
+    onRename,
+    onServicesChanged,
+    onServiceDeleted,
+}: NodeDetailPanelProps) {
     const [activeTab, setActiveTab] = useState('overview');
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(nodeLabel);
     const [renameError, setRenameError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
+    const {isSessionDirty, discardSessionDraft} = useServiceConfigEditor();
 
     useEffect(() => {
         setEditValue(nodeLabel);
@@ -66,12 +78,19 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                 setEditing(false);
             })
             .catch((e) => {
-                // Keep the input open with the attempted value so the user
-                // can see what failed (e.g. a duplicate service name) and
-                // fix it, rather than silently reverting.
                 setRenameError(String(e));
                 setTimeout(() => editRef.current?.focus(), 0);
             });
+    };
+
+    const switchTab = (tabId: string) => {
+        if (tabId === activeTab) return;
+        if (isSessionDirty) {
+            const ok = window.confirm('You have unsaved edits. Discard them and switch tabs?');
+            if (!ok) return;
+            discardSessionDraft();
+        }
+        setActiveTab(tabId);
     };
 
     return (
@@ -117,7 +136,7 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                     <button
                         key={tab.id}
                         className={`node-detail-tab ${activeTab === tab.id ? 'node-detail-tab--active' : ''}`}
-                        onClick={() => setActiveTab(tab.id)}
+                        onClick={() => switchTab(tab.id)}
                     >
                         {tab.label}
                     </button>
@@ -141,6 +160,15 @@ export default function NodeDetailPanel({nodeId, nodeLabel, projectId, projectPa
                     />
                 )}
             </div>
+            <ServiceDraftBar onStaged={onServicesChanged} onDeploy={onServicesChanged} />
         </div>
+    );
+}
+
+export default function NodeDetailPanel(props: NodeDetailPanelProps) {
+    return (
+        <ServiceConfigEditorProvider nodeId={props.nodeId} projectId={props.projectId}>
+            <NodeDetailPanelBody {...props} />
+        </ServiceConfigEditorProvider>
     );
 }

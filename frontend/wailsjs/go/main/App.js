@@ -46,6 +46,10 @@ export function DeployService(arg1) {
   return window['go']['main']['App']['DeployService'](arg1);
 }
 
+export function DiscardStagedChanges(arg1) {
+  return window['go']['main']['App']['DiscardStagedChanges'](arg1);
+}
+
 export function ExportEnvFile(arg1) {
   return window['go']['main']['App']['ExportEnvFile'](arg1);
 }
@@ -76,6 +80,10 @@ export function GetLocalDomainStatus() {
 
 export function GetNode(arg1) {
   return window['go']['main']['App']['GetNode'](arg1);
+}
+
+export function GetNodeConfigStatus(arg1) {
+  return window['go']['main']['App']['GetNodeConfigStatus'](arg1);
 }
 
 export function GetNodeSettings(arg1) {
@@ -154,6 +162,10 @@ export function PreviewEnvVars(arg1) {
   return window['go']['main']['App']['PreviewEnvVars'](arg1);
 }
 
+export function PreviewStagedChanges(arg1, arg2) {
+  return window['go']['main']['App']['PreviewStagedChanges'](arg1, arg2);
+}
+
 export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
@@ -196,6 +208,14 @@ export function SetRedeployOnPull(arg1, arg2, arg3) {
 
 export function SetServiceRoot(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetServiceRoot'](arg1, arg2, arg3);
+}
+
+export function StageEnvVarChanges(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StageEnvVarChanges'](arg1, arg2, arg3);
+}
+
+export function StageNodeSettings(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StageNodeSettings'](arg1, arg2, arg3);
 }
 
 export function StartDocker() {

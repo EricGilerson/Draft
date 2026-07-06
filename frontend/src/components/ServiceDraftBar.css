@@ -1,0 +1,61 @@
+.service-draft-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(212, 184, 132, 0.04);
+}
+
+.service-draft-bar-staged {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: rgba(212, 184, 132, 0.92);
+}
+
+.service-draft-bar-dirty {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.service-draft-bar-error {
+    font-size: 0.72rem;
+    color: var(--danger, #e57373);
+}
+
+.service-draft-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.service-draft-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.service-draft-confirm-block {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.service-draft-confirm-block ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+
+.service-draft-confirm-block--error {
+    color: var(--danger, #e57373);
+}
+
+.service-draft-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}

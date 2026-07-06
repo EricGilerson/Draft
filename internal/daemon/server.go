@@ -158,6 +158,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
 	mux.HandleFunc("/node/delete", s.handleDeleteService)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
+	mux.HandleFunc("/node/config-status", s.handleNodeConfigStatus)
+	mux.HandleFunc("/node/stage-settings", s.handleStageNodeSettings)
+	mux.HandleFunc("/node/stage-env", s.handleStageEnvVarChanges)
+	mux.HandleFunc("/node/discard-staged", s.handleDiscardStagedChanges)
+	mux.HandleFunc("/node/preview-staged", s.handlePreviewStagedChanges)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -240,6 +245,99 @@ func (s *Server) handlePreviewDeleteService(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, preview)
+}
+
+func (s *Server) handleNodeConfigStatus(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	status, err := deploy.NodeConfigStatusFromStore(s.store, req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, status)
+}
+
+type stageSettingsRequest struct {
+	NodeID    string            `json:"nodeId"`
+	ProjectID uint              `json:"projectId"`
+	Settings  map[string]string `json:"settings"`
+}
+
+func (s *Server) handleStageNodeSettings(w http.ResponseWriter, r *http.Request) {
+	var req stageSettingsRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := stageNodeSettings(s.store, req.NodeID, req.ProjectID, req.Settings); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+type stageEnvRequest struct {
+	NodeID     string                    `json:"nodeId"`
+	Upserts    []store.EnvVarStageUpsert   `json:"upserts"`
+	DeleteKeys []string                  `json:"deleteKeys"`
+}
+
+func (s *Server) handleStageEnvVarChanges(w http.ResponseWriter, r *http.Request) {
+	var req stageEnvRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.store.StageEnvVarChanges(req.NodeID, req.Upserts, req.DeleteKeys); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleDiscardStagedChanges(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.store.DiscardAllStagedChanges(req.NodeID))
+}
+
+type previewStagedRequest struct {
+	NodeID           string            `json:"nodeId"`
+	ProposedSettings map[string]string `json:"proposedSettings"`
+}
+
+func (s *Server) handlePreviewStagedChanges(w http.ResponseWriter, r *http.Request) {
+	var req previewStagedRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	preview, err := deploy.PreviewStagedChangesFromStore(s.store, req.NodeID, req.ProposedSettings)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, preview)
+}
+
+func stageNodeSettings(s *store.Store, nodeID string, projectID uint, settings map[string]string) error {
+	if len(settings) == 0 {
+		return nil
+	}
+	if root, ok := settings["service_root"]; ok {
+		project, err := s.GetProject(projectID)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
+		}
+		if err := store.ValidateInsideProject(project.Path, root); err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(project.Path, root)
+		settings["service_root"] = rel
+	}
+	return s.StageNodeSettings(nodeID, settings)
 }
 
 func (s *Server) handleGitRecheck(w http.ResponseWriter, r *http.Request) {

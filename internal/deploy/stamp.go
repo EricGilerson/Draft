@@ -89,6 +89,7 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	cleanup := func() {
 		_ = e.store.DeleteNode(req.ID)
 		_ = e.store.DeleteNodeSettings(req.ID)
+		_ = e.store.DeleteStagedChanges(req.ID)
 	}
 
 	// 2. Stamp service root (only when the schema allows it and a path was given).

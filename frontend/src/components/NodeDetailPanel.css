@@ -113,6 +113,21 @@
     color: var(--accent-text);
 }
 
+.settings-staged-banner,
+.overview-staged-banner,
+.variables-staged-hint {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed rgba(212, 184, 132, 0.35);
+    background: rgba(212, 184, 132, 0.06);
+    color: rgba(212, 184, 132, 0.92);
+    font-size: 0.78rem;
+}
+
+.variables-staged-hint {
+    margin-top: 8px;
+}
+
 .node-detail-body {
     flex: 1;
     overflow-y: auto;

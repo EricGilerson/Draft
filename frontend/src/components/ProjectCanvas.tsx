@@ -18,7 +18,7 @@ import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeleteNode,
     GetDeployments,
-    GetNodeSettings,
+    GetNodeConfigStatus,
     GetProjectConnections,
     ListManagedVolumes,
     ListNodes,
@@ -115,6 +115,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
+    const [volumePendingByNode, setVolumePendingByNode] = useState<Record<string, boolean>>({});
     const [managedVolumesByNode, setManagedVolumesByNode] = useState<Record<string, deploy.ManagedVolume[]>>({});
     const [showCreate, setShowCreate] = useState(false);
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
@@ -145,16 +146,24 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
     const refreshVolumeMounts = useCallback(async (nodeIds: string[]) => {
         if (nodeIds.length === 0) {
             setVolumeMountsByNode({});
+            setVolumePendingByNode({});
             setManagedVolumesByNode({});
             return;
         }
         const [settingsPairs, managedPairs] = await Promise.all([
             Promise.all(nodeIds.map(async (id) => {
                 try {
-                    const settings = await GetNodeSettings(id);
-                    return [id, parseVolumeEntries(settings?.volume_mounts)] as const;
+                    const status = await GetNodeConfigStatus(id);
+                    const applied = status?.appliedSettings || {};
+                    const staged = status?.stagedSettings || {};
+                    const effective = {...applied, ...staged};
+                    return [
+                        id,
+                        parseVolumeEntries(effective.volume_mounts),
+                        !!status?.hasStagedChanges && (applied.volume_mounts || '') !== (staged.volume_mounts || ''),
+                    ] as const;
                 } catch {
-                    return [id, [] as VolumeEntry[]] as const;
+                    return [id, [] as VolumeEntry[], false] as const;
                 }
             })),
             Promise.all(nodeIds.map(async (id) => {
@@ -166,8 +175,10 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                 }
             })),
         ]);
-        const mountsMap = Object.fromEntries(settingsPairs);
+        const mountsMap = Object.fromEntries(settingsPairs.map(([id, mounts]) => [id, mounts]));
+        const pendingMap = Object.fromEntries(settingsPairs.map(([id, , pending]) => [id, pending]));
         setVolumeMountsByNode(mountsMap);
+        setVolumePendingByNode(pendingMap);
         setManagedVolumesByNode(Object.fromEntries(managedPairs));
         setServiceNodes((prev) =>
             prev.map((n) => ({
@@ -205,6 +216,7 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         for (const svc of serviceNodes) {
             const mounts = volumeMountsByNode[svc.id] || [];
             const managed = managedVolumesByNode[svc.id] || [];
+            const hasPendingVolumes = volumePendingByNode[svc.id] || false;
             const managedByTarget = new Map(managed.filter((v) => v.target).map((v) => [v.target, v]));
             mounts.forEach((entry, index) => {
                 const managedVol = managedByTarget.get(entry.containerPath);
@@ -229,12 +241,13 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
                         index,
                         resolvedName,
                         usageBytes: managedVol?.size,
+                        pending: hasPendingVolumes,
                     },
                 });
             });
         }
         return result;
-    }, [serviceNodes, volumeMountsByNode, managedVolumesByNode, selectedVolume]);
+    }, [serviceNodes, volumeMountsByNode, volumePendingByNode, managedVolumesByNode, selectedVolume]);
 
     const volumeEdges = useMemo(() => {
         const result: Edge[] = [];

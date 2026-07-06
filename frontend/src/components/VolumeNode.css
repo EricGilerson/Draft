@@ -106,3 +106,8 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
+
+.volume-node-mount-tag--pending {
+    border-style: dashed;
+    color: rgba(212, 184, 132, 0.72);
+}

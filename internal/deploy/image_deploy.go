@@ -233,6 +233,8 @@ func (e *Engine) startContainerAndRegister(
 
 	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
+	e.promoteStagedAfterSuccessfulDeploy(ctx, nodeID, node.ProjectID)
+
 	e.emitStatus(nodeID, StatusEvent{
 		DeploymentID: dep.ID,
 		Status:       "running",

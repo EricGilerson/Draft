@@ -9,6 +9,7 @@ export type VolumeNodeData = VolumeEntry & {
     index: number;
     resolvedName?: string;
     usageBytes?: number;
+    pending?: boolean;
 };
 
 function basename(path: string): string {
@@ -72,7 +73,9 @@ export default function VolumeNode({data, selected}: NodeProps) {
                     {d.usageBytes ? ` · ${formatBytes(d.usageBytes)}` : ''}
                 </span>
             </div>
-            <span className="volume-node-mount-tag">mount</span>
+            <span className={`volume-node-mount-tag ${d.pending ? 'volume-node-mount-tag--pending' : ''}`}>
+                {d.pending ? 'next deploy' : 'mount'}
+            </span>
         </div>
     );
 }

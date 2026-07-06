@@ -69,6 +69,23 @@ type NodeSetting struct {
 	Value  string `gorm:"not null" json:"value"`
 }
 
+// NodeSettingStaged holds pending node_settings overrides until the next
+// successful deploy promotes them into NodeSetting.
+type NodeSettingStaged struct {
+	NodeID string `gorm:"primaryKey;not null" json:"nodeId"`
+	Key    string `gorm:"primaryKey;not null" json:"key"`
+	Value  string `gorm:"not null" json:"value"`
+}
+
+// EnvVarStaged holds pending env var upserts or deletions until deploy.
+type EnvVarStaged struct {
+	NodeID string `gorm:"primaryKey;not null" json:"nodeId"`
+	Key    string `gorm:"primaryKey;not null" json:"key"`
+	Value  string `gorm:"not null" json:"value"`
+	Scope  string `gorm:"not null;default:'runtime'" json:"scope"`
+	Delete bool   `gorm:"not null;default:false" json:"delete"`
+}
+
 // Deployment tracks a single build+run cycle for a service node.
 type Deployment struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`

@@ -110,7 +110,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	e.emitBuildLog(nodeID, "==> Initializing deployment...")
 	e.emitBuildLog(nodeID, "    Loading node settings")
 
-	settings, err := e.store.GetNodeSettings(nodeID)
+	settings, err := e.loadEffectiveSettings(nodeID)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to read settings: " + err.Error()})
 		return

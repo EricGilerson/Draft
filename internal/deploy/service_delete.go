@@ -138,6 +138,9 @@ func (e *Engine) DeleteService(ctx context.Context, nodeID string) error {
 	if err := e.store.DeleteEnvVarsByNode(nodeID); err != nil {
 		return err
 	}
+	if err := e.store.DeleteStagedChanges(nodeID); err != nil {
+		return err
+	}
 	if err := e.store.DeleteDeploymentsByNode(nodeID); err != nil {
 		return err
 	}
@@ -154,6 +157,9 @@ func DeleteServiceFromStore(s *store.Store, nodeID string) error {
 		return err
 	}
 	if err := s.DeleteEnvVarsByNode(nodeID); err != nil {
+		return err
+	}
+	if err := s.DeleteStagedChanges(nodeID); err != nil {
 		return err
 	}
 	if err := s.DeleteDeploymentsByNode(nodeID); err != nil {

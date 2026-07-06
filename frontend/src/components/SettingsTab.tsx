@@ -1,14 +1,15 @@
 import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {
-    GetServiceRoot, SetServiceRoot, SelectServiceRoot,
-    GetNodeSettings, SetNodeSetting, SelectFile, ParseDockerfileExpose,
-    IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
+    GetServiceRoot, SelectServiceRoot,
+    SelectFile, ParseDockerfileExpose,
+    IsGitRepo, ListGitBranches, GetGitHookStatus,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume,
     PreviewDeleteService, DeleteNode,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
+import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
 
@@ -53,6 +54,14 @@ type LabelEntry = {
 };
 
 export default function SettingsTab({nodeId, projectId, projectPath, serviceLabel, onServicesChanged, onServiceDeleted}: SettingsTabProps) {
+    const {
+        committedSettings,
+        effectiveSettings,
+        updateDraftSetting,
+        hasStagedChanges,
+        loading: configLoading,
+        isSessionDirty,
+    } = useServiceConfigEditor();
     const [rootPath, setRootPath] = useState('');
     const [inputValue, setInputValue] = useState('');
     const [error, setError] = useState('');
@@ -117,8 +126,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
 
     const saveSetting = useCallback((key: string, value: string) => {
         setSettings(prev => ({...prev, [key]: value}));
-        SetNodeSetting(nodeId, key, value);
-    }, [nodeId]);
+        updateDraftSetting(key, value);
+    }, [updateDraftSetting]);
 
     const getSetting = (key: string) => settings[key] || '';
 
@@ -156,46 +165,70 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
-        setSettings(prev => ({...prev, git_branch: value}));
-        SetNodeSetting(nodeId, 'git_branch', value).then(() => {
-            // The triggers are only meaningful with a branch; re-applying them
-            // installs or tears down the repo's git hooks to match.
-            return SetDeployTrigger(nodeId, projectId, deployTrigger);
-        }).then(() => {
-            if (value) {
-                return SetRedeployOnPull(nodeId, projectId, redeployOnPull);
-            }
-            return SetRedeployOnPull(nodeId, projectId, false);
-        }).then(() => {
-            refreshHookStatus();
-            onServicesChanged?.();
-        }).catch(() => onServicesChanged?.());
-    }, [nodeId, projectId, deployTrigger, redeployOnPull, refreshHookStatus, onServicesChanged]);
+        updateDraftSetting('git_branch', value);
+        if (!value) {
+            updateDraftSetting('redeploy_on_pull', '');
+        }
+    }, [updateDraftSetting]);
 
     const commitDeployTrigger = useCallback((value: DeployTrigger) => {
         setDeployTrigger(value);
-        setSettings(prev => ({...prev, deploy_trigger: value}));
-        SetDeployTrigger(nodeId, projectId, value)
-            .then(() => refreshHookStatus())
-            .catch(() => {});
-    }, [nodeId, projectId, refreshHookStatus]);
+        updateDraftSetting('deploy_trigger', value);
+    }, [updateDraftSetting]);
 
     const commitRedeployOnPull = useCallback((value: boolean) => {
         setRedeployOnPull(value);
-        setSettings(prev => ({...prev, redeploy_on_pull: value ? 'true' : ''}));
-        SetRedeployOnPull(nodeId, projectId, value)
-            .then(() => refreshHookStatus())
-            .catch(() => {});
-    }, [nodeId, projectId, refreshHookStatus]);
+        updateDraftSetting('redeploy_on_pull', value ? 'true' : '');
+    }, [updateDraftSetting]);
+
+    const applySettingsSnapshot = useCallback((s: Record<string, string>) => {
+        setSettings(s);
+        setGitBranch(s.git_branch || '');
+        setDeployTrigger((s.deploy_trigger as DeployTrigger) || 'manual');
+        setRedeployOnPull(s.redeploy_on_pull === 'true');
+        const df = s.dockerfile || '';
+        setDockerfilePath(df);
+        setDockerfileInput(df);
+        const p = s.service_port || '';
+        setPort(p);
+        setPortInput(p);
+        setImageInput(s.image || '');
+        setImageCustomMode(false);
+        setUseDockerignore(s.use_dockerignore === 'true');
+        setUseGitignore(s.use_gitignore === 'true');
+        setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
+        setGitStream(s.git_stream !== 'false');
+        if (s.volume_mounts) {
+            setVolumes(parseVolumeEntries(s.volume_mounts));
+        } else {
+            setVolumes([]);
+        }
+        refreshManagedVolumes();
+        if (s.custom_labels) {
+            try {
+                const obj = JSON.parse(s.custom_labels);
+                setLabels(Object.entries(obj).map(([key, value]) => ({key, value: value as string})));
+            } catch { setLabels([]); }
+        } else {
+            setLabels([]);
+        }
+        if (df) {
+            ParseDockerfileExpose(df, projectId).then(setExposePorts).catch(() => setExposePorts([]));
+        } else {
+            setExposePorts([]);
+        }
+    }, [projectId, refreshManagedVolumes]);
+
+    useEffect(() => {
+        if (configLoading || isSessionDirty) return;
+        applySettingsSnapshot(committedSettings);
+    }, [committedSettings, configLoading, isSessionDirty, applySettingsSnapshot]);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
             setRootPath(path || '');
             setInputValue(path || '');
         });
-        // Resolve the node's template (if any) so the template schema can drive
-        // which settings sections are shown/hidden, and so image-mode nodes get
-        // the image field instead of the Dockerfile field.
         GetNode(nodeId)
             .then((node) => {
                 if (node?.templateId) {
@@ -205,60 +238,23 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 return Promise.resolve();
             })
             .catch(() => setTemplate(null));
-        GetNodeSettings(nodeId).then((s) => {
-            if (!s) s = {};
-            setSettings(s);
-            setGitBranch(s.git_branch || '');
-            setDeployTrigger((s.deploy_trigger as DeployTrigger) || 'manual');
-            setRedeployOnPull(s.redeploy_on_pull === 'true');
-            const df = s.dockerfile || '';
-            setDockerfilePath(df);
-            setDockerfileInput(df);
-            const p = s.service_port || '';
-            setPort(p);
-            setPortInput(p);
-            setImageInput(s.image || '');
-            setImageCustomMode(false);
-            setUseDockerignore(s.use_dockerignore === 'true');
-            setUseGitignore(s.use_gitignore === 'true');
-            setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
-            setGitStream(s.git_stream !== 'false');
-            if (s.volume_mounts) {
-                setVolumes(parseVolumeEntries(s.volume_mounts));
-            }
-            refreshManagedVolumes();
-            if (s.custom_labels) {
-                try {
-                    const obj = JSON.parse(s.custom_labels);
-                    setLabels(Object.entries(obj).map(([key, value]) => ({key, value: value as string})));
-                } catch { setLabels([]); }
-            }
-            if (df) {
-                ParseDockerfileExpose(df, projectId).then(setExposePorts).catch(() => setExposePorts([]));
-            }
-        });
     }, [nodeId, projectId]);
 
     const commitImage = useCallback((value?: string) => {
         const trimmed = (value ?? imageInput).trim();
-        if (trimmed === (settings.image || '')) return;
-        SetNodeSetting(nodeId, 'image', trimmed).then(() => {
-            setImageInput(trimmed);
-            setSettings(prev => ({...prev, image: trimmed}));
-            onServicesChanged?.();
-        });
-    }, [nodeId, imageInput, settings.image, onServicesChanged]);
+        if (trimmed === (effectiveSettings.image || '')) return;
+        setImageInput(trimmed);
+        saveSetting('image', trimmed);
+    }, [imageInput, effectiveSettings.image, saveSetting]);
 
     const saveRoot = useCallback(async (absolutePath: string) => {
         setError('');
         setSaving(true);
         try {
-            await SetServiceRoot(nodeId, projectId, absolutePath);
             setRootPath(absolutePath);
             setInputValue(absolutePath);
-            refreshBranches();
-            refreshHookStatus();
-            onServicesChanged?.();
+            updateDraftSetting('service_root', absolutePath);
+            setSettings(prev => ({...prev, service_root: absolutePath}));
         } catch (e: any) {
             const msg = typeof e === 'string' ? e : e?.message || 'Failed to set service root';
             setError(msg);
@@ -266,7 +262,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         } finally {
             setSaving(false);
         }
-    }, [nodeId, projectId, rootPath, refreshBranches, refreshHookStatus, onServicesChanged]);
+    }, [rootPath, updateDraftSetting]);
 
     const handleInputCommit = useCallback(() => {
         const trimmed = inputValue.trim();
@@ -299,18 +295,15 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const commitDockerfile = useCallback((value?: string) => {
         const trimmed = (value ?? dockerfileInput).trim();
         if (trimmed === dockerfilePath) return;
-        SetNodeSetting(nodeId, 'dockerfile', trimmed).then(() => {
-            setDockerfilePath(trimmed);
-            setDockerfileInput(trimmed);
-            setSettings(prev => ({...prev, dockerfile: trimmed}));
-            if (trimmed) {
-                ParseDockerfileExpose(trimmed, projectId).then(setExposePorts).catch(() => setExposePorts([]));
-            } else {
-                setExposePorts([]);
-            }
-            onServicesChanged?.();
-        });
-    }, [nodeId, projectId, dockerfileInput, dockerfilePath, onServicesChanged]);
+        setDockerfilePath(trimmed);
+        setDockerfileInput(trimmed);
+        saveSetting('dockerfile', trimmed);
+        if (trimmed) {
+            ParseDockerfileExpose(trimmed, projectId).then(setExposePorts).catch(() => setExposePorts([]));
+        } else {
+            setExposePorts([]);
+        }
+    }, [projectId, dockerfileInput, dockerfilePath, saveSetting]);
 
     const browseDockerfile = useCallback(async () => {
         const selected = await SelectFile('Select Dockerfile', projectPath);
@@ -324,13 +317,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         const trimmed = (value ?? portInput).trim();
         if (trimmed === port) return;
         if (trimmed && (isNaN(Number(trimmed)) || Number(trimmed) < 1 || Number(trimmed) > 65535)) return;
-        SetNodeSetting(nodeId, 'service_port', trimmed).then(() => {
-            setPort(trimmed);
-            setPortInput(trimmed);
-            setSettings(prev => ({...prev, service_port: trimmed}));
-            onServicesChanged?.();
-        });
-    }, [nodeId, portInput, port, onServicesChanged]);
+        setPort(trimmed);
+        setPortInput(trimmed);
+        saveSetting('service_port', trimmed);
+    }, [portInput, port, saveSetting]);
 
     const toggleDockerignore = useCallback(() => {
         const next = !useDockerignore;
@@ -359,12 +349,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const applyExposePort = useCallback((exposePort: number) => {
         const val = String(exposePort);
         setPortInput(val);
-        SetNodeSetting(nodeId, 'service_port', val).then(() => {
-            setPort(val);
-            setSettings(prev => ({...prev, service_port: val}));
-            onServicesChanged?.();
-        });
-    }, [nodeId, onServicesChanged]);
+        setPort(val);
+        saveSetting('service_port', val);
+    }, [saveSetting]);
 
     const saveVolumes = useCallback((vols: VolumeEntry[]) => {
         setVolumes(vols);
@@ -468,6 +455,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
 
     return (
         <div className="settings-tab">
+            {hasStagedChanges && (
+                <div className="settings-staged-banner">
+                    Staged settings will apply on the next deploy.
+                </div>
+            )}
             {/* ── Source ── */}
             {!sectionHidden('source') && (
             <div className="settings-section">

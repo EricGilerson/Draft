@@ -1,11 +1,12 @@
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, DeleteEnvVar, GetNodeSettings, SetNodeSetting, SelectFile,
-    GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile, SetEnvVarScope,
+    GetEnvVars, SetEnvVar, SelectFile,
+    GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
+import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import Dialog from './Dialog';
 import './VariablesTab.css';
 
@@ -132,6 +133,15 @@ function VarAutocomplete({autocomplete, linkTargets, onSelectService, onSelectAt
 }
 
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
+    const {
+        committedSettings,
+        stagedEnvChanges,
+        updateDraftSetting,
+        setEnvDraftUpsert,
+        setEnvDraftDelete,
+        isSessionDirty,
+        hasStagedChanges,
+    } = useServiceConfigEditor();
     const [vars, setVars] = useState<store.EnvVar[]>([]);
     const [originals, setOriginals] = useState<Record<string, string>>({});
     const [edits, setEdits] = useState<Record<string, string>>({});
@@ -141,7 +151,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [loading, setLoading] = useState(true);
     const [envFile, setEnvFile] = useState('');
     const [serviceRoot, setServiceRoot] = useState('');
-    const [showConfirm, setShowConfirm] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
     const [syncError, setSyncError] = useState('');
@@ -153,13 +162,39 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
+    const applyStagedEnv = useCallback((list: store.EnvVar[]) => {
+        let out = [...list];
+        for (const ch of stagedEnvChanges) {
+            if (ch.delete) {
+                out = out.filter((x) => x.key !== ch.key);
+                continue;
+            }
+            const existing = out.find((x) => x.key === ch.key);
+            if (existing) {
+                out = out.map((x) => x.key === ch.key
+                    ? store.EnvVar.createFrom({...x, value: ch.value, scope: ch.scope || x.scope})
+                    : x);
+            } else {
+                out.push(store.EnvVar.createFrom({
+                    nodeId,
+                    key: ch.key,
+                    value: ch.value,
+                    scope: ch.scope || 'runtime',
+                    source: 'manual',
+                }));
+            }
+        }
+        out.sort((a, b) => a.key.localeCompare(b.key));
+        return out;
+    }, [nodeId, stagedEnvChanges]);
+
     const load = async () => {
         try {
             const v = await GetEnvVars(nodeId);
-            const list = v || [];
+            const list = applyStagedEnv(v || []);
             setVars(list);
             const map: Record<string, string> = {};
-            list.forEach(x => { map[x.key] = x.value; });
+            list.forEach((x: store.EnvVar) => { map[x.key] = x.value; });
             setOriginals(map);
             setEdits({});
         } catch (e) {
@@ -202,13 +237,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     const loadSettings = async () => {
         try {
-            const [s, root] = await Promise.all([
-                GetNodeSettings(nodeId),
-                GetServiceRoot(nodeId, projectId)
-            ]);
-            setEnvFile(s?.env_file || '');
+            const root = await GetServiceRoot(nodeId, projectId);
+            setEnvFile(committedSettings.env_file || '');
             setServiceRoot(root || projectPath);
-            if (!s?.env_file) {
+            if (!committedSettings.env_file) {
                 const suggestion = await SuggestEnvFile(nodeId, projectId);
                 if (suggestion) {
                     setEnvFile(suggestion);
@@ -220,17 +252,26 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     useEffect(() => {
-        load();
-        loadSettings();
-        loadPreviews();
-        loadLinkTargets();
+        void load();
+        void loadPreviews();
+        void loadLinkTargets();
     }, [nodeId]);
+
+    useEffect(() => {
+        if (!isSessionDirty) {
+            void load();
+        }
+    }, [stagedEnvChanges, isSessionDirty]);
+
+    useEffect(() => {
+        void loadSettings();
+    }, [nodeId, projectId, committedSettings.env_file]);
 
     const pickEnv = async () => {
         try {
             const p = await SelectFile('Select .env file', '');
             if (p) {
-                await SetNodeSetting(nodeId, 'env_file', p);
+                updateDraftSetting('env_file', p);
                 setEnvFile(p);
                 setSyncResult(null);
                 setSyncError('');
@@ -250,6 +291,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     const stageEdit = (key: string, value: string) => {
         const original = originals[key] ?? '';
+        const variable = vars.find((x) => x.key === key);
         setEdits(prev => {
             const next = {...prev};
             if (value === original) {
@@ -258,6 +300,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 next[key] = value;
             }
             return next;
+        });
+        if (value === original) {
+            setEnvDraftDelete(key, false);
+            return;
+        }
+        setEnvDraftUpsert({
+            key,
+            value,
+            scope: variable?.scope || 'runtime',
         });
     };
 
@@ -312,61 +363,42 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         replaceRange(fieldId, start, end, token);
     };
 
-    const pendingChanges = Object.entries(edits).map(([k, v]) => {
-        const original = vars.find(x => x.key === k)?.value ?? '';
-        return {key: k, from: original, to: v};
-    });
-
-    const saveChanges = async () => {
-        try {
-            for (const [k, v] of Object.entries(edits)) {
-                await SetEnvVar(nodeId, k, v);
-            }
-            setEdits({});
-            setShowConfirm(false);
-            setSyncResult(null);
-            setSyncError('');
-            await refreshAll();
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const add = async () => {
+    const add = () => {
         if (!newKey.trim()) return;
-        try {
-            await SetEnvVar(nodeId, newKey.trim(), newValue);
-            setNewKey('');
-            setNewValue('');
-            setSyncResult(null);
-            setSyncError('');
-            await refreshAll();
-        } catch (e) {
-            console.error(e);
-        }
+        const key = newKey.trim();
+        setEnvDraftUpsert({key, value: newValue, scope: 'runtime'});
+        setVars(prev => [...prev, store.EnvVar.createFrom({
+            nodeId,
+            key,
+            value: newValue,
+            scope: 'runtime',
+            source: 'manual',
+        })]);
+        setOriginals(prev => ({...prev, [key]: newValue}));
+        setNewKey('');
+        setNewValue('');
+        setSyncResult(null);
+        setSyncError('');
     };
 
-    const removeVar = async (key: string) => {
-        if (!window.confirm(`Delete ${key}? This can't be undone.`)) return;
-        try {
-            await DeleteEnvVar(nodeId, key);
-            await refreshAll();
-        } catch (e) {
-            console.error(e);
-        }
+    const removeVar = (key: string) => {
+        if (!window.confirm(`Delete ${key}? It will be removed on the next deploy.`)) return;
+        setEnvDraftDelete(key, true);
+        setVars(prev => prev.filter((v) => v.key !== key));
+        setEdits(prev => {
+            const next = {...prev};
+            delete next[key];
+            return next;
+        });
     };
 
-    const toggleBuildArg = async (variable: store.EnvVar) => {
+    const toggleBuildArg = (variable: store.EnvVar) => {
         const isBuildArg = variable.scope === 'build' || variable.scope === 'both';
         const nextScope = isBuildArg ? 'runtime' : 'both';
-        try {
-            await SetEnvVarScope(nodeId, variable.key, nextScope);
-            setVars(prev => prev.map(v =>
-                v.key === variable.key ? store.EnvVar.createFrom({...v, scope: nextScope}) : v,
-            ));
-        } catch (e) {
-            console.error(e);
-        }
+        setEnvDraftUpsert({key: variable.key, value: variable.value, scope: nextScope});
+        setVars(prev => prev.map(v =>
+            v.key === variable.key ? store.EnvVar.createFrom({...v, scope: nextScope}) : v,
+        ));
     };
 
     // --- Linker: create a reference either into an existing variable's value
@@ -462,7 +494,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     const persistEnvPath = async () => {
-        await SetNodeSetting(nodeId, 'env_file', envFile.trim());
+        updateDraftSetting('env_file', envFile.trim());
     };
 
     const runSync = async (action: 'import' | 'refresh' | 'export') => {
@@ -778,35 +810,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
             <RuntimeVarsSection />
 
-            {Object.keys(edits).length > 0 && (
-                <button className="btn btn-primary save-btn" onClick={() => setShowConfirm(true)}>
-                    Save {Object.keys(edits).length} Draft change{Object.keys(edits).length > 1 ? 's' : ''}
-                </button>
-            )}
-
-            {showConfirm && (
-                <Dialog title="Confirm variable changes" onClose={() => setShowConfirm(false)} footer={
-                    <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-                        <button className="btn btn-ghost" onClick={() => setShowConfirm(false)}>Cancel</button>
-                        <button className="btn btn-primary" onClick={saveChanges}>Save changes</button>
-                    </div>
-                }>
-                    <p className="var-confirm-note">
-                        These changes update Draft's database. Use Export when you want to write them back to the linked .env file.
-                    </p>
-                    <div className="var-diff">
-                        {pendingChanges.map(c => (
-                            <div key={c.key} className="var-diff-row">
-                                <div className="var-key">{c.key}</div>
-                                <div className="var-diff-values">
-                                    <span className="old">{c.from || '(empty)'}</span>
-                                    <span>→</span>
-                                    <span className="new">{c.to}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </Dialog>
+            {hasStagedChanges && (
+                <p className="variables-staged-hint">Staged variable changes will apply on the next deploy.</p>
             )}
         </div>
     );

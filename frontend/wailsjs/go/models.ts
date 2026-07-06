@@ -313,6 +313,62 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class StagedEnvVarChange {
+	    key: string;
+	    value: string;
+	    scope: string;
+	    delete: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StagedEnvVarChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.delete = source["delete"];
+	    }
+	}
+	export class NodeConfigStatus {
+	    appliedSettings: Record<string, string>;
+	    stagedSettings: Record<string, string>;
+	    stagedEnvChanges: StagedEnvVarChange[];
+	    hasStagedChanges: boolean;
+	    activeDeploymentStatus: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NodeConfigStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.appliedSettings = source["appliedSettings"];
+	        this.stagedSettings = source["stagedSettings"];
+	        this.stagedEnvChanges = this.convertValues(source["stagedEnvChanges"], StagedEnvVarChange);
+	        this.hasStagedChanges = source["hasStagedChanges"];
+	        this.activeDeploymentStatus = source["activeDeploymentStatus"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ReachabilityCheck {
 	    status: string;
 	    targetUrl: string;
@@ -482,6 +538,54 @@ export namespace deploy {
 	        this.deploymentSummary = this.convertValues(source["deploymentSummary"], DeploymentHistorySummary);
 	        this.recentDeployments = this.convertValues(source["recentDeployments"], DeploymentTimelineItem);
 	        this.events = this.convertValues(source["events"], RuntimeEvent);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SettingsWarning {
+	    code: string;
+	    message: string;
+	    field?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SettingsWarning(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.field = source["field"];
+	    }
+	}
+	export class StagedChangePreview {
+	    warnings: SettingsWarning[];
+	    errors: SettingsWarning[];
+	
+	    static createFrom(source: any = {}) {
+	        return new StagedChangePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.warnings = this.convertValues(source["warnings"], SettingsWarning);
+	        this.errors = this.convertValues(source["errors"], SettingsWarning);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -894,6 +998,28 @@ export namespace store {
 		}
 	}
 	
+	export class EnvVarStageUpsert {
+	    Key: string;
+	    Value: string;
+	    Scope: string;
+	    Secret: boolean;
+	    Source: string;
+	    EnvFile: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvVarStageUpsert(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Key = source["Key"];
+	        this.Value = source["Value"];
+	        this.Scope = source["Scope"];
+	        this.Secret = source["Secret"];
+	        this.Source = source["Source"];
+	        this.EnvFile = source["EnvFile"];
+	    }
+	}
 	export class Project {
 	    id: number;
 	    name: string;

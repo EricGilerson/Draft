@@ -566,6 +566,60 @@ func (a *App) GetNodeSettings(nodeID string) (map[string]string, error) {
 	return a.store.GetNodeSettings(nodeID)
 }
 
+// GetNodeConfigStatus returns applied settings, staged overrides, and deploy status.
+func (a *App) GetNodeConfigStatus(nodeID string) (*deploy.NodeConfigStatus, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return deploy.NodeConfigStatusFromStore(a.store, nodeID)
+}
+
+// StageNodeSettings persists setting overrides until the next successful deploy.
+func (a *App) StageNodeSettings(nodeID string, projectID uint, settings map[string]string) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	if len(settings) == 0 {
+		return nil
+	}
+	if root, ok := settings["service_root"]; ok {
+		project, err := a.store.GetProject(projectID)
+		if err != nil {
+			return fmt.Errorf("project not found: %w", err)
+		}
+		if err := store.ValidateInsideProject(project.Path, root); err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(project.Path, root)
+		settings["service_root"] = rel
+	}
+	return a.store.StageNodeSettings(nodeID, settings)
+}
+
+// StageEnvVarChanges persists env var upserts and deletions until deploy.
+func (a *App) StageEnvVarChanges(nodeID string, upserts []store.EnvVarStageUpsert, deleteKeys []string) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.StageEnvVarChanges(nodeID, upserts, deleteKeys)
+}
+
+// DiscardStagedChanges clears all staged settings and env rows for a node.
+func (a *App) DiscardStagedChanges(nodeID string) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.DiscardAllStagedChanges(nodeID)
+}
+
+// PreviewStagedChanges returns warnings/errors for proposed staged settings.
+func (a *App) PreviewStagedChanges(nodeID string, proposedSettings map[string]string) (*deploy.StagedChangePreview, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return deploy.PreviewStagedChangesFromStore(a.store, nodeID, proposedSettings)
+}
+
 // SetNodeSetting upserts a single setting for a node.
 func (a *App) SetNodeSetting(nodeID, key, value string) error {
 	if a.store == nil {

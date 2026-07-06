@@ -131,6 +131,40 @@ func (c *Client) PreviewDeleteService(ctx context.Context, nodeID string) (*depl
 	return &out, nil
 }
 
+func (c *Client) GetNodeConfigStatus(ctx context.Context, nodeID string) (*deploy.NodeConfigStatus, error) {
+	var out deploy.NodeConfigStatus
+	if err := c.postJSON(ctx, "/node/config-status", nodeRequest{NodeID: nodeID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) StageNodeSettings(ctx context.Context, nodeID string, projectID uint, settings map[string]string) error {
+	return c.postJSON(ctx, "/node/stage-settings", map[string]any{
+		"nodeId": nodeID, "projectId": projectID, "settings": settings,
+	}, nil)
+}
+
+func (c *Client) StageEnvVarChanges(ctx context.Context, nodeID string, upserts []store.EnvVarStageUpsert, deleteKeys []string) error {
+	return c.postJSON(ctx, "/node/stage-env", map[string]any{
+		"nodeId": nodeID, "upserts": upserts, "deleteKeys": deleteKeys,
+	}, nil)
+}
+
+func (c *Client) DiscardStagedChanges(ctx context.Context, nodeID string) error {
+	return c.postNode(ctx, "/node/discard-staged", nodeID)
+}
+
+func (c *Client) PreviewStagedChanges(ctx context.Context, nodeID string, proposedSettings map[string]string) (*deploy.StagedChangePreview, error) {
+	var out deploy.StagedChangePreview
+	if err := c.postJSON(ctx, "/node/preview-staged", map[string]any{
+		"nodeId": nodeID, "proposedSettings": proposedSettings,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) StopLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/stop", nodeID)
 }

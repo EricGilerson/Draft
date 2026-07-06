@@ -42,7 +42,7 @@ type deploymentEnvInput struct {
 }
 
 func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, error) {
-	vars, err := e.store.ListEnvVars(in.NodeID)
+	vars, err := e.loadEffectiveEnvVars(in.NodeID)
 	if err != nil {
 		return deploymentEnv{}, err
 	}

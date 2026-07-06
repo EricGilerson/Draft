@@ -29,6 +29,8 @@ export function DeleteServiceTemplate(arg1:number):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
 
+export function DiscardStagedChanges(arg1:string):Promise<void>;
+
 export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
@@ -44,6 +46,8 @@ export function GetGitHookStatus(arg1:string,arg2:number):Promise<main.GitHookSt
 export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
 export function GetNode(arg1:string):Promise<store.CanvasNode>;
+
+export function GetNodeConfigStatus(arg1:string):Promise<deploy.NodeConfigStatus>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
@@ -83,6 +87,8 @@ export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePr
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
+export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
+
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function RestartService(arg1:string):Promise<void>;
@@ -104,6 +110,10 @@ export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void
 export function SetRedeployOnPull(arg1:string,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
+
+export function StageEnvVarChanges(arg1:string,arg2:Array<store.EnvVarStageUpsert>,arg3:Array<string>):Promise<void>;
+
+export function StageNodeSettings(arg1:string,arg2:number,arg3:Record<string, string>):Promise<void>;
 
 export function StartDocker():Promise<void>;
 
