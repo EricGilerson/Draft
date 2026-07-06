@@ -14,6 +14,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         isSessionDirty,
         hasStagedChanges,
         staging,
+        draftSettings,
         discardSessionDraft,
         discardStaged,
         previewStage,
@@ -30,9 +31,15 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
     const runStage = useCallback(async (deployAfter: boolean) => {
         setError('');
         try {
-            const preview = await previewStage();
-            const errors = (preview?.errors || []).map((e) => e.message).filter(Boolean);
-            const warnings = (preview?.warnings || []).map((w) => w.message).filter(Boolean);
+            const hasSettingsDraft = Object.keys(draftSettings).length > 0;
+            // Preview only applies to settings keys in the current batch; env-only edits stage directly.
+            let errors: string[] = [];
+            let warnings: string[] = [];
+            if (hasSettingsDraft) {
+                const preview = await previewStage();
+                errors = (preview?.errors || []).map((e) => e.message).filter(Boolean);
+                warnings = (preview?.warnings || []).map((w) => w.message).filter(Boolean);
+            }
             if (errors.length > 0) {
                 setConfirmErrors(errors);
                 setConfirmWarnings(warnings);
@@ -57,7 +64,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         } catch (e) {
             setError(String(e));
         }
-    }, [previewStage, stageChanges, stageAndDeploy, onStaged, onDeploy]);
+    }, [draftSettings, previewStage, stageChanges, stageAndDeploy, onStaged, onDeploy]);
 
     const confirmStage = useCallback(async () => {
         if (confirmErrors.length > 0) {

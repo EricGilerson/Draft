@@ -176,9 +176,11 @@ export function ServiceConfigEditorProvider({
     }, []);
 
     const previewStage = useCallback(async () => {
-        const proposed = mergeSettings(stagedSettings, draftSettings);
-        return PreviewStagedChanges(nodeId, proposed);
-    }, [nodeId, stagedSettings, draftSettings]);
+        if (Object.keys(draftSettings).length === 0) {
+            return deploy.StagedChangePreview.createFrom({warnings: [], errors: []});
+        }
+        return PreviewStagedChanges(nodeId, draftSettings);
+    }, [nodeId, draftSettings]);
 
     const stageChanges = useCallback(async () => {
         setStaging(true);

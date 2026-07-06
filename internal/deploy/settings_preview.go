@@ -21,6 +21,13 @@ type StagedChangePreview struct {
 }
 
 func PreviewStagedChangesFromStore(s *store.Store, nodeID string, proposedSettings map[string]string) (*StagedChangePreview, error) {
+	if len(proposedSettings) == 0 {
+		return &StagedChangePreview{
+			Warnings: []SettingsWarning{},
+			Errors:   []SettingsWarning{},
+		}, nil
+	}
+
 	applied, err := s.GetNodeSettings(nodeID)
 	if err != nil {
 		return nil, err
@@ -28,9 +35,7 @@ func PreviewStagedChangesFromStore(s *store.Store, nodeID string, proposedSettin
 	if applied == nil {
 		applied = map[string]string{}
 	}
-	if proposedSettings == nil {
-		proposedSettings = map[string]string{}
-	}
+
 	existingStaged, err := s.GetStagedNodeSettings(nodeID)
 	if err != nil {
 		return nil, err
@@ -38,41 +43,46 @@ func PreviewStagedChangesFromStore(s *store.Store, nodeID string, proposedSettin
 	if existingStaged == nil {
 		existingStaged = map[string]string{}
 	}
+
 	staged := store.MergeNodeSettings(existingStaged, proposedSettings)
 	effective := store.MergeNodeSettings(applied, staged)
-	return previewEffectiveSettings(s, nodeID, applied, effective)
+	return previewEffectiveSettings(s, nodeID, applied, effective, proposedSettings)
 }
 
 func (e *Engine) PreviewStagedChanges(ctx context.Context, nodeID string, proposedSettings map[string]string) (*StagedChangePreview, error) {
 	return PreviewStagedChangesFromStore(e.store, nodeID, proposedSettings)
 }
 
-func previewEffectiveSettings(s *store.Store, nodeID string, applied, effective map[string]string) (*StagedChangePreview, error) {
+func previewEffectiveSettings(s *store.Store, nodeID string, applied, effective, proposed map[string]string) (*StagedChangePreview, error) {
 	out := &StagedChangePreview{
 		Warnings: []SettingsWarning{},
 		Errors:   []SettingsWarning{},
 	}
+	if proposed == nil {
+		proposed = map[string]string{}
+	}
 
 	oldMounts := applied["volume_mounts"]
 	newMounts := effective["volume_mounts"]
-	if strings.TrimSpace(newMounts) != "" {
+	if _, stagingVolumes := proposed["volume_mounts"]; stagingVolumes {
 		if err := validateVolumeMountsJSON(newMounts); err != nil {
 			out.Errors = append(out.Errors, SettingsWarning{
 				Code:    "volume_mounts_invalid",
 				Message: err.Error(),
 				Field:   "volume_mounts",
 			})
+		} else if oldMounts != newMounts {
+			warnings, err := volumeMountChangeWarnings(s, nodeID, oldMounts, newMounts)
+			if err != nil {
+				return nil, err
+			}
+			out.Warnings = append(out.Warnings, warnings...)
 		}
-	}
-	if oldMounts != newMounts && strings.TrimSpace(newMounts) != "" {
-		warnings, err := volumeMountChangeWarnings(s, nodeID, oldMounts, newMounts)
-		if err != nil {
-			return nil, err
-		}
-		out.Warnings = append(out.Warnings, warnings...)
 	}
 
-	if applied["service_port"] != effective["service_port"] && strings.TrimSpace(effective["service_port"]) != "" {
+	if _, stagingPort := proposed["service_port"]; stagingPort &&
+		applied["service_port"] != effective["service_port"] &&
+		strings.TrimSpace(effective["service_port"]) != "" {
 		out.Warnings = append(out.Warnings, SettingsWarning{
 			Code:    "service_port_change",
 			Message: "Service port change applies on next deploy; routes and env references may need updating.",
@@ -92,8 +102,12 @@ func previewEffectiveSettings(s *store.Store, nodeID string, applied, effective 
 }
 
 func validateVolumeMountsJSON(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "[]" {
+		return nil
+	}
 	specs := ParseVolumeSpecs(raw)
-	if strings.TrimSpace(raw) != "" && len(specs) == 0 {
+	if len(specs) == 0 {
 		return fmt.Errorf("volume_mounts must be a JSON array of mount specs")
 	}
 	for _, spec := range specs {
