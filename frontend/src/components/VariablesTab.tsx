@@ -1,12 +1,14 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
-import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {
     GetEnvVars, SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
+    InspectDockerfileBuildInfo,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
 import Dialog from './Dialog';
 import './VariablesTab.css';
 
@@ -160,6 +162,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [referenceIssues, setReferenceIssues] = useState<deploy.ReferenceIssue[]>([]);
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
+    const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
     const applyStagedEnv = useCallback((list: store.EnvVar[]) => {
@@ -228,11 +231,20 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
+    const loadBuildInfo = async () => {
+        try {
+            setBuildInfo(await InspectDockerfileBuildInfo(nodeId));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const refreshAll = async () => {
         await load();
         await loadPreviews();
         await loadLinkTargets();
         await loadReferenceIssues();
+        await loadBuildInfo();
     };
 
     const loadSettings = async () => {
@@ -256,6 +268,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         void loadPreviews();
         void loadLinkTargets();
     }, [nodeId]);
+
+    // The Dockerfile facts only change when the node or its Dockerfile/service
+    // root settings change, so keep this off the hot per-keystroke path.
+    useEffect(() => {
+        void loadBuildInfo();
+    }, [nodeId, appliedSettings.dockerfile, appliedSettings.service_root]);
+
+    const buildWarnings = useMemo(
+        () => computeBuildEnvWarnings(vars, buildInfo),
+        [vars, buildInfo],
+    );
 
     useEffect(() => {
         if (!isSessionDirty) {
@@ -721,6 +744,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 )}
                 {vars.map(v => {
                     const varIssues = referenceIssues.filter((issue) => issue.varKey === v.key);
+                    const varBuildWarnings = buildWarnings.filter((w) => w.key === v.key);
                     return (
                     <div key={v.key} className="var-row">
                         <div className="var-key-cell">
@@ -787,6 +811,23 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             {varIssues.map((issue) => (
                                 <div key={`${issue.token}:${issue.reason}`} className="var-preview var-preview--error">
                                     {issue.token}: {issue.reason}
+                                </div>
+                            ))}
+                            {varBuildWarnings.map((w) => (
+                                <div key={w.kind} className="var-build-warning">
+                                    <AlertTriangle size={13} className="var-build-warning-icon"/>
+                                    <div className="var-build-warning-body">
+                                        <span>{w.message}</span>
+                                        {w.kind === 'scope' ? (
+                                            <button className="var-build-warning-action" onClick={() => toggleBuildArg(v)}>
+                                                Enable build arg
+                                            </button>
+                                        ) : w.suggestion ? (
+                                            <span className="var-build-warning-hint">
+                                                Add <code>{w.suggestion}</code> to your Dockerfile{w.kind === 'arg_wrong_stage' ? ' build stage' : ''}.
+                                            </span>
+                                        ) : null}
+                                    </div>
                                 </div>
                             ))}
                             {previews[v.key]?.error && varIssues.length === 0 && (

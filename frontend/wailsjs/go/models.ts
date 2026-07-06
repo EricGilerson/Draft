@@ -1,5 +1,25 @@
 export namespace deploy {
-	
+
+	export class DockerfileBuildInfo {
+	    buildMode: boolean;
+	    parsed: boolean;
+	    hasBuildStep: boolean;
+	    declaredArgs: string[];
+	    buildStageArgs: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new DockerfileBuildInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.buildMode = source["buildMode"];
+	        this.parsed = source["parsed"];
+	        this.hasBuildStep = source["hasBuildStep"];
+	        this.declaredArgs = source["declaredArgs"];
+	        this.buildStageArgs = source["buildStageArgs"];
+	    }
+	}
 	export class Connection {
 	    sourceNodeId: string;
 	    sourceKey: string;

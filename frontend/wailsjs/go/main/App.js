@@ -86,6 +86,10 @@ export function GetNodeConfigStatus(arg1) {
   return window['go']['main']['App']['GetNodeConfigStatus'](arg1);
 }
 
+export function InspectDockerfileBuildInfo(arg1) {
+  return window['go']['main']['App']['InspectDockerfileBuildInfo'](arg1);
+}
+
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }

@@ -588,6 +588,17 @@ func (a *App) GetNodeConfigStatus(nodeID string) (*deploy.NodeConfigStatus, erro
 	return deploy.NodeConfigStatusFromStore(a.store, nodeID)
 }
 
+// InspectDockerfileBuildInfo returns the ARG/build-step structure of a node's
+// Dockerfile so the Variables tab can warn about build-time env wiring
+// (client-inlined vars left runtime-only, or build args the Dockerfile never
+// declares). Returns BuildMode=false for image-mode services.
+func (a *App) InspectDockerfileBuildInfo(nodeID string) (*deploy.DockerfileBuildInfo, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return deploy.InspectDockerfileBuildInfo(a.store, nodeID)
+}
+
 // StageNodeSettings persists setting overrides until the next successful deploy.
 // Git/deploy-automation keys are applied immediately instead of staged.
 func (a *App) StageNodeSettings(nodeID string, projectID uint, settings map[string]string) error {

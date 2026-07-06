@@ -152,6 +152,61 @@
     color: var(--red);
 }
 
+.var-build-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 3px 6px 1px;
+    padding: 6px 8px;
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text-secondary, var(--text-faint));
+    background: color-mix(in srgb, var(--yellow) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--yellow) 35%, transparent);
+    border-radius: 4px;
+}
+
+.var-build-warning-icon {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: var(--yellow);
+}
+
+.var-build-warning-body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+}
+
+.var-build-warning-action {
+    background: var(--yellow);
+    color: #1a1400;
+    border: none;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.var-build-warning-action:hover {
+    filter: brightness(1.08);
+}
+
+.var-build-warning-hint {
+    color: var(--text-faint);
+}
+
+.var-build-warning-hint code {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    background: color-mix(in srgb, var(--yellow) 16%, transparent);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
 .var-link-picker {
     display: flex;
     flex-wrap: wrap;

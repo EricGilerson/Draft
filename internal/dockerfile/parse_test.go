@@ -134,3 +134,118 @@ func TestParseFileNotFound(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestParseBuildInfoArgInBuildStage(t *testing.T) {
+	df := `FROM node:20 AS builder
+ARG NEXT_PUBLIC_API_URL
+COPY . .
+RUN npm run build
+
+FROM node:20 AS runner
+COPY --from=builder /app/.next ./.next
+CMD ["npm", "start"]
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.HasBuildStep {
+		t.Fatal("expected a build step to be detected")
+	}
+	if !info.DeclaredArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("expected NEXT_PUBLIC_API_URL to be declared")
+	}
+	if !info.BuildStageArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("expected NEXT_PUBLIC_API_URL to be available in the build stage")
+	}
+}
+
+func TestParseBuildInfoArgInWrongStage(t *testing.T) {
+	df := `FROM node:20 AS builder
+RUN npm run build
+
+FROM node:20 AS runner
+ARG NEXT_PUBLIC_API_URL
+CMD ["npm", "start"]
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.DeclaredArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("expected the arg to be declared somewhere")
+	}
+	if info.BuildStageArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("arg declared in runner stage must not count as build-stage available")
+	}
+}
+
+func TestParseBuildInfoNoArg(t *testing.T) {
+	df := `FROM node:20
+COPY . .
+RUN npm run build
+CMD ["npm", "start"]
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.HasBuildStep {
+		t.Fatal("expected build step")
+	}
+	if len(info.DeclaredArgs) != 0 {
+		t.Fatalf("expected no declared args, got %v", info.DeclaredArgs)
+	}
+}
+
+func TestParseBuildInfoArgDefaultAndContinuation(t *testing.T) {
+	df := `FROM node:20 AS builder
+ARG BUILD_TOKEN=fallback
+RUN npm ci && \
+    npm run build
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.DeclaredArgs["BUILD_TOKEN"] {
+		t.Fatalf("expected BUILD_TOKEN parsed without default, got %v", info.DeclaredArgs)
+	}
+	if !info.BuildStageArgs["BUILD_TOKEN"] {
+		t.Fatal("expected BUILD_TOKEN available to continued RUN build step")
+	}
+}
+
+func TestParseBuildInfoGlobalArgNotInBuildStage(t *testing.T) {
+	// An ARG before the first FROM is global and must be re-declared inside a
+	// stage to be usable there.
+	df := `ARG NEXT_PUBLIC_API_URL
+FROM node:20 AS builder
+RUN npm run build
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.DeclaredArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("global arg should be counted as declared")
+	}
+	if info.BuildStageArgs["NEXT_PUBLIC_API_URL"] {
+		t.Fatal("global arg must not count as build-stage available")
+	}
+}
+
+func TestParseBuildInfoNoBuildStep(t *testing.T) {
+	df := `FROM python:3.12
+ARG PIP_TOKEN
+RUN pip install -r requirements.txt
+CMD ["python", "app.py"]
+`
+	info, err := ParseBuildInfo(writeDockerfile(t, df))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.HasBuildStep {
+		t.Fatal("pip install should not be detected as a framework build step")
+	}
+}
