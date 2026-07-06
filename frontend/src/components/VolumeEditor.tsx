@@ -48,7 +48,7 @@ export function serializeVolumeEntries(entries: VolumeEntry[]): string {
     return JSON.stringify(cleaned);
 }
 
-function formatBytes(n: number): string {
+export function formatBytes(n: number): string {
     if (!n || n <= 0) return '—';
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let i = 0;

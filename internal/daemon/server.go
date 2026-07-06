@@ -186,6 +186,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/reference-issues", s.handleReferenceIssues)
 	mux.HandleFunc("/connections", s.handleConnections)
 	mux.HandleFunc("/volumes", s.handleListVolumes)
+	mux.HandleFunc("/volumes/overview", s.handleVolumesOverview)
 	mux.HandleFunc("/volumes/delete", s.handleDeleteVolume)
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	return s.auth(mux)
@@ -795,6 +796,18 @@ func (s *Server) handleListVolumes(w http.ResponseWriter, r *http.Request) {
 		projectID = &p
 	}
 	vols, err := s.engine.ListManagedVolumes(r.Context(), projectID, q.Get("nodeId"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, vols)
+}
+
+// handleVolumesOverview returns every Draft-managed volume across all projects,
+// enriched with its owning node's label and an orphaned flag. Backs the global
+// Volumes tab.
+func (s *Server) handleVolumesOverview(w http.ResponseWriter, r *http.Request) {
+	vols, err := s.engine.ListVolumesOverview(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return

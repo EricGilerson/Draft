@@ -14,7 +14,10 @@ import ProjectCanvas from './components/ProjectCanvas';
 import ProjectsView from './views/ProjectsView';
 import SettingsView from './views/SettingsView';
 import TemplatesView from './views/TemplatesView';
+import VolumesView from './views/VolumesView';
 import {main, store} from '../wailsjs/go/models';
+
+type VolumeFocus = {nodeId: string; target: string};
 
 function App() {
     const [view, setView] = useState<NavId>('overview');
@@ -23,6 +26,7 @@ function App() {
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
+    const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
 
     const refreshProjectServices = useCallback(async (items: store.Project[]) => {
@@ -95,6 +99,14 @@ function App() {
         setView('projects');
     };
 
+    const revealVolume = (projectId: number, nodeId: string, target: string) => {
+        const project = projectsRef.current.find((p) => p.id === projectId);
+        if (!project) return;
+        setSelectedProject(project);
+        setPendingVolumeFocus({nodeId, target});
+        setView('projects');
+    };
+
     return (
         <BuildLogProvider>
         <div className="app-shell">
@@ -111,6 +123,8 @@ function App() {
                             <ProjectCanvas
                                 project={selectedProject}
                                 onServicesChanged={() => refreshProjectServices(projectsRef.current)}
+                                initialVolumeFocus={pendingVolumeFocus}
+                                onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
                             />
                         ) : view === 'overview' ? (
                             <div className="view-center">
@@ -139,6 +153,8 @@ function App() {
                             </div>
                         ) : view === 'templates' ? (
                             <TemplatesView/>
+                        ) : view === 'volumes' ? (
+                            <VolumesView onRevealVolume={revealVolume}/>
                         ) : (
                             <SettingsView/>
                         )}

@@ -81,6 +81,8 @@ export function ListReferenceTargets(arg1:string):Promise<Array<deploy.Reference
 
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
+export function ListVolumesOverview():Promise<Array<deploy.VolumeOverview>>;
+
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;

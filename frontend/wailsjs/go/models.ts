@@ -606,6 +606,43 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	
+	export class VolumeOverview {
+	    name: string;
+	    labels: Record<string, string>;
+	    mountpoint: string;
+	    driver: string;
+	    createdAt: string;
+	    size: number;
+	    refCount: number;
+	    projectId: number;
+	    nodeId: string;
+	    target: string;
+	    environment: string;
+	    nodeLabel: string;
+	    orphaned: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new VolumeOverview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.labels = source["labels"];
+	        this.mountpoint = source["mountpoint"];
+	        this.driver = source["driver"];
+	        this.createdAt = source["createdAt"];
+	        this.size = source["size"];
+	        this.refCount = source["refCount"];
+	        this.projectId = source["projectId"];
+	        this.nodeId = source["nodeId"];
+	        this.target = source["target"];
+	        this.environment = source["environment"];
+	        this.nodeLabel = source["nodeLabel"];
+	        this.orphaned = source["orphaned"];
+	    }
+	}
 
 }
 

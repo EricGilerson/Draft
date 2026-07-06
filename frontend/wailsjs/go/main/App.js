@@ -150,6 +150,10 @@ export function ListServiceTemplates() {
   return window['go']['main']['App']['ListServiceTemplates']();
 }
 
+export function ListVolumesOverview() {
+  return window['go']['main']['App']['ListVolumesOverview']();
+}
+
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
 }

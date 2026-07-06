@@ -337,6 +337,15 @@ func (c *Client) ListManagedVolumes(ctx context.Context, projectID *uint, nodeID
 	return out, err
 }
 
+// ListVolumesOverview returns every Draft-managed volume across all projects,
+// enriched with its owning node's label and an orphaned flag. Backs the global
+// Volumes tab.
+func (c *Client) ListVolumesOverview(ctx context.Context) ([]deploy.VolumeOverview, error) {
+	var out []deploy.VolumeOverview
+	err := c.get(ctx, "/volumes/overview", &out)
+	return out, err
+}
+
 // DeleteManagedVolume removes a Draft-managed volume by name. force=true removes
 // it even if a container still references it.
 func (c *Client) DeleteManagedVolume(ctx context.Context, name string, force bool) error {

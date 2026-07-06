@@ -278,6 +278,20 @@ func (a *App) ListManagedVolumes(projectID int, nodeID string) ([]deploy.Managed
 	return c.ListManagedVolumes(a.ctx, pid, nodeID)
 }
 
+// ListVolumesOverview returns every Draft-managed Docker volume across all
+// projects, enriched with its owning node's label and an orphaned flag (the
+// node was deleted but Draft kept the data). Backs the global Volumes tab.
+func (a *App) ListVolumesOverview() ([]deploy.VolumeOverview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListVolumesOverview(a.ctx)
+}
+
 // DeleteManagedVolume removes a Draft-managed Docker volume by name. Only
 // volumes labelled draft.managed=true may be removed through this path, so an
 // arbitrary Docker volume can't be nuked by name. force removes the volume even

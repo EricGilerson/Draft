@@ -11,6 +11,7 @@ import (
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
@@ -315,6 +316,52 @@ func (e *Engine) ListManagedVolumes(ctx context.Context, projectID *uint, nodeID
 	return out, nil
 }
 
+// VolumeOverview enriches a ManagedVolume with the store-derived facts the
+// global Volumes tab needs but Docker labels alone can't give: the owning
+// node's current label, and whether that node still exists. Orphaned is the
+// signal for "stale" — the service was deleted but Draft kept the data (see
+// DeleteService), so it's reclaimable.
+type VolumeOverview struct {
+	ManagedVolume
+	NodeLabel string `json:"nodeLabel"`
+	Orphaned  bool   `json:"orphaned"`
+}
+
+// ListVolumesOverview returns every Draft-managed volume across all projects,
+// enriched with its owning node's label and an orphaned flag. A volume is
+// orphaned when its draft.node label points at a node row that no longer
+// exists — the "keep and surface" deletion policy leaves the data behind so it
+// can be reclaimed here. ProjectName comes from the draft.projectName label, so
+// no project lookup is needed.
+func (e *Engine) ListVolumesOverview(ctx context.Context) ([]VolumeOverview, error) {
+	vols, err := e.ListManagedVolumes(ctx, nil, "")
+	if err != nil {
+		return nil, err
+	}
+	return enrichVolumes(e.store, vols), nil
+}
+
+// enrichVolumes joins managed volumes against the store to set each one's
+// owning-node label and orphaned flag. Split out from ListVolumesOverview (and
+// its Docker call) so the orphan logic is unit-testable without a daemon.
+func enrichVolumes(s *store.Store, vols []ManagedVolume) []VolumeOverview {
+	out := make([]VolumeOverview, 0, len(vols))
+	for _, v := range vols {
+		ov := VolumeOverview{ManagedVolume: v}
+		if v.NodeID != "" {
+			if node, err := s.GetNode(v.NodeID); err == nil {
+				ov.NodeLabel = node.Label
+			} else {
+				ov.Orphaned = true
+			}
+		} else {
+			ov.Orphaned = true
+		}
+		out = append(out, ov)
+	}
+	return out
+}
+
 // DeleteManagedVolume removes a Docker volume by name. force=false refuses to
 // remove a volume that a running container is still using. Only volumes
 // labelled draft.managed=true may be removed through this path, so a user can't
@@ -344,7 +391,36 @@ func (e *Engine) DeleteManagedVolume(ctx context.Context, name string, force boo
 	if !owned {
 		return fmt.Errorf("no Draft-managed volume named %q", name)
 	}
+
+	// Docker's VolumeRemove `force` only suppresses not-found errors — it will
+	// NOT remove a volume that a container still references. So "force" here
+	// means: first tear down every container using this volume (that's the only
+	// way to free it), then remove it.
+	if force {
+		if err := removeContainersUsingVolume(ctx, cli, name); err != nil {
+			return err
+		}
+	}
 	return cli.VolumeRemove(ctx, name, force)
+}
+
+// removeContainersUsingVolume force-removes every container (running or stopped)
+// that references the named volume, so the volume can then be deleted. This is
+// the teardown behind a forced volume delete; the owning service's container is
+// gone afterward and the daemon's reconcile will observe it as stopped.
+func removeContainersUsingVolume(ctx context.Context, cli *client.Client, name string) error {
+	args := filters.NewArgs()
+	args.Add("volume", name)
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true, Filters: args})
+	if err != nil {
+		return fmt.Errorf("find containers using volume %q: %w", name, err)
+	}
+	for _, c := range containers {
+		if err := cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil {
+			return fmt.Errorf("remove container %s using volume %q: %w", c.ID[:12], name, err)
+		}
+	}
+	return nil
 }
 
 // SystemDF wraps the Docker SDK call so callers outside the deploy package can

@@ -46,6 +46,13 @@ import './ProjectCanvas.css';
 type ProjectCanvasProps = {
     project: store.Project;
     onServicesChanged?: () => void;
+    /** When set (e.g. from the global Volumes tab's "reveal on canvas"), select
+     * the matching volume node once its mounts have loaded. Matched by owning
+     * node id + container path since the canvas keys volumes positionally. */
+    initialVolumeFocus?: {nodeId: string; target: string} | null;
+    /** Called once initialVolumeFocus has been consumed so the parent can clear
+     * it (a focus should fire once, not on every re-render). */
+    onVolumeFocusApplied?: () => void;
 };
 
 type ServiceNodeData = {
@@ -111,7 +118,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, onServicesChanged}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -207,6 +214,21 @@ export default function ProjectCanvas({project, onServicesChanged}: ProjectCanva
         setSelectedVolume(volume);
         setSelectedNodeId(null);
     }, []);
+
+    // Apply an incoming "reveal on canvas" focus once the target node's mounts
+    // have loaded. Fires once: it clears the request via onVolumeFocusApplied
+    // whether or not a matching volume was found, so a stale target can't loop.
+    useEffect(() => {
+        if (!initialVolumeFocus) return;
+        const mounts = volumeMountsByNode[initialVolumeFocus.nodeId];
+        if (!mounts) return; // not loaded yet
+        const index = mounts.findIndex((m) => m.containerPath === initialVolumeFocus.target);
+        if (index >= 0) {
+            const parentLabel = serviceNodes.find((n) => n.id === initialVolumeFocus.nodeId)?.data.label as string | undefined;
+            selectVolume({parentNodeId: initialVolumeFocus.nodeId, index, parentLabel});
+        }
+        onVolumeFocusApplied?.();
+    }, [initialVolumeFocus, volumeMountsByNode, serviceNodes, selectVolume, onVolumeFocusApplied]);
 
     const volumeNodes = useMemo(() => {
         const selectedVolumeNodeId = selectedVolume
