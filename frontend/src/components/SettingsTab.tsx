@@ -1,15 +1,18 @@
 import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw} from 'lucide-react';
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {
-    GetServiceRoot, SelectServiceRoot,
+    GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     SelectFile, ParseDockerfileExpose,
-    IsGitRepo, ListGitBranches, GetGitHookStatus,
+    IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
+    SetNodeSetting,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume,
     PreviewDeleteService, DeleteNode,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {getSettingStagingState} from '../lib/settingStaging';
+import SettingStagingNote from './SettingStagingNote';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
 
@@ -55,13 +58,21 @@ type LabelEntry = {
 
 export default function SettingsTab({nodeId, projectId, projectPath, serviceLabel, onServicesChanged, onServiceDeleted}: SettingsTabProps) {
     const {
+        appliedSettings,
+        stagedSettings,
+        draftSettings,
         committedSettings,
         effectiveSettings,
         updateDraftSetting,
         hasStagedChanges,
         loading: configLoading,
         isSessionDirty,
+        reload,
     } = useServiceConfigEditor();
+
+    const stagingNoteFor = useCallback((key: string) => (
+        <SettingStagingNote {...getSettingStagingState(key, appliedSettings, stagedSettings, draftSettings)} />
+    ), [appliedSettings, stagedSettings, draftSettings]);
     const [rootPath, setRootPath] = useState('');
     const [inputValue, setInputValue] = useState('');
     const [error, setError] = useState('');
@@ -165,27 +176,44 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
-        updateDraftSetting('git_branch', value);
-        if (!value) {
-            updateDraftSetting('redeploy_on_pull', '');
-        }
-    }, [updateDraftSetting]);
+        SetNodeSetting(nodeId, 'git_branch', value).then(() => {
+            return SetDeployTrigger(nodeId, projectId, deployTrigger);
+        }).then(() => {
+            if (value) {
+                return SetRedeployOnPull(nodeId, projectId, redeployOnPull);
+            }
+            return SetRedeployOnPull(nodeId, projectId, false);
+        }).then(() => {
+            refreshHookStatus();
+            return reload();
+        }).then(() => onServicesChanged?.()).catch(() => onServicesChanged?.());
+    }, [nodeId, projectId, deployTrigger, redeployOnPull, refreshHookStatus, reload, onServicesChanged]);
 
     const commitDeployTrigger = useCallback((value: DeployTrigger) => {
         setDeployTrigger(value);
-        updateDraftSetting('deploy_trigger', value);
-    }, [updateDraftSetting]);
+        SetDeployTrigger(nodeId, projectId, value)
+            .then(() => refreshHookStatus())
+            .then(() => reload())
+            .catch(() => {});
+    }, [nodeId, projectId, refreshHookStatus, reload]);
 
     const commitRedeployOnPull = useCallback((value: boolean) => {
         setRedeployOnPull(value);
-        updateDraftSetting('redeploy_on_pull', value ? 'true' : '');
-    }, [updateDraftSetting]);
+        SetRedeployOnPull(nodeId, projectId, value)
+            .then(() => refreshHookStatus())
+            .then(() => reload())
+            .catch(() => {});
+    }, [nodeId, projectId, refreshHookStatus, reload]);
+
+    const applyGitStream = useCallback((next: boolean) => {
+        setGitStream(next);
+        SetNodeSetting(nodeId, 'git_stream', next ? 'true' : 'false')
+            .then(() => reload())
+            .catch(() => {});
+    }, [nodeId, reload]);
 
     const applySettingsSnapshot = useCallback((s: Record<string, string>) => {
         setSettings(s);
-        setGitBranch(s.git_branch || '');
-        setDeployTrigger((s.deploy_trigger as DeployTrigger) || 'manual');
-        setRedeployOnPull(s.redeploy_on_pull === 'true');
         const df = s.dockerfile || '';
         setDockerfilePath(df);
         setDockerfileInput(df);
@@ -197,7 +225,6 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         setUseDockerignore(s.use_dockerignore === 'true');
         setUseGitignore(s.use_gitignore === 'true');
         setUseBuildkitLocalContext(s.use_buildkit_local_context !== 'false');
-        setGitStream(s.git_stream !== 'false');
         if (s.volume_mounts) {
             setVolumes(parseVolumeEntries(s.volume_mounts));
         } else {
@@ -223,6 +250,14 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         if (configLoading || isSessionDirty) return;
         applySettingsSnapshot(committedSettings);
     }, [committedSettings, configLoading, isSessionDirty, applySettingsSnapshot]);
+
+    useEffect(() => {
+        if (configLoading) return;
+        setGitBranch(appliedSettings.git_branch || '');
+        setDeployTrigger((appliedSettings.deploy_trigger as DeployTrigger) || 'manual');
+        setRedeployOnPull(appliedSettings.redeploy_on_pull === 'true');
+        setGitStream(appliedSettings.git_stream !== 'false');
+    }, [appliedSettings, configLoading]);
 
     useEffect(() => {
         GetServiceRoot(nodeId, projectId).then((path) => {
@@ -251,10 +286,13 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         setError('');
         setSaving(true);
         try {
+            await SetServiceRoot(nodeId, projectId, absolutePath);
             setRootPath(absolutePath);
             setInputValue(absolutePath);
-            updateDraftSetting('service_root', absolutePath);
-            setSettings(prev => ({...prev, service_root: absolutePath}));
+            refreshBranches();
+            refreshHookStatus();
+            await reload();
+            onServicesChanged?.();
         } catch (e: any) {
             const msg = typeof e === 'string' ? e : e?.message || 'Failed to set service root';
             setError(msg);
@@ -262,7 +300,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         } finally {
             setSaving(false);
         }
-    }, [rootPath, updateDraftSetting]);
+    }, [nodeId, projectId, rootPath, refreshBranches, refreshHookStatus, reload, onServicesChanged]);
 
     const handleInputCommit = useCallback(() => {
         const trimmed = inputValue.trim();
@@ -341,10 +379,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     }, [nodeId, useBuildkitLocalContext, saveSetting]);
 
     const toggleGitStream = useCallback(() => {
-        const next = !gitStream;
-        setGitStream(next);
-        saveSetting('git_stream', next ? 'true' : 'false');
-    }, [gitStream, saveSetting]);
+        applyGitStream(!gitStream);
+    }, [gitStream, applyGitStream]);
 
     const applyExposePort = useCallback((exposePort: number) => {
         const val = String(exposePort);
@@ -448,6 +484,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 managedByTarget={managedByTarget}
                 onDeleteVolume={deleteDockerVolume}
             />
+            {stagingNoteFor('volume_mounts')}
         </div>
     );
     const imageModeVolumes = isImageMode && volumesSection;
@@ -464,6 +501,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             {!sectionHidden('source') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Source</h3>
+                <p className="settings-immediate-hint">
+                    Root directory applies immediately
+                    {isGitRepo ? '; git branch, deploy triggers, and stream mode do too' : ''}
+                    {' '}so hooks, source resolution, and file pickers stay in sync.
+                </p>
                 {isGitRepo && (
                     <div className="form-field">
                         <label className="form-label">
@@ -643,6 +685,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                             />
                         )}
                     </div>
+                    {stagingNoteFor('image')}
                 </div>
             )}
 
@@ -672,6 +715,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                             <FileSearch size={14} />
                         </button>
                     </div>
+                    {stagingNoteFor('dockerfile')}
                 </div>
             </div>
             )}
@@ -688,9 +732,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         onToggle={toggleGitStream}
                     />
                 )}
-                <ToggleRow label=".dockerignore" desc="Exclude files matched by .dockerignore patterns found in the service root." checked={useDockerignore} onToggle={toggleDockerignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
-                <ToggleRow label=".gitignore" desc="Exclude files matched by .gitignore patterns found anywhere in the service root." checked={useGitignore} onToggle={toggleGitignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
-                <ToggleRow label="BuildKit local context" desc="Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft's legacy tar upload path for maximum compatibility." checked={useBuildkitLocalContext} onToggle={toggleBuildkitLocalContext} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
+                <ToggleRow settingKey="use_dockerignore" renderStagingNote={stagingNoteFor} label=".dockerignore" desc="Exclude files matched by .dockerignore patterns found in the service root." checked={useDockerignore} onToggle={toggleDockerignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
+                <ToggleRow settingKey="use_gitignore" renderStagingNote={stagingNoteFor} label=".gitignore" desc="Exclude files matched by .gitignore patterns found anywhere in the service root." checked={useGitignore} onToggle={toggleGitignore} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
+                <ToggleRow settingKey="use_buildkit_local_context" renderStagingNote={stagingNoteFor} label="BuildKit local context" desc="Faster on repeated deploys when only a small part of the service changes. Turn it off if you want Draft's legacy tar upload path for maximum compatibility." checked={useBuildkitLocalContext} onToggle={toggleBuildkitLocalContext} inactive={gitBranch !== '' && gitStream} inactiveNote="Not applied while streaming from a git branch." />
             </div>
             )}
 
@@ -698,9 +742,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             {!isImageMode && !sectionHidden('buildConfiguration') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Build Configuration</h3>
-                <SettingInput label="Target Stage" hint="For multi-stage builds, specify which stage to build (--target)." settingKey="build_target" value={getSetting('build_target')} onSave={saveSetting} placeholder="e.g. production" />
-                <SettingInput label="Platform" hint="Target platform for the build (e.g. linux/amd64, linux/arm64)." settingKey="build_platform" value={getSetting('build_platform')} onSave={saveSetting} placeholder="e.g. linux/amd64" />
-                <ToggleRow label="No Cache" desc="Force a full rebuild without using any cached layers." checked={getSetting('build_no_cache') === 'true'} onToggle={() => saveSetting('build_no_cache', getSetting('build_no_cache') === 'true' ? '' : 'true')} />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Target Stage" hint="For multi-stage builds, specify which stage to build (--target)." settingKey="build_target" value={getSetting('build_target')} onSave={saveSetting} placeholder="e.g. production" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Platform" hint="Target platform for the build (e.g. linux/amd64, linux/arm64)." settingKey="build_platform" value={getSetting('build_platform')} onSave={saveSetting} placeholder="e.g. linux/amd64" />
+                <ToggleRow settingKey="build_no_cache" renderStagingNote={stagingNoteFor} label="No Cache" desc="Force a full rebuild without using any cached layers." checked={getSetting('build_no_cache') === 'true'} onToggle={() => saveSetting('build_no_cache', getSetting('build_no_cache') === 'true' ? '' : 'true')} />
             </div>
             )}
 
@@ -724,6 +768,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         }}
                         placeholder="e.g. 3000"
                     />
+                    {stagingNoteFor('service_port')}
                     {exposePorts.length > 0 && (
                         <div className="settings-expose">
                             <span className="settings-expose-label">Dockerfile EXPOSE:</span>
@@ -758,10 +803,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             {!sectionHidden('runtimeCommand') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Runtime Command</h3>
-                <SettingInput label="Command" hint="Override the Dockerfile CMD. Supports shell syntax (e.g. node server.js --port 3000)." settingKey="cmd_override" value={getSetting('cmd_override')} onSave={saveSetting} placeholder='e.g. node server.js' />
-                <SettingInput label="Entrypoint" hint="Override the Dockerfile ENTRYPOINT." settingKey="entrypoint_override" value={getSetting('entrypoint_override')} onSave={saveSetting} placeholder='e.g. /usr/bin/tini --' />
-                <SettingInput label="Working Directory" hint="Override the container working directory (WORKDIR)." settingKey="working_dir" value={getSetting('working_dir')} onSave={saveSetting} placeholder="e.g. /app" />
-                <SettingInput label="User" hint="Run the container as this user/UID (e.g. node, 1000, 1000:1000)." settingKey="run_user" value={getSetting('run_user')} onSave={saveSetting} placeholder="e.g. node" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Command" hint="Override the Dockerfile CMD. Supports shell syntax (e.g. node server.js --port 3000)." settingKey="cmd_override" value={getSetting('cmd_override')} onSave={saveSetting} placeholder='e.g. node server.js' />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Entrypoint" hint="Override the Dockerfile ENTRYPOINT." settingKey="entrypoint_override" value={getSetting('entrypoint_override')} onSave={saveSetting} placeholder='e.g. /usr/bin/tini --' />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Working Directory" hint="Override the container working directory (WORKDIR)." settingKey="working_dir" value={getSetting('working_dir')} onSave={saveSetting} placeholder="e.g. /app" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="User" hint="Run the container as this user/UID (e.g. node, 1000, 1000:1000)." settingKey="run_user" value={getSetting('run_user')} onSave={saveSetting} placeholder="e.g. node" />
             </div>
             )}
 
@@ -784,7 +829,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                     </select>
                 </div>
                 {restartPolicy === 'on-failure' && (
-                    <SettingInput label="Max Retries" hint="Maximum number of restart attempts before giving up." settingKey="restart_max_retries" value={getSetting('restart_max_retries')} onSave={saveSetting} placeholder="e.g. 5" type="number" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Max Retries" hint="Maximum number of restart attempts before giving up." settingKey="restart_max_retries" value={getSetting('restart_max_retries')} onSave={saveSetting} placeholder="e.g. 5" type="number" />
                 )}
             </div>
             )}
@@ -795,11 +840,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 <h3 className="settings-section-title">Health Check</h3>
                 <ToggleRow label="Disable Health Check" desc="Ignore any HEALTHCHECK instruction in the Dockerfile." checked={getSetting('healthcheck_disable') === 'true'} onToggle={() => saveSetting('healthcheck_disable', getSetting('healthcheck_disable') === 'true' ? '' : 'true')} />
                 {getSetting('healthcheck_disable') !== 'true' && (<>
-                    <SettingInput label="Command" hint="Health check command (e.g. curl -f http://localhost:3000/health)." settingKey="healthcheck_cmd" value={getSetting('healthcheck_cmd')} onSave={saveSetting} placeholder="e.g. curl -f http://localhost:3000/health" />
-                    <SettingInput label="Interval" hint="Time between checks (Go duration, e.g. 30s, 1m)." settingKey="healthcheck_interval" value={getSetting('healthcheck_interval')} onSave={saveSetting} placeholder="e.g. 30s" />
-                    <SettingInput label="Timeout" hint="Max time for a single check." settingKey="healthcheck_timeout" value={getSetting('healthcheck_timeout')} onSave={saveSetting} placeholder="e.g. 10s" />
-                    <SettingInput label="Start Period" hint="Grace period before the first health check." settingKey="healthcheck_start_period" value={getSetting('healthcheck_start_period')} onSave={saveSetting} placeholder="e.g. 5s" />
-                    <SettingInput label="Retries" hint="Number of consecutive failures before marking as unhealthy." settingKey="healthcheck_retries" value={getSetting('healthcheck_retries')} onSave={saveSetting} placeholder="e.g. 3" type="number" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Command" hint="Health check command (e.g. curl -f http://localhost:3000/health)." settingKey="healthcheck_cmd" value={getSetting('healthcheck_cmd')} onSave={saveSetting} placeholder="e.g. curl -f http://localhost:3000/health" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Interval" hint="Time between checks (Go duration, e.g. 30s, 1m)." settingKey="healthcheck_interval" value={getSetting('healthcheck_interval')} onSave={saveSetting} placeholder="e.g. 30s" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Timeout" hint="Max time for a single check." settingKey="healthcheck_timeout" value={getSetting('healthcheck_timeout')} onSave={saveSetting} placeholder="e.g. 10s" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Start Period" hint="Grace period before the first health check." settingKey="healthcheck_start_period" value={getSetting('healthcheck_start_period')} onSave={saveSetting} placeholder="e.g. 5s" />
+                    <SettingInput renderStagingNote={stagingNoteFor} label="Retries" hint="Number of consecutive failures before marking as unhealthy." settingKey="healthcheck_retries" value={getSetting('healthcheck_retries')} onSave={saveSetting} placeholder="e.g. 3" type="number" />
                 </>)}
             </div>
             )}
@@ -808,10 +853,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             {!sectionHidden('resources') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Resource Limits</h3>
-                <SettingInput label="CPU Limit" hint="Maximum CPU cores (e.g. 1.5 = 1.5 cores, 0.5 = half a core)." settingKey="cpu_limit" value={getSetting('cpu_limit')} onSave={saveSetting} placeholder="e.g. 1.5" />
-                <SettingInput label="Memory Limit" hint="Maximum memory (e.g. 512m, 1g, 256mb)." settingKey="memory_limit" value={getSetting('memory_limit')} onSave={saveSetting} placeholder="e.g. 512m" />
-                <SettingInput label="Memory Reservation" hint="Soft memory limit — Docker will try to keep usage below this." settingKey="memory_reservation" value={getSetting('memory_reservation')} onSave={saveSetting} placeholder="e.g. 256m" />
-                <SettingInput label="PID Limit" hint="Maximum number of processes in the container." settingKey="pids_limit" value={getSetting('pids_limit')} onSave={saveSetting} placeholder="e.g. 100" type="number" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="CPU Limit" hint="Maximum CPU cores (e.g. 1.5 = 1.5 cores, 0.5 = half a core)." settingKey="cpu_limit" value={getSetting('cpu_limit')} onSave={saveSetting} placeholder="e.g. 1.5" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Memory Limit" hint="Maximum memory (e.g. 512m, 1g, 256mb)." settingKey="memory_limit" value={getSetting('memory_limit')} onSave={saveSetting} placeholder="e.g. 512m" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Memory Reservation" hint="Soft memory limit — Docker will try to keep usage below this." settingKey="memory_reservation" value={getSetting('memory_reservation')} onSave={saveSetting} placeholder="e.g. 256m" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="PID Limit" hint="Maximum number of processes in the container." settingKey="pids_limit" value={getSetting('pids_limit')} onSave={saveSetting} placeholder="e.g. 100" type="number" />
             </div>
             )}
 
@@ -822,10 +867,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             {!sectionHidden('lifecycle') && (
             <div className="settings-section">
                 <h3 className="settings-section-title">Lifecycle Hooks</h3>
-                <SettingInput label="Pre-Build" hint="Shell command to run on your machine before building the image. If you're streaming from a git branch (the “Stream branch to Docker” option), any files this command generates on disk won't be included — the build context comes straight from git. Turn that option off to build from a full checkout that picks them up." settingKey="pre_build_cmd" value={getSetting('pre_build_cmd')} onSave={saveSetting} placeholder="e.g. npm run generate" />
-                <SettingInput label="Post-Build" hint="Shell command to run on your machine after a successful build." settingKey="post_build_cmd" value={getSetting('post_build_cmd')} onSave={saveSetting} placeholder="e.g. echo Build complete" />
-                <SettingInput label="Pre-Deploy" hint="Shell command to run on your machine before starting the container." settingKey="pre_deploy_cmd" value={getSetting('pre_deploy_cmd')} onSave={saveSetting} placeholder="e.g. ./scripts/migrate.sh" />
-                <SettingInput label="Post-Deploy" hint="Shell command to run on your machine after the container is running." settingKey="post_deploy_cmd" value={getSetting('post_deploy_cmd')} onSave={saveSetting} placeholder="e.g. curl http://localhost:3000/warmup" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Pre-Build" hint="Shell command to run on your machine before building the image. If you're streaming from a git branch (the “Stream branch to Docker” option), any files this command generates on disk won't be included — the build context comes straight from git. Turn that option off to build from a full checkout that picks them up." settingKey="pre_build_cmd" value={getSetting('pre_build_cmd')} onSave={saveSetting} placeholder="e.g. npm run generate" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Post-Build" hint="Shell command to run on your machine after a successful build." settingKey="post_build_cmd" value={getSetting('post_build_cmd')} onSave={saveSetting} placeholder="e.g. echo Build complete" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Pre-Deploy" hint="Shell command to run on your machine before starting the container." settingKey="pre_deploy_cmd" value={getSetting('pre_deploy_cmd')} onSave={saveSetting} placeholder="e.g. ./scripts/migrate.sh" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Post-Deploy" hint="Shell command to run on your machine after the container is running." settingKey="post_deploy_cmd" value={getSetting('post_deploy_cmd')} onSave={saveSetting} placeholder="e.g. curl http://localhost:3000/warmup" />
                 <div className="form-field">
                     <label className="form-label">Stop Signal</label>
                     <span className="settings-hint">Signal sent to the container when stopping (default: SIGTERM).</span>
@@ -841,7 +886,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         <option value="SIGKILL">SIGKILL</option>
                     </select>
                 </div>
-                <SettingInput label="Stop Grace Period" hint="Seconds to wait after stop signal before force-killing." settingKey="stop_grace_period" value={getSetting('stop_grace_period')} onSave={saveSetting} placeholder="e.g. 10" type="number" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Stop Grace Period" hint="Seconds to wait after stop signal before force-killing." settingKey="stop_grace_period" value={getSetting('stop_grace_period')} onSave={saveSetting} placeholder="e.g. 10" type="number" />
             </div>
             )}
 
@@ -852,8 +897,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 <ToggleRow label="Privileged" desc="Run the container with full host privileges. Use with caution." checked={getSetting('privileged') === 'true'} onToggle={() => saveSetting('privileged', getSetting('privileged') === 'true' ? '' : 'true')} />
                 <ToggleRow label="Init Process" desc="Run an init process (tini) as PID 1 to handle signal forwarding and zombie reaping." checked={getSetting('init_process') === 'true'} onToggle={() => saveSetting('init_process', getSetting('init_process') === 'true' ? '' : 'true')} />
                 <ToggleRow label="Read-Only Root Filesystem" desc="Mount the container root filesystem as read-only." checked={getSetting('readonly_rootfs') === 'true'} onToggle={() => saveSetting('readonly_rootfs', getSetting('readonly_rootfs') === 'true' ? '' : 'true')} />
-                <SettingInput label="Add Capabilities" hint="Comma-separated Linux capabilities to add (e.g. SYS_PTRACE, NET_ADMIN)." settingKey="cap_add" value={getSetting('cap_add')} onSave={saveSetting} placeholder="e.g. SYS_PTRACE, NET_ADMIN" />
-                <SettingInput label="Drop Capabilities" hint="Comma-separated Linux capabilities to drop." settingKey="cap_drop" value={getSetting('cap_drop')} onSave={saveSetting} placeholder="e.g. NET_RAW, MKNOD" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Add Capabilities" hint="Comma-separated Linux capabilities to add (e.g. SYS_PTRACE, NET_ADMIN)." settingKey="cap_add" value={getSetting('cap_add')} onSave={saveSetting} placeholder="e.g. SYS_PTRACE, NET_ADMIN" />
+                <SettingInput renderStagingNote={stagingNoteFor} label="Drop Capabilities" hint="Comma-separated Linux capabilities to drop." settingKey="cap_drop" value={getSetting('cap_drop')} onSave={saveSetting} placeholder="e.g. NET_RAW, MKNOD" />
             </div>
             )}
 
@@ -969,7 +1014,16 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     );
 }
 
-function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote}: {label: string; desc: string; checked: boolean; onToggle: () => void; inactive?: boolean; inactiveNote?: string}) {
+function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote, settingKey, renderStagingNote}: {
+    label: string;
+    desc: string;
+    checked: boolean;
+    onToggle: () => void;
+    inactive?: boolean;
+    inactiveNote?: string;
+    settingKey?: string;
+    renderStagingNote?: (key: string) => ReactNode;
+}) {
     return (
         <div className={`settings-toggle-row${inactive ? ' settings-toggle-row--inactive' : ''}`}>
             <div className="settings-toggle-label">
@@ -978,6 +1032,7 @@ function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote}: {la
                     {desc}
                     {inactive && inactiveNote && <em className="settings-toggle-inactive-note"> {inactiveNote}</em>}
                 </span>
+                {settingKey && renderStagingNote?.(settingKey)}
             </div>
             <button
                 className={`toggle-switch${checked ? ' toggle-switch--on' : ''}`}
@@ -989,7 +1044,7 @@ function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote}: {la
     );
 }
 
-function SettingInput({label, hint, settingKey, value, onSave, placeholder, type}: {
+function SettingInput({label, hint, settingKey, value, onSave, placeholder, type, renderStagingNote}: {
     label: string;
     hint: string;
     settingKey: string;
@@ -997,6 +1052,7 @@ function SettingInput({label, hint, settingKey, value, onSave, placeholder, type
     onSave: (key: string, value: string) => void;
     placeholder?: string;
     type?: string;
+    renderStagingNote?: (key: string) => ReactNode;
 }) {
     const [local, setLocal] = useState(value);
 
@@ -1025,6 +1081,7 @@ function SettingInput({label, hint, settingKey, value, onSave, placeholder, type
                 }}
                 placeholder={placeholder}
             />
+            {renderStagingNote?.(settingKey)}
         </div>
     );
 }

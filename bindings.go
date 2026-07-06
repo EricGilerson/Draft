@@ -575,6 +575,7 @@ func (a *App) GetNodeConfigStatus(nodeID string) (*deploy.NodeConfigStatus, erro
 }
 
 // StageNodeSettings persists setting overrides until the next successful deploy.
+// Git/deploy-automation keys are applied immediately instead of staged.
 func (a *App) StageNodeSettings(nodeID string, projectID uint, settings map[string]string) error {
 	if a.store == nil {
 		return errNoStore
@@ -582,7 +583,20 @@ func (a *App) StageNodeSettings(nodeID string, projectID uint, settings map[stri
 	if len(settings) == 0 {
 		return nil
 	}
-	if root, ok := settings["service_root"]; ok {
+	staged := map[string]string{}
+	for key, value := range settings {
+		if store.IsImmediateSetting(key) {
+			if err := a.applyImmediateNodeSetting(nodeID, projectID, key, value); err != nil {
+				return err
+			}
+			continue
+		}
+		staged[key] = value
+	}
+	if len(staged) == 0 {
+		return nil
+	}
+	if root, ok := staged["service_root"]; ok {
 		project, err := a.store.GetProject(projectID)
 		if err != nil {
 			return fmt.Errorf("project not found: %w", err)
@@ -591,9 +605,26 @@ func (a *App) StageNodeSettings(nodeID string, projectID uint, settings map[stri
 			return err
 		}
 		rel, _ := filepath.Rel(project.Path, root)
-		settings["service_root"] = rel
+		staged["service_root"] = rel
 	}
-	return a.store.StageNodeSettings(nodeID, settings)
+	return a.store.StageNodeSettings(nodeID, staged)
+}
+
+func (a *App) applyImmediateNodeSetting(nodeID string, projectID uint, key, value string) error {
+	switch key {
+	case "deploy_trigger":
+		trigger := value
+		if trigger == "" {
+			trigger = "manual"
+		}
+		return a.SetDeployTrigger(nodeID, projectID, trigger)
+	case "redeploy_on_pull":
+		return a.SetRedeployOnPull(nodeID, projectID, value == "true")
+	case "service_root":
+		return a.SetServiceRoot(nodeID, projectID, value)
+	default:
+		return a.store.SetNodeSetting(nodeID, key, value)
+	}
 }
 
 // StageEnvVarChanges persists env var upserts and deletions until deploy.

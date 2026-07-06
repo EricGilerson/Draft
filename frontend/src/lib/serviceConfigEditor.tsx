@@ -16,6 +16,7 @@ import {
     StageNodeSettings,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
+import {isImmediateSetting} from './settingStaging';
 
 export type EnvDraftUpsert = {
     key: string;
@@ -113,14 +114,24 @@ export function ServiceConfigEditorProvider({
         [committedSettings, draftSettings],
     );
 
+    const stageableDraftSettings = useMemo(
+        () => Object.fromEntries(
+            Object.entries(draftSettings).filter(([key]) => !isImmediateSetting(key)),
+        ),
+        [draftSettings],
+    );
+
     const isSessionDirty = useMemo(
-        () => Object.keys(draftSettings).length > 0
+        () => Object.keys(stageableDraftSettings).length > 0
             || Object.keys(envDraft.upserts).length > 0
             || envDraft.deleteKeys.length > 0,
-        [draftSettings, envDraft],
+        [stageableDraftSettings, envDraft],
     );
 
     const updateDraftSetting = useCallback((key: string, value: string) => {
+        if (isImmediateSetting(key)) {
+            return;
+        }
         setDraftSettings((prev) => {
             const committed = mergeSettings(appliedSettings, stagedSettings);
             if ((committed[key] || '') === value) {
@@ -176,17 +187,17 @@ export function ServiceConfigEditorProvider({
     }, []);
 
     const previewStage = useCallback(async () => {
-        if (Object.keys(draftSettings).length === 0) {
+        if (Object.keys(stageableDraftSettings).length === 0) {
             return deploy.StagedChangePreview.createFrom({warnings: [], errors: []});
         }
-        return PreviewStagedChanges(nodeId, draftSettings);
-    }, [nodeId, draftSettings]);
+        return PreviewStagedChanges(nodeId, stageableDraftSettings);
+    }, [nodeId, stageableDraftSettings]);
 
     const stageChanges = useCallback(async () => {
         setStaging(true);
         try {
-            if (Object.keys(draftSettings).length > 0) {
-                await StageNodeSettings(nodeId, projectId, draftSettings);
+            if (Object.keys(stageableDraftSettings).length > 0) {
+                await StageNodeSettings(nodeId, projectId, stageableDraftSettings);
             }
             const upserts = Object.values(envDraft.upserts).map((u) =>
                 store.EnvVarStageUpsert.createFrom({
@@ -204,7 +215,7 @@ export function ServiceConfigEditorProvider({
         } finally {
             setStaging(false);
         }
-    }, [nodeId, projectId, draftSettings, envDraft, reload]);
+    }, [nodeId, projectId, stageableDraftSettings, envDraft, reload]);
 
     const discardStaged = useCallback(async () => {
         setStaging(true);

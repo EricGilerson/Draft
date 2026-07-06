@@ -55,6 +55,8 @@ type NodeConfigStatus struct {
 }
 
 func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus, error) {
+	_ = s.StripImmediateStagedSettings(nodeID)
+
 	applied, err := s.GetNodeSettings(nodeID)
 	if err != nil {
 		return nil, err
@@ -69,6 +71,9 @@ func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus
 	if staged == nil {
 		staged = map[string]string{}
 	}
+	for key := range store.ImmediateSettingKeys {
+		delete(staged, key)
+	}
 	stagedEnv, err := s.ListStagedEnvVarChanges(nodeID)
 	if err != nil {
 		return nil, err
@@ -82,15 +87,13 @@ func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus
 			Delete: row.Delete,
 		})
 	}
-	has, err := s.HasStagedChanges(nodeID)
-	if err != nil {
-		return nil, err
-	}
+	hasSettingsStaged := len(staged) > 0
+	hasEnvStaged := len(envChanges) > 0
 	status := &NodeConfigStatus{
 		AppliedSettings:  applied,
 		StagedSettings:   staged,
 		StagedEnvChanges: envChanges,
-		HasStagedChanges: has,
+		HasStagedChanges: hasSettingsStaged || hasEnvStaged,
 	}
 	active, err := s.ActiveDeployment(nodeID)
 	if err != nil {

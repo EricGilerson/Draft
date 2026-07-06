@@ -195,7 +195,15 @@ func (s *Store) EffectiveNodeSettings(nodeID string) (map[string]string, error) 
 	if applied == nil {
 		applied = map[string]string{}
 	}
-	return MergeNodeSettings(applied, staged), nil
+	effective := MergeNodeSettings(applied, staged)
+	for key := range ImmediateSettingKeys {
+		if v, ok := applied[key]; ok {
+			effective[key] = v
+		} else {
+			delete(effective, key)
+		}
+	}
+	return effective, nil
 }
 
 func (s *Store) EffectiveEnvVars(nodeID string) ([]EnvVar, error) {

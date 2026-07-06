@@ -1,6 +1,7 @@
 import {AlertTriangle, Loader2} from 'lucide-react';
 import {useCallback, useState} from 'react';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {isImmediateSetting} from '../lib/settingStaging';
 import Dialog from './Dialog';
 import './ServiceDraftBar.css';
 
@@ -31,7 +32,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
     const runStage = useCallback(async (deployAfter: boolean) => {
         setError('');
         try {
-            const hasSettingsDraft = Object.keys(draftSettings).length > 0;
+            const hasSettingsDraft = Object.keys(draftSettings).filter((k) => !isImmediateSetting(k)).length > 0;
             // Preview only applies to settings keys in the current batch; env-only edits stage directly.
             let errors: string[] = [];
             let warnings: string[] = [];

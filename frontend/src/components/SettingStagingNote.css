@@ -1,0 +1,42 @@
+.setting-staging-notes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.setting-staging-note {
+    margin: 6px 0 0;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px dashed rgba(212, 184, 132, 0.28);
+    background: rgba(212, 184, 132, 0.05);
+    font-size: 0.72rem;
+    color: rgba(212, 184, 132, 0.92);
+    line-height: 1.4;
+}
+
+.setting-staging-note--draft {
+    border-color: rgba(140, 150, 144, 0.25);
+    background: rgba(140, 150, 144, 0.06);
+    color: var(--text-muted);
+}
+
+.setting-staging-note-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.62rem;
+}
+
+.setting-staging-note-arrow {
+    opacity: 0.7;
+}
+
+.settings-immediate-hint {
+    margin: 0 0 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: rgba(140, 150, 144, 0.08);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}

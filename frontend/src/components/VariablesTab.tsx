@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, SelectFile,
+    GetEnvVars, SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
 } from '../../wailsjs/go/main/App';
@@ -134,13 +134,13 @@ function VarAutocomplete({autocomplete, linkTargets, onSelectService, onSelectAt
 
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
     const {
-        committedSettings,
+        appliedSettings,
         stagedEnvChanges,
-        updateDraftSetting,
         setEnvDraftUpsert,
         setEnvDraftDelete,
         isSessionDirty,
         hasStagedChanges,
+        reload,
     } = useServiceConfigEditor();
     const [vars, setVars] = useState<store.EnvVar[]>([]);
     const [originals, setOriginals] = useState<Record<string, string>>({});
@@ -238,9 +238,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const loadSettings = async () => {
         try {
             const root = await GetServiceRoot(nodeId, projectId);
-            setEnvFile(committedSettings.env_file || '');
+            setEnvFile(appliedSettings.env_file || '');
             setServiceRoot(root || projectPath);
-            if (!committedSettings.env_file) {
+            if (!appliedSettings.env_file) {
                 const suggestion = await SuggestEnvFile(nodeId, projectId);
                 if (suggestion) {
                     setEnvFile(suggestion);
@@ -265,16 +265,25 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     useEffect(() => {
         void loadSettings();
-    }, [nodeId, projectId, committedSettings.env_file]);
+    }, [nodeId, projectId, appliedSettings.env_file]);
+
+    const persistEnvPath = useCallback(async (path?: string) => {
+        const trimmed = (path ?? envFile).trim();
+        if (trimmed === (appliedSettings.env_file || '')) {
+            return;
+        }
+        await SetNodeSetting(nodeId, 'env_file', trimmed);
+        await reload();
+    }, [nodeId, envFile, appliedSettings.env_file, reload]);
 
     const pickEnv = async () => {
         try {
             const p = await SelectFile('Select .env file', '');
             if (p) {
-                updateDraftSetting('env_file', p);
                 setEnvFile(p);
                 setSyncResult(null);
                 setSyncError('');
+                await persistEnvPath(p);
             }
         } catch (e) {
             console.error(e);
@@ -493,10 +502,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         focusAt(key, pos);
     };
 
-    const persistEnvPath = async () => {
-        updateDraftSetting('env_file', envFile.trim());
-    };
-
     const runSync = async (action: 'import' | 'refresh' | 'export') => {
         setSyncing(true);
         setSyncError('');
@@ -616,7 +621,9 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         <div className="variables-tab">
             <div className="form-field">
                 <label className="form-label">Linked environment file</label>
-                <span className="settings-hint">Draft stores variables in SQLite. Use this file only for explicit import, refresh, or export.</span>
+                <span className="settings-hint">
+                    Draft stores variables in SQLite. The linked path applies immediately for import, refresh, and export. Variable values still deploy when you stage and redeploy.
+                </span>
                 <div className="input-with-action">
                     <input
                         className="input"
