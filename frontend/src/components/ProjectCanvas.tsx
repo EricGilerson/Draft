@@ -69,6 +69,10 @@ type ServiceNodeData = {
 const VOLUME_OFFSET_X = 208;
 const VOLUME_OFFSET_Y = 14;
 const VOLUME_STACK_GAP = 54;
+// Approximate volume-node size, used only as the pre-measurement fallback so
+// React Flow renders the node before its ResizeObserver reports real dimensions.
+const VOLUME_NODE_W = 176;
+const VOLUME_NODE_H = 40;
 
 function volumeNodeId(parentNodeId: string, index: number) {
     return `vol:${parentNodeId}:${index}`;
@@ -253,6 +257,15 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                         x: svc.position.x + VOLUME_OFFSET_X,
                         y: svc.position.y + VOLUME_OFFSET_Y + index * VOLUME_STACK_GAP,
                     },
+                    // Seed dimensions so React Flow treats the node as "measured"
+                    // immediately (nodeHasDimensions) and renders it visible.
+                    // Without this, the memo recreates volume-node objects on
+                    // every serviceNodes/SSE/selection tick, and any re-adopt
+                    // that lands before the ResizeObserver measures leaves the
+                    // node at visibility:hidden — showing only the mount handle.
+                    // The real content size takes over once measured.
+                    initialWidth: VOLUME_NODE_W,
+                    initialHeight: VOLUME_NODE_H,
                     draggable: false,
                     selectable: true,
                     selected: id === selectedVolumeNodeId,
