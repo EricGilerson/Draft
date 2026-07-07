@@ -351,78 +351,17 @@ export namespace deploy {
 	        this.delete = source["delete"];
 	    }
 	}
-	export class NodeHealth {
-	    nodeId: string;
-	    status: string;
-	    dockerHealth: string;
-	    hostPort: number;
-	    hostname: string;
-	    internalUrl: string;
-	    publicUrl: string;
-
-	    static createFrom(source: any = {}) {
-	        return new NodeHealth(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.nodeId = source["nodeId"];
-	        this.status = source["status"];
-	        this.dockerHealth = source["dockerHealth"];
-	        this.hostPort = source["hostPort"];
-	        this.hostname = source["hostname"];
-	        this.internalUrl = source["internalUrl"];
-	        this.publicUrl = source["publicUrl"];
-	    }
-	}
-
-	export class RollbackEligibility {
-	    deploymentId: number;
-	    eligible: boolean;
-	    method: string;
-	    reason: string;
-
-	    static createFrom(source: any = {}) {
-	        return new RollbackEligibility(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.deploymentId = source["deploymentId"];
-	        this.eligible = source["eligible"];
-	        this.method = source["method"];
-	        this.reason = source["reason"];
-	    }
-	}
-
-	export class RunCommandResult {
-	    exitCode: number;
-	    output: string;
-	    error: string;
-
-	    static createFrom(source: any = {}) {
-	        return new RunCommandResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.exitCode = source["exitCode"];
-	        this.output = source["output"];
-	        this.error = source["error"];
-	    }
-	}
-
 	export class NodeConfigStatus {
 	    appliedSettings: Record<string, string>;
 	    stagedSettings: Record<string, string>;
 	    stagedEnvChanges: StagedEnvVarChange[];
 	    hasStagedChanges: boolean;
 	    activeDeploymentStatus: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new NodeConfigStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.appliedSettings = source["appliedSettings"];
@@ -449,6 +388,30 @@ export namespace deploy {
 		    }
 		    return a;
 		}
+	}
+	export class NodeHealth {
+	    nodeId: string;
+	    status: string;
+	    dockerHealth: string;
+	    hostPort: number;
+	    hostname: string;
+	    internalUrl: string;
+	    publicUrl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NodeHealth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.status = source["status"];
+	        this.dockerHealth = source["dockerHealth"];
+	        this.hostPort = source["hostPort"];
+	        this.hostname = source["hostname"];
+	        this.internalUrl = source["internalUrl"];
+	        this.publicUrl = source["publicUrl"];
+	    }
 	}
 	export class ReachabilityCheck {
 	    status: string;
@@ -524,6 +487,40 @@ export namespace deploy {
 	        this.label = source["label"];
 	        this.attributes = source["attributes"];
 	        this.customKeys = source["customKeys"];
+	    }
+	}
+	export class RollbackEligibility {
+	    deploymentId: number;
+	    eligible: boolean;
+	    method: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RollbackEligibility(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deploymentId = source["deploymentId"];
+	        this.eligible = source["eligible"];
+	        this.method = source["method"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class RunCommandResult {
+	    exitCode: number;
+	    output: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunCommandResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.exitCode = source["exitCode"];
+	        this.output = source["output"];
+	        this.error = source["error"];
 	    }
 	}
 	export class RuntimeEvent {
@@ -769,16 +766,30 @@ export namespace dockerwatch {
 
 export namespace main {
 	
+	export class DaemonConnectionInfo {
+	    addr: string;
+	    token: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DaemonConnectionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.addr = source["addr"];
+	        this.token = source["token"];
+	    }
+	}
 	export class GitHookStatus {
 	    supported: boolean;
 	    commitForeign: boolean;
 	    pushForeign: boolean;
 	    pullForeign: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitHookStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.supported = source["supported"];
@@ -787,56 +798,6 @@ export namespace main {
 	        this.pullForeign = source["pullForeign"];
 	    }
 	}
-export class DaemonConnectionInfo {
-    addr: string;
-    token: string;
-
-    static createFrom(source: any = {}) {
-        return new DaemonConnectionInfo(source);
-    }
-
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.addr = source["addr"];
-        this.token = source["token"];
-    }
-}
-export class RouteRow {
-    hostname: string;
-    projectId: number;
-    nodeId: string;
-    environment: string;
-    protocol: string;
-    targetHost: string;
-    targetPort: number;
-    hostPort: number;
-    // Go type: time
-    createdAt: any;
-    // Go type: time
-    updatedAt: any;
-    projectName: string;
-    serviceName: string;
-
-    static createFrom(source: any = {}) {
-        return new RouteRow(source);
-    }
-
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.hostname = source["hostname"];
-        this.projectId = source["projectId"];
-        this.nodeId = source["nodeId"];
-        this.environment = source["environment"];
-        this.protocol = source["protocol"];
-        this.targetHost = source["targetHost"];
-        this.targetPort = source["targetPort"];
-        this.hostPort = source["hostPort"];
-        this.createdAt = source["createdAt"];
-        this.updatedAt = source["updatedAt"];
-        this.projectName = source["projectName"];
-        this.serviceName = source["serviceName"];
-    }
-}
 	export class ProjectService {
 	    id: string;
 	    projectId: number;
@@ -889,6 +850,36 @@ export class RouteRow {
 		    }
 		    return a;
 		}
+	}
+	export class RouteRow {
+	    hostname: string;
+	    projectId: number;
+	    nodeId: string;
+	    environment: string;
+	    protocol: string;
+	    targetHost: string;
+	    targetPort: number;
+	    hostPort: number;
+	    projectName: string;
+	    serviceName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RouteRow(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hostname = source["hostname"];
+	        this.projectId = source["projectId"];
+	        this.nodeId = source["nodeId"];
+	        this.environment = source["environment"];
+	        this.protocol = source["protocol"];
+	        this.targetHost = source["targetHost"];
+	        this.targetPort = source["targetPort"];
+	        this.hostPort = source["hostPort"];
+	        this.projectName = source["projectName"];
+	        this.serviceName = source["serviceName"];
+	    }
 	}
 
 }
@@ -1117,99 +1108,54 @@ export namespace store {
 		    return a;
 		}
 	}
-export class EnvVar {
-    nodeId: string;
-    key: string;
-    value: string;
-    scope: string;
-    secret: boolean;
-    source: string;
-    envFile: string;
-    // Go type: time
-    createdAt: any;
-    // Go type: time
-    updatedAt: any;
-
-    static createFrom(source: any = {}) {
-        return new EnvVar(source);
-    }
-
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.nodeId = source["nodeId"];
-        this.key = source["key"];
-        this.value = source["value"];
-        this.scope = source["scope"];
-        this.secret = source["secret"];
-        this.source = source["source"];
-        this.envFile = source["envFile"];
-        this.createdAt = this.convertValues(source["createdAt"], null);
-        this.updatedAt = this.convertValues(source["updatedAt"], null);
-    }
-
-	convertValues(a: any, classs: any, asMap: boolean = false): any {
-	    if (!a) {
-	        return a;
+	export class EnvVar {
+	    nodeId: string;
+	    key: string;
+	    value: string;
+	    scope: string;
+	    secret: boolean;
+	    source: string;
+	    envFile: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvVar(source);
 	    }
-	    if (a.slice && a.map) {
-	        return (a as any[]).map(elem => this.convertValues(elem, classs));
-	    } else if ("object" === typeof a) {
-	        if (asMap) {
-	            for (const key of Object.keys(a)) {
-	                a[key] = new classs(a[key]);
-	            }
-	            return a;
-	        }
-	        return new classs(a);
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.secret = source["secret"];
+	        this.source = source["source"];
+	        this.envFile = source["envFile"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }
-	    return a;
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
-}
-
-export class ProjectEnvVar {
-    projectId: number;
-    key: string;
-    value: string;
-    scope: string;
-    secret: boolean;
-    // Go type: time
-    createdAt: any;
-    // Go type: time
-    updatedAt: any;
-
-    static createFrom(source: any = {}) {
-        return new ProjectEnvVar(source);
-    }
-
-    constructor(source: any = {}) {
-        if ('string' === typeof source) source = JSON.parse(source);
-        this.projectId = source["projectId"];
-        this.key = source["key"];
-        this.value = source["value"];
-        this.scope = source["scope"];
-        this.secret = source["secret"];
-        this.createdAt = this.convertValues(source["createdAt"], null);
-        this.updatedAt = this.convertValues(source["updatedAt"], null);
-    }
-
-	convertValues(a: any, classs: any, asMap: boolean = false): any {
-	    if (!a) {
-	        return a;
-	    }
-	    if (a.slice && a.map) {
-	        return (a as any[]).map(elem => this.convertValues(elem, classs));
-	    } else if ("object" === typeof a) {
-	        if (asMap) {
-	            for (const key of Object.keys(a)) {
-	                a[key] = new classs(a[key]);
-	            }
-	            return a;
-	        }
-	        return new classs(a);
-	    }
-	    return a;
-	}
-}
 	
 	export class EnvVarStageUpsert {
 	    Key: string;
@@ -1253,6 +1199,50 @@ export class ProjectEnvVar {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.description = source["description"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProjectEnvVar {
+	    projectId: number;
+	    key: string;
+	    value: string;
+	    scope: string;
+	    secret: boolean;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectEnvVar(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.secret = source["secret"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }

@@ -27,9 +27,11 @@ export function DeleteManagedVolume(arg1:string,arg2:boolean):Promise<void>;
 
 export function DeleteNode(arg1:string):Promise<void>;
 
-export function DeleteServiceTemplate(arg1:number):Promise<void>;
-
 export function DeleteProject(arg1:number):Promise<void>;
+
+export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
+
+export function DeleteServiceTemplate(arg1:number):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
 
@@ -79,17 +81,17 @@ export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListNodesWithReferenceIssues(arg1:number):Promise<Array<string>>;
 
+export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
+
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
 
 export function ListProjects():Promise<Array<store.Project>>;
 
-export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
-
-export function ListRoutes(arg1:number|null):Promise<Array<main.RouteRow>>;
-
 export function ListReferenceIssues(arg1:string):Promise<Array<deploy.ReferenceIssue>>;
 
 export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
+
+export function ListRoutes(arg1:any):Promise<Array<main.RouteRow>>;
 
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
@@ -103,9 +105,9 @@ export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPre
 
 export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
 
-export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
-
 export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTemplateResult>;
+
+export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function RestartService(arg1:string):Promise<void>;
 
@@ -142,8 +144,6 @@ export function SetProjectEnvVarSecret(arg1:number,arg2:string,arg3:boolean):Pro
 export function SetRedeployOnPull(arg1:string,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
-
-export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
 
 export function StageEnvVarChanges(arg1:string,arg2:Array<store.EnvVarStageUpsert>,arg3:Array<string>):Promise<void>;
 

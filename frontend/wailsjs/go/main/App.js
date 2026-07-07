@@ -42,16 +42,16 @@ export function DeleteNode(arg1) {
   return window['go']['main']['App']['DeleteNode'](arg1);
 }
 
-export function DeleteServiceTemplate(arg1) {
-  return window['go']['main']['App']['DeleteServiceTemplate'](arg1);
-}
-
 export function DeleteProject(arg1) {
   return window['go']['main']['App']['DeleteProject'](arg1);
 }
 
 export function DeleteProjectEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteProjectEnvVar'](arg1, arg2);
+}
+
+export function DeleteServiceTemplate(arg1) {
+  return window['go']['main']['App']['DeleteServiceTemplate'](arg1);
 }
 
 export function DeployService(arg1) {
@@ -150,6 +150,10 @@ export function ListNodesWithReferenceIssues(arg1) {
   return window['go']['main']['App']['ListNodesWithReferenceIssues'](arg1);
 }
 
+export function ListProjectEnvVars(arg1) {
+  return window['go']['main']['App']['ListProjectEnvVars'](arg1);
+}
+
 export function ListProjectServices(arg1) {
   return window['go']['main']['App']['ListProjectServices'](arg1);
 }
@@ -158,20 +162,16 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
-export function ListProjectEnvVars(arg1) {
-  return window['go']['main']['App']['ListProjectEnvVars'](arg1);
-}
-
-export function ListRoutes(arg1) {
-  return window['go']['main']['App']['ListRoutes'](arg1);
-}
-
 export function ListReferenceIssues(arg1) {
   return window['go']['main']['App']['ListReferenceIssues'](arg1);
 }
 
 export function ListReferenceTargets(arg1) {
   return window['go']['main']['App']['ListReferenceTargets'](arg1);
+}
+
+export function ListRoutes(arg1) {
+  return window['go']['main']['App']['ListRoutes'](arg1);
 }
 
 export function ListServiceTemplates() {
@@ -198,16 +198,16 @@ export function PreviewStagedChanges(arg1, arg2) {
   return window['go']['main']['App']['PreviewStagedChanges'](arg1, arg2);
 }
 
+export function ReapplyTemplate(arg1) {
+  return window['go']['main']['App']['ReapplyTemplate'](arg1);
+}
+
 export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
 
 export function RestartService(arg1) {
   return window['go']['main']['App']['RestartService'](arg1);
-}
-
-export function ReapplyTemplate(arg1) {
-  return window['go']['main']['App']['ReapplyTemplate'](arg1);
 }
 
 export function RollbackDeployment(arg1) {
@@ -258,16 +258,16 @@ export function SetEnvVarSecret(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarSecret'](arg1, arg2, arg3);
 }
 
+export function SetNodeSetting(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
+}
+
 export function SetProjectEnvVar(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['SetProjectEnvVar'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SetProjectEnvVarSecret(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetProjectEnvVarSecret'](arg1, arg2, arg3);
-}
-
-export function SetNodeSetting(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
 }
 
 export function SetRedeployOnPull(arg1, arg2, arg3) {
