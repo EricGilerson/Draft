@@ -533,7 +533,7 @@ func TestBuiltinDBTemplatesCarryVolumes(t *testing.T) {
 			t.Errorf("built-in %q has invalid Volumes: %v", tpl.Name, err)
 			continue
 		}
-		if tpl.Mode == ModeImage {
+		if tpl.Mode == ModeImage && tpl.Category == "datastore" {
 			if len(vols) == 0 {
 				t.Errorf("datastore built-in %q should ship at least one default volume", tpl.Name)
 				continue
@@ -546,7 +546,7 @@ func TestBuiltinDBTemplatesCarryVolumes(t *testing.T) {
 					t.Errorf("built-in %q has a volume with no containerPath", tpl.Name)
 				}
 			}
-		} else if len(vols) != 0 {
+		} else if tpl.Mode != ModeImage && len(vols) != 0 {
 			t.Errorf("build built-in %q should have no default volumes, got %d", tpl.Name, len(vols))
 		}
 	}
@@ -563,7 +563,7 @@ func TestBuiltinDBTemplatesShowVolumesSection(t *testing.T) {
 	}
 	found := false
 	for _, tpl := range list {
-		if tpl.Mode != ModeImage {
+		if tpl.Mode != ModeImage || tpl.Category != "datastore" {
 			continue
 		}
 		schema, err := ParseTemplateSchema(tpl.Schema)
@@ -659,7 +659,7 @@ func TestBuiltinDBTemplatesCarryImageTags(t *testing.T) {
 		t.Fatalf("ListTemplates: %v", err)
 	}
 	for _, tpl := range list {
-		if tpl.Mode != ModeImage {
+		if tpl.Mode != ModeImage || tpl.Category != "datastore" {
 			continue
 		}
 		tags, err := ParseImageTags(tpl.ImageTags)
@@ -674,6 +674,58 @@ func TestBuiltinDBTemplatesCarryImageTags(t *testing.T) {
 		_, defaultTag := SplitImageRef(tpl.Image)
 		if tags[0] != defaultTag {
 			t.Errorf("built-in %q first ImageTag %q should match default image tag %q", tpl.Name, tags[0], defaultTag)
+		}
+	}
+}
+
+// TestPrebuiltImageBuiltin asserts the generic "Prebuilt Image" built-in exists
+// in image mode with no default image, no curated tags, no default port, and a
+// schema that hides the build/source sections (so users get a clean Settings
+// view for their own image) while leaving runtime/volumes/etc. available.
+func TestPrebuiltImageBuiltin(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var tpl *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "Prebuilt Image" {
+			tpl = &list[i]
+			break
+		}
+	}
+	if tpl == nil {
+		t.Fatal("Prebuilt Image built-in not seeded")
+	}
+	if tpl.Mode != ModeImage {
+		t.Errorf("Mode = %q, want image", tpl.Mode)
+	}
+	if tpl.Image != "" {
+		t.Errorf("Image = %q, want empty (user supplies it)", tpl.Image)
+	}
+	if tpl.Port != 0 {
+		t.Errorf("Port = %d, want 0 (user supplies it)", tpl.Port)
+	}
+	if tags, _ := ParseImageTags(tpl.ImageTags); len(tags) != 0 {
+		t.Errorf("ImageTags = %v, want empty", tags)
+	}
+	schema, err := ParseTemplateSchema(tpl.Schema)
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	hidden := map[string]bool{}
+	for _, h := range schema.HideSections {
+		hidden[h] = true
+	}
+	for _, want := range []string{SectionSource, SectionDockerfile, SectionBuildContext, SectionBuildConfig} {
+		if !hidden[want] {
+			t.Errorf("schema should hide %q for prebuilt image", want)
+		}
+	}
+	for _, notWant := range []string{SectionVolumes, SectionRuntimeCommand, SectionRestart, SectionHealthcheck} {
+		if hidden[notWant] {
+			t.Errorf("schema should NOT hide %q for prebuilt image", notWant)
 		}
 	}
 }

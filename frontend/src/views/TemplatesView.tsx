@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     web: 'Web',
     datastore: 'Datastore',
     language: 'Language',
+    image: 'Image',
 };
 
 export default function TemplatesView() {

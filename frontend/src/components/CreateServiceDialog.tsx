@@ -36,9 +36,10 @@ const CATEGORY_LABELS: Record<string, string> = {
     web: 'Web',
     datastore: 'Datastore',
     language: 'Language',
+    image: 'Image',
 };
 
-const CATEGORY_ORDER = ['web', 'datastore', 'language'];
+const CATEGORY_ORDER = ['web', 'datastore', 'language', 'image'];
 
 type Step = 'template' | 'identity' | 'source' | 'volumes' | 'review';
 
@@ -237,8 +238,20 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                 } else if (selected.image) {
                     imageRef = selected.image;
                 }
-                if (imageRef) {
-                    effectiveOverrides = {...overrides, image: imageRef};
+                // Templates without a default image (e.g. "Prebuilt Image")
+                // require the user to type one — block creation with a clear
+                // error rather than stamping an unrunnable node.
+                if (!imageRef) {
+                    setError('Enter an image reference for this service.');
+                    setBusy(false);
+                    return;
+                }
+                effectiveOverrides = {...overrides, image: imageRef};
+                // Same for port on templates that don't ship a default port.
+                if (!selected.port && !effectiveOverrides.service_port) {
+                    setError('Enter the service port the container listens on.');
+                    setBusy(false);
+                    return;
                 }
             }
             // Only send volume_mounts when the wizard actually exposed the
@@ -430,14 +443,34 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                                 <span className="csd-field-label">Image</span>
                                 <input
                                     className="input"
-                                    placeholder={selected?.image || 'e.g. postgres:16-alpine'}
+                                    placeholder={selected?.image || 'e.g. myrepo/myapp:latest'}
                                     value={imageCustom}
                                     onChange={(e) => {
                                         setImageChoice(CUSTOM_IMAGE_VALUE);
                                         setImageCustom(e.target.value);
                                     }}
+                                    autoFocus
                                 />
-                                <span className="csd-hint">No curated versions for this template — type any image ref.</span>
+                                <span className="csd-hint">
+                                    Any image ref — a registry path or a locally-built image tag.
+                                </span>
+                            </label>
+                        )}
+                        {!blankMode && isImageMode && !selected?.port && (
+                            <label className="csd-field">
+                                <span className="csd-field-label">Service port</span>
+                                <input
+                                    className="input"
+                                    type="number"
+                                    placeholder="e.g. 8080"
+                                    value={overrides.service_port ?? ''}
+                                    onChange={(e) =>
+                                        setOverrides((o) => ({...o, service_port: e.target.value}))
+                                    }
+                                />
+                                <span className="csd-hint">
+                                    The port the container listens on. Used for routing and reachability checks.
+                                </span>
                             </label>
                         )}
                         {!blankMode && schema.serviceRoot !== 'hidden' && (

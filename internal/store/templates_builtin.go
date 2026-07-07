@@ -51,6 +51,29 @@ var imageTemplateSchema = mustEncodeSchema(TemplateSchema{
 	},
 })
 
+// prebuiltImageSchema is the schema for the "Prebuilt Image" built-in: a
+// generic image-mode service where the user supplies the image ref and port.
+// Source/Dockerfile/build sections are hidden (there is nothing to build), but
+// runtime command, volumes, restart, healthcheck, resources, lifecycle,
+// security, and labels remain available in Settings since a user's own image
+// may need any of them. The wizard is minimal — pick template, name + image +
+// port, review — with no source or volumes step.
+var prebuiltImageSchema = mustEncodeSchema(TemplateSchema{
+	ServiceRoot: SchemaHidden,
+	Dockerfile:  SchemaHidden,
+	HideSections: []string{
+		SectionSource,
+		SectionDockerfile,
+		SectionBuildContext,
+		SectionBuildConfig,
+	},
+	WizardSteps: []WizardStep{
+		{ID: "template", Title: "Template"},
+		{ID: "identity", Title: "Name & options"},
+		{ID: "review", Title: "Review"},
+	},
+})
+
 func mustEncodeSchema(s TemplateSchema) string {
 	out, err := EncodeTemplateSchema(s)
 	if err != nil {
@@ -279,5 +302,17 @@ CMD ["nginx", "-g", "daemon off;"]
 		// username is the conventional `root` (independent of the project), and
 		// MONGO_INITDB_DATABASE seeds an `appdb` for the app to use.
 		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"root","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"appdb","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Prebuilt Image",
+		Description: "Run any container image you already have — locally built or from a registry. No Dockerfile or source needed.",
+		Category:    "image",
+		Icon:        "docker",
+		Color:       "#2496ED",
+		Mode:        "image",
+		// Image and Port are intentionally empty: the user supplies both in the
+		// create wizard (required) or later in Settings. No curated tag list —
+		// the wizard renders a free-text image field for this template.
+		Schema: prebuiltImageSchema,
 	},
 }

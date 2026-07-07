@@ -14,6 +14,7 @@ import (
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -346,14 +347,33 @@ func (e *Engine) runImageDeploy(ctx context.Context, nodeID string, settings map
 		}
 	}
 
-	e.emitBuildLog(nodeID, "==> Pulling image...")
-	if err := e.pullImage(ctx, cli, nodeID, imageRef, logFile); err != nil {
-		if ctx.Err() != nil {
-			e.failDeployment(dep, nodeID, "pull cancelled")
+	e.emitBuildLog(nodeID, "==> Resolving image...")
+	pullPolicy := normalizePullPolicy(settings["pull_policy"])
+	skipPull := false
+	switch pullPolicy {
+	case pullPolicyNever:
+		skipPull = true
+	case pullPolicyMissing:
+		if e.imageExistsLocally(ctx, cli, imageRef) {
+			skipPull = true
+		}
+	}
+	if skipPull {
+		if !e.imageExistsLocally(ctx, cli, imageRef) {
+			e.failDeployment(dep, nodeID, fmt.Sprintf("pull policy is %q but image %q is not present locally; set pull policy to \"always\" or pull the image manually", pullPolicy, imageRef))
 			return
 		}
-		e.failDeployment(dep, nodeID, "image pull failed: "+err.Error())
-		return
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Image %q already present locally — skipping pull", imageRef))
+	} else {
+		e.emitBuildLog(nodeID, "==> Pulling image...")
+		if err := e.pullImage(ctx, cli, nodeID, imageRef, logFile); err != nil {
+			if ctx.Err() != nil {
+				e.failDeployment(dep, nodeID, "pull cancelled")
+				return
+			}
+			e.failDeployment(dep, nodeID, "image pull failed: "+err.Error())
+			return
+		}
 	}
 
 	now := time.Now()
@@ -427,4 +447,45 @@ func renderPullLine(status, id, progress string) string {
 		return fmt.Sprintf("    %s: %s", id, strings.TrimSpace(status))
 	}
 	return fmt.Sprintf("    %s: %s %s", id, strings.TrimSpace(status), strings.TrimSpace(progress))
+}
+
+// Pull policy values for image-mode services. Stored on node_settings under the
+// "pull_policy" key. The default (empty/unset) is pullPolicyMissing, which
+// matches Docker's intuitive behavior: use the image if it's already local,
+// otherwise pull. pullPolicyAlways forces a fresh pull; pullPolicyNever
+// requires the image to already be present locally (air-gapped / strictly-local
+// workflows) and fails the deploy if it isn't.
+const (
+	pullPolicyAlways   = "always"
+	pullPolicyMissing  = "missing"
+	pullPolicyNever    = "never"
+	pullPolicyDefault  = pullPolicyMissing
+)
+
+// normalizePullPolicy coerces an arbitrary setting value to one of the
+// recognized policies, defaulting to pullPolicyMissing for empty/unknown input.
+func normalizePullPolicy(v string) string {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case pullPolicyAlways:
+		return pullPolicyAlways
+	case pullPolicyNever:
+		return pullPolicyNever
+	default:
+		return pullPolicyMissing
+	}
+}
+
+// imageExistsLocally reports whether imageRef is present in the local Docker
+// image store. It uses the daemon's `reference` filter, which matches both
+// locally-tagged images (e.g. "myapp:latest") and registry-prefixed refs. A
+// listing error is treated as "not found" so the caller falls through to a
+// real pull attempt, which will surface the underlying error if any.
+func (e *Engine) imageExistsLocally(ctx context.Context, cli *client.Client, imageRef string) bool {
+	args := filters.NewArgs()
+	args.Add("reference", imageRef)
+	summary, err := cli.ImageList(ctx, image.ListOptions{Filters: args})
+	if err != nil {
+		return false
+	}
+	return len(summary) > 0
 }

@@ -685,6 +685,24 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                             />
                         )}
                     </div>
+                    <div className="form-field">
+                        <label className="form-label">Pull Policy</label>
+                        <span className="settings-hint">
+                            When to fetch the image. <strong>Missing</strong> uses the local image if present,
+                            otherwise pulls — best for locally-built images. <strong>Always</strong> pulls on
+                            every deploy. <strong>Never</strong> requires the image to already be local.
+                        </span>
+                        <select
+                            className="input select-styled"
+                            value={getSetting('pull_policy') || 'missing'}
+                            onChange={(e) => saveSetting('pull_policy', e.target.value)}
+                        >
+                            <option value="missing">Missing (use local if present)</option>
+                            <option value="always">Always (pull on every deploy)</option>
+                            <option value="never">Never (local only)</option>
+                        </select>
+                        {stagingNoteFor('pull_policy')}
+                    </div>
                     {stagingNoteFor('image')}
                 </div>
             )}
