@@ -86,10 +86,6 @@ export function GetNodeConfigStatus(arg1) {
   return window['go']['main']['App']['GetNodeConfigStatus'](arg1);
 }
 
-export function InspectDockerfileBuildInfo(arg1) {
-  return window['go']['main']['App']['InspectDockerfileBuildInfo'](arg1);
-}
-
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
@@ -112,6 +108,10 @@ export function GetServiceTemplate(arg1) {
 
 export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
+}
+
+export function InspectDockerfileBuildInfo(arg1) {
+  return window['go']['main']['App']['InspectDockerfileBuildInfo'](arg1);
 }
 
 export function IsGitRepo(arg1, arg2) {

@@ -49,8 +49,6 @@ export function GetNode(arg1:string):Promise<store.CanvasNode>;
 
 export function GetNodeConfigStatus(arg1:string):Promise<deploy.NodeConfigStatus>;
 
-export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.DockerfileBuildInfo>;
-
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
 export function GetProjectConnections(arg1:number):Promise<Array<deploy.Connection>>;
@@ -62,6 +60,8 @@ export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 export function GetServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
 
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
+
+export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.DockerfileBuildInfo>;
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
