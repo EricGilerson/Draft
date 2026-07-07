@@ -2,12 +2,22 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
 )
+
+// execControlMessage is a JSON control frame the client may send instead of
+// raw keystrokes, e.g. {"type":"resize","cols":80,"rows":24} sent by xterm.js
+// on connect and whenever the terminal is resized.
+type execControlMessage struct {
+	Type string `json:"type"`
+	Cols uint   `json:"cols"`
+	Rows uint   `json:"rows"`
+}
 
 var execUpgrader = websocket.Upgrader{
 	// The daemon listens on 127.0.0.1 only and the token check already ran in
@@ -44,14 +54,22 @@ func (s *Server) handleExecAttach(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// WS -> container stdin. Each message's payload is written verbatim to the
-	// hijacked TTY stream. A close-control frame ends the session.
+	// WS -> container stdin. Text frames that decode as a resize control
+	// message adjust the pty instead of being written to stdin; everything
+	// else (raw keystrokes) is written verbatim to the hijacked TTY stream.
 	go func() {
 		defer cancel()
 		for {
-			_, payload, err := ws.ReadMessage()
+			msgType, payload, err := ws.ReadMessage()
 			if err != nil {
 				return
+			}
+			if msgType == websocket.TextMessage {
+				var ctrl execControlMessage
+				if json.Unmarshal(payload, &ctrl) == nil && ctrl.Type == "resize" {
+					_ = session.Resize(ctx, ctrl.Cols, ctrl.Rows)
+					continue
+				}
 			}
 			if _, err := session.Conn.Write(payload); err != nil {
 				return

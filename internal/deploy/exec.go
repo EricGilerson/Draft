@@ -15,8 +15,9 @@ import (
 // process's stdin, bytes read from it are merged stdout/stderr. Close tears
 // down the exec attach and the Docker client.
 type ExecSession struct {
-	Conn  net.Conn
-	close func() error
+	Conn   net.Conn
+	resize func(ctx context.Context, cols, rows uint) error
+	close  func() error
 }
 
 func (s *ExecSession) Close() error {
@@ -24,6 +25,14 @@ func (s *ExecSession) Close() error {
 		return s.close()
 	}
 	return s.Conn.Close()
+}
+
+// Resize adjusts the exec's pty dimensions to match the client terminal.
+func (s *ExecSession) Resize(ctx context.Context, cols, rows uint) error {
+	if s.resize == nil {
+		return nil
+	}
+	return s.resize(ctx, cols, rows)
 }
 
 // RunCommandResult is the one-shot exec response: captured combined output and
@@ -132,6 +141,9 @@ func (e *Engine) ExecAttach(ctx context.Context, nodeID, shell string) (*ExecSes
 
 	return &ExecSession{
 		Conn: hijack.Conn,
+		resize: func(ctx context.Context, cols, rows uint) error {
+			return cli.ContainerExecResize(ctx, createResp.ID, container.ResizeOptions{Width: cols, Height: rows})
+		},
 		close: func() error {
 			hijack.Close()
 			cli.Close()

@@ -150,8 +150,6 @@ export default function ShellTab({nodeId}: ShellTabProps) {
 
     function sendResize(term: XTerm, ws: WebSocket) {
         if (ws.readyState !== WebSocket.OPEN) return;
-        // Draft's exec path doesn't currently honor pty resize, but send a
-        // best-effort control message so a future server-side handler can use it.
         try {
             ws.send(JSON.stringify({type: 'resize', cols: term.cols, rows: term.rows}));
         } catch { /* ignore */ }
