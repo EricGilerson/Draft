@@ -274,6 +274,18 @@ func (c *Client) RotateProjectEnvSecret(ctx context.Context, projectID uint, key
 	return out.Value, err
 }
 
+// ListRoutes returns routes, optionally filtered by project. Each row is
+// enriched with the owning project name and service label.
+func (c *Client) ListRoutes(ctx context.Context, projectID *uint) ([]RouteRow, error) {
+	path := "/routes"
+	if projectID != nil {
+		path = fmt.Sprintf("/routes?projectId=%d", *projectID)
+	}
+	var out []RouteRow
+	err := c.get(ctx, path, &out)
+	return out, err
+}
+
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)

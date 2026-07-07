@@ -162,6 +162,10 @@ export function ListProjectEnvVars(arg1) {
   return window['go']['main']['App']['ListProjectEnvVars'](arg1);
 }
 
+export function ListRoutes(arg1) {
+  return window['go']['main']['App']['ListRoutes'](arg1);
+}
+
 export function ListReferenceIssues(arg1) {
   return window['go']['main']['App']['ListReferenceIssues'](arg1);
 }

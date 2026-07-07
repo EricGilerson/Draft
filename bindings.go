@@ -292,6 +292,56 @@ func (a *App) ListVolumesOverview() ([]deploy.VolumeOverview, error) {
 	return c.ListVolumesOverview(a.ctx)
 }
 
+// RouteRow is the frontend-facing route row: a Route enriched with the owning
+// project name and service label. Defined here in package main (rather than
+// reusing daemon.RouteRow) so the generated Wails model lands in the `main`
+// namespace alongside the other frontend bindings.
+type RouteRow struct {
+	Hostname    string `json:"hostname"`
+	ProjectID   uint   `json:"projectId"`
+	NodeID      string `json:"nodeId"`
+	Environment string `json:"environment"`
+	Protocol    string `json:"protocol"`
+	TargetHost  string `json:"targetHost"`
+	TargetPort  int    `json:"targetPort"`
+	HostPort    int    `json:"hostPort"`
+	ProjectName string `json:"projectName"`
+	ServiceName string `json:"serviceName"`
+}
+
+// ListRoutes returns every Route, optionally filtered by projectId. Each row is
+// enriched with the owning project name and service label so the Routes tab can
+// render a single table without a per-row lookup.
+func (a *App) ListRoutes(projectId *uint) ([]RouteRow, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	rows, err := c.ListRoutes(a.ctx, projectId)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RouteRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, RouteRow{
+			Hostname:    r.Hostname,
+			ProjectID:   r.ProjectID,
+			NodeID:      r.NodeID,
+			Environment: r.Environment,
+			Protocol:    r.Protocol,
+			TargetHost:  r.TargetHost,
+			TargetPort:  r.TargetPort,
+			HostPort:    r.HostPort,
+			ProjectName: r.ProjectName,
+			ServiceName: r.ServiceName,
+		})
+	}
+	return out, nil
+}
+
 // DeleteManagedVolume removes a Draft-managed Docker volume by name. Only
 // volumes labelled draft.managed=true may be removed through this path, so an
 // arbitrary Docker volume can't be nuked by name. force removes the volume even

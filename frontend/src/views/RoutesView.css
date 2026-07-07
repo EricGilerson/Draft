@@ -1,0 +1,221 @@
+.routes-view {
+    min-height: 100%;
+}
+
+.routes-layout {
+    max-width: 1180px;
+    padding: 0 32px 32px;
+}
+
+/* Stats -------------------------------------------------------------------- */
+.routes-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.routes-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-1);
+}
+
+.routes-stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+}
+
+.routes-stat-label {
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+/* Toolbar ------------------------------------------------------------------ */
+.routes-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.routes-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1 1 240px;
+    min-width: 200px;
+}
+
+.routes-search svg {
+    position: absolute;
+    left: 10px;
+    color: var(--text-faint);
+    pointer-events: none;
+}
+
+.routes-search .input {
+    width: 100%;
+    padding-left: 30px;
+}
+
+.routes-select {
+    flex: 0 0 auto;
+    min-width: 140px;
+}
+
+/* Empty -------------------------------------------------------------------- */
+.routes-empty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 32px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    background: var(--surface-1);
+}
+
+.routes-empty-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.routes-empty-copy strong {
+    color: var(--text);
+}
+
+.routes-spin {
+    animation: routes-spin 1s linear infinite;
+}
+
+@keyframes routes-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Table -------------------------------------------------------------------- */
+.routes-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-1);
+    overflow: auto;
+}
+
+.routes-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+}
+
+.routes-table thead th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    background: var(--surface-2);
+}
+
+.routes-table tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.routes-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.routes-table tbody tr:hover {
+    background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+
+.routes-col-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.routes-col-actions {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.routes-hostname {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.8rem;
+    color: var(--text);
+    word-break: break-all;
+}
+
+.routes-target,
+.routes-hostport {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+.routes-project,
+.routes-service {
+    color: var(--text);
+}
+
+.routes-muted {
+    color: var(--text-faint);
+}
+
+.routes-protocol {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.routes-protocol--http {
+    background: color-mix(in srgb, var(--blue, #58a6ff) 22%, transparent);
+    color: color-mix(in srgb, var(--blue, #58a6ff) 90%, var(--text));
+}
+
+.routes-protocol--tcp {
+    background: color-mix(in srgb, var(--purple, #bc8cff) 22%, transparent);
+    color: color-mix(in srgb, var(--purple, #bc8cff) 90%, var(--text));
+}
+
+.routes-scope {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.routes-scope--public {
+    color: color-mix(in srgb, var(--green, #3fb950) 90%, var(--text));
+}
+
+.routes-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.routes-icon-btn {
+    padding: 4px 6px;
+}
+
+.routes-kind-icon {
+    color: var(--text-faint);
+}

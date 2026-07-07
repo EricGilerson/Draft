@@ -18,9 +18,11 @@ import OverviewView from './views/OverviewView';
 import SettingsView from './views/SettingsView';
 import TemplatesView from './views/TemplatesView';
 import VolumesView from './views/VolumesView';
+import RoutesView from './views/RoutesView';
 import {main, store} from '../wailsjs/go/models';
 
 type VolumeFocus = {nodeId: string; target: string};
+type NodeFocus = {projectId: number; nodeId: string};
 
 function App() {
     const [view, setView] = useState<NavId>('overview');
@@ -30,6 +32,7 @@ function App() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
+    const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
 
@@ -116,6 +119,14 @@ function App() {
         setSettingsProject(project);
     };
 
+    const revealNode = (projectId: number, nodeId: string) => {
+        const project = projectsRef.current.find((p) => p.id === projectId);
+        if (!project) return;
+        setSelectedProject(project);
+        setPendingNodeFocus({projectId, nodeId});
+        setView('projects');
+    };
+
     const handleProjectUpdated = () => {
         refreshProjects().then(() => {
             if (settingsProject) {
@@ -161,6 +172,12 @@ function App() {
                                 initialVolumeFocus={pendingVolumeFocus}
                                 onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
                                 onOpenProjectSettings={() => openProjectSettings(selectedProject)}
+                                initialSelectedNodeId={
+                                    pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
+                                        ? pendingNodeFocus.nodeId
+                                        : null
+                                }
+                                onNodeFocusApplied={() => setPendingNodeFocus(null)}
                             />
                         ) : view === 'overview' ? (
                             <OverviewView
@@ -191,6 +208,11 @@ function App() {
                             <TemplatesView/>
                         ) : view === 'volumes' ? (
                             <VolumesView onRevealVolume={revealVolume}/>
+                        ) : view === 'routes' ? (
+                            <RoutesView
+                                projects={projects}
+                                onRevealNode={revealNode}
+                            />
                         ) : (
                             <SettingsView/>
                         )}

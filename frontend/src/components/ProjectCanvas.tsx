@@ -55,6 +55,10 @@ type ProjectCanvasProps = {
      * it (a focus should fire once, not on every re-render). */
     onVolumeFocusApplied?: () => void;
     onOpenProjectSettings?: () => void;
+    /** When set, select this node's detail panel once its node has loaded. Used
+     * by the Routes tab's "open on canvas" action. Cleared via onNodeFocusApplied. */
+    initialSelectedNodeId?: string | null;
+    onNodeFocusApplied?: () => void;
 };
 
 type ServiceNodeData = {
@@ -127,7 +131,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -269,6 +273,17 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
         }
         onVolumeFocusApplied?.();
     }, [initialVolumeFocus, volumeMountsByNode, serviceNodes, selectVolume, onVolumeFocusApplied]);
+
+    // Apply an incoming "select this node" focus once the node has loaded. Used
+    // by the Routes tab so clicking a row opens the owning project and lands on
+    // the service's detail panel.
+    useEffect(() => {
+        if (!initialSelectedNodeId) return;
+        const exists = serviceNodes.some((n) => n.id === initialSelectedNodeId);
+        if (!exists) return; // not loaded yet
+        setSelectedNodeId(initialSelectedNodeId);
+        onNodeFocusApplied?.();
+    }, [initialSelectedNodeId, serviceNodes, onNodeFocusApplied]);
 
     const volumeNodes = useMemo(() => {
         const selectedVolumeNodeId = selectedVolume

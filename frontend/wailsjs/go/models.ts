@@ -787,20 +787,56 @@ export namespace main {
 	        this.pullForeign = source["pullForeign"];
 	    }
 	}
-	export class DaemonConnectionInfo {
-	    addr: string;
-	    token: string;
+export class DaemonConnectionInfo {
+    addr: string;
+    token: string;
 
-	    static createFrom(source: any = {}) {
-	        return new DaemonConnectionInfo(source);
-	    }
+    static createFrom(source: any = {}) {
+        return new DaemonConnectionInfo(source);
+    }
 
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.addr = source["addr"];
-	        this.token = source["token"];
-	    }
-	}
+    constructor(source: any = {}) {
+        if ('string' === typeof source) source = JSON.parse(source);
+        this.addr = source["addr"];
+        this.token = source["token"];
+    }
+}
+export class RouteRow {
+    hostname: string;
+    projectId: number;
+    nodeId: string;
+    environment: string;
+    protocol: string;
+    targetHost: string;
+    targetPort: number;
+    hostPort: number;
+    // Go type: time
+    createdAt: any;
+    // Go type: time
+    updatedAt: any;
+    projectName: string;
+    serviceName: string;
+
+    static createFrom(source: any = {}) {
+        return new RouteRow(source);
+    }
+
+    constructor(source: any = {}) {
+        if ('string' === typeof source) source = JSON.parse(source);
+        this.hostname = source["hostname"];
+        this.projectId = source["projectId"];
+        this.nodeId = source["nodeId"];
+        this.environment = source["environment"];
+        this.protocol = source["protocol"];
+        this.targetHost = source["targetHost"];
+        this.targetPort = source["targetPort"];
+        this.hostPort = source["hostPort"];
+        this.createdAt = source["createdAt"];
+        this.updatedAt = source["updatedAt"];
+        this.projectName = source["projectName"];
+        this.serviceName = source["serviceName"];
+    }
+}
 	export class ProjectService {
 	    id: string;
 	    projectId: number;

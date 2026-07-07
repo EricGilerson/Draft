@@ -85,6 +85,8 @@ export function ListProjects():Promise<Array<store.Project>>;
 
 export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
 
+export function ListRoutes(arg1:number|null):Promise<Array<main.RouteRow>>;
+
 export function ListReferenceIssues(arg1:string):Promise<Array<deploy.ReferenceIssue>>;
 
 export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
