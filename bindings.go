@@ -431,6 +431,32 @@ func (a *App) SetEnvVarScope(nodeID, key, scope string) error {
 	return c.SetEnvVarScope(a.ctx, nodeID, key, scope)
 }
 
+// SetEnvVarSecret toggles whether an env var is treated as a secret. Secret
+// vars are excluded from .env export by default and masked in conflict reports.
+func (a *App) SetEnvVarSecret(nodeID, key string, secret bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.SetEnvVarSecret(a.ctx, nodeID, key, secret)
+}
+
+// RotateEnvSecret replaces a secret env var's value with a fresh random string
+// and redeploys the service if it is currently running. Returns the new value.
+func (a *App) RotateEnvSecret(nodeID, key string) (string, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", errNoStore
+	}
+	return c.RotateEnvSecret(a.ctx, nodeID, key)
+}
+
 func (a *App) ImportEnvFile(nodeID, path string) (store.EnvFileSyncResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -453,7 +479,7 @@ func (a *App) RefreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	return c.RefreshEnvFile(a.ctx, nodeID)
 }
 
-func (a *App) ExportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+func (a *App) ExportEnvFile(nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return store.EnvFileSyncResult{}, err
@@ -461,7 +487,7 @@ func (a *App) ExportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	if c == nil {
 		return store.EnvFileSyncResult{}, errNoStore
 	}
-	return c.ExportEnvFile(a.ctx, nodeID)
+	return c.ExportEnvFile(a.ctx, nodeID, includeSecrets)
 }
 
 // SuggestEnvFile returns the absolute path to a .env file found in the service root, if one exists.
@@ -541,6 +567,19 @@ func (a *App) GetNodeHealth(nodeID string) (deploy.NodeHealth, error) {
 		return deploy.NodeHealth{}, errNoStore
 	}
 	return c.GetNodeHealth(a.ctx, nodeID)
+}
+
+// ReapplyTemplate re-stamps a node from the template it was created from,
+// flowing template updates through while preserving user-owned env vars.
+func (a *App) ReapplyTemplate(nodeID string) (deploy.CreateNodeFromTemplateResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return deploy.CreateNodeFromTemplateResult{}, err
+	}
+	if c == nil {
+		return deploy.CreateNodeFromTemplateResult{}, errNoStore
+	}
+	return c.ReapplyTemplate(a.ctx, nodeID)
 }
 
 // CheckDocker returns the last known Docker daemon status from the watcher.

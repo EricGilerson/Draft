@@ -157,6 +157,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/deploy", s.handleDeploy)
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
 	mux.HandleFunc("/node/delete", s.handleDeleteService)
+	mux.HandleFunc("/node/reapply-template", s.handleReapplyTemplate)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
 	mux.HandleFunc("/node/config-status", s.handleNodeConfigStatus)
 	mux.HandleFunc("/node/stage-settings", s.handleStageNodeSettings)
@@ -178,6 +179,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/delete", s.handleDeleteEnv)
 	mux.HandleFunc("/env/scope", s.handleSetEnvScope)
+	mux.HandleFunc("/env/secret", s.handleSetEnvSecret)
+	mux.HandleFunc("/env/rotate", s.handleRotateEnvSecret)
 	mux.HandleFunc("/env/suggest", s.handleSuggestEnv)
 	mux.HandleFunc("/env/import", s.handleImportEnv)
 	mux.HandleFunc("/env/refresh", s.handleRefreshEnv)
@@ -234,6 +237,19 @@ func (s *Server) handleDeleteService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.DeleteService(context.Background(), req.NodeID))
+}
+
+func (s *Server) handleReapplyTemplate(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ReapplyTemplate(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handlePreviewDeleteService(w http.ResponseWriter, r *http.Request) {
@@ -689,6 +705,40 @@ func (s *Server) handleSetEnvScope(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+func (s *Server) handleSetEnvSecret(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Key    string `json:"key"`
+		Secret bool   `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.SetEnvVarSecret(req.NodeID, req.Key, req.Secret); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleRotateEnvSecret(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Key    string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	newValue, err := s.engine.RotateEnvSecret(r.Context(), req.NodeID, req.Key)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "value": newValue})
+}
+
 func (s *Server) handleImportEnv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID string `json:"nodeId"`
@@ -721,12 +771,15 @@ func (s *Server) handleRefreshEnv(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleExportEnv(w http.ResponseWriter, r *http.Request) {
-	var req nodeRequest
+	var req struct {
+		NodeID         string `json:"nodeId"`
+		IncludeSecrets bool   `json:"includeSecrets"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	result, err := s.exportEnvFile(req.NodeID)
+	result, err := s.exportEnvFile(req.NodeID, req.IncludeSecrets)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -908,7 +961,7 @@ func (s *Server) refreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) 
 	return s.store.ImportEnvVars(nodeID, path, values)
 }
 
-func (s *Server) exportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
+func (s *Server) exportEnvFile(nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
 	path, err := s.resolveEnvPath(nodeID)
 	if err != nil {
 		return store.EnvFileSyncResult{}, err
@@ -919,7 +972,7 @@ func (s *Server) exportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	if err != nil {
 		return store.EnvFileSyncResult{Path: path}, err
 	}
-	count, err := envfile.Write(path, vars)
+	count, err := envfile.Write(path, vars, includeSecrets)
 	if err != nil {
 		return store.EnvFileSyncResult{Path: path}, err
 	}

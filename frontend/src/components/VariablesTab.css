@@ -306,6 +306,28 @@
     background: var(--accent-soft);
 }
 
+.var-secret-toggle--active {
+    color: var(--red);
+    border-color: rgba(220, 88, 88, 0.55);
+    background: rgba(220, 88, 88, 0.12);
+}
+
+.env-sync-include-secrets {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.66rem;
+    color: var(--text-muted);
+    user-select: none;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.env-sync-include-secrets input {
+    margin: 0;
+    cursor: pointer;
+}
+
 .variables-empty {
     font-size: 0.72rem;
     color: var(--text-faint);

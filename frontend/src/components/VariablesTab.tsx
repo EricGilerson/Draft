@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, Link2, Plus, RefreshCw, Trash2, Upload} from 'lucide-react';
+import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, KeyRound, Link2, Plus, RefreshCw, RotateCw, Trash2, Upload} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, SetNodeSetting, SelectFile,
+    GetEnvVars, SetEnvVar, SetEnvVarSecret, RotateEnvSecret, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
     InspectDockerfileBuildInfo,
@@ -156,6 +156,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
     const [syncError, setSyncError] = useState('');
+    const [includeSecrets, setIncludeSecrets] = useState(false);
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
@@ -433,6 +434,30 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         ));
     };
 
+    // Secret is metadata, not a deploy value, so it applies immediately rather
+    // than staging. Secret vars are excluded from .env export by default and
+    // masked in conflict reports.
+    const toggleSecret = async (variable: store.EnvVar) => {
+        try {
+            await SetEnvVarSecret(nodeId, variable.key, !variable.secret);
+            setVars(prev => prev.map(v =>
+                v.key === variable.key ? store.EnvVar.createFrom({...v, secret: !variable.secret}) : v,
+            ));
+        } catch (e: any) {
+            setSyncError(typeof e === 'string' ? e : e?.message || 'could not toggle secret');
+        }
+    };
+
+    const rotateSecret = async (variable: store.EnvVar) => {
+        if (!window.confirm(`Rotate the value of ${variable.key}? A fresh random value will be generated and the service will be redeployed if it is running.`)) return;
+        try {
+            await RotateEnvSecret(nodeId, variable.key);
+            await load();
+        } catch (e: any) {
+            setSyncError(typeof e === 'string' ? e : e?.message || 'rotate failed');
+        }
+    };
+
     // --- Linker: create a reference either into an existing variable's value
     // (mode 'existing', opened from that row) or as a brand-new variable
     // (mode 'new', opened from the button beside +Add). ---
@@ -537,7 +562,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             } else if (action === 'refresh') {
                 result = await RefreshEnvFile(nodeId);
             } else {
-                result = await ExportEnvFile(nodeId);
+                result = await ExportEnvFile(nodeId, includeSecrets);
             }
             setSyncResult(result);
             await load();
@@ -674,6 +699,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <button className="btn btn-ghost" onClick={() => runSync('export')} disabled={syncing}>
                         <Download size={13}/> Export
                     </button>
+                    <label className="env-sync-include-secrets" title="Secret variables are excluded from export by default to avoid writing credentials to disk.">
+                        <input
+                            type="checkbox"
+                            checked={includeSecrets}
+                            onChange={(e) => setIncludeSecrets(e.target.checked)}
+                        />
+                        Include secrets
+                    </label>
                 </div>
                 {(resultText || syncError) && (
                     <div className={`env-sync-status ${syncError ? 'env-sync-status--error' : ''}`}>
@@ -804,6 +837,22 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 >
                                     ARG
                                 </button>
+                                <button
+                                    className={`var-scope-toggle ${v.secret ? 'var-secret-toggle--active' : ''}`}
+                                    onClick={() => toggleSecret(v)}
+                                    title={v.secret ? 'Secret: excluded from .env export and masked in reports' : 'Mark as secret'}
+                                >
+                                    <KeyRound size={13}/>
+                                </button>
+                                {v.secret && (
+                                    <button
+                                        className="var-toggle"
+                                        onClick={() => rotateSecret(v)}
+                                        title="Generate a new random value and redeploy if running"
+                                    >
+                                        <RotateCw size={14}/>
+                                    </button>
+                                )}
                                 <button className="var-toggle var-toggle--danger" onClick={() => removeVar(v.key)} title="Delete variable">
                                     <Trash2 size={14}/>
                                 </button>

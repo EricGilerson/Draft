@@ -70,15 +70,14 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 	result := &CreateNodeFromTemplateResult{}
 
 	// 1. Create the node row with the template link.
-	node := &store.CanvasNode{
+	node, err := e.store.CreateNode(&store.CanvasNode{
 		ID:         req.ID,
 		Label:      req.Label,
 		ProjectID:  req.ProjectID,
 		X:          req.X,
 		Y:          req.Y,
 		TemplateID: req.TemplateID,
-	}
-	node, err = e.store.CreateNode(node)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -92,163 +91,16 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 		_ = e.store.DeleteStagedChanges(req.ID)
 	}
 
-	// 2. Stamp service root (only when the schema allows it and a path was given).
-	if schema.ServiceRoot != store.SchemaHidden && strings.TrimSpace(req.ServiceRoot) != "" {
-		if err := e.store.SetServiceRoot(req.ID, req.ProjectID, req.ServiceRoot); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("invalid service root: %w", err)
-		}
-	}
-
-	// 3. Stamp the mode-specific settings. Port is resolved from the template
-	// default or an override; cmd/entrypoint/workingdir/labels come from the
-	// template body. {{draft.*}} in cmd/entrypoint is resolved at stamp time
-	// (needs UID + service_port below).
-	portStr := resolvePortOverride(tpl, req.Overrides)
-	if portStr != "" {
-		if err := e.store.SetNodeSetting(req.ID, "service_port", portStr); err != nil {
-			cleanup()
-			return nil, err
-		}
-	}
-
-	if tpl.Mode == store.ModeImage {
-		// An explicit "image" override (from the wizard's version picker) wins;
-		// otherwise fall back to the template's default Image ref. Empty means
-		// "no image stamped" — the user can set it later in Settings.
-		imageRef := overrideOr(req.Overrides, "image", tpl.Image)
-		if imageRef != "" {
-			if err := e.store.SetNodeSetting(req.ID, "image", imageRef); err != nil {
-				cleanup()
-				return nil, err
-			}
-		}
-	} else {
-		// Build mode: default the dockerfile setting to "Dockerfile" so a
-		// freshly-stamped node can deploy immediately once source is in place.
-		dockerfileSetting := overrideOr(req.Overrides, "dockerfile", "Dockerfile")
-		if dockerfileSetting != "" {
-			if err := e.store.SetNodeSetting(req.ID, "dockerfile", dockerfileSetting); err != nil {
-				cleanup()
-				return nil, err
-			}
-		}
-	}
-
-	// 4. Ensure the UID is stable before resolving {{draft.*}} (password/uid
+	// Ensure the UID is stable before resolving {{draft.*}} (password/uid
 	// depend on it) and before computing the node address (needs service_port).
 	if _, err := e.store.EnsureNodeUID(req.ID); err != nil {
 		cleanup()
 		return nil, fmt.Errorf("failed to assign node uid: %w", err)
 	}
 
-	// 5. Stamp cmd/entrypoint/workingdir, resolving {{draft.*}} now that UID +
-	// service_port are set. These are best-effort; an expression resolution
-	// failure on an empty override just skips the field.
-	if err := e.stampResolvedSetting(req.ID, "cmd_override", tpl.CmdOverride, result); err != nil {
+	if err := e.stampTemplateOntoNode(req.ID, req.ProjectID, req.ServiceRoot, tpl, schema, req.Overrides, result, false); err != nil {
 		cleanup()
 		return nil, err
-	}
-	if err := e.stampResolvedSetting(req.ID, "entrypoint_override", tpl.Entrypoint, result); err != nil {
-		cleanup()
-		return nil, err
-	}
-	if err := e.stampResolvedSetting(req.ID, "working_dir", tpl.WorkingDir, result); err != nil {
-		cleanup()
-		return nil, err
-	}
-
-	// 6. Stamp custom labels (JSON object) from the template, if any.
-	if strings.TrimSpace(tpl.Labels) != "" {
-		if err := e.store.SetNodeSetting(req.ID, "custom_labels", tpl.Labels); err != nil {
-			cleanup()
-			return nil, err
-		}
-	}
-
-	// 6.5. Stamp volume mounts. An explicit wizard override wins; otherwise the
-	// template's Volumes default is used (this is what makes a freshly created
-	// datastore persist — the Postgres/MySQL/Mongo/Redis built-ins ship a
-	// Draft-managed named volume for their data directory). Empty means no
-	// volumes stamped; the user can add them later in Settings.
-	volumeMounts := strings.TrimSpace(req.Overrides["volume_mounts"])
-	if volumeMounts == "" {
-		volumeMounts = strings.TrimSpace(tpl.Volumes)
-	}
-	if volumeMounts != "" {
-		if err := e.store.SetNodeSetting(req.ID, "volume_mounts", volumeMounts); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("stamp volume_mounts: %w", err)
-		}
-	}
-
-	// 7. Seed env vars from the template, resolving {{draft.*}} per value.
-	entries, err := parseTemplateEnvVars(tpl.EnvVars)
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("template env vars are invalid: %w", err)
-	}
-	for _, entry := range entries {
-		key := strings.TrimSpace(entry.Key)
-		if key == "" {
-			continue
-		}
-		resolved, err := e.ResolveNodeTemplateExprs(req.ID, entry.Value)
-		if err != nil {
-			cleanup()
-			return nil, fmt.Errorf("resolve env %q: %w", key, err)
-		}
-		scope := entry.Scope
-		if scope == "" {
-			scope = store.EnvScopeRuntime
-		}
-		if err := e.store.UpsertEnvVar(store.EnvVar{
-			NodeID: req.ID,
-			Key:    key,
-			Value:  resolved,
-			Scope:  scope,
-			Source: store.EnvSourceGenerated,
-		}); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("seed env %q: %w", key, err)
-		}
-	}
-
-	// 8. Apply wizard overrides. A key declared in the schema with Type=="env"
-	// is routed to env vars (Source=manual, wins over the generated default);
-	// every other key is routed to node_settings.
-	for key, value := range req.Overrides {
-		if key == "dockerfile" || key == "service_port" || key == "image" || key == "volume_mounts" {
-			continue // already handled above
-		}
-		if spec, ok := schema.Settings[key]; ok && spec.Type == "env" {
-			if err := e.store.UpsertEnvVar(store.EnvVar{
-				NodeID: req.ID,
-				Key:    key,
-				Value:  value,
-				Scope:  store.EnvScopeRuntime,
-				Source: store.EnvSourceManual,
-			}); err != nil {
-				cleanup()
-				return nil, fmt.Errorf("override env %q: %w", key, err)
-			}
-			continue
-		}
-		if err := e.store.SetNodeSetting(req.ID, key, value); err != nil {
-			cleanup()
-			return nil, fmt.Errorf("override setting %q: %w", key, err)
-		}
-	}
-
-	// 9. Best-effort Dockerfile write for build templates with an embedded body.
-	// Never overwrites an existing file; a missing directory or write failure is
-	// a warning, not a hard error (the user can author one manually).
-	if tpl.Mode == store.ModeBuild && strings.TrimSpace(tpl.Dockerfile) != "" {
-		if warning, err := e.writeTemplateDockerfile(req.ID, req.ProjectID, tpl.Dockerfile); err != nil {
-			result.Warnings = append(result.Warnings, fmt.Sprintf("could not write Dockerfile: %v", err))
-		} else if warning != "" {
-			result.Warnings = append(result.Warnings, warning)
-		}
 	}
 
 	result.Node = *node
@@ -266,6 +118,221 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 		}
 	}
 
+	return result, nil
+}
+
+// stampTemplateOntoNode writes a template's derived defaults onto an existing
+// node: service root, mode-specific settings (port/image/dockerfile),
+// cmd/entrypoint/workingdir, custom labels, volume mounts, env vars, and the
+// best-effort Dockerfile. Shared by CreateNodeFromTemplate (preserveUserEnv=
+// false — fresh node, nothing to preserve) and ReapplyTemplate (preserveUserEnv=
+// true — env vars the user owns (Source manual/imported) are kept; generated
+// defaults are re-resolved so template updates flow through).
+//
+// The node must already exist and have its UID assigned before this is called.
+// serviceRoot is the dedicated wizard field ("" => leave unchanged); overrides
+// are wizard field overrides (nil/empty for reapply).
+func (e *Engine) stampTemplateOntoNode(
+	nodeID string,
+	projectID uint,
+	serviceRoot string,
+	tpl *store.ServiceTemplate,
+	schema store.TemplateSchema,
+	overrides map[string]string,
+	result *CreateNodeFromTemplateResult,
+	preserveUserEnv bool,
+) error {
+	// Service root (only when the schema allows it and a path was given).
+	if schema.ServiceRoot != store.SchemaHidden && strings.TrimSpace(serviceRoot) != "" {
+		if err := e.store.SetServiceRoot(nodeID, projectID, serviceRoot); err != nil {
+			return fmt.Errorf("invalid service root: %w", err)
+		}
+	}
+
+	// Mode-specific settings. Port is resolved from the template default or an
+	// override; cmd/entrypoint/workingdir/labels come from the template body.
+	// {{draft.*}} in cmd/entrypoint is resolved below (needs UID + service_port).
+	portStr := resolvePortOverride(tpl, overrides)
+	if portStr != "" {
+		if err := e.store.SetNodeSetting(nodeID, "service_port", portStr); err != nil {
+			return err
+		}
+	}
+
+	if tpl.Mode == store.ModeImage {
+		imageRef := overrideOr(overrides, "image", tpl.Image)
+		if imageRef != "" {
+			if err := e.store.SetNodeSetting(nodeID, "image", imageRef); err != nil {
+				return err
+			}
+		}
+	} else {
+		dockerfileSetting := overrideOr(overrides, "dockerfile", "Dockerfile")
+		if dockerfileSetting != "" {
+			if err := e.store.SetNodeSetting(nodeID, "dockerfile", dockerfileSetting); err != nil {
+				return err
+			}
+		}
+	}
+
+	// cmd/entrypoint/workingdir, resolving {{draft.*}} now that UID +
+	// service_port are set. Best-effort; an empty template value is a no-op.
+	if err := e.stampResolvedSetting(nodeID, "cmd_override", tpl.CmdOverride, result); err != nil {
+		return err
+	}
+	if err := e.stampResolvedSetting(nodeID, "entrypoint_override", tpl.Entrypoint, result); err != nil {
+		return err
+	}
+	if err := e.stampResolvedSetting(nodeID, "working_dir", tpl.WorkingDir, result); err != nil {
+		return err
+	}
+
+	// Custom labels (JSON object) from the template, if any.
+	if strings.TrimSpace(tpl.Labels) != "" {
+		if err := e.store.SetNodeSetting(nodeID, "custom_labels", tpl.Labels); err != nil {
+			return err
+		}
+	}
+
+	// Volume mounts. An explicit wizard override wins; otherwise the template's
+	// Volumes default. This is what makes a freshly created datastore persist
+	// (Postgres/MySQL/Mongo/Redis built-ins ship a Draft-managed named volume).
+	volumeMounts := strings.TrimSpace(overrides["volume_mounts"])
+	if volumeMounts == "" {
+		volumeMounts = strings.TrimSpace(tpl.Volumes)
+	}
+	if volumeMounts != "" {
+		if err := e.store.SetNodeSetting(nodeID, "volume_mounts", volumeMounts); err != nil {
+			return fmt.Errorf("stamp volume_mounts: %w", err)
+		}
+	}
+
+	// Seed env vars from the template, resolving {{draft.*}} per value. When
+	// re-applying, skip keys the user owns (manual/imported) so re-applying a
+	// template doesn't clobber credentials they typed or imported.
+	entries, err := parseTemplateEnvVars(tpl.EnvVars)
+	if err != nil {
+		return fmt.Errorf("template env vars are invalid: %w", err)
+	}
+	var ownedKeys map[string]bool
+	if preserveUserEnv {
+		existing, err := e.store.ListEnvVars(nodeID)
+		if err != nil {
+			return err
+		}
+		ownedKeys = make(map[string]bool, len(existing))
+		for _, ev := range existing {
+			if ev.Source == store.EnvSourceManual || ev.Source == store.EnvSourceImported {
+				ownedKeys[ev.Key] = true
+			}
+		}
+	}
+	for _, entry := range entries {
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			continue
+		}
+		if ownedKeys[key] {
+			continue
+		}
+		resolved, err := e.ResolveNodeTemplateExprs(nodeID, entry.Value)
+		if err != nil {
+			return fmt.Errorf("resolve env %q: %w", key, err)
+		}
+		scope := entry.Scope
+		if scope == "" {
+			scope = store.EnvScopeRuntime
+		}
+		if err := e.store.UpsertEnvVar(store.EnvVar{
+			NodeID: nodeID,
+			Key:    key,
+			Value:  resolved,
+			Scope:  scope,
+			Source: store.EnvSourceGenerated,
+		}); err != nil {
+			return fmt.Errorf("seed env %q: %w", key, err)
+		}
+	}
+
+	// Wizard overrides. A key declared in the schema with Type=="env" is routed
+	// to env vars (Source=manual, wins over the generated default); every other
+	// key is routed to node_settings. Reapply passes nil overrides, so this is
+	// a no-op there.
+	for key, value := range overrides {
+		if key == "dockerfile" || key == "service_port" || key == "image" || key == "volume_mounts" {
+			continue // already handled above
+		}
+		if spec, ok := schema.Settings[key]; ok && spec.Type == "env" {
+			if err := e.store.UpsertEnvVar(store.EnvVar{
+				NodeID: nodeID,
+				Key:    key,
+				Value:  value,
+				Scope:  store.EnvScopeRuntime,
+				Source: store.EnvSourceManual,
+			}); err != nil {
+				return fmt.Errorf("override env %q: %w", key, err)
+			}
+			continue
+		}
+		if err := e.store.SetNodeSetting(nodeID, key, value); err != nil {
+			return fmt.Errorf("override setting %q: %w", key, err)
+		}
+	}
+
+	// Best-effort Dockerfile write for build templates with an embedded body.
+	// Never overwrites an existing file; a missing directory or write failure is
+	// a warning, not a hard error (the user can author one manually).
+	if tpl.Mode == store.ModeBuild && strings.TrimSpace(tpl.Dockerfile) != "" {
+		if warning, err := e.writeTemplateDockerfile(nodeID, projectID, tpl.Dockerfile); err != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("could not write Dockerfile: %v", err))
+		} else if warning != "" {
+			result.Warnings = append(result.Warnings, warning)
+		}
+	}
+
+	return nil
+}
+
+// ReapplyTemplate re-stamps a node from the template it was originally created
+// from (CanvasNode.TemplateID). Template-derived settings and generated env
+// vars are overwritten with the template's current defaults (so updating a
+// template and re-applying flows the changes through), while env vars the user
+// owns (Source manual/imported) are preserved. Returns the same result shape as
+// CreateNodeFromTemplate so the UI can surface warnings. Returns an error if the
+// node has no template link (TemplateID == 0).
+func (e *Engine) ReapplyTemplate(nodeID string) (*CreateNodeFromTemplateResult, error) {
+	if e.store == nil {
+		return nil, fmt.Errorf("store is not available")
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return nil, store.ErrInvalidNode
+	}
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if node.TemplateID == 0 {
+		return nil, fmt.Errorf("node has no template to re-apply")
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return nil, fmt.Errorf("template not found: %w", err)
+	}
+	schema, err := store.ParseTemplateSchema(tpl.Schema)
+	if err != nil {
+		return nil, fmt.Errorf("template schema is invalid: %w", err)
+	}
+	schema = store.NormalizeSchema(schema, tpl.Mode)
+
+	if _, err := e.store.EnsureNodeUID(nodeID); err != nil {
+		return nil, fmt.Errorf("failed to assign node uid: %w", err)
+	}
+
+	result := &CreateNodeFromTemplateResult{}
+	if err := e.stampTemplateOntoNode(nodeID, node.ProjectID, "", tpl, schema, nil, result, true); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

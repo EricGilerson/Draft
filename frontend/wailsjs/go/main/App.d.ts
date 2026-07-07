@@ -31,7 +31,7 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
-export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
+export function ExportEnvFile(arg1:string,arg2:boolean):Promise<store.EnvFileSyncResult>;
 
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
@@ -97,7 +97,11 @@ export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Pr
 
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
+export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTemplateResult>;
+
 export function RestartService(arg1:string):Promise<void>;
+
+export function RotateEnvSecret(arg1:string,arg2:string):Promise<string>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
 
@@ -110,6 +114,8 @@ export function SetDeployTrigger(arg1:string,arg2:number,arg3:string):Promise<vo
 export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetEnvVarSecret(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 

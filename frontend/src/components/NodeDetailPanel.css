@@ -24,6 +24,30 @@
     min-width: 0;
 }
 
+.node-detail-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.node-detail-reapply {
+    height: 26px;
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: 0.66rem;
+    gap: 5px;
+}
+
+.spin {
+    animation: draft-spin 0.9s linear infinite;
+}
+
+@keyframes draft-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
 .node-detail-rename-error {
     margin: 0 16px 10px;
 }

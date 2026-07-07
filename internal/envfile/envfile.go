@@ -82,7 +82,10 @@ func braceDelta(line string) int {
 	return delta
 }
 
-func Write(path string, vars []store.EnvVar) (int, error) {
+// Write serializes vars to a .env file at path. Secret vars (Secret==true)
+// are skipped unless includeSecrets is true — the default-off guard prevents
+// generated credentials from being written to a file the user might commit.
+func Write(path string, vars []store.EnvVar, includeSecrets bool) (int, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err
 	}
@@ -91,6 +94,9 @@ func Write(path string, vars []store.EnvVar) (int, error) {
 	values := make(map[string]string, len(vars))
 	for _, v := range vars {
 		if strings.TrimSpace(v.Key) == "" {
+			continue
+		}
+		if v.Secret && !includeSecrets {
 			continue
 		}
 		keys = append(keys, v.Key)

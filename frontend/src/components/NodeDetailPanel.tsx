@@ -1,5 +1,7 @@
-import {X, Box} from 'lucide-react';
+import {X, Box, RefreshCw} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
+import {GetNode, ReapplyTemplate} from '../../wailsjs/go/main/App';
+import {store} from '../../wailsjs/go/models';
 import OverviewTab from './OverviewTab';
 import DeploymentsTab from './DeploymentsTab';
 import VariablesTab from './VariablesTab';
@@ -49,6 +51,9 @@ function NodeDetailPanelBody({
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(nodeLabel);
     const [renameError, setRenameError] = useState<string | null>(null);
+    const [templateId, setTemplateId] = useState<number>(0);
+    const [reapplying, setReapplying] = useState(false);
+    const [reapplyError, setReapplyError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
     const {isSessionDirty, discardSessionDraft} = useServiceConfigEditor();
 
@@ -56,6 +61,30 @@ function NodeDetailPanelBody({
         setEditValue(nodeLabel);
         setRenameError(null);
     }, [nodeLabel]);
+
+    useEffect(() => {
+        setTemplateId(0);
+        setReapplyError(null);
+        GetNode(nodeId)
+            .then((n: store.CanvasNode) => setTemplateId(n.templateId || 0))
+            .catch(() => setTemplateId(0));
+    }, [nodeId]);
+
+    const handleReapply = () => {
+        if (!templateId) return;
+        if (!window.confirm('Re-apply the template? Template-derived settings, generated env vars, and the Dockerfile will be reset to the template\u2019s current defaults. Env vars you added or edited manually are kept.')) return;
+        setReapplying(true);
+        setReapplyError(null);
+        ReapplyTemplate(nodeId)
+            .then(() => {
+                setReapplying(false);
+                onServicesChanged?.();
+            })
+            .catch((e: any) => {
+                setReapplying(false);
+                setReapplyError(typeof e === 'string' ? e : e?.message || 're-apply failed');
+            });
+    };
 
     const startEditing = () => {
         setEditValue(nodeLabel);
@@ -125,11 +154,23 @@ function NodeDetailPanelBody({
                         </h2>
                     )}
                 </div>
-                <button className="dialog-close" onClick={onClose} aria-label="Close">
-                    <X size={16}/>
-                </button>
+                <div className="node-detail-header-actions">
+                    <button
+                        className="btn btn-ghost node-detail-reapply"
+                        onClick={handleReapply}
+                        disabled={!templateId || reapplying}
+                        title={templateId ? 'Re-apply this service\u2019s template defaults' : 'No template linked to this service'}
+                    >
+                        <RefreshCw size={13} className={reapplying ? 'spin' : ''}/>
+                        Re-apply template
+                    </button>
+                    <button className="dialog-close" onClick={onClose} aria-label="Close">
+                        <X size={16}/>
+                    </button>
+                </div>
             </div>
             {renameError && <p className="form-error node-detail-rename-error">{renameError}</p>}
+            {reapplyError && <p className="form-error node-detail-rename-error">{reapplyError}</p>}
 
             <nav className="node-detail-tabs">
                 {TABS.map((tab) => (

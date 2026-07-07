@@ -201,6 +201,12 @@ func (c *Client) GetNodeHealth(ctx context.Context, nodeID string) (deploy.NodeH
 	return out, err
 }
 
+func (c *Client) ReapplyTemplate(ctx context.Context, nodeID string) (deploy.CreateNodeFromTemplateResult, error) {
+	var out deploy.CreateNodeFromTemplateResult
+	err := c.postJSON(ctx, "/node/reapply-template", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)
@@ -284,6 +290,18 @@ func (c *Client) SetEnvVarScope(ctx context.Context, nodeID, key, scope string) 
 	return c.postJSON(ctx, "/env/scope", map[string]string{"nodeId": nodeID, "key": key, "scope": scope}, nil)
 }
 
+func (c *Client) SetEnvVarSecret(ctx context.Context, nodeID, key string, secret bool) error {
+	return c.postJSON(ctx, "/env/secret", map[string]any{"nodeId": nodeID, "key": key, "secret": secret}, nil)
+}
+
+func (c *Client) RotateEnvSecret(ctx context.Context, nodeID, key string) (string, error) {
+	var out struct {
+		Value string `json:"value"`
+	}
+	err := c.postJSON(ctx, "/env/rotate", map[string]string{"nodeId": nodeID, "key": key}, &out)
+	return out.Value, err
+}
+
 func (c *Client) ImportEnvFile(ctx context.Context, nodeID, path string) (store.EnvFileSyncResult, error) {
 	var out store.EnvFileSyncResult
 	err := c.postJSON(ctx, "/env/import", map[string]string{"nodeId": nodeID, "path": path}, &out)
@@ -296,9 +314,9 @@ func (c *Client) RefreshEnvFile(ctx context.Context, nodeID string) (store.EnvFi
 	return out, err
 }
 
-func (c *Client) ExportEnvFile(ctx context.Context, nodeID string) (store.EnvFileSyncResult, error) {
+func (c *Client) ExportEnvFile(ctx context.Context, nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
 	var out store.EnvFileSyncResult
-	err := c.postJSON(ctx, "/env/export", nodeRequest{NodeID: nodeID}, &out)
+	err := c.postJSON(ctx, "/env/export", map[string]any{"nodeId": nodeID, "includeSecrets": includeSecrets}, &out)
 	return out, err
 }
 

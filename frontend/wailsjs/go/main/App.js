@@ -50,8 +50,8 @@ export function DiscardStagedChanges(arg1) {
   return window['go']['main']['App']['DiscardStagedChanges'](arg1);
 }
 
-export function ExportEnvFile(arg1) {
-  return window['go']['main']['App']['ExportEnvFile'](arg1);
+export function ExportEnvFile(arg1, arg2) {
+  return window['go']['main']['App']['ExportEnvFile'](arg1, arg2);
 }
 
 export function GetActiveDeployment(arg1) {
@@ -186,6 +186,14 @@ export function RestartService(arg1) {
   return window['go']['main']['App']['RestartService'](arg1);
 }
 
+export function ReapplyTemplate(arg1) {
+  return window['go']['main']['App']['ReapplyTemplate'](arg1);
+}
+
+export function RotateEnvSecret(arg1, arg2) {
+  return window['go']['main']['App']['RotateEnvSecret'](arg1, arg2);
+}
+
 export function SelectFile(arg1, arg2) {
   return window['go']['main']['App']['SelectFile'](arg1, arg2);
 }
@@ -208,6 +216,10 @@ export function SetEnvVar(arg1, arg2, arg3) {
 
 export function SetEnvVarScope(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarScope'](arg1, arg2, arg3);
+}
+
+export function SetEnvVarSecret(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetEnvVarSecret'](arg1, arg2, arg3);
 }
 
 export function SetNodeSetting(arg1, arg2, arg3) {
