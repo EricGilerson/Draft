@@ -86,6 +86,10 @@ export function GetNodeConfigStatus(arg1) {
   return window['go']['main']['App']['GetNodeConfigStatus'](arg1);
 }
 
+export function GetNodeHealth(arg1) {
+  return window['go']['main']['App']['GetNodeHealth'](arg1);
+}
+
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }

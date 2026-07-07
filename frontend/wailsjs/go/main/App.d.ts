@@ -49,6 +49,8 @@ export function GetNode(arg1:string):Promise<store.CanvasNode>;
 
 export function GetNodeConfigStatus(arg1:string):Promise<deploy.NodeConfigStatus>;
 
+export function GetNodeHealth(arg1:string):Promise<deploy.NodeHealth>;
+
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
 export function GetProjectConnections(arg1:number):Promise<Array<deploy.Connection>>;

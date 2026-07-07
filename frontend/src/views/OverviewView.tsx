@@ -2,13 +2,12 @@ import {ArrowRight, Boxes, FolderPlus, FlaskConical, Layers3} from 'lucide-react
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import ServicePill from '../components/ServicePill';
-import {ActivityPreview, ProjectSummary, SandboxPreview, SERVICE_COLORS, STATUS_COLORS} from '../lib/dashboardData';
+import {ActivityPreview, ProjectSummary, SERVICE_COLORS, STATUS_COLORS} from '../lib/dashboardData';
 import './WorkspaceViews.css';
 
 type OverviewViewProps = {
     loading: boolean;
     projects: ProjectSummary[];
-    sandboxes: SandboxPreview[];
     activity: ActivityPreview[];
     onCreateProject: () => void;
     onOpenProject: (project: store.Project) => void;
@@ -22,6 +21,20 @@ const ACTIVITY_COLORS: Record<ActivityPreview['type'], string> = {
     sandbox: SERVICE_COLORS.worker,
     error: STATUS_COLORS.error,
 };
+
+function formatRelative(ts?: number): string | null {
+    if (!ts) return null;
+    const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (seconds < 5) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'Yesterday';
+    return `${days}d ago`;
+}
 
 function CanvasPreview({project}: {project?: ProjectSummary}) {
     const services = project?.services ?? [
@@ -94,7 +107,6 @@ function CanvasPreview({project}: {project?: ProjectSummary}) {
 export default function OverviewView({
     loading,
     projects,
-    sandboxes,
     activity,
     onCreateProject,
     onOpenProject,
@@ -102,14 +114,13 @@ export default function OverviewView({
     const runningServices = projects.flatMap((project) => project.services).filter((service) => service.status === 'running').length;
     const totalServices = projects.flatMap((project) => project.services).length;
     const activeProjects = projects.filter((project) => project.status !== 'stopped').length;
-    const liveSandboxes = sandboxes.filter((sandbox) => sandbox.status === 'running').length;
     const highlighted = projects[0];
 
     return (
         <div className="workspace-view">
             <PageHeader
                 title="Overview"
-                description="A calmer control surface for local environments, ports, and upcoming sandboxes."
+                description="A calmer control surface for local environments, ports, and deployments."
                 action={
                     <button className="btn btn-primary" onClick={onCreateProject}>
                         <FolderPlus size={15}/> Add project
@@ -128,11 +139,6 @@ export default function OverviewView({
                         <div className="metric-label">Services</div>
                         <div className="metric-value">{loading ? '...' : totalServices}</div>
                         <div className="metric-subtle">{runningServices} running</div>
-                    </div>
-                    <div className="metric-card">
-                        <div className="metric-label">Sandboxes</div>
-                        <div className="metric-value">{sandboxes.length}</div>
-                        <div className="metric-subtle">{liveSandboxes} live preview</div>
                     </div>
                 </div>
 
@@ -203,18 +209,25 @@ export default function OverviewView({
                         <div className="panel-header">
                             <div>
                                 <h2 className="panel-title">Recent activity</h2>
-                                <p className="panel-description">This is currently a frontend preview fed from project metadata.</p>
+                                <p className="panel-description">Live deploy and Docker events from this machine.</p>
                             </div>
                         </div>
                         <div className="activity-list">
-                            {activity.map((item) => (
-                                <div key={item.id} className="activity-row">
-                                    <span className="activity-dot" style={{background: ACTIVITY_COLORS[item.type]}}/>
-                                    <span className="activity-time">{item.time}</span>
-                                    <span className="activity-project">{item.project}</span>
-                                    <span className="activity-message">{item.message}</span>
+                            {activity.length === 0 ? (
+                                <div className="panel-empty">
+                                    <Boxes size={18}/>
+                                    <span>No activity yet. Deploy a service to populate the feed.</span>
                                 </div>
-                            ))}
+                            ) : (
+                                activity.map((item) => (
+                                    <div key={item.id} className="activity-row">
+                                        <span className="activity-dot" style={{background: ACTIVITY_COLORS[item.type]}}/>
+                                        <span className="activity-time">{formatRelative(item.ts) ?? item.time}</span>
+                                        <span className="activity-project">{item.project}</span>
+                                        <span className="activity-message">{item.message}</span>
+                                    </div>
+                                ))
+                            )}
                         </div>
                     </section>
 

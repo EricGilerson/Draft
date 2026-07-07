@@ -103,6 +103,43 @@
     box-shadow: 0 0 0 3px rgba(212, 184, 132, 0.12);
 }
 
+.service-node-health {
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px rgba(8, 9, 7, 0.6);
+}
+
+.service-node-health--healthy {
+    background: var(--green);
+}
+
+.service-node-health--unhealthy {
+    background: var(--red);
+}
+
+.service-node-health--starting {
+    background: var(--yellow);
+}
+
+.service-node-url {
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    font-weight: 600;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+    opacity: 0.85;
+}
+
+.service-node--running .service-node-url {
+    color: var(--accent-text);
+    opacity: 1;
+}
+
 .service-node-env-handle {
     width: 1px !important;
     height: 1px !important;

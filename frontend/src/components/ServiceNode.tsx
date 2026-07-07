@@ -11,7 +11,39 @@ type ServiceNodeData = {
     iconColor?: string;
     volumeCount?: number;
     hasReferenceIssues?: boolean;
+    health?: string;
+    hostPort?: number;
+    publicUrl?: string;
 };
+
+function healthClass(health?: string): string {
+    switch (health) {
+        case 'healthy':
+            return 'service-node-health--healthy';
+        case 'unhealthy':
+            return 'service-node-health--unhealthy';
+        case 'starting':
+            return 'service-node-health--starting';
+        default:
+            return '';
+    }
+}
+
+function hostLabel(publicUrl?: string, hostPort?: number): string | null {
+    let host: string | undefined;
+    if (publicUrl) {
+        try {
+            const u = new URL(publicUrl);
+            host = u.hostname;
+        } catch {
+            host = publicUrl.replace(/^https?:\/\//, '').split('/')[0];
+        }
+    }
+    if (host && hostPort) return `:${hostPort} · ${host}`;
+    if (host) return host;
+    if (hostPort) return `:${hostPort}`;
+    return null;
+}
 
 export default function ServiceNode({data}: NodeProps) {
     const d = data as ServiceNodeData;
@@ -20,6 +52,9 @@ export default function ServiceNode({data}: NodeProps) {
     const icon = d.icon;
     const volumeCount = d.volumeCount ?? 0;
     const hasReferenceIssues = d.hasReferenceIssues ?? false;
+    const health = d.health;
+    const url = hostLabel(d.publicUrl, d.hostPort);
+    const chipClass = healthClass(health);
 
     return (
         <div className={`service-node service-node--${status}`}>
@@ -64,6 +99,12 @@ export default function ServiceNode({data}: NodeProps) {
             <div className="service-node-info">
                 <span className="service-node-name">{label}</span>
                 <span className="service-node-status-row">
+                    {chipClass && (
+                        <span
+                            className={`service-node-health ${chipClass}`}
+                            title={`Docker health: ${health}`}
+                        />
+                    )}
                     <span className="service-node-status">{status}</span>
                     {volumeCount > 0 && (
                         <span className="service-node-volumes" title={`${volumeCount} volume${volumeCount === 1 ? '' : 's'}`}>
@@ -72,6 +113,9 @@ export default function ServiceNode({data}: NodeProps) {
                         </span>
                     )}
                 </span>
+                {url && (
+                    <span className="service-node-url" title={url}>{url}</span>
+                )}
             </div>
         </div>
     );

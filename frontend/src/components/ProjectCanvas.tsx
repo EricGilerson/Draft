@@ -19,6 +19,7 @@ import {
     DeleteNode,
     GetDeployments,
     GetNodeConfigStatus,
+    GetNodeHealth,
     GetProjectConnections,
     ListManagedVolumes,
     ListNodes,
@@ -64,6 +65,9 @@ type ServiceNodeData = {
     iconColor?: string;
     volumeCount?: number;
     hasReferenceIssues?: boolean;
+    health?: string;
+    hostPort?: number;
+    publicUrl?: string;
 };
 
 const VOLUME_OFFSET_X = 208;
@@ -198,6 +202,37 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
             })),
         );
     }, [project.id, setServiceNodes]);
+
+    const refreshNodeHealth = useCallback(async (nodeIds: string[]) => {
+        if (nodeIds.length === 0) return;
+        const results = await Promise.all(
+            nodeIds.map(async (id) => {
+                try {
+                    const h = await GetNodeHealth(id);
+                    return [id, h] as const;
+                } catch {
+                    return [id, null] as const;
+                }
+            }),
+        );
+        setServiceNodes((prev) =>
+            prev.map((n) => {
+                const entry = results.find(([id]) => id === n.id);
+                if (!entry) return n;
+                const h = entry[1];
+                if (!h) return n;
+                return {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        health: h.dockerHealth || undefined,
+                        hostPort: h.hostPort || undefined,
+                        publicUrl: h.publicUrl || undefined,
+                    },
+                };
+            }),
+        );
+    }, [setServiceNodes]);
 
     const refreshReferenceIssueNodes = useCallback(() => {
         ListNodesWithReferenceIssues(project.id)
@@ -374,9 +409,10 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
             );
             setServiceNodes(flowNodes);
             refreshVolumeMounts(flowNodes.map((n) => n.id));
+            refreshNodeHealth(flowNodes.map((n) => n.id));
             refreshReferenceIssueNodes();
         });
-    }, [project.id, setServiceNodes, templates, refreshVolumeMounts, refreshReferenceIssueNodes]);
+    }, [project.id, setServiceNodes, templates, refreshVolumeMounts, refreshNodeHealth, refreshReferenceIssueNodes]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -434,9 +470,13 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                         : n,
                 ),
             );
+            // Refresh health/URL once the container is up or on its way up.
+            if (deployStatus === 'running' || deployStatus === 'starting' || deployStatus === 'stopped' || deployStatus === 'failed') {
+                refreshNodeHealth([nodeId]);
+            }
         });
         return unsubscribe;
-    }, [setServiceNodes, volumeMountsByNode]);
+    }, [setServiceNodes, volumeMountsByNode, refreshNodeHealth]);
 
     const handleNodesChange = useCallback(
         (changes: NodeChange[]) => {

@@ -351,17 +351,42 @@ export namespace deploy {
 	        this.delete = source["delete"];
 	    }
 	}
+	export class NodeHealth {
+	    nodeId: string;
+	    status: string;
+	    dockerHealth: string;
+	    hostPort: number;
+	    hostname: string;
+	    internalUrl: string;
+	    publicUrl: string;
+
+	    static createFrom(source: any = {}) {
+	        return new NodeHealth(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.status = source["status"];
+	        this.dockerHealth = source["dockerHealth"];
+	        this.hostPort = source["hostPort"];
+	        this.hostname = source["hostname"];
+	        this.internalUrl = source["internalUrl"];
+	        this.publicUrl = source["publicUrl"];
+	    }
+	}
+
 	export class NodeConfigStatus {
 	    appliedSettings: Record<string, string>;
 	    stagedSettings: Record<string, string>;
 	    stagedEnvChanges: StagedEnvVarChange[];
 	    hasStagedChanges: boolean;
 	    activeDeploymentStatus: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new NodeConfigStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.appliedSettings = source["appliedSettings"];

@@ -529,6 +529,20 @@ func (a *App) GetServiceMetrics(nodeID string) (deploy.ServiceMetrics, error) {
 	return c.GetServiceMetrics(a.ctx, nodeID)
 }
 
+// GetNodeHealth returns a lightweight health + URL snapshot for a service node
+// (one Docker inspect, no reachability probe). Used by the canvas to render a
+// health chip and a clickable URL on each node without the full metrics call.
+func (a *App) GetNodeHealth(nodeID string) (deploy.NodeHealth, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return deploy.NodeHealth{}, err
+	}
+	if c == nil {
+		return deploy.NodeHealth{}, errNoStore
+	}
+	return c.GetNodeHealth(a.ctx, nodeID)
+}
+
 // CheckDocker returns the last known Docker daemon status from the watcher.
 // The frontend calls this once on mount for an immediate value, then relies on
 // the "docker:status" Wails event for subsequent changes (no polling).

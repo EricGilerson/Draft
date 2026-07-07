@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {FlaskConical, LayoutDashboard} from 'lucide-react';
+import {FlaskConical} from 'lucide-react';
 import './App.css';
 import {ListProjects, ListProjectServices} from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
@@ -10,8 +10,10 @@ import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
+import {useActivityLog} from './lib/useActivityLog';
 import ProjectCanvas from './components/ProjectCanvas';
 import ProjectsView from './views/ProjectsView';
+import OverviewView from './views/OverviewView';
 import SettingsView from './views/SettingsView';
 import TemplatesView from './views/TemplatesView';
 import VolumesView from './views/VolumesView';
@@ -72,6 +74,7 @@ function App() {
     }, [refreshProjectServices]);
 
     const summaries = useMemo(() => decorateProjects(projects, servicesByProject), [projects, servicesByProject]);
+    const activity = useActivityLog(projects, servicesByProject);
     const handleSelectView = (next: NavId) => {
         setView(next);
         if (next === 'projects') {
@@ -127,14 +130,13 @@ function App() {
                                 onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
                             />
                         ) : view === 'overview' ? (
-                            <div className="view-center">
-                                <EmptyState
-                                    icon={LayoutDashboard}
-                                    title="Overview"
-                                    description="Dashboard UI will come back once the underlying behavior exists."
-                                    chip="Coming soon"
-                                />
-                            </div>
+                            <OverviewView
+                                loading={loading}
+                                projects={summaries}
+                                activity={activity}
+                                onCreateProject={() => setDialogOpen(true)}
+                                onOpenProject={openProject}
+                            />
                         ) : view === 'projects' ? (
                             <ProjectsView
                                 loading={loading}

@@ -18,7 +18,7 @@ type TickerEntry = {
 
 let nextId = 0;
 
-function summarize(ev: DockerEvent): string | null {
+export function summarize(ev: DockerEvent): string | null {
     const label = ev.name || ev.actor?.slice(0, 12) || '';
     const img = ev.image || '';
 

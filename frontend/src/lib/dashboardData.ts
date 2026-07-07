@@ -36,6 +36,7 @@ export type ActivityPreview = {
     project: string;
     message: string;
     type: 'start' | 'stop' | 'port' | 'env' | 'sandbox' | 'error';
+    ts?: number;
 };
 
 export const SERVICE_COLORS: Record<ServiceType, string> = {

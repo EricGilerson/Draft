@@ -195,6 +195,12 @@ func (c *Client) GetServiceMetrics(ctx context.Context, nodeID string) (deploy.S
 	return out, err
 }
 
+func (c *Client) GetNodeHealth(ctx context.Context, nodeID string) (deploy.NodeHealth, error) {
+	var out deploy.NodeHealth
+	err := c.get(ctx, "/node/health?nodeId="+url.QueryEscape(nodeID), &out)
+	return out, err
+}
+
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)
