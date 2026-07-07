@@ -158,6 +158,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
 	mux.HandleFunc("/node/delete", s.handleDeleteService)
 	mux.HandleFunc("/node/reapply-template", s.handleReapplyTemplate)
+	mux.HandleFunc("/rollback", s.handleRollback)
+	mux.HandleFunc("/deployments/rollback-eligible", s.handleRollbackEligible)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
 	mux.HandleFunc("/node/config-status", s.handleNodeConfigStatus)
 	mux.HandleFunc("/node/stage-settings", s.handleStageNodeSettings)
@@ -250,6 +252,33 @@ func (s *Server) handleReapplyTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, result)
+}
+
+func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeploymentID uint `json:"deploymentId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if err := s.engine.RollbackDeployment(r.Context(), req.DeploymentID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleRollbackEligible(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	items, err := s.engine.RollbackEligibility(r.Context(), req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, items)
 }
 
 func (s *Server) handlePreviewDeleteService(w http.ResponseWriter, r *http.Request) {

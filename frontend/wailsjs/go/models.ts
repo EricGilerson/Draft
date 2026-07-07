@@ -376,6 +376,25 @@ export namespace deploy {
 	    }
 	}
 
+	export class RollbackEligibility {
+	    deploymentId: number;
+	    eligible: boolean;
+	    method: string;
+	    reason: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RollbackEligibility(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deploymentId = source["deploymentId"];
+	        this.eligible = source["eligible"];
+	        this.method = source["method"];
+	        this.reason = source["reason"];
+	    }
+	}
+
 	export class NodeConfigStatus {
 	    appliedSettings: Record<string, string>;
 	    stagedSettings: Record<string, string>;

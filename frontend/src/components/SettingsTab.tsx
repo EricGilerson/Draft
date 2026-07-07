@@ -766,6 +766,29 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             </div>
             )}
 
+            {/* ── Deployment Retention (build mode only) ── */}
+            {!isImageMode && (
+            <div className="settings-section">
+                <h3 className="settings-section-title">Deployment Retention</h3>
+                <div className="form-field">
+                    <label className="form-label">Keep images</label>
+                    <span className="settings-hint">
+                        How many historical build images to keep on disk for rollback. Image-mode services are always re-pullable and ignore this.
+                    </span>
+                    <select
+                        className="input settings-select"
+                        value={getSetting('keep_images') || 'last'}
+                        onChange={(e) => saveSetting('keep_images', e.target.value)}
+                    >
+                        <option value="last">Last (keep N-1 — one rollback, ~2× disk)</option>
+                        <option value="none">None (minimal disk, no rollback)</option>
+                        <option value="all">All (full rollback history, most disk)</option>
+                    </select>
+                    {stagingNoteFor('keep_images')}
+                </div>
+            </div>
+            )}
+
             {/* ── Networking ── */}
             <div className="settings-section">
                 <h3 className="settings-section-title">Networking</h3>
@@ -815,6 +838,37 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         </span>
                     )}
                 </div>
+                <div className="form-field">
+                    <label className="form-label">Route protocol</label>
+                    <span className="settings-hint">
+                        HTTP services are fronted by Draft&apos;s proxy on an ephemeral host port. TCP services (e.g. databases) bind a stable host port directly so clients can reach <code>localhost:&lt;port&gt;</code>.
+                    </span>
+                    <select
+                        className="input settings-select"
+                        value={getSetting('route_protocol') || 'http'}
+                        onChange={(e) => saveSetting('route_protocol', e.target.value)}
+                    >
+                        <option value="http">HTTP (proxied)</option>
+                        <option value="tcp">TCP (stable host port)</option>
+                    </select>
+                    {stagingNoteFor('route_protocol')}
+                </div>
+                {(getSetting('route_protocol') || 'http') === 'tcp' && (
+                    <div className="form-field">
+                        <label className="form-label">Host port</label>
+                        <span className="settings-hint">Preferred host port to bind (e.g. 5432). Leave 0/empty for auto-assign. Draft reuses the same port across redeploys when it&apos;s free.</span>
+                        <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            max={65535}
+                            value={getSetting('host_port') || ''}
+                            onChange={(e) => saveSetting('host_port', e.target.value)}
+                            placeholder="0 (auto)"
+                        />
+                        {stagingNoteFor('host_port')}
+                    </div>
+                )}
             </div>
 
             {/* ── Runtime Command ── */}

@@ -207,6 +207,16 @@ func (c *Client) ReapplyTemplate(ctx context.Context, nodeID string) (deploy.Cre
 	return out, err
 }
 
+func (c *Client) RollbackDeployment(ctx context.Context, deploymentID uint) error {
+	return c.postJSON(ctx, "/rollback", map[string]any{"deploymentId": deploymentID}, nil)
+}
+
+func (c *Client) RollbackEligibility(ctx context.Context, nodeID string) ([]deploy.RollbackEligibility, error) {
+	var out []deploy.RollbackEligibility
+	err := c.postJSON(ctx, "/deployments/rollback-eligible", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)

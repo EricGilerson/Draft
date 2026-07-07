@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +49,19 @@ func (e *Engine) startContainerAndRegister(
 	environment := addr.Environment
 	hostname := addr.InternalHostname
 
+	// Route protocol: "http" (default, proxied, ephemeral host port) or "tcp"
+	// (stable host port bound directly — used by datastores that need a
+	// predictable localhost:5432). For TCP the port must be leased and the
+	// route created BEFORE ContainerCreate so the container can bind to that
+	// specific host port; for HTTP the port is ephemeral and the route is
+	// registered after readiness below.
+	protocol := strings.TrimSpace(settings["route_protocol"])
+	if protocol == "" {
+		protocol = "http"
+	}
+	isTCP := protocol == "tcp"
+	preferPort, _ := strconv.Atoi(strings.TrimSpace(settings["host_port"]))
+
 	e.emitBuildLog(nodeID, "==> Creating container...")
 	dep.Status = "starting"
 	dep.LastSeenAt = ptrTime(time.Now())
@@ -57,6 +71,40 @@ func (e *Engine) startContainerAndRegister(
 	containerPort := nat.Port(portStr + "/tcp")
 	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.Sequence)
 	networkName := draftNetworkName(node.ProjectID, projectName, environment)
+
+	// For TCP, lease the host port and create the route up front so we can bind
+	// the container to it. On any failure after this point, the deferred
+	// cleanup unregisters the pre-registered route and frees the lease.
+	preRegisteredHostname := ""
+	preRegisteredHostPort := 0
+	succeeded := false
+	if isTCP {
+		reg, err := e.router.Register(networking.RegisterRequest{
+			Service:     serviceName,
+			Project:     projectName,
+			ProjectID:   node.ProjectID,
+			NodeID:      nodeID,
+			UID:         uid,
+			Environment: environment,
+			Protocol:    "tcp",
+			TargetHost:  "127.0.0.1",
+			TargetPort:  atoiPort(portStr),
+			PreferPort:  preferPort,
+		})
+		if err != nil {
+			e.failDeployment(dep, nodeID, "tcp port lease failed: "+err.Error())
+			return
+		}
+		preRegisteredHostname = reg.Hostname
+		preRegisteredHostPort = reg.HostPort
+		e.emitBuildLog(nodeID, fmt.Sprintf("    TCP route: %s → 127.0.0.1:%d", reg.Hostname, reg.HostPort))
+	}
+	defer func() {
+		if preRegisteredHostname != "" && !succeeded {
+			_ = e.router.Unregister(preRegisteredHostname)
+		}
+	}()
+
 	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
 		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())
 		return
@@ -115,9 +163,16 @@ func (e *Engine) startContainerAndRegister(
 		containerCfg.StopTimeout = overrides.StopTimeout
 	}
 
+	// For TCP the container binds directly to the leased host port; for HTTP
+	// the proxy fronts an ephemeral host port (Docker picks one).
+	hostPortBinding := "0"
+	if isTCP && preRegisteredHostPort > 0 {
+		hostPortBinding = strconv.Itoa(preRegisteredHostPort)
+	}
+
 	hostCfg := &container.HostConfig{
 		PortBindings: nat.PortMap{
-			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: "0"}},
+			containerPort: []nat.PortBinding{{HostIP: "127.0.0.1", HostPort: hostPortBinding}},
 		},
 		RestartPolicy:  overrides.RestartPolicy,
 		Resources:      overrides.Resources,
@@ -185,23 +240,30 @@ func (e *Engine) startContainerAndRegister(
 	}
 	e.emitBuildLog(nodeID, "    Ready")
 
-	e.emitBuildLog(nodeID, "==> Registering route...")
-	regResult, err := e.router.Register(networking.RegisterRequest{
-		Service:     serviceName,
-		Project:     projectName,
-		ProjectID:   node.ProjectID,
-		NodeID:      nodeID,
-		UID:         uid,
-		Environment: environment,
-		Protocol:    "http",
-		TargetHost:  "127.0.0.1",
-		TargetPort:  hostPort,
-	})
-	if err != nil {
-		log.Printf("[deploy] route registration failed (non-fatal): %v", err)
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
-	} else if regResult != nil {
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Route: %s → 127.0.0.1:%d", regResult.Hostname, hostPort))
+	// HTTP routes are registered now (after readiness) with the ephemeral host
+	// port the proxy forwards to. TCP routes were pre-registered before
+	// ContainerCreate so the container could bind to the leased port.
+	routeHostname := preRegisteredHostname
+	if !isTCP {
+		e.emitBuildLog(nodeID, "==> Registering route...")
+		regResult, err := e.router.Register(networking.RegisterRequest{
+			Service:     serviceName,
+			Project:     projectName,
+			ProjectID:   node.ProjectID,
+			NodeID:      nodeID,
+			UID:         uid,
+			Environment: environment,
+			Protocol:    "http",
+			TargetHost:  "127.0.0.1",
+			TargetPort:  hostPort,
+		})
+		if err != nil {
+			log.Printf("[deploy] route registration failed (non-fatal): %v", err)
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
+		} else if regResult != nil {
+			routeHostname = regResult.Hostname
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Route: %s → 127.0.0.1:%d", regResult.Hostname, hostPort))
+		}
 	}
 
 	dep.Status = "running"
@@ -210,8 +272,8 @@ func (e *Engine) startContainerAndRegister(
 	dep.ContainerStoppedAt = nil
 	dep.FinishedAt = nil
 	dep.LastSeenAt = ptrTime(time.Now())
-	if regResult != nil {
-		dep.Hostname = regResult.Hostname
+	if routeHostname != "" {
+		dep.Hostname = routeHostname
 	}
 	e.store.UpdateDeployment(dep)
 
@@ -235,6 +297,8 @@ func (e *Engine) startContainerAndRegister(
 	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
 	e.promoteStagedAfterSuccessfulDeploy(ctx, nodeID, node.ProjectID)
+
+	succeeded = true
 
 	e.emitStatus(nodeID, StatusEvent{
 		DeploymentID: dep.ID,
@@ -488,4 +552,10 @@ func (e *Engine) imageExistsLocally(ctx context.Context, cli *client.Client, ima
 		return false
 	}
 	return len(summary) > 0
+}
+
+// atoiPort parses a port string to an int, returning 0 for empty/invalid input.
+func atoiPort(s string) int {
+	n, _ := strconv.Atoi(strings.TrimSpace(s))
+	return n
 }

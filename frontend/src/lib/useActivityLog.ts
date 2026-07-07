@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
-import {EventsOn} from '../wailsjs/runtime/runtime';
-import {main, store} from '../wailsjs/go/models';
+import {EventsOn} from '../../wailsjs/runtime/runtime';
+import {main, store} from '../../wailsjs/go/models';
 import {summarize as summarizeDocker} from '../components/ActivityTicker';
 import {ActivityPreview} from './dashboardData';
 

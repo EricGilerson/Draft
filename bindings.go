@@ -582,6 +582,32 @@ func (a *App) ReapplyTemplate(nodeID string) (deploy.CreateNodeFromTemplateResul
 	return c.ReapplyTemplate(a.ctx, nodeID)
 }
 
+// RollbackDeployment re-runs a historical deployment's image, creating a new
+// deployment row visible in history.
+func (a *App) RollbackDeployment(deploymentID uint) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RollbackDeployment(a.ctx, deploymentID)
+}
+
+// RollbackEligibility reports per-deployment whether rollback is possible and
+// why, so the UI can enable/disable per-row redeploy buttons.
+func (a *App) RollbackEligibility(nodeID string) ([]deploy.RollbackEligibility, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.RollbackEligibility(a.ctx, nodeID)
+}
+
 // CheckDocker returns the last known Docker daemon status from the watcher.
 // The frontend calls this once on mount for an immediate value, then relies on
 // the "docker:status" Wails event for subsequent changes (no polling).

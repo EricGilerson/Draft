@@ -1264,6 +1264,21 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 		settings = nil
 	}
 	stopTimeout := stopTimeoutForSettings(settings)
+	keepImages := keepImagesPolicy(settings)
+
+	// The most-recent previous deployment (highest created_at that isn't the
+	// one that just cut over) is the N-1 we keep an image of when the policy is
+	// "last", so the user can roll back to what was running a moment ago. All
+	// older images are still GC'd every deploy.
+	prevKeptID := uint(0)
+	if keepImages == keepImagesLast {
+		for _, d := range deployments {
+			if d.ID != currentID {
+				prevKeptID = d.ID
+				break
+			}
+		}
+	}
 
 	for _, d := range deployments {
 		if d.ID == currentID {
@@ -1288,8 +1303,17 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 			}
 		}
 
-		// Always remove old images from previous deployments.
-		if d.ImageTag != "" {
+		// Image retention. "all" keeps every image; "last" keeps only the N-1
+		// image (prevKeptID); "none" removes every prior image (the pre-rollback
+		// behavior). Container cleanup above always runs regardless of policy.
+		keepThisImage := false
+		switch keepImages {
+		case keepImagesAll:
+			keepThisImage = true
+		case keepImagesLast:
+			keepThisImage = d.ID == prevKeptID
+		}
+		if !keepThisImage && d.ImageTag != "" {
 			_ = removeImageAndWait(ctx, cli, d.ImageTag)
 		}
 	}

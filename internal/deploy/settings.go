@@ -291,3 +291,26 @@ func splitCSV(s string) []string {
 	return result
 }
 
+// Image retention policy for rollback support. Stored on node_settings under
+// "keep_images". Local disk is finite, so unlike hosted PaaSes we can't keep
+// every historical build image — see the rollback design in the plan.
+const (
+	keepImagesLast = "last" // default: keep only N-1 (the immediately previous image)
+	keepImagesNone = "none" // current behavior: remove every prior image on cutover
+	keepImagesAll  = "all"  // keep every image (power users with disk to spare)
+)
+
+// keepImagesPolicy coerces the setting to one of the recognized values,
+// defaulting to keepImagesLast (the 95% rollback case: "the deploy I just did
+// is broken, go back to what was running 5 minutes ago").
+func keepImagesPolicy(settings map[string]string) string {
+	switch strings.TrimSpace(strings.ToLower(settings["keep_images"])) {
+	case keepImagesNone:
+		return keepImagesNone
+	case keepImagesAll:
+		return keepImagesAll
+	default:
+		return keepImagesLast
+	}
+}
+

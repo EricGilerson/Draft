@@ -190,6 +190,14 @@ export function ReapplyTemplate(arg1) {
   return window['go']['main']['App']['ReapplyTemplate'](arg1);
 }
 
+export function RollbackDeployment(arg1) {
+  return window['go']['main']['App']['RollbackDeployment'](arg1);
+}
+
+export function RollbackEligibility(arg1) {
+  return window['go']['main']['App']['RollbackEligibility'](arg1);
+}
+
 export function RotateEnvSecret(arg1, arg2) {
   return window['go']['main']['App']['RotateEnvSecret'](arg1, arg2);
 }

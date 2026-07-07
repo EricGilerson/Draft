@@ -101,6 +101,10 @@ export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTempla
 
 export function RestartService(arg1:string):Promise<void>;
 
+export function RollbackDeployment(arg1:number):Promise<void>;
+
+export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
+
 export function RotateEnvSecret(arg1:string,arg2:string):Promise<string>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
