@@ -12,7 +12,7 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Maximize2, Minus, Plus, PlusCircle} from 'lucide-react';
+import {Maximize2, Minus, Plus, PlusCircle, Settings} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
@@ -54,6 +54,7 @@ type ProjectCanvasProps = {
     /** Called once initialVolumeFocus has been consumed so the parent can clear
      * it (a focus should fire once, not on every re-render). */
     onVolumeFocusApplied?: () => void;
+    onOpenProjectSettings?: () => void;
 };
 
 type ServiceNodeData = {
@@ -126,7 +127,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -632,6 +633,15 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 </div>
 
                 <div className="canvas-add-wrapper">
+                    {onOpenProjectSettings && (
+                        <button
+                            className="btn btn-ghost canvas-settings-btn"
+                            onClick={onOpenProjectSettings}
+                            title="Project settings"
+                        >
+                            <Settings size={15}/> Project settings
+                        </button>
+                    )}
                     <button className="btn btn-primary canvas-add-btn" onClick={openCreate}>
                         <PlusCircle size={15}/> Add Service
                     </button>

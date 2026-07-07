@@ -1,4 +1,4 @@
-import {ArrowRight, Boxes, ChevronRight, FolderPlus} from 'lucide-react';
+import {ArrowRight, Boxes, ChevronRight, FolderPlus, Settings} from 'lucide-react';
 import {useState} from 'react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
@@ -11,9 +11,10 @@ type ProjectsViewProps = {
     projects: ProjectSummary[];
     onCreateProject: () => void;
     onOpenProject: (project: store.Project) => void;
+    onOpenProjectSettings?: (project: store.Project) => void;
 };
 
-export default function ProjectsView({loading, projects, onCreateProject, onOpenProject}: ProjectsViewProps) {
+export default function ProjectsView({loading, projects, onCreateProject, onOpenProject, onOpenProjectSettings}: ProjectsViewProps) {
     const [expanded, setExpanded] = useState<number | null>(projects[0]?.project.id ?? null);
 
     return (
@@ -94,6 +95,15 @@ export default function ProjectsView({loading, projects, onCreateProject, onOpen
                                                 <button className="btn btn-ghost project-card-open" onClick={() => onOpenProject(project.project)}>
                                                     Open canvas <ArrowRight size={14}/>
                                                 </button>
+                                                {onOpenProjectSettings && (
+                                                    <button
+                                                        className="btn btn-ghost project-card-settings"
+                                                        onClick={(e) => { e.stopPropagation(); onOpenProjectSettings(project.project); }}
+                                                        title="Project settings"
+                                                    >
+                                                        <Settings size={14}/> Settings
+                                                    </button>
+                                                )}
                                             </div>
                                             <p className="project-card-path">{project.project.path}</p>
                                         </div>

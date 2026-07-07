@@ -100,3 +100,53 @@ func (s *Store) ListProjects() ([]Project, error) {
 	}
 	return projects, nil
 }
+
+// UpdateProject edits a project's identity (name/description). Path is not
+// editable here — it's the project's on-disk identity and changing it would
+// orphan every service root, git repo, and .env path resolved against it.
+func (s *Store) UpdateProject(id uint, name, description string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ErrInvalidProject
+	}
+	return s.DB.Model(&Project{}).Where("id = ?", id).Updates(map[string]any{
+		"name":        name,
+		"description": strings.TrimSpace(description),
+	}).Error
+}
+
+// DeleteProject cascades a project out of the store: every node and its
+// settings/env/deployments, every route and port lease, project-level env
+// vars, and finally the project row. The caller (engine) is responsible for
+// stopping containers and removing Docker volumes/images first; this only
+// handles the DB side.
+func (s *Store) DeleteProject(id uint) error {
+	nodes, err := s.ListNodes(id)
+	if err != nil {
+		return err
+	}
+	for _, n := range nodes {
+		if err := s.DeleteNode(n.ID); err != nil {
+			return err
+		}
+		if err := s.DeleteNodeSettings(n.ID); err != nil {
+			return err
+		}
+		if err := s.DeleteEnvVarsByNode(n.ID); err != nil {
+			return err
+		}
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&Deployment{}).Error; err != nil {
+		return err
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&Route{}).Error; err != nil {
+		return err
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&PortLease{}).Error; err != nil {
+		return err
+	}
+	if err := s.DeleteProjectEnvVars(id); err != nil {
+		return err
+	}
+	return s.DB.Delete(&Project{}, "id = ?", id).Error
+}

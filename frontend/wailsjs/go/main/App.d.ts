@@ -29,6 +29,8 @@ export function DeleteNode(arg1:string):Promise<void>;
 
 export function DeleteServiceTemplate(arg1:number):Promise<void>;
 
+export function DeleteProject(arg1:number):Promise<void>;
+
 export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
@@ -81,6 +83,8 @@ export function ListProjectServices(arg1:number):Promise<Array<main.ProjectServi
 
 export function ListProjects():Promise<Array<store.Project>>;
 
+export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
+
 export function ListReferenceIssues(arg1:string):Promise<Array<deploy.ReferenceIssue>>;
 
 export function ListReferenceTargets(arg1:string):Promise<Array<deploy.ReferenceTarget>>;
@@ -109,6 +113,8 @@ export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEl
 
 export function RotateEnvSecret(arg1:string,arg2:string):Promise<string>;
 
+export function RotateProjectEnvSecret(arg1:number,arg2:string):Promise<string>;
+
 export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
@@ -127,9 +133,15 @@ export function SetEnvVarSecret(arg1:string,arg2:string,arg3:boolean):Promise<vo
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetProjectEnvVar(arg1:number,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<void>;
+
+export function SetProjectEnvVarSecret(arg1:number,arg2:string,arg3:boolean):Promise<void>;
+
 export function SetRedeployOnPull(arg1:string,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetServiceRoot(arg1:string,arg2:number,arg3:string):Promise<void>;
+
+export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
 
 export function StageEnvVarChanges(arg1:string,arg2:Array<store.EnvVarStageUpsert>,arg3:Array<string>):Promise<void>;
 
@@ -146,5 +158,7 @@ export function StopService(arg1:string):Promise<void>;
 export function SuggestEnvFile(arg1:string,arg2:number):Promise<string>;
 
 export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;
+
+export function UpdateProject(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateServiceTemplate(arg1:store.ServiceTemplate):Promise<void>;

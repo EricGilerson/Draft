@@ -621,6 +621,94 @@ func (a *App) RunCommand(nodeID string, cmd []string, workDir string) (deploy.Ru
 	return c.RunCommand(a.ctx, nodeID, cmd, workDir)
 }
 
+// UpdateProject edits a project's name/description (path is not editable).
+func (a *App) UpdateProject(id uint, name, description string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.UpdateProject(a.ctx, id, name, description)
+}
+
+// DeleteProject removes a project and every service in it. Draft-managed
+// volumes are left in place and surface as orphans in the Volumes tab.
+func (a *App) DeleteProject(id uint) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteProject(a.ctx, id)
+}
+
+// ListProjectEnvVars returns project-level env vars injected into every
+// service in the project at deploy time (as defaults a node var can override).
+func (a *App) ListProjectEnvVars(projectID uint) ([]store.ProjectEnvVar, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListProjectEnvVars(a.ctx, projectID)
+}
+
+// SetProjectEnvVar upserts a project-level env var.
+func (a *App) SetProjectEnvVar(projectID uint, key, value, scope string, secret bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.SetProjectEnvVar(a.ctx, projectID, key, value, scope, secret)
+}
+
+// DeleteProjectEnvVar removes a project-level env var.
+func (a *App) DeleteProjectEnvVar(projectID uint, key string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteProjectEnvVar(a.ctx, projectID, key)
+}
+
+// SetProjectEnvVarSecret toggles the secret flag on a project-level env var.
+func (a *App) SetProjectEnvVarSecret(projectID uint, key string, secret bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.SetProjectEnvVarSecret(a.ctx, projectID, key, secret)
+}
+
+// RotateProjectEnvSecret replaces a project-level secret's value with a fresh
+// random string and redeploys running services in the project. Returns the new
+// value once for the UI to surface to the user.
+func (a *App) RotateProjectEnvSecret(projectID uint, key string) (string, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", errNoStore
+	}
+	return c.RotateProjectEnvSecret(a.ctx, projectID, key)
+}
+
 // DaemonConnection returns the daemon's 127.0.0.1 address and auth token so the
 // frontend can open a direct WebSocket to it (the interactive shell). Browsers
 // cannot set custom headers on a WS handshake, so the token is passed as a query

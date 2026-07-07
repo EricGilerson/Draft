@@ -8,6 +8,7 @@ import DockerIndicator from './components/DockerIndicator';
 import ActivityTicker from './components/ActivityTicker';
 import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
+import ProjectSettingsDialog from './components/ProjectSettingsDialog';
 import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
 import {useActivityLog} from './lib/useActivityLog';
@@ -29,6 +30,7 @@ function App() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
+    const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
 
     const refreshProjectServices = useCallback(async (items: store.Project[]) => {
@@ -110,6 +112,36 @@ function App() {
         setView('projects');
     };
 
+    const openProjectSettings = (project: store.Project) => {
+        setSettingsProject(project);
+    };
+
+    const handleProjectUpdated = () => {
+        refreshProjects().then(() => {
+            if (settingsProject) {
+                const updated = projectsRef.current.find((p) => p.id === settingsProject.id);
+                if (updated) {
+                    setSettingsProject(updated);
+                    setSelectedProject((cur) => (cur?.id === updated.id ? updated : cur));
+                }
+            }
+        });
+    };
+
+    const handleProjectDeleted = (projectId: number) => {
+        setProjects((prev) => {
+            const nextProjects = prev.filter((p) => p.id !== projectId);
+            projectsRef.current = nextProjects;
+            return nextProjects;
+        });
+        setServicesByProject((prev) => {
+            const next = {...prev};
+            delete next[projectId];
+            return next;
+        });
+        setSelectedProject((cur) => (cur?.id === projectId ? null : cur));
+    };
+
     return (
         <BuildLogProvider>
         <div className="app-shell">
@@ -128,6 +160,7 @@ function App() {
                                 onServicesChanged={() => refreshProjectServices(projectsRef.current)}
                                 initialVolumeFocus={pendingVolumeFocus}
                                 onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
+                                onOpenProjectSettings={() => openProjectSettings(selectedProject)}
                             />
                         ) : view === 'overview' ? (
                             <OverviewView
@@ -143,6 +176,7 @@ function App() {
                                 projects={summaries}
                                 onCreateProject={() => setDialogOpen(true)}
                                 onOpenProject={openProject}
+                                onOpenProjectSettings={openProjectSettings}
                             />
                         ) : view === 'sandboxes' ? (
                             <div className="view-center">
@@ -168,6 +202,15 @@ function App() {
                 <CreateProjectDialog
                     onClose={() => setDialogOpen(false)}
                     onCreated={handleProjectCreated}
+                />
+            )}
+
+            {settingsProject && (
+                <ProjectSettingsDialog
+                    project={settingsProject}
+                    onClose={() => setSettingsProject(null)}
+                    onProjectUpdated={handleProjectUpdated}
+                    onProjectDeleted={handleProjectDeleted}
                 />
             )}
         </div>

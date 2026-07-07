@@ -136,6 +136,20 @@ type EnvVar struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// ProjectEnvVar is a project-wide environment variable injected into every
+// service in the project at deploy time, as a default that a node-level var of
+// the same key overrides. Used for shared values (DATABASE_URL, LOG_LEVEL,
+// shared API keys) that would otherwise be copy-pasted across services.
+type ProjectEnvVar struct {
+	ProjectID uint      `gorm:"primaryKey;not null;index" json:"projectId"`
+	Key       string    `gorm:"primaryKey;not null" json:"key"`
+	Value     string    `gorm:"not null" json:"value"`
+	Scope     string    `gorm:"not null;default:'runtime'" json:"scope"` // runtime|build|both
+	Secret    bool      `json:"secret"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // ServiceTemplate is a reusable blueprint for creating a service node. Built-in
 // templates are seeded by the store and are locked (not editable/deletable);
 // users clone them or create their own. The Dockerfile is embedded so a later

@@ -197,6 +197,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	mux.HandleFunc("/exec/attach", s.handleExecAttach)
 	mux.HandleFunc("/exec/run", s.handleExecRun)
+	mux.HandleFunc("/project/update", s.handleUpdateProject)
+	mux.HandleFunc("/project/delete", s.handleDeleteProject)
+	mux.HandleFunc("/project/env", s.handleListProjectEnvVars)
+	mux.HandleFunc("/project/env/set", s.handleSetProjectEnvVar)
+	mux.HandleFunc("/project/env/delete", s.handleDeleteProjectEnvVar)
+	mux.HandleFunc("/project/env/secret", s.handleSetProjectEnvVarSecret)
+	mux.HandleFunc("/project/env/rotate", s.handleRotateProjectEnvVar)
+	mux.HandleFunc("/routes", s.handleListRoutes)
 	return s.auth(mux)
 }
 

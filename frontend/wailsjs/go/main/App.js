@@ -46,6 +46,14 @@ export function DeleteServiceTemplate(arg1) {
   return window['go']['main']['App']['DeleteServiceTemplate'](arg1);
 }
 
+export function DeleteProject(arg1) {
+  return window['go']['main']['App']['DeleteProject'](arg1);
+}
+
+export function DeleteProjectEnvVar(arg1, arg2) {
+  return window['go']['main']['App']['DeleteProjectEnvVar'](arg1, arg2);
+}
+
 export function DeployService(arg1) {
   return window['go']['main']['App']['DeployService'](arg1);
 }
@@ -150,6 +158,10 @@ export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
 
+export function ListProjectEnvVars(arg1) {
+  return window['go']['main']['App']['ListProjectEnvVars'](arg1);
+}
+
 export function ListReferenceIssues(arg1) {
   return window['go']['main']['App']['ListReferenceIssues'](arg1);
 }
@@ -206,6 +218,10 @@ export function RotateEnvSecret(arg1, arg2) {
   return window['go']['main']['App']['RotateEnvSecret'](arg1, arg2);
 }
 
+export function RotateProjectEnvSecret(arg1, arg2) {
+  return window['go']['main']['App']['RotateProjectEnvSecret'](arg1, arg2);
+}
+
 export function RunCommand(arg1, arg2, arg3) {
   return window['go']['main']['App']['RunCommand'](arg1, arg2, arg3);
 }
@@ -236,6 +252,14 @@ export function SetEnvVarScope(arg1, arg2, arg3) {
 
 export function SetEnvVarSecret(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarSecret'](arg1, arg2, arg3);
+}
+
+export function SetProjectEnvVar(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SetProjectEnvVar'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function SetProjectEnvVarSecret(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetProjectEnvVarSecret'](arg1, arg2, arg3);
 }
 
 export function SetNodeSetting(arg1, arg2, arg3) {
@@ -280,6 +304,10 @@ export function SuggestEnvFile(arg1, arg2) {
 
 export function UpdateNode(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateNode'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateProject(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateProject'](arg1, arg2, arg3);
 }
 
 export function UpdateServiceTemplate(arg1) {

@@ -229,6 +229,51 @@ func (c *Client) RunCommand(ctx context.Context, nodeID string, cmd []string, wo
 	return out, err
 }
 
+// UpdateProject edits a project's name/description.
+func (c *Client) UpdateProject(ctx context.Context, id uint, name, description string) error {
+	return c.postJSON(ctx, "/project/update", map[string]any{"id": id, "name": name, "description": description}, nil)
+}
+
+// DeleteProject removes a project and every service in it.
+func (c *Client) DeleteProject(ctx context.Context, id uint) error {
+	return c.postJSON(ctx, "/project/delete", map[string]any{"id": id}, nil)
+}
+
+// ListProjectEnvVars returns project-level env vars (defaults injected into
+// every service in the project at deploy time).
+func (c *Client) ListProjectEnvVars(ctx context.Context, projectID uint) ([]store.ProjectEnvVar, error) {
+	var out []store.ProjectEnvVar
+	err := c.postJSON(ctx, "/project/env", map[string]any{"projectId": projectID}, &out)
+	return out, err
+}
+
+// SetProjectEnvVar upserts a project-level env var.
+func (c *Client) SetProjectEnvVar(ctx context.Context, projectID uint, key, value, scope string, secret bool) error {
+	return c.postJSON(ctx, "/project/env/set", map[string]any{
+		"projectId": projectID, "key": key, "value": value, "scope": scope, "secret": secret,
+	}, nil)
+}
+
+// DeleteProjectEnvVar removes a project-level env var.
+func (c *Client) DeleteProjectEnvVar(ctx context.Context, projectID uint, key string) error {
+	return c.postJSON(ctx, "/project/env/delete", map[string]any{"projectId": projectID, "key": key}, nil)
+}
+
+// SetProjectEnvVarSecret toggles the secret flag on a project-level env var.
+func (c *Client) SetProjectEnvVarSecret(ctx context.Context, projectID uint, key string, secret bool) error {
+	return c.postJSON(ctx, "/project/env/secret", map[string]any{"projectId": projectID, "key": key, "secret": secret}, nil)
+}
+
+// RotateProjectEnvSecret replaces a project-level secret's value and redeploys
+// running services in the project. Returns the new value once.
+func (c *Client) RotateProjectEnvSecret(ctx context.Context, projectID uint, key string) (string, error) {
+	var out struct {
+		Value string `json:"value"`
+	}
+	err := c.postJSON(ctx, "/project/env/rotate", map[string]any{"projectId": projectID, "key": key}, &out)
+	return out.Value, err
+}
+
 func (c *Client) CheckDocker(ctx context.Context) (dockerwatch.DaemonStatus, error) {
 	var out dockerwatch.DaemonStatus
 	return out, c.get(ctx, "/docker", &out)
