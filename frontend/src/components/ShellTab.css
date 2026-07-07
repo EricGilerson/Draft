@@ -1,0 +1,129 @@
+.shell-tab {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.shell-tab-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border, #23282f);
+    flex-shrink: 0;
+}
+
+.shell-shell-label {
+    font-size: 12px;
+    color: var(--text-muted, #8b949e);
+}
+
+.shell-shell-select {
+    width: auto;
+    min-width: 90px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.shell-status {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--surface-2, #1b2127);
+    color: var(--text-muted, #8b949e);
+}
+
+.shell-status--open { color: #3fb950; }
+.shell-status--connecting { color: #d29922; }
+.shell-status--closed { color: var(--text-muted, #8b949e); }
+.shell-status--error { color: #f85149; }
+
+.shell-reconnect {
+    margin-left: auto;
+}
+
+.shell-error {
+    margin: 8px 12px 0;
+}
+
+.shell-term {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 8px 12px;
+    background: #000;
+    overflow: hidden;
+}
+
+.shell-term .xterm {
+    height: 100%;
+    padding: 4px;
+}
+
+.shell-term .xterm-viewport {
+    background-color: transparent !important;
+}
+
+/* ── Run command bar ─────────────────────────────────────────────────────── */
+
+.shell-runbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border, #23282f);
+    flex-shrink: 0;
+}
+
+.shell-run-prompt {
+    font-family: Menlo, Consolas, monospace;
+    color: #3fb950;
+    font-size: 13px;
+}
+
+.shell-run-input {
+    flex: 1 1 auto;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 13px;
+}
+
+.shell-run-workdir {
+    width: 150px;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.shell-run-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.shell-run-output {
+    border-bottom: 1px solid var(--border, #23282f);
+    background: var(--surface-2, #0d1117);
+    max-height: 180px;
+    overflow: auto;
+    padding: 8px 12px;
+    flex-shrink: 0;
+}
+
+.shell-run-exit {
+    font-size: 11px;
+    margin-bottom: 4px;
+    font-family: Menlo, Consolas, monospace;
+}
+
+.shell-run-exit--ok { color: #3fb950; }
+.shell-run-exit--fail { color: #f85149; }
+
+.shell-run-pre {
+    margin: 0;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text, #c9d1d9);
+}

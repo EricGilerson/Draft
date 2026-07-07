@@ -92,6 +92,11 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
+// State returns the daemon's address and auth token. The frontend needs these
+// to open a direct WebSocket to the daemon (e.g. for the interactive shell),
+// since browsers can't attach the X-Draft-Token header to a WS handshake.
+func (c *Client) State() State { return c.state }
+
 func (c *Client) Deploy(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/deploy", nodeID)
 }
@@ -214,6 +219,13 @@ func (c *Client) RollbackDeployment(ctx context.Context, deploymentID uint) erro
 func (c *Client) RollbackEligibility(ctx context.Context, nodeID string) ([]deploy.RollbackEligibility, error) {
 	var out []deploy.RollbackEligibility
 	err := c.postJSON(ctx, "/deployments/rollback-eligible", nodeRequest{NodeID: nodeID}, &out)
+	return out, err
+}
+
+// RunCommand executes a one-shot command in the node's active container.
+func (c *Client) RunCommand(ctx context.Context, nodeID string, cmd []string, workDir string) (deploy.RunCommandResult, error) {
+	var out deploy.RunCommandResult
+	err := c.postJSON(ctx, "/exec/run", map[string]any{"nodeId": nodeID, "cmd": cmd, "workDir": workDir}, &out)
 	return out, err
 }
 

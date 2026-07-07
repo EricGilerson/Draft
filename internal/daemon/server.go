@@ -195,14 +195,24 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/volumes/overview", s.handleVolumesOverview)
 	mux.HandleFunc("/volumes/delete", s.handleDeleteVolume)
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
+	mux.HandleFunc("/exec/attach", s.handleExecAttach)
+	mux.HandleFunc("/exec/run", s.handleExecRun)
 	return s.auth(mux)
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" && r.Header.Get(tokenHeader) != s.state.Token {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
+		// Browsers cannot set custom headers on a WebSocket handshake, so the
+		// interactive-shell endpoints accept the token as a ?token= query param.
+		if r.URL.Path != "/health" {
+			token := r.Header.Get(tokenHeader)
+			if token == "" && strings.HasPrefix(r.URL.Path, "/exec/") {
+				token = r.URL.Query().Get("token")
+			}
+			if token != s.state.Token {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

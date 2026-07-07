@@ -395,6 +395,23 @@ export namespace deploy {
 	    }
 	}
 
+	export class RunCommandResult {
+	    exitCode: number;
+	    output: string;
+	    error: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RunCommandResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.exitCode = source["exitCode"];
+	        this.output = source["output"];
+	        this.error = source["error"];
+	    }
+	}
+
 	export class NodeConfigStatus {
 	    appliedSettings: Record<string, string>;
 	    stagedSettings: Record<string, string>;
@@ -757,17 +774,31 @@ export namespace main {
 	    commitForeign: boolean;
 	    pushForeign: boolean;
 	    pullForeign: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new GitHookStatus(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.supported = source["supported"];
 	        this.commitForeign = source["commitForeign"];
 	        this.pushForeign = source["pushForeign"];
 	        this.pullForeign = source["pullForeign"];
+	    }
+	}
+	export class DaemonConnectionInfo {
+	    addr: string;
+	    token: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DaemonConnectionInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.addr = source["addr"];
+	        this.token = source["token"];
 	    }
 	}
 	export class ProjectService {

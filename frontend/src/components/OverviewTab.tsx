@@ -1,11 +1,12 @@
-import {Play, Square, RotateCcw, ExternalLink, AlertCircle, Loader2} from 'lucide-react';
+import {Play, Square, RotateCcw, ExternalLink, AlertCircle, Loader2, Terminal} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
     GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
+    RunCommand,
 } from '../../wailsjs/go/main/App';
-import {networking, store} from '../../wailsjs/go/models';
+import {networking, store, deploy} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
@@ -23,6 +24,15 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {lines: buildLines, deploying, version, pendingAction, setPendingAction, uploadProgress} = useBuildLog(nodeId);
+
+    // One-shot "Run" bar: execute a command in the running container without
+    // switching to the Shell tab (handy for `npm run migrate`, `rails db:seed`).
+    const [runCmd, setRunCmd] = useState('');
+    const [runWorkDir, setRunWorkDir] = useState('');
+    const [runRunning, setRunRunning] = useState(false);
+    const [runOutput, setRunOutput] = useState('');
+    const [runExit, setRunExit] = useState<number | null>(null);
+    const [showRunOutput, setShowRunOutput] = useState(false);
 
     useEffect(() => {
         GetActiveDeployment(nodeId).then(d => setDeployment(d || null));
@@ -114,6 +124,29 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         BrowserOpenURL(localURL);
     };
 
+    const handleRunCommand = () => {
+        const trimmed = runCmd.trim();
+        if (!trimmed || runRunning) return;
+        const argv = trimmed.split(/\s+/).filter(Boolean);
+        setRunRunning(true);
+        setRunOutput('');
+        setRunExit(null);
+        setShowRunOutput(true);
+        RunCommand(nodeId, argv, runWorkDir.trim())
+            .then((res: deploy.RunCommandResult) => {
+                setRunRunning(false);
+                setRunOutput(res.output || '');
+                setRunExit(res.exitCode);
+                if (res.error) setRunOutput((prev) => (prev ? prev + '\n' : '') + `[error] ${res.error}`);
+            })
+            .catch((e: any) => {
+                setRunRunning(false);
+                const msg = typeof e === 'string' ? e : e?.message || 'run failed';
+                setRunOutput(`[error] ${msg}`);
+                setRunExit(null);
+            });
+    };
+
     return (
         <div className="overview-tab">
             <div className="overview-status-row">
@@ -186,6 +219,56 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     </>
                 )}
             </div>
+
+            {isRunning && (
+                <div className="overview-runbar">
+                    <Terminal size={13} className="overview-runbar-icon"/>
+                    <input
+                        className="input overview-runbar-input"
+                        type="text"
+                        value={runCmd}
+                        onChange={(e) => setRunCmd(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleRunCommand(); }}
+                        placeholder="Run a command in the container (e.g. npm run migrate)"
+                        disabled={runRunning}
+                    />
+                    <input
+                        className="input overview-runbar-workdir"
+                        type="text"
+                        value={runWorkDir}
+                        onChange={(e) => setRunWorkDir(e.target.value)}
+                        placeholder="workdir (optional)"
+                        disabled={runRunning}
+                        title="Container working directory (optional)"
+                    />
+                    <button
+                        className="btn btn-primary"
+                        onClick={handleRunCommand}
+                        disabled={runRunning || !runCmd.trim()}
+                        title="Run the command in the running container"
+                    >
+                        {runRunning ? <Loader2 size={13} className="spin"/> : <Play size={13}/>}
+                        {runRunning ? 'Running…' : 'Run'}
+                    </button>
+                    <button
+                        className="btn btn-ghost"
+                        onClick={() => setShowRunOutput((s) => !s)}
+                        disabled={!runOutput && !runRunning}
+                    >
+                        {showRunOutput ? 'Hide' : 'Show output'}
+                    </button>
+                    {showRunOutput && (runOutput || runRunning) && (
+                        <div className="overview-runbar-output">
+                            {runExit !== null && (
+                                <div className={`overview-runbar-exit ${runExit === 0 ? 'overview-runbar-exit--ok' : 'overview-runbar-exit--fail'}`}>
+                                    exit {runExit}
+                                </div>
+                            )}
+                            <pre className="overview-runbar-pre">{runOutput || (runRunning ? 'Running…' : '')}</pre>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {(deploying || buildLines.length > 0) && (
                 <div className="overview-build-log">

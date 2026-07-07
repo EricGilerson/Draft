@@ -26,6 +26,10 @@ export function CreateServiceTemplate(arg1) {
   return window['go']['main']['App']['CreateServiceTemplate'](arg1);
 }
 
+export function DaemonConnection() {
+  return window['go']['main']['App']['DaemonConnection']();
+}
+
 export function DeleteEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvVar'](arg1, arg2);
 }
@@ -200,6 +204,10 @@ export function RollbackEligibility(arg1) {
 
 export function RotateEnvSecret(arg1, arg2) {
   return window['go']['main']['App']['RotateEnvSecret'](arg1, arg2);
+}
+
+export function RunCommand(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RunCommand'](arg1, arg2, arg3);
 }
 
 export function SelectFile(arg1, arg2) {

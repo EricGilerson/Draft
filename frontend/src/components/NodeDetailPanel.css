@@ -215,6 +215,56 @@
     flex-wrap: wrap;
 }
 
+.overview-runbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    position: relative;
+}
+
+.overview-runbar-icon { color: var(--text-muted); }
+
+.overview-runbar-input {
+    flex: 1 1 220px;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+}
+
+.overview-runbar-workdir {
+    width: 140px;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+}
+
+.overview-runbar-output {
+    flex-basis: 100%;
+    max-height: 160px;
+    overflow: auto;
+    margin-top: 4px;
+}
+
+.overview-runbar-exit {
+    font-size: 0.7rem;
+    font-family: Menlo, Consolas, monospace;
+    margin-bottom: 4px;
+}
+
+.overview-runbar-exit--ok { color: #3fb950; }
+.overview-runbar-exit--fail { color: #f85149; }
+
+.overview-runbar-pre {
+    margin: 0;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .overview-hint {
     font-size: 0.72rem;
     color: var(--text-faint);

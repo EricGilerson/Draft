@@ -8,6 +8,7 @@ import VariablesTab from './VariablesTab';
 import LogsTab from './LogsTab';
 import MetricsTab from './MetricsTab';
 import SettingsTab from './SettingsTab';
+import ShellTab from './ShellTab';
 import ServiceDraftBar from './ServiceDraftBar';
 import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import './NodeDetailPanel.css';
@@ -22,6 +23,7 @@ const TABS: Tab[] = [
     {id: 'deployments', label: 'Deployments'},
     {id: 'variables', label: 'Variables'},
     {id: 'logs', label: 'Logs'},
+    {id: 'shell', label: 'Shell'},
     {id: 'metrics', label: 'Metrics'},
     {id: 'settings', label: 'Settings'},
 ];
@@ -189,6 +191,7 @@ function NodeDetailPanelBody({
                 {activeTab === 'deployments' && <DeploymentsTab nodeId={nodeId} />}
                 {activeTab === 'variables' && <VariablesTab nodeId={nodeId} projectId={projectId} projectPath={projectPath} />}
                 {activeTab === 'logs' && <LogsTab nodeId={nodeId} />}
+                {activeTab === 'shell' && <ShellTab nodeId={nodeId} />}
                 {activeTab === 'metrics' && <MetricsTab nodeId={nodeId} />}
                 {activeTab === 'settings' && (
                     <SettingsTab

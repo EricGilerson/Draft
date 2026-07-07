@@ -19,6 +19,8 @@ export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store
 
 export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.ServiceTemplate>;
 
+export function DaemonConnection():Promise<main.DaemonConnectionInfo>;
+
 export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteManagedVolume(arg1:string,arg2:boolean):Promise<void>;
@@ -106,6 +108,8 @@ export function RollbackDeployment(arg1:number):Promise<void>;
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
 
 export function RotateEnvSecret(arg1:string,arg2:string):Promise<string>;
+
+export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
 

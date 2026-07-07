@@ -608,6 +608,42 @@ func (a *App) RollbackEligibility(nodeID string) ([]deploy.RollbackEligibility, 
 	return c.RollbackEligibility(a.ctx, nodeID)
 }
 
+// RunCommand executes a one-shot command in the node's active container and
+// returns captured output + exit code. Used by the per-service "Run" bar.
+func (a *App) RunCommand(nodeID string, cmd []string, workDir string) (deploy.RunCommandResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return deploy.RunCommandResult{}, err
+	}
+	if c == nil {
+		return deploy.RunCommandResult{}, errNoStore
+	}
+	return c.RunCommand(a.ctx, nodeID, cmd, workDir)
+}
+
+// DaemonConnection returns the daemon's 127.0.0.1 address and auth token so the
+// frontend can open a direct WebSocket to it (the interactive shell). Browsers
+// cannot set custom headers on a WS handshake, so the token is passed as a query
+// param on those endpoints.
+func (a *App) DaemonConnection() (DaemonConnectionInfo, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return DaemonConnectionInfo{}, err
+	}
+	if c == nil {
+		return DaemonConnectionInfo{}, errNoStore
+	}
+	state := c.State()
+	return DaemonConnectionInfo{Addr: state.Addr, Token: state.Token}, nil
+}
+
+// DaemonConnectionInfo is the address + auth token needed to talk to the
+// daemon directly (e.g. opening a WebSocket for the interactive shell).
+type DaemonConnectionInfo struct {
+	Addr  string `json:"addr"`
+	Token string `json:"token"`
+}
+
 // CheckDocker returns the last known Docker daemon status from the watcher.
 // The frontend calls this once on mount for an immediate value, then relies on
 // the "docker:status" Wails event for subsequent changes (no polling).
