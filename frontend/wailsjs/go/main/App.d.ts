@@ -21,6 +21,8 @@ export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.
 
 export function DaemonConnection():Promise<main.DaemonConnectionInfo>;
 
+export function DeleteAppSecret(arg1:string):Promise<void>;
+
 export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteManagedVolume(arg1:string,arg2:boolean):Promise<void>;
@@ -41,7 +43,7 @@ export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResul
 
 export function ExportConfigToPath(arg1:string,arg2:string,arg3:string):Promise<deploy.ExportResult>;
 
-export function ExportEnvFile(arg1:string,arg2:boolean):Promise<store.EnvFileSyncResult>;
+export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function ExportProjectConfig(arg1:number,arg2:string):Promise<deploy.ExportResult>;
 
@@ -85,6 +87,12 @@ export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.Dockerfil
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
+export function ListAllProjectSecrets():Promise<Array<store.ProjectSecretEntry>>;
+
+export function ListAppSecretUsages(arg1:string):Promise<Array<deploy.SecretUsage>>;
+
+export function ListAppSecrets():Promise<Array<store.AppSecret>>;
+
 export function ListGitBranches(arg1:string,arg2:number):Promise<Array<string>>;
 
 export function ListManagedVolumes(arg1:number,arg2:string):Promise<Array<deploy.ManagedVolume>>;
@@ -94,6 +102,8 @@ export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 export function ListNodesWithReferenceIssues(arg1:number):Promise<Array<string>>;
 
 export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
+
+export function ListProjectSecretUsages(arg1:number,arg2:string):Promise<Array<deploy.SecretUsage>>;
 
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
 
@@ -127,8 +137,6 @@ export function RollbackDeployment(arg1:number):Promise<void>;
 
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
 
-export function RotateEnvSecret(arg1:string,arg2:string):Promise<string>;
-
 export function RotateProjectEnvSecret(arg1:number,arg2:string):Promise<string>;
 
 export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
@@ -139,13 +147,13 @@ export function SelectFolder():Promise<string>;
 
 export function SelectServiceRoot(arg1:number):Promise<string>;
 
+export function SetAppSecret(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SetDeployTrigger(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function SetEnvVarSecret(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 

@@ -96,27 +96,6 @@ func (s *Store) SetEnvVarScope(nodeID, key, scope string) error {
 	return s.DB.Save(&existing).Error
 }
 
-// SetEnvVarSecret toggles the secret flag on an existing env var without
-// touching its value/scope/source. Secret vars are excluded from .env export
-// by default and masked in conflict reports so credentials don't leak to disk
-// or logs.
-func (s *Store) SetEnvVarSecret(nodeID, key string, secret bool) error {
-	nodeID = strings.TrimSpace(nodeID)
-	key = strings.TrimSpace(key)
-	if nodeID == "" {
-		return ErrInvalidNode
-	}
-	if err := validateEnvKey(key); err != nil {
-		return err
-	}
-	var existing EnvVar
-	if err := s.DB.Where("node_id = ? AND key = ?", nodeID, key).First(&existing).Error; err != nil {
-		return err
-	}
-	existing.Secret = secret
-	return s.DB.Save(&existing).Error
-}
-
 // SetEnvVarValue overwrites just the value of an existing env var, preserving
 // scope/source/secret/envFile. Used by secret rotation to replace a generated
 // password with a fresh one without resetting the row's other metadata.
@@ -175,13 +154,9 @@ func (s *Store) ImportEnvVars(nodeID, envFile string, values map[string]string) 
 
 		if err == nil {
 			if existing.Source == EnvSourceManual && existing.Value != value {
-				dbValue := existing.Value
-				if existing.Secret {
-					dbValue = "***"
-				}
 				result.Conflicts = append(result.Conflicts, EnvVarConflict{
 					Key:           key,
-					DatabaseValue: dbValue,
+					DatabaseValue: existing.Value,
 					FileValue:     value,
 				})
 				result.Skipped++

@@ -1,10 +1,10 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, FileSearch, KeyRound, Link2, Plus, RefreshCw, RotateCw, Trash2, Upload} from 'lucide-react';
+import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, SetEnvVarSecret, RotateEnvSecret, SetNodeSetting, SelectFile,
+    GetEnvVars, SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
-    InspectDockerfileBuildInfo, ListProjectEnvVars,
+    InspectDockerfileBuildInfo, ListProjectEnvVars, ListAppSecrets,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
@@ -51,19 +51,19 @@ type VariablesTabProps = {
 // row's link icon — the key is already fixed).
 type LinkerState = {
     mode: 'new' | 'existing';
+    source: 'service' | 'app-secret';
     localKey: string;
     targetId: string;
     targetAttr: string;
+    appSecretKey: string;
     newTargetKey: string;
     newTargetValue: string;
 };
 
-// Tracks an in-progress @{...} token the user is typing manually, so we can
-// show matching services first, then (once a service + '.' is typed) that
-// service's attributes/variables.
+// Tracks an in-progress @{...} or {{secret. ...}} token while typing.
 type AutocompleteState = {
     key: string;
-    stage: 'service' | 'attr';
+    stage: 'service' | 'attr' | 'secret';
     query: string;
     start: number;
     end: number;
@@ -116,7 +116,7 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
             {expanded && (
                 <div className="project-vars-list">
                     <p className="runtime-vars-hint">
-                        These defaults are injected into every service at deploy time. A service variable with the same key overrides the project value. Edit them in Project settings.
+                        These non-secret defaults are injected into every service at deploy time. A service variable with the same key overrides the project value. Project secrets are managed in the Secrets tab.
                     </p>
                     {loading && <div className="variables-empty">Loading project variables…</div>}
                     {!loading && vars.map((v) => {
@@ -146,11 +146,6 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
                                             {isRevealed ? <EyeOff size={14}/> : <Eye size={14}/>}
                                         </button>
                                         <span className="project-var-scope" title="Variable scope">{v.scope || 'runtime'}</span>
-                                        {v.secret && (
-                                            <span className="project-var-secret" title="Secret: excluded from .env export by default">
-                                                <KeyRound size={13}/>
-                                            </span>
-                                        )}
                                         {overridden && (
                                             <span className="project-var-override" title="This service defines its own variable with the same key, which wins at deploy time">
                                                 overridden
@@ -167,13 +162,29 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
     );
 }
 
-function VarAutocomplete({autocomplete, linkTargets, onSelectService, onSelectAttr}: {
+function VarAutocomplete({autocomplete, linkTargets, appSecrets, onSelectService, onSelectAttr, onSelectSecret}: {
     autocomplete: AutocompleteState;
     linkTargets: deploy.ReferenceTarget[];
+    appSecrets: store.AppSecret[];
     onSelectService: (t: deploy.ReferenceTarget) => void;
     onSelectAttr: (attr: string) => void;
+    onSelectSecret: (key: string) => void;
 }) {
     if (!autocomplete) return null;
+
+    if (autocomplete.stage === 'secret') {
+        const matches = appSecrets.filter(s => s.key.toLowerCase().startsWith(autocomplete.query.toLowerCase()));
+        return (
+            <div className="var-autocomplete">
+                {matches.length === 0 && <span className="var-autocomplete-empty">No matching app secret</span>}
+                {matches.map(s => (
+                    <button key={s.key} onMouseDown={e => { e.preventDefault(); onSelectSecret(s.key); }}>
+                        {s.key}
+                    </button>
+                ))}
+            </div>
+        );
+    }
 
     if (autocomplete.stage === 'service') {
         const matches = linkTargets.filter(t => t.label.toLowerCase().startsWith(autocomplete.query.toLowerCase()));
@@ -228,7 +239,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncing, setSyncing] = useState(false);
     const [syncResult, setSyncResult] = useState<store.EnvFileSyncResult | null>(null);
     const [syncError, setSyncError] = useState('');
-    const [includeSecrets, setIncludeSecrets] = useState(false);
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
@@ -237,6 +247,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
+    const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
     const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
@@ -324,9 +335,18 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
+    const loadAppSecrets = async () => {
+        try {
+            setAppSecrets(await ListAppSecrets() || []);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
     const refreshAll = async () => {
         await load();
         await loadProjectVars();
+        await loadAppSecrets();
         await loadPreviews();
         await loadLinkTargets();
         await loadReferenceIssues();
@@ -353,6 +373,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         setLoadingProjectVars(true);
         void load();
         void loadProjectVars();
+        void loadAppSecrets();
         void loadPreviews();
         void loadLinkTargets();
     }, [nodeId, projectId]);
@@ -523,41 +544,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         ));
     };
 
-    // Secret is metadata, not a deploy value, so it applies immediately rather
-    // than staging. Secret vars are excluded from .env export by default and
-    // masked in conflict reports.
-    const toggleSecret = async (variable: store.EnvVar) => {
-        try {
-            await SetEnvVarSecret(nodeId, variable.key, !variable.secret);
-            setVars(prev => prev.map(v =>
-                v.key === variable.key ? store.EnvVar.createFrom({...v, secret: !variable.secret}) : v,
-            ));
-        } catch (e: any) {
-            setSyncError(typeof e === 'string' ? e : e?.message || 'could not toggle secret');
-        }
-    };
-
-    const rotateSecret = async (variable: store.EnvVar) => {
-        if (!window.confirm(`Rotate the value of ${variable.key}? A fresh random value will be generated and the service will be redeployed if it is running.`)) return;
-        try {
-            await RotateEnvSecret(nodeId, variable.key);
-            await load();
-        } catch (e: any) {
-            setSyncError(typeof e === 'string' ? e : e?.message || 'rotate failed');
-        }
-    };
-
     // --- Linker: create a reference either into an existing variable's value
     // (mode 'existing', opened from that row) or as a brand-new variable
     // (mode 'new', opened from the button beside +Add). ---
 
     const openLinkerForKey = (key: string) => {
         setVisible(prev => ({...prev, [key]: true}));
-        setLinker({mode: 'existing', localKey: key, targetId: '', targetAttr: '', newTargetKey: '', newTargetValue: ''});
+        setLinker({mode: 'existing', source: 'service', localKey: key, targetId: '', targetAttr: '', appSecretKey: '', newTargetKey: '', newTargetValue: ''});
     };
 
     const openNewLinker = () => {
-        setLinker({mode: 'new', localKey: '', targetId: '', targetAttr: '', newTargetKey: '', newTargetValue: ''});
+        setLinker({mode: 'new', source: 'service', localKey: '', targetId: '', targetAttr: '', appSecretKey: '', newTargetKey: '', newTargetValue: ''});
     };
 
     const closeLinker = () => setLinker(null);
@@ -565,8 +562,26 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const linkerTarget = linker ? linkTargets.find(t => t.nodeId === linker.targetId) ?? null : null;
 
     const confirmLinker = async () => {
-        if (!linker || !linkerTarget) return;
+        if (!linker) return;
         try {
+            if (linker.source === 'app-secret') {
+                const secretKey = linker.appSecretKey.trim();
+                if (!secretKey) return;
+                const token = `{{secret.${secretKey}}}`;
+                if (linker.mode === 'existing') {
+                    insertAtCursor(linker.localKey, token);
+                    setLinker(null);
+                } else {
+                    const localKey = linker.localKey.trim();
+                    if (!localKey) return;
+                    await SetEnvVar(nodeId, localKey, token);
+                    setLinker(null);
+                    await refreshAll();
+                }
+                return;
+            }
+
+            if (!linkerTarget) return;
             let attrName = linker.targetAttr;
             if (attrName === NEW_TARGET_KEY) {
                 const key = linker.newTargetKey.trim();
@@ -602,7 +617,20 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         const value = el.value;
         const cursor = el.selectionStart ?? value.length;
         const before = value.slice(0, cursor);
-        const openIdx = before.lastIndexOf('@{');
+
+        const secretOpenIdx = before.lastIndexOf('{{secret.');
+        const serviceOpenIdx = before.lastIndexOf('@{');
+        if (secretOpenIdx >= 0 && (serviceOpenIdx < 0 || secretOpenIdx > serviceOpenIdx)) {
+            const inner = before.slice(secretOpenIdx + 9);
+            if (inner.includes('}') || inner.includes('\n')) {
+                setAutocomplete(a => (a?.key === key ? null : a));
+                return;
+            }
+            setAutocomplete({key, stage: 'secret', query: inner, start: secretOpenIdx + 9, end: cursor});
+            return;
+        }
+
+        const openIdx = serviceOpenIdx;
         if (openIdx === -1) {
             setAutocomplete(a => (a?.key === key ? null : a));
             return;
@@ -639,6 +667,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         focusAt(key, pos);
     };
 
+    const selectAutocompleteSecret = (secretKey: string) => {
+        if (!autocomplete) return;
+        const {key, start, end} = autocomplete;
+        const pos = replaceRange(key, start, end, `${secretKey}}}`);
+        setAutocomplete(null);
+        focusAt(key, pos);
+    };
+
     const runSync = async (action: 'import' | 'refresh' | 'export') => {
         setSyncing(true);
         setSyncError('');
@@ -651,7 +687,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             } else if (action === 'refresh') {
                 result = await RefreshEnvFile(nodeId);
             } else {
-                result = await ExportEnvFile(nodeId, includeSecrets);
+                result = await ExportEnvFile(nodeId);
             }
             setSyncResult(result);
             await load();
@@ -672,6 +708,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         conflicts.length ? `${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}` : '',
     ].filter(Boolean).join(' · ') : '';
 
+    const sharedProjectVars = useMemo(() => projectVars.filter((v) => !v.secret), [projectVars]);
+
     if (loading) {
         return <div className="variables-loading">Loading...</div>;
     }
@@ -686,6 +724,25 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     onChange={e => setLinker(l => l && {...l, localKey: e.target.value})}
                 />
             )}
+            <select
+                value={linker!.source}
+                onChange={e => setLinker(l => l && {...l, source: e.target.value as 'service' | 'app-secret', targetId: '', targetAttr: '', appSecretKey: ''})}
+            >
+                <option value="service">Service reference</option>
+                <option value="app-secret">App secret</option>
+            </select>
+            {linker!.source === 'app-secret' ? (
+                <select
+                    value={linker!.appSecretKey}
+                    onChange={e => setLinker(l => l && {...l, appSecretKey: e.target.value})}
+                >
+                    <option value="">Select app secret…</option>
+                    {appSecrets.map(s => (
+                        <option key={s.key} value={s.key}>{s.key}</option>
+                    ))}
+                </select>
+            ) : (
+            <>
             <select
                 value={linker!.targetId}
                 onChange={e => setLinker(l => l && {...l, targetId: e.target.value, targetAttr: '', newTargetKey: '', newTargetValue: ''})}
@@ -743,11 +800,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         <VarAutocomplete
                             autocomplete={autocomplete}
                             linkTargets={linkTargets}
+                            appSecrets={appSecrets}
                             onSelectService={selectAutocompleteService}
                             onSelectAttr={selectAutocompleteAttr}
+                            onSelectSecret={selectAutocompleteSecret}
                         />
                     )}
                 </>
+            )}
+            </>
             )}
             <button className="btn btn-primary" onClick={confirmLinker}>Link</button>
             <button className="btn btn-ghost" onClick={closeLinker}>Cancel</button>
@@ -788,14 +849,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <button className="btn btn-ghost" onClick={() => runSync('export')} disabled={syncing}>
                         <Download size={13}/> Export
                     </button>
-                    <label className="env-sync-include-secrets" title="Secret variables are excluded from export by default to avoid writing credentials to disk.">
-                        <input
-                            type="checkbox"
-                            checked={includeSecrets}
-                            onChange={(e) => setIncludeSecrets(e.target.checked)}
-                        />
-                        Include secrets
-                    </label>
                 </div>
                 {(resultText || syncError) && (
                     <div className={`env-sync-status ${syncError ? 'env-sync-status--error' : ''}`}>
@@ -815,7 +868,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             </div>
 
             <div className="var-add-col">
-                <span className="settings-hint">Values support @{'{Service.ATTR}'} cross-service references and {`{{draft.X}}`} identity expressions (e.g. {`{{draft.password}}`}, {`{{draft.internal_hostname}}`}).</span>
+                <span className="settings-hint">Values support @{'{Service.ATTR}'} cross-service references, {`{{secret.KEY}}`} app secrets, and {`{{draft.X}}`} identity expressions (e.g. {`{{draft.password}}`}, {`{{draft.internal_hostname}}`}).</span>
                 <div className="var-add">
                     <input
                         placeholder="KEY"
@@ -852,8 +905,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <VarAutocomplete
                         autocomplete={autocomplete}
                         linkTargets={linkTargets}
+                        appSecrets={appSecrets}
                         onSelectService={selectAutocompleteService}
                         onSelectAttr={selectAutocompleteAttr}
+                        onSelectSecret={selectAutocompleteSecret}
                     />
                 )}
             </div>
@@ -926,22 +981,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 >
                                     ARG
                                 </button>
-                                <button
-                                    className={`var-scope-toggle ${v.secret ? 'var-secret-toggle--active' : ''}`}
-                                    onClick={() => toggleSecret(v)}
-                                    title={v.secret ? 'Secret: excluded from .env export and masked in reports' : 'Mark as secret'}
-                                >
-                                    <KeyRound size={13}/>
-                                </button>
-                                {v.secret && (
-                                    <button
-                                        className="var-toggle"
-                                        onClick={() => rotateSecret(v)}
-                                        title="Generate a new random value and redeploy if running"
-                                    >
-                                        <RotateCw size={14}/>
-                                    </button>
-                                )}
                                 <button className="var-toggle var-toggle--danger" onClick={() => removeVar(v.key)} title="Delete variable">
                                     <Trash2 size={14}/>
                                 </button>
@@ -983,8 +1022,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 <VarAutocomplete
                                     autocomplete={autocomplete}
                                     linkTargets={linkTargets}
+                                    appSecrets={appSecrets}
                                     onSelectService={selectAutocompleteService}
                                     onSelectAttr={selectAutocompleteAttr}
+                                    onSelectSecret={selectAutocompleteSecret}
                                 />
                             )}
                             {linker?.mode === 'existing' && linker.localKey === v.key && renderLinkerPanel()}
@@ -994,7 +1035,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 })}
             </div>
 
-            <ProjectVarsSection vars={projectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
+            <ProjectVarsSection vars={sharedProjectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
 
             <RuntimeVarsSection />
 

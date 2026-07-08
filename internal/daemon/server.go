@@ -187,8 +187,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/delete", s.handleDeleteEnv)
 	mux.HandleFunc("/env/scope", s.handleSetEnvScope)
-	mux.HandleFunc("/env/secret", s.handleSetEnvSecret)
-	mux.HandleFunc("/env/rotate", s.handleRotateEnvSecret)
 	mux.HandleFunc("/env/suggest", s.handleSuggestEnv)
 	mux.HandleFunc("/env/import", s.handleImportEnv)
 	mux.HandleFunc("/env/refresh", s.handleRefreshEnv)
@@ -210,6 +208,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/project/env/delete", s.handleDeleteProjectEnvVar)
 	mux.HandleFunc("/project/env/secret", s.handleSetProjectEnvVarSecret)
 	mux.HandleFunc("/project/env/rotate", s.handleRotateProjectEnvVar)
+	mux.HandleFunc("/project/secrets", s.handleListAllProjectSecrets)
+	mux.HandleFunc("/project/secrets/usages", s.handleListProjectSecretUsages)
+	mux.HandleFunc("/secrets", s.handleListAppSecrets)
+	mux.HandleFunc("/secrets/set", s.handleSetAppSecret)
+	mux.HandleFunc("/secrets/delete", s.handleDeleteAppSecret)
+	mux.HandleFunc("/secrets/usages", s.handleListAppSecretUsages)
 	mux.HandleFunc("/routes", s.handleListRoutes)
 	return s.auth(mux)
 }
@@ -856,40 +860,6 @@ func (s *Server) handleSetEnvScope(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-func (s *Server) handleSetEnvSecret(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NodeID string `json:"nodeId"`
-		Key    string `json:"key"`
-		Secret bool   `json:"secret"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	if err := s.store.SetEnvVarSecret(req.NodeID, req.Key, req.Secret); err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true})
-}
-
-func (s *Server) handleRotateEnvSecret(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		NodeID string `json:"nodeId"`
-		Key    string `json:"key"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	newValue, err := s.engine.RotateEnvSecret(r.Context(), req.NodeID, req.Key)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true, "value": newValue})
-}
-
 func (s *Server) handleImportEnv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID string `json:"nodeId"`
@@ -923,14 +893,13 @@ func (s *Server) handleRefreshEnv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExportEnv(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NodeID         string `json:"nodeId"`
-		IncludeSecrets bool   `json:"includeSecrets"`
+		NodeID string `json:"nodeId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	result, err := s.exportEnvFile(req.NodeID, req.IncludeSecrets)
+	result, err := s.exportEnvFile(req.NodeID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -1112,7 +1081,7 @@ func (s *Server) refreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) 
 	return s.store.ImportEnvVars(nodeID, path, values)
 }
 
-func (s *Server) exportEnvFile(nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
+func (s *Server) exportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	path, err := s.resolveEnvPath(nodeID)
 	if err != nil {
 		return store.EnvFileSyncResult{}, err
@@ -1123,7 +1092,7 @@ func (s *Server) exportEnvFile(nodeID string, includeSecrets bool) (store.EnvFil
 	if err != nil {
 		return store.EnvFileSyncResult{Path: path}, err
 	}
-	count, err := envfile.Write(path, vars, includeSecrets)
+	count, err := envfile.Write(path, vars)
 	if err != nil {
 		return store.EnvFileSyncResult{Path: path}, err
 	}

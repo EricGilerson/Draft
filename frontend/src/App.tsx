@@ -18,6 +18,7 @@ import ProjectsView from './views/ProjectsView';
 import OverviewView from './views/OverviewView';
 import SettingsView from './views/SettingsView';
 import TemplatesView from './views/TemplatesView';
+import SecretsView from './views/SecretsView';
 import VolumesView from './views/VolumesView';
 import RoutesView from './views/RoutesView';
 import {main, store} from '../wailsjs/go/models';
@@ -36,6 +37,7 @@ function App() {
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
+    const [secretsProjectFilter, setSecretsProjectFilter] = useState<number | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
 
     const refreshProjectServices = useCallback(async (items: store.Project[]) => {
@@ -90,6 +92,16 @@ function App() {
         if (next !== 'projects') {
             setSelectedProject(null);
         }
+        if (next !== 'secrets') {
+            setSecretsProjectFilter(null);
+        }
+    };
+
+    const openSecretsForProject = (projectId: number) => {
+        setSecretsProjectFilter(projectId);
+        setSelectedProject(null);
+        setView('secrets');
+        setSettingsProject(null);
     };
 
     const handleProjectCreated = (project: store.Project) => {
@@ -209,6 +221,11 @@ function App() {
                             </div>
                         ) : view === 'templates' ? (
                             <TemplatesView/>
+                        ) : view === 'secrets' ? (
+                            <SecretsView
+                                filterProjectId={secretsProjectFilter}
+                                onClearProjectFilter={() => setSecretsProjectFilter(null)}
+                            />
                         ) : view === 'volumes' ? (
                             <VolumesView onRevealVolume={revealVolume}/>
                         ) : view === 'routes' ? (
@@ -253,6 +270,7 @@ function App() {
                     onClose={() => setSettingsProject(null)}
                     onProjectUpdated={handleProjectUpdated}
                     onProjectDeleted={handleProjectDeleted}
+                    onOpenSecrets={() => openSecretsForProject(settingsProject.id)}
                 />
             )}
         </div>

@@ -150,6 +150,16 @@ type ProjectEnvVar struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// AppSecret is an app-wide credential stored centrally and referenced from
+// service/project env vars via {{secret.KEY}} tokens.
+type AppSecret struct {
+	Key         string    `gorm:"primaryKey;not null" json:"key"`
+	Value       string    `gorm:"not null" json:"value"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 // ServiceTemplate is a reusable blueprint for creating a service node. Built-in
 // templates are seeded by the store and are locked (not editable/deletable);
 // users clone them or create their own. The Dockerfile is embedded so a later

@@ -36,6 +36,7 @@ var registeredModels = []any{
 	&EnvVar{},
 	&EnvVarStaged{},
 	&ProjectEnvVar{},
+	&AppSecret{},
 	&ServiceTemplate{},
 }
 

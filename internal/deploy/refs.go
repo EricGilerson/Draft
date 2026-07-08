@@ -109,12 +109,28 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 // starting node) so a reference cycle fails fast with a readable error instead
 // of recursing forever.
 func (e *Engine) resolveValue(selfNodeID string, projectID uint, raw string, visited map[string]bool) (string, error) {
+	return e.resolveValueOpts(selfNodeID, projectID, raw, visited, false)
+}
+
+func (e *Engine) resolveValueForExport(selfNodeID string, projectID uint, raw string, visited map[string]bool) (string, error) {
+	return e.resolveValueOpts(selfNodeID, projectID, raw, visited, true)
+}
+
+func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string, visited map[string]bool, preserveSecretExprs bool) (string, error) {
 	if strings.Contains(raw, "{{draft.") {
 		in, err := e.nodeExprInput(selfNodeID)
 		if err != nil {
 			return "", fmt.Errorf("resolve draft expressions for %q: %w", selfNodeID, err)
 		}
 		expanded, err := resolveTemplateExprs(in, raw)
+		if err != nil {
+			return "", err
+		}
+		raw = expanded
+	}
+
+	if containsSecretExpr(raw) {
+		expanded, err := e.resolveSecretExprs(raw, preserveSecretExprs)
 		if err != nil {
 			return "", err
 		}
@@ -183,10 +199,8 @@ func isGeneratedAttr(attrName string) bool {
 	return false
 }
 
-// ResolveEnvVars returns nodeID's env vars with every reference token
-// substituted for its effective value — the same resolution used at deploy
-// time. Used when exporting a real .env file, where the reference syntax
-// itself would be meaningless to anything reading the file.
+// ResolveEnvVars returns nodeID's env vars with service reference tokens
+// expanded for .env export. {{secret.KEY}} tokens are preserved literally.
 func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
@@ -198,7 +212,7 @@ func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	}
 	resolved := make([]store.EnvVar, len(vars))
 	for i, v := range vars {
-		value, err := e.resolveValue(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
+		value, err := e.resolveValueForExport(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", v.Key, err)
 		}
@@ -375,6 +389,7 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 
 	var issues []ReferenceIssue
 	for _, v := range vars {
+		issues = append(issues, listMissingSecretExprs(s, v.Key, v.Value)...)
 		for _, m := range refPattern.FindAllStringSubmatch(v.Value, -1) {
 			label, attrName := m[1], m[2]
 			token := m[0]

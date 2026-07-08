@@ -1,8 +1,7 @@
-import {useEffect, useState} from 'react';
-import {AlertTriangle, Eye, EyeOff, KeyRound, Plus, RotateCw, Trash2} from 'lucide-react';
+import {useEffect, useMemo, useState} from 'react';
+import {AlertTriangle, Eye, EyeOff, Plus, Trash2} from 'lucide-react';
 import {
     ListProjectEnvVars, SetProjectEnvVar, DeleteProjectEnvVar,
-    SetProjectEnvVarSecret, RotateProjectEnvSecret,
     UpdateProject, DeleteProject,
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
@@ -15,14 +14,16 @@ type ProjectSettingsDialogProps = {
     onClose: () => void;
     onProjectUpdated?: () => void;
     onProjectDeleted?: (projectId: number) => void;
+    onOpenSecrets?: () => void;
 };
 
 const SCOPES = ['runtime', 'build', 'both'];
 
 // ProjectSettingsDialog exposes the project-level controls that don't belong
-// on any single service: identity (name/description), shared env vars injected
-// into every service at deploy time, and a danger zone to delete the project.
-export default function ProjectSettingsDialog({project, onClose, onProjectUpdated, onProjectDeleted}: ProjectSettingsDialogProps) {
+// on any single service: identity (name/description), shared non-secret env
+// vars injected into every service at deploy time, and a danger zone to delete
+// the project. Project secrets are managed in the Secrets tab.
+export default function ProjectSettingsDialog({project, onClose, onProjectUpdated, onProjectDeleted, onOpenSecrets}: ProjectSettingsDialogProps) {
     const [name, setName] = useState(project.name);
     const [description, setDescription] = useState(project.description || '');
     const [savingIdentity, setSavingIdentity] = useState(false);
@@ -40,6 +41,8 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+    const sharedVars = useMemo(() => vars.filter((v) => !v.secret), [vars]);
 
     const loadVars = () => {
         ListProjectEnvVars(project.id)
@@ -84,7 +87,7 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     const updateValue = (key: string, value: string) => {
         const existing = vars.find((v) => v.key === key);
         if (!existing) return;
-        SetProjectEnvVar(project.id, key, value, existing.scope || 'runtime', existing.secret)
+        SetProjectEnvVar(project.id, key, value, existing.scope || 'runtime', false)
             .then(loadVars)
             .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not save'));
     };
@@ -92,22 +95,9 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     const updateScope = (key: string, scope: string) => {
         const existing = vars.find((v) => v.key === key);
         if (!existing) return;
-        SetProjectEnvVar(project.id, key, existing.value, scope, existing.secret)
+        SetProjectEnvVar(project.id, key, existing.value, scope, false)
             .then(loadVars)
             .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not save'));
-    };
-
-    const toggleSecret = (v: store.ProjectEnvVar) => {
-        SetProjectEnvVarSecret(project.id, v.key, !v.secret)
-            .then(loadVars)
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not toggle secret'));
-    };
-
-    const rotateSecret = (v: store.ProjectEnvVar) => {
-        if (!window.confirm(`Rotate ${v.key}? A fresh random value will be generated and every running service in this project will be redeployed.`)) return;
-        RotateProjectEnvSecret(project.id, v.key)
-            .then(() => { loadVars(); onProjectUpdated?.(); })
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'rotate failed'));
     };
 
     const removeVar = (key: string) => {
@@ -161,7 +151,13 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                 <section className="project-settings-section">
                     <h3 className="project-settings-section-title">Shared environment</h3>
                     <p className="settings-hint">
-                        These variables are injected into every service in this project at deploy time, as defaults that a service&apos;s own variable of the same key overrides. Use them for shared values like <code>DATABASE_URL</code> or <code>LOG_LEVEL</code>.
+                        Non-secret variables injected into every service in this project. Use for shared config like <code>LOG_LEVEL</code> or <code>FEATURE_FLAGS</code>.
+                        {' '}Project secrets are managed in the{' '}
+                        {onOpenSecrets ? (
+                            <button type="button" className="project-settings-link" onClick={onOpenSecrets}>Secrets tab</button>
+                        ) : (
+                            <>Secrets tab</>
+                        )}.
                     </p>
                     {varError && <p className="form-error">{varError}</p>}
                     <div className="var-add project-settings-var-add">
@@ -176,8 +172,8 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                     </div>
                     <div className="variables-list project-settings-vars">
                         {loadingVars && <div className="variables-empty">Loading…</div>}
-                        {!loadingVars && vars.length === 0 && <div className="variables-empty">No shared project variables yet.</div>}
-                        {vars.map((v) => (
+                        {!loadingVars && sharedVars.length === 0 && <div className="variables-empty">No shared project variables yet.</div>}
+                        {sharedVars.map((v) => (
                             <div key={v.key} className="var-row">
                                 <div className="var-key-cell">
                                     <div className="var-key" title={v.key}>{v.key}</div>
@@ -201,18 +197,6 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                                         >
                                             {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
                                         </select>
-                                        <button
-                                            className={`var-scope-toggle ${v.secret ? 'var-secret-toggle--active' : ''}`}
-                                            onClick={() => toggleSecret(v)}
-                                            title={v.secret ? 'Secret: excluded from .env export and masked in reports' : 'Mark as secret'}
-                                        >
-                                            <KeyRound size={13}/>
-                                        </button>
-                                        {v.secret && (
-                                            <button className="var-toggle" onClick={() => rotateSecret(v)} title="Generate a new random value and redeploy running services">
-                                                <RotateCw size={14}/>
-                                            </button>
-                                        )}
                                         <button className="var-toggle var-toggle--danger" onClick={() => removeVar(v.key)} title="Remove from project">
                                             <Trash2 size={14}/>
                                         </button>

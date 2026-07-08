@@ -30,6 +30,10 @@ export function DaemonConnection() {
   return window['go']['main']['App']['DaemonConnection']();
 }
 
+export function DeleteAppSecret(arg1) {
+  return window['go']['main']['App']['DeleteAppSecret'](arg1);
+}
+
 export function DeleteEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvVar'](arg1, arg2);
 }
@@ -70,8 +74,8 @@ export function ExportConfigToPath(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportConfigToPath'](arg1, arg2, arg3);
 }
 
-export function ExportEnvFile(arg1, arg2) {
-  return window['go']['main']['App']['ExportEnvFile'](arg1, arg2);
+export function ExportEnvFile(arg1) {
+  return window['go']['main']['App']['ExportEnvFile'](arg1);
 }
 
 export function ExportProjectConfig(arg1, arg2) {
@@ -158,6 +162,18 @@ export function IsGitRepo(arg1, arg2) {
   return window['go']['main']['App']['IsGitRepo'](arg1, arg2);
 }
 
+export function ListAllProjectSecrets() {
+  return window['go']['main']['App']['ListAllProjectSecrets']();
+}
+
+export function ListAppSecretUsages(arg1) {
+  return window['go']['main']['App']['ListAppSecretUsages'](arg1);
+}
+
+export function ListAppSecrets() {
+  return window['go']['main']['App']['ListAppSecrets']();
+}
+
 export function ListGitBranches(arg1, arg2) {
   return window['go']['main']['App']['ListGitBranches'](arg1, arg2);
 }
@@ -176,6 +192,10 @@ export function ListNodesWithReferenceIssues(arg1) {
 
 export function ListProjectEnvVars(arg1) {
   return window['go']['main']['App']['ListProjectEnvVars'](arg1);
+}
+
+export function ListProjectSecretUsages(arg1, arg2) {
+  return window['go']['main']['App']['ListProjectSecretUsages'](arg1, arg2);
 }
 
 export function ListProjectServices(arg1) {
@@ -242,10 +262,6 @@ export function RollbackEligibility(arg1) {
   return window['go']['main']['App']['RollbackEligibility'](arg1);
 }
 
-export function RotateEnvSecret(arg1, arg2) {
-  return window['go']['main']['App']['RotateEnvSecret'](arg1, arg2);
-}
-
 export function RotateProjectEnvSecret(arg1, arg2) {
   return window['go']['main']['App']['RotateProjectEnvSecret'](arg1, arg2);
 }
@@ -266,6 +282,10 @@ export function SelectServiceRoot(arg1) {
   return window['go']['main']['App']['SelectServiceRoot'](arg1);
 }
 
+export function SetAppSecret(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetAppSecret'](arg1, arg2, arg3);
+}
+
 export function SetDeployTrigger(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetDeployTrigger'](arg1, arg2, arg3);
 }
@@ -276,10 +296,6 @@ export function SetEnvVar(arg1, arg2, arg3) {
 
 export function SetEnvVarScope(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarScope'](arg1, arg2, arg3);
-}
-
-export function SetEnvVarSecret(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SetEnvVarSecret'](arg1, arg2, arg3);
 }
 
 export function SetNodeSetting(arg1, arg2, arg3) {

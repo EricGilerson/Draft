@@ -420,18 +420,6 @@ func (c *Client) SetEnvVarScope(ctx context.Context, nodeID, key, scope string) 
 	return c.postJSON(ctx, "/env/scope", map[string]string{"nodeId": nodeID, "key": key, "scope": scope}, nil)
 }
 
-func (c *Client) SetEnvVarSecret(ctx context.Context, nodeID, key string, secret bool) error {
-	return c.postJSON(ctx, "/env/secret", map[string]any{"nodeId": nodeID, "key": key, "secret": secret}, nil)
-}
-
-func (c *Client) RotateEnvSecret(ctx context.Context, nodeID, key string) (string, error) {
-	var out struct {
-		Value string `json:"value"`
-	}
-	err := c.postJSON(ctx, "/env/rotate", map[string]string{"nodeId": nodeID, "key": key}, &out)
-	return out.Value, err
-}
-
 func (c *Client) ImportEnvFile(ctx context.Context, nodeID, path string) (store.EnvFileSyncResult, error) {
 	var out store.EnvFileSyncResult
 	err := c.postJSON(ctx, "/env/import", map[string]string{"nodeId": nodeID, "path": path}, &out)
@@ -444,9 +432,9 @@ func (c *Client) RefreshEnvFile(ctx context.Context, nodeID string) (store.EnvFi
 	return out, err
 }
 
-func (c *Client) ExportEnvFile(ctx context.Context, nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
+func (c *Client) ExportEnvFile(ctx context.Context, nodeID string) (store.EnvFileSyncResult, error) {
 	var out store.EnvFileSyncResult
-	err := c.postJSON(ctx, "/env/export", map[string]any{"nodeId": nodeID, "includeSecrets": includeSecrets}, &out)
+	err := c.postJSON(ctx, "/env/export", map[string]any{"nodeId": nodeID}, &out)
 	return out, err
 }
 
@@ -607,6 +595,42 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 
 func (c *Client) url(path string) string {
 	return "http://" + c.state.Addr + path
+}
+
+func (c *Client) ListAppSecrets(ctx context.Context) ([]store.AppSecret, error) {
+	var out []store.AppSecret
+	err := c.postJSON(ctx, "/secrets", map[string]any{}, &out)
+	return out, err
+}
+
+func (c *Client) SetAppSecret(ctx context.Context, key, value, description string) error {
+	return c.postJSON(ctx, "/secrets/set", map[string]any{
+		"key": key, "value": value, "description": description,
+	}, nil)
+}
+
+func (c *Client) DeleteAppSecret(ctx context.Context, key string) error {
+	return c.postJSON(ctx, "/secrets/delete", map[string]string{"key": key}, nil)
+}
+
+func (c *Client) ListAppSecretUsages(ctx context.Context, key string) ([]deploy.SecretUsage, error) {
+	var out []deploy.SecretUsage
+	err := c.postJSON(ctx, "/secrets/usages", map[string]string{"key": key}, &out)
+	return out, err
+}
+
+func (c *Client) ListAllProjectSecrets(ctx context.Context) ([]store.ProjectSecretEntry, error) {
+	var out []store.ProjectSecretEntry
+	err := c.postJSON(ctx, "/project/secrets", map[string]any{}, &out)
+	return out, err
+}
+
+func (c *Client) ListProjectSecretUsages(ctx context.Context, projectID uint, key string) ([]deploy.SecretUsage, error) {
+	var out []deploy.SecretUsage
+	err := c.postJSON(ctx, "/project/secrets/usages", map[string]any{
+		"projectId": projectID, "key": key,
+	}, &out)
+	return out, err
 }
 
 func launchDaemon() error {

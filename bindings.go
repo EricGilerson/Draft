@@ -559,30 +559,15 @@ func (a *App) SetEnvVarScope(nodeID, key, scope string) error {
 	return c.SetEnvVarScope(a.ctx, nodeID, key, scope)
 }
 
-// SetEnvVarSecret toggles whether an env var is treated as a secret. Secret
-// vars are excluded from .env export by default and masked in conflict reports.
-func (a *App) SetEnvVarSecret(nodeID, key string, secret bool) error {
+func (a *App) ExportEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
-		return err
+		return store.EnvFileSyncResult{}, err
 	}
 	if c == nil {
-		return errNoStore
+		return store.EnvFileSyncResult{}, errNoStore
 	}
-	return c.SetEnvVarSecret(a.ctx, nodeID, key, secret)
-}
-
-// RotateEnvSecret replaces a secret env var's value with a fresh random string
-// and redeploys the service if it is currently running. Returns the new value.
-func (a *App) RotateEnvSecret(nodeID, key string) (string, error) {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return "", err
-	}
-	if c == nil {
-		return "", errNoStore
-	}
-	return c.RotateEnvSecret(a.ctx, nodeID, key)
+	return c.ExportEnvFile(a.ctx, nodeID)
 }
 
 func (a *App) ImportEnvFile(nodeID, path string) (store.EnvFileSyncResult, error) {
@@ -605,17 +590,6 @@ func (a *App) RefreshEnvFile(nodeID string) (store.EnvFileSyncResult, error) {
 		return store.EnvFileSyncResult{}, errNoStore
 	}
 	return c.RefreshEnvFile(a.ctx, nodeID)
-}
-
-func (a *App) ExportEnvFile(nodeID string, includeSecrets bool) (store.EnvFileSyncResult, error) {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return store.EnvFileSyncResult{}, err
-	}
-	if c == nil {
-		return store.EnvFileSyncResult{}, errNoStore
-	}
-	return c.ExportEnvFile(a.ctx, nodeID, includeSecrets)
 }
 
 // SuggestEnvFile returns the absolute path to a .env file found in the service root, if one exists.
@@ -1232,4 +1206,70 @@ func (a *App) CloneServiceTemplate(id uint) (*store.ServiceTemplate, error) {
 		return nil, errNoStore
 	}
 	return a.store.CloneTemplate(id)
+}
+
+func (a *App) ListAppSecrets() ([]store.AppSecret, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListAppSecrets(a.ctx)
+}
+
+func (a *App) SetAppSecret(key, value, description string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.SetAppSecret(a.ctx, key, value, description)
+}
+
+func (a *App) DeleteAppSecret(key string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteAppSecret(a.ctx, key)
+}
+
+func (a *App) ListAppSecretUsages(key string) ([]deploy.SecretUsage, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListAppSecretUsages(a.ctx, key)
+}
+
+func (a *App) ListAllProjectSecrets() ([]store.ProjectSecretEntry, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListAllProjectSecrets(a.ctx)
+}
+
+func (a *App) ListProjectSecretUsages(projectID uint, key string) ([]deploy.SecretUsage, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListProjectSecretUsages(a.ctx, projectID, key)
 }
