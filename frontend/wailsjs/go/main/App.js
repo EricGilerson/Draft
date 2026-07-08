@@ -110,6 +110,10 @@ export function GetDeployments(arg1) {
   return window['go']['main']['App']['GetDeployments'](arg1);
 }
 
+export function GetDockerDiskUsage() {
+  return window['go']['main']['App']['GetDockerDiskUsage']();
+}
+
 export function GetEnvVars(arg1) {
   return window['go']['main']['App']['GetEnvVars'](arg1);
 }
@@ -178,12 +182,28 @@ export function IsGitRepo(arg1, arg2) {
   return window['go']['main']['App']['IsGitRepo'](arg1, arg2);
 }
 
+export function ListAllDockerVolumes() {
+  return window['go']['main']['App']['ListAllDockerVolumes']();
+}
+
 export function ListAppSecretUsages(arg1) {
   return window['go']['main']['App']['ListAppSecretUsages'](arg1);
 }
 
 export function ListAppSecrets() {
   return window['go']['main']['App']['ListAppSecrets']();
+}
+
+export function ListDockerContainers() {
+  return window['go']['main']['App']['ListDockerContainers']();
+}
+
+export function ListDockerImages() {
+  return window['go']['main']['App']['ListDockerImages']();
+}
+
+export function ListDockerNetworks() {
+  return window['go']['main']['App']['ListDockerNetworks']();
 }
 
 export function ListEnvironments(arg1) {
@@ -258,6 +278,10 @@ export function PreviewStagedChanges(arg1, arg2) {
   return window['go']['main']['App']['PreviewStagedChanges'](arg1, arg2);
 }
 
+export function PruneDocker(arg1, arg2) {
+  return window['go']['main']['App']['PruneDocker'](arg1, arg2);
+}
+
 export function ReapplyTemplate(arg1) {
   return window['go']['main']['App']['ReapplyTemplate'](arg1);
 }
@@ -266,8 +290,28 @@ export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
 
+export function RemoveDockerContainer(arg1, arg2) {
+  return window['go']['main']['App']['RemoveDockerContainer'](arg1, arg2);
+}
+
+export function RemoveDockerImage(arg1, arg2) {
+  return window['go']['main']['App']['RemoveDockerImage'](arg1, arg2);
+}
+
+export function RemoveDockerNetwork(arg1) {
+  return window['go']['main']['App']['RemoveDockerNetwork'](arg1);
+}
+
+export function RemoveDockerVolume(arg1, arg2) {
+  return window['go']['main']['App']['RemoveDockerVolume'](arg1, arg2);
+}
+
 export function RenameEnvironment(arg1, arg2) {
   return window['go']['main']['App']['RenameEnvironment'](arg1, arg2);
+}
+
+export function RestartDockerContainer(arg1) {
+  return window['go']['main']['App']['RestartDockerContainer'](arg1);
 }
 
 export function RestartService(arg1) {
@@ -342,8 +386,16 @@ export function StartDocker() {
   return window['go']['main']['App']['StartDocker']();
 }
 
+export function StartDockerContainer(arg1) {
+  return window['go']['main']['App']['StartDockerContainer'](arg1);
+}
+
 export function StartLogStream(arg1) {
   return window['go']['main']['App']['StartLogStream'](arg1);
+}
+
+export function StopDockerContainer(arg1) {
+  return window['go']['main']['App']['StopDockerContainer'](arg1);
 }
 
 export function StopLogStream(arg1) {

@@ -19,6 +19,8 @@ import (
 	"Draft/internal/dockerwatch"
 	"Draft/internal/networking"
 	"Draft/internal/store"
+
+	"github.com/docker/docker/api/types"
 )
 
 type Client struct {
@@ -499,6 +501,81 @@ func (c *Client) ListVolumesOverview(ctx context.Context) ([]deploy.VolumeOvervi
 // it even if a container still references it.
 func (c *Client) DeleteManagedVolume(ctx context.Context, name string, force bool) error {
 	return c.postJSON(ctx, "/volumes/delete", map[string]any{"name": name, "force": force}, nil)
+}
+
+// SystemDF returns the daemon-wide disk usage breakdown (images, containers,
+// volumes, build cache). Backs the Docker tab's summary bar.
+func (c *Client) SystemDF(ctx context.Context) (types.DiskUsage, error) {
+	var out types.DiskUsage
+	err := c.get(ctx, "/docker/df", &out)
+	return out, err
+}
+
+// ListContainers returns every container on the daemon, Draft-managed or not.
+func (c *Client) ListContainers(ctx context.Context) ([]deploy.ContainerSummary, error) {
+	var out []deploy.ContainerSummary
+	err := c.get(ctx, "/docker/containers", &out)
+	return out, err
+}
+
+func (c *Client) StartContainer(ctx context.Context, id string) error {
+	return c.postJSON(ctx, "/docker/containers/start", map[string]any{"id": id}, nil)
+}
+
+func (c *Client) StopContainer(ctx context.Context, id string) error {
+	return c.postJSON(ctx, "/docker/containers/stop", map[string]any{"id": id}, nil)
+}
+
+func (c *Client) RestartContainer(ctx context.Context, id string) error {
+	return c.postJSON(ctx, "/docker/containers/restart", map[string]any{"id": id}, nil)
+}
+
+func (c *Client) RemoveContainer(ctx context.Context, id string, force bool) error {
+	return c.postJSON(ctx, "/docker/containers/remove", map[string]any{"id": id, "force": force}, nil)
+}
+
+// ListImages returns every image on the daemon.
+func (c *Client) ListImages(ctx context.Context) ([]deploy.ImageSummary, error) {
+	var out []deploy.ImageSummary
+	err := c.get(ctx, "/docker/images", &out)
+	return out, err
+}
+
+func (c *Client) RemoveImage(ctx context.Context, id string, force bool) error {
+	return c.postJSON(ctx, "/docker/images/remove", map[string]any{"id": id, "force": force}, nil)
+}
+
+// ListNetworks returns every network on the daemon.
+func (c *Client) ListNetworks(ctx context.Context) ([]deploy.NetworkSummary, error) {
+	var out []deploy.NetworkSummary
+	err := c.get(ctx, "/docker/networks", &out)
+	return out, err
+}
+
+func (c *Client) RemoveNetwork(ctx context.Context, id string) error {
+	return c.postJSON(ctx, "/docker/networks/remove", map[string]any{"id": id}, nil)
+}
+
+// ListAllVolumes returns every volume on the daemon, Draft-managed or not —
+// the unrestricted counterpart to ListVolumesOverview.
+func (c *Client) ListAllVolumes(ctx context.Context) ([]deploy.VolumeOverview, error) {
+	var out []deploy.VolumeOverview
+	err := c.get(ctx, "/docker/volumes/all", &out)
+	return out, err
+}
+
+// RemoveVolume removes any Docker volume by name, unlike DeleteManagedVolume
+// which only allows removal of Draft-managed volumes.
+func (c *Client) RemoveVolume(ctx context.Context, name string, force bool) error {
+	return c.postJSON(ctx, "/docker/volumes/remove", map[string]any{"name": name, "force": force}, nil)
+}
+
+// PruneDocker runs a scoped or unscoped prune for one resource type
+// ("containers" | "images" | "networks" | "volumes" | "buildcache").
+func (c *Client) PruneDocker(ctx context.Context, resource string, draftOnly bool) (deploy.PruneReport, error) {
+	var out deploy.PruneReport
+	err := c.postJSON(ctx, "/docker/prune", map[string]any{"resource": resource, "draftOnly": draftOnly}, &out)
+	return out, err
 }
 
 func (c *Client) SubscribeEvents(ctx context.Context, fn func(string, any)) error {

@@ -15,6 +15,8 @@ import (
 	"Draft/internal/gitsrc"
 	"Draft/internal/networking"
 	"Draft/internal/store"
+
+	"github.com/docker/docker/api/types"
 )
 
 // errNoStore is returned to the frontend when the database failed to open.
@@ -432,6 +434,167 @@ func (a *App) ListVolumesOverview() ([]deploy.VolumeOverview, error) {
 		return nil, errNoStore
 	}
 	return c.ListVolumesOverview(a.ctx)
+}
+
+// GetDockerDiskUsage returns the daemon-wide disk usage breakdown (images,
+// containers, volumes, build cache). Backs the Docker tab's summary bar.
+func (a *App) GetDockerDiskUsage() (types.DiskUsage, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return types.DiskUsage{}, err
+	}
+	if c == nil {
+		return types.DiskUsage{}, errNoStore
+	}
+	return c.SystemDF(a.ctx)
+}
+
+// ListDockerContainers returns every container on the daemon, Draft-managed
+// or not. Backs the Docker tab's Containers section.
+func (a *App) ListDockerContainers() ([]deploy.ContainerSummary, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListContainers(a.ctx)
+}
+
+func (a *App) StartDockerContainer(id string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.StartContainer(a.ctx, id)
+}
+
+func (a *App) StopDockerContainer(id string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.StopContainer(a.ctx, id)
+}
+
+func (a *App) RestartDockerContainer(id string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RestartContainer(a.ctx, id)
+}
+
+func (a *App) RemoveDockerContainer(id string, force bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RemoveContainer(a.ctx, id, force)
+}
+
+// ListDockerImages returns every image on the daemon. Backs the Docker tab's
+// Images section.
+func (a *App) ListDockerImages() ([]deploy.ImageSummary, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListImages(a.ctx)
+}
+
+func (a *App) RemoveDockerImage(id string, force bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RemoveImage(a.ctx, id, force)
+}
+
+// ListDockerNetworks returns every network on the daemon. Backs the Docker
+// tab's Networks section.
+func (a *App) ListDockerNetworks() ([]deploy.NetworkSummary, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListNetworks(a.ctx)
+}
+
+func (a *App) RemoveDockerNetwork(id string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RemoveNetwork(a.ctx, id)
+}
+
+// ListAllDockerVolumes returns every volume on the daemon, Draft-managed or
+// not — the unrestricted counterpart to ListVolumesOverview. Backs the Docker
+// tab's Volumes section (the standalone Volumes nav tab keeps using
+// ListVolumesOverview for its Draft-only, orphan-aware view).
+func (a *App) ListAllDockerVolumes() ([]deploy.VolumeOverview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListAllVolumes(a.ctx)
+}
+
+// RemoveDockerVolume removes any Docker volume by name, unlike
+// DeleteManagedVolume which only allows removal of Draft-managed volumes.
+func (a *App) RemoveDockerVolume(name string, force bool) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.RemoveVolume(a.ctx, name, force)
+}
+
+// PruneDocker runs a scoped or unscoped prune for one resource type
+// ("containers" | "images" | "networks" | "volumes" | "buildcache").
+// draftOnly restricts removal to Draft-managed/Draft-built resources where
+// that distinction is meaningful.
+func (a *App) PruneDocker(resource string, draftOnly bool) (deploy.PruneReport, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return deploy.PruneReport{}, err
+	}
+	if c == nil {
+		return deploy.PruneReport{}, errNoStore
+	}
+	return c.PruneDocker(a.ctx, resource, draftOnly)
 }
 
 // RouteRow is the frontend-facing route row: a Route enriched with the owning

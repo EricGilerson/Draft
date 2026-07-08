@@ -21,6 +21,7 @@ import SettingsView from './views/SettingsView';
 import TemplatesView from './views/TemplatesView';
 import SecretsView from './views/SecretsView';
 import VolumesView from './views/VolumesView';
+import DockerView from './views/DockerView';
 import RoutesView from './views/RoutesView';
 import {main, store} from '../wailsjs/go/models';
 
@@ -252,6 +253,8 @@ function App() {
                             <SecretsView/>
                         ) : view === 'volumes' ? (
                             <VolumesView onRevealVolume={revealVolume}/>
+                        ) : view === 'docker' ? (
+                            <DockerView/>
                         ) : view === 'routes' ? (
                             <RoutesView
                                 projects={projects}

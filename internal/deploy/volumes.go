@@ -327,6 +327,11 @@ type VolumeOverview struct {
 	ManagedVolume
 	NodeLabel string `json:"nodeLabel"`
 	Orphaned  bool   `json:"orphaned"`
+	// Managed is true when the volume carries draft.managed=true. Always true
+	// for ListVolumesOverview (which only ever sees Draft-managed volumes);
+	// set per-row by ListAllVolumes (docker_admin.go), which also lists
+	// foreign volumes.
+	Managed bool `json:"managed"`
 }
 
 // ListVolumesOverview returns every Draft-managed volume across all projects,
@@ -340,7 +345,11 @@ func (e *Engine) ListVolumesOverview(ctx context.Context) ([]VolumeOverview, err
 	if err != nil {
 		return nil, err
 	}
-	return enrichVolumes(e.store, vols), nil
+	out := enrichVolumes(e.store, vols)
+	for i := range out {
+		out[i].Managed = true
+	}
+	return out, nil
 }
 
 // enrichVolumes joins managed volumes against the store to set each one's

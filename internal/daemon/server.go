@@ -200,6 +200,19 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/volumes", s.handleListVolumes)
 	mux.HandleFunc("/volumes/overview", s.handleVolumesOverview)
 	mux.HandleFunc("/volumes/delete", s.handleDeleteVolume)
+	mux.HandleFunc("/docker/df", s.handleDockerDF)
+	mux.HandleFunc("/docker/containers", s.handleListContainers)
+	mux.HandleFunc("/docker/containers/start", s.handleStartContainer)
+	mux.HandleFunc("/docker/containers/stop", s.handleStopContainer)
+	mux.HandleFunc("/docker/containers/restart", s.handleRestartContainer)
+	mux.HandleFunc("/docker/containers/remove", s.handleRemoveContainer)
+	mux.HandleFunc("/docker/images", s.handleListImages)
+	mux.HandleFunc("/docker/images/remove", s.handleRemoveImage)
+	mux.HandleFunc("/docker/networks", s.handleListNetworks)
+	mux.HandleFunc("/docker/networks/remove", s.handleRemoveNetwork)
+	mux.HandleFunc("/docker/volumes/all", s.handleListAllVolumes)
+	mux.HandleFunc("/docker/volumes/remove", s.handleRemoveVolume)
+	mux.HandleFunc("/docker/prune", s.handleDockerPrune)
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	mux.HandleFunc("/exec/attach", s.handleExecAttach)
 	mux.HandleFunc("/exec/run", s.handleExecRun)
@@ -1046,6 +1059,221 @@ func (s *Server) handleDeleteVolume(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleDockerDF returns the daemon-wide disk usage breakdown (images,
+// containers, volumes, build cache) that backs the Docker tab's summary bar.
+func (s *Server) handleDockerDF(w http.ResponseWriter, r *http.Request) {
+	du, err := s.engine.SystemDF(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, du)
+}
+
+// handleListContainers returns every container on the daemon, Draft-managed
+// or not. Backs the Docker tab's Containers section.
+func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
+	containers, err := s.engine.ListContainers(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, containers)
+}
+
+type containerActionRequest struct {
+	ID    string `json:"id"`
+	Force bool   `json:"force"`
+}
+
+func decodeContainerActionRequest(w http.ResponseWriter, r *http.Request) (containerActionRequest, bool) {
+	var req containerActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return req, false
+	}
+	if req.ID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return req, false
+	}
+	return req, true
+}
+
+func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeContainerActionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.engine.StartContainer(r.Context(), req.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeContainerActionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.engine.StopContainer(r.Context(), req.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleRestartContainer(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeContainerActionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.engine.RestartContainer(r.Context(), req.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func (s *Server) handleRemoveContainer(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeContainerActionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.engine.RemoveContainer(r.Context(), req.ID, req.Force); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleListImages returns every image on the daemon. Backs the Docker tab's
+// Images section.
+func (s *Server) handleListImages(w http.ResponseWriter, r *http.Request) {
+	images, err := s.engine.ListImages(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, images)
+}
+
+func (s *Server) handleRemoveImage(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeContainerActionRequest(w, r)
+	if !ok {
+		return
+	}
+	if err := s.engine.RemoveImage(r.Context(), req.ID, req.Force); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleListNetworks returns every network on the daemon. Backs the Docker
+// tab's Networks section.
+func (s *Server) handleListNetworks(w http.ResponseWriter, r *http.Request) {
+	networks, err := s.engine.ListNetworks(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, networks)
+}
+
+func (s *Server) handleRemoveNetwork(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.ID == "" {
+		http.Error(w, "id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.engine.RemoveNetwork(r.Context(), req.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleListAllVolumes returns every volume on the daemon, Draft-managed or
+// not — the unrestricted counterpart to handleVolumesOverview. Backs the
+// Docker tab's Volumes section (the standalone Volumes nav tab keeps using
+// handleVolumesOverview for its Draft-only, orphan-aware view).
+func (s *Server) handleListAllVolumes(w http.ResponseWriter, r *http.Request) {
+	vols, err := s.engine.ListAllVolumes(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, vols)
+}
+
+// handleRemoveVolume removes any Docker volume by name, unlike
+// handleDeleteVolume which only allows removal of Draft-managed volumes.
+func (s *Server) handleRemoveVolume(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name  string `json:"name"`
+		Force bool   `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.engine.RemoveVolume(r.Context(), req.Name, req.Force); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleDockerPrune runs a scoped or unscoped prune for one resource type.
+// draftOnly restricts removal to Draft-managed/Draft-built resources where
+// that distinction is meaningful (see docker_admin.go's per-resource prune
+// methods for how each resource type is scoped).
+func (s *Server) handleDockerPrune(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Resource  string `json:"resource"`
+		DraftOnly bool   `json:"draftOnly"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var (
+		report deploy.PruneReport
+		err    error
+	)
+	switch req.Resource {
+	case "containers":
+		report, err = s.engine.PruneContainers(r.Context(), req.DraftOnly)
+	case "images":
+		report, err = s.engine.PruneImages(r.Context(), req.DraftOnly)
+	case "networks":
+		report, err = s.engine.PruneNetworks(r.Context(), req.DraftOnly)
+	case "volumes":
+		report, err = s.engine.PruneVolumes(r.Context(), req.DraftOnly)
+	case "buildcache":
+		report, err = s.engine.PruneBuildCache(r.Context(), req.DraftOnly)
+	default:
+		http.Error(w, "unknown resource: "+req.Resource, http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, report)
 }
 
 func (s *Server) getEnvVars(nodeID string) ([]store.EnvVar, error) {

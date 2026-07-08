@@ -1,11 +1,11 @@
 import type {ComponentType} from 'react';
-import {LayoutDashboard, FolderOpen, Box, LayoutTemplate, HardDrive, Route, Settings2, KeyRound} from 'lucide-react';
+import {LayoutDashboard, FolderOpen, Box, LayoutTemplate, HardDrive, Route, Settings2, KeyRound, Container} from 'lucide-react';
 import type {LucideProps} from 'lucide-react';
 import './Sidebar.css';
 
 type IconType = ComponentType<LucideProps>;
 
-export type NavId = 'overview' | 'projects' | 'templates' | 'secrets' | 'volumes' | 'routes' | 'sandboxes' | 'settings';
+export type NavId = 'overview' | 'projects' | 'templates' | 'secrets' | 'volumes' | 'docker' | 'routes' | 'sandboxes' | 'settings';
 
 type NavItem = {
     id: NavId;
@@ -19,6 +19,7 @@ const WORKSPACE: NavItem[] = [
     {id: 'templates', label: 'Templates', icon: LayoutTemplate},
     {id: 'secrets', label: 'Secrets', icon: KeyRound},
     {id: 'volumes', label: 'Volumes', icon: HardDrive},
+    {id: 'docker', label: 'Docker', icon: Container},
     {id: 'routes', label: 'Routes', icon: Route},
     {id: 'sandboxes', label: 'Sandboxes', icon: Box},
 ];

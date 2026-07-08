@@ -4,6 +4,7 @@ import {dockerwatch} from '../models';
 import {store} from '../models';
 import {deploy} from '../models';
 import {main} from '../models';
+import {types} from '../models';
 import {networking} from '../models';
 import {dockerfile} from '../models';
 
@@ -61,6 +62,8 @@ export function GetDefaultEnvironment(arg1:number):Promise<store.Environment>;
 
 export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
+export function GetDockerDiskUsage():Promise<types.DiskUsage>;
+
 export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
 
 export function GetEnvironmentConnections(arg1:number):Promise<Array<deploy.Connection>>;
@@ -95,9 +98,17 @@ export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.Dockerfil
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
+export function ListAllDockerVolumes():Promise<Array<deploy.VolumeOverview>>;
+
 export function ListAppSecretUsages(arg1:string):Promise<Array<deploy.SecretUsage>>;
 
 export function ListAppSecrets():Promise<Array<store.AppSecret>>;
+
+export function ListDockerContainers():Promise<Array<deploy.ContainerSummary>>;
+
+export function ListDockerImages():Promise<Array<deploy.ImageSummary>>;
+
+export function ListDockerNetworks():Promise<Array<deploy.NetworkSummary>>;
 
 export function ListEnvironments(arg1:number):Promise<Array<store.Environment>>;
 
@@ -135,11 +146,23 @@ export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPre
 
 export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
 
+export function PruneDocker(arg1:string,arg2:boolean):Promise<deploy.PruneReport>;
+
 export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTemplateResult>;
 
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
+export function RemoveDockerContainer(arg1:string,arg2:boolean):Promise<void>;
+
+export function RemoveDockerImage(arg1:string,arg2:boolean):Promise<void>;
+
+export function RemoveDockerNetwork(arg1:string):Promise<void>;
+
+export function RemoveDockerVolume(arg1:string,arg2:boolean):Promise<void>;
+
 export function RenameEnvironment(arg1:number,arg2:string):Promise<void>;
+
+export function RestartDockerContainer(arg1:string):Promise<void>;
 
 export function RestartService(arg1:string):Promise<void>;
 
@@ -177,7 +200,11 @@ export function StageNodeSettings(arg1:string,arg2:number,arg3:Record<string, st
 
 export function StartDocker():Promise<void>;
 
+export function StartDockerContainer(arg1:string):Promise<void>;
+
 export function StartLogStream(arg1:string):Promise<void>;
+
+export function StopDockerContainer(arg1:string):Promise<void>;
 
 export function StopLogStream(arg1:string):Promise<void>;
 
