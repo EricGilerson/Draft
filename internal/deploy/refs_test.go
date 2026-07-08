@@ -194,19 +194,18 @@ func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 	}
 }
 
-func TestListReferenceTargetsBlocksCustomKeyCycle(t *testing.T) {
+func TestListReferenceTargetsBlocksCyclicCustomKeysOnly(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 	_, api, db := setupRefTestNodes(t, s)
 
-	// api references one of db's own custom variables (not a generated
-	// attr), so that reference does recurse through db's value at resolve
-	// time. db must not be offered api as a target, since picking it could
-	// close a real cycle.
 	if err := s.SetEnvVar(db.ID, "PASSWORD", "hunter2"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetEnvVar(api.ID, "DB_PASSWORD", "@{db.PASSWORD}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(api.ID, "PUBLIC_URL", "https://example.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,9 +213,63 @@ func TestListReferenceTargetsBlocksCustomKeyCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range dbTargets {
-		if target.NodeID == api.ID {
-			t.Fatalf("api should be excluded from db's reference targets (would cycle through a custom key), targets = %+v", dbTargets)
+	var apiTarget *ReferenceTarget
+	for i := range dbTargets {
+		if dbTargets[i].NodeID == api.ID {
+			apiTarget = &dbTargets[i]
+			break
 		}
 	}
+	if apiTarget == nil {
+		t.Fatalf("expected api to remain a reference target (address attrs are always safe), targets = %+v", dbTargets)
+	}
+	if len(apiTarget.Attributes) != len(generatedAttrs) {
+		t.Fatalf("expected generated address attrs on api, got %+v", apiTarget.Attributes)
+	}
+	if containsString(apiTarget.CustomKeys, "DB_PASSWORD") {
+		t.Fatalf("DB_PASSWORD should be excluded (resolves back into db), customKeys = %+v", apiTarget.CustomKeys)
+	}
+	if !containsString(apiTarget.CustomKeys, "PUBLIC_URL") {
+		t.Fatalf("PUBLIC_URL should remain available, customKeys = %+v", apiTarget.CustomKeys)
+	}
+}
+
+func TestListReferenceTargetsBlocksMutualCustomKeyCycle(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	_, api, db := setupRefTestNodes(t, s)
+
+	if err := s.SetEnvVar(api.ID, "A", "@{db.B}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(db.ID, "B", "@{api.A}"); err != nil {
+		t.Fatal(err)
+	}
+
+	dbTargets, err := e.ListReferenceTargets(db.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var apiTarget *ReferenceTarget
+	for i := range dbTargets {
+		if dbTargets[i].NodeID == api.ID {
+			apiTarget = &dbTargets[i]
+			break
+		}
+	}
+	if apiTarget == nil {
+		t.Fatal("expected api to remain a reference target for address attrs")
+	}
+	if containsString(apiTarget.CustomKeys, "A") {
+		t.Fatalf("api.A should be excluded from db's picker (mutual cycle), customKeys = %+v", apiTarget.CustomKeys)
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

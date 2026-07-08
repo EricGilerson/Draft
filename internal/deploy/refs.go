@@ -270,9 +270,10 @@ type ReferenceTarget struct {
 	CustomKeys []string `json:"customKeys"`
 }
 
-// ListReferenceTargets returns every other node in nodeID's project that can
-// be safely referenced from it — excluding nodes that already (transitively)
-// reference nodeID, since picking one of those would create a cycle.
+// ListReferenceTargets returns every other node in nodeID's project along with
+// the attributes that can be referenced from it without creating a cycle.
+// Generated address attrs are always offered; custom variable keys are omitted
+// only when resolving them from nodeID would hit a circular reference.
 func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) {
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
@@ -282,15 +283,10 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 	if err != nil {
 		return nil, err
 	}
-	conns, err := e.GetProjectConnections(node.ProjectID)
-	if err != nil {
-		return nil, err
-	}
-	blocked := nodesThatReach(nodeID, conns)
 
 	targets := make([]ReferenceTarget, 0, len(nodes))
 	for _, n := range nodes {
-		if n.ID == nodeID || blocked[n.ID] {
+		if n.ID == nodeID {
 			continue
 		}
 		vars, err := e.store.ListEnvVars(n.ID)
@@ -299,6 +295,9 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 		}
 		customKeys := make([]string, 0, len(vars))
 		for _, v := range vars {
+			if e.referenceWouldCycle(nodeID, node.ProjectID, n.ID, v.Key) {
+				continue
+			}
 			customKeys = append(customKeys, v.Key)
 		}
 		sort.Strings(customKeys)
@@ -313,34 +312,21 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 	return targets, nil
 }
 
-// nodesThatReach returns every node ID with a reference path (direct or
-// transitive) to target, via a reverse BFS over conns. Only connections to a
-// custom variable key count as edges here: a reference to a generated attr
-// (hostname/port/URL) resolves immediately with no recursion — see
-// resolveNodeAttr's isGeneratedAttr short-circuit — so it can never
-// contribute to an actual cycle and shouldn't block the reverse link in the
-// picker.
-func nodesThatReach(target string, conns []Connection) map[string]bool {
-	incoming := map[string][]string{}
-	for _, c := range conns {
-		if isGeneratedAttr(c.TargetAttr) {
-			continue
-		}
-		incoming[c.TargetNodeID] = append(incoming[c.TargetNodeID], c.SourceNodeID)
+// referenceWouldCycle reports whether nodeID referencing attrName on targetNodeID
+// would recurse back into nodeID. Generated address attrs never cycle.
+func (e *Engine) referenceWouldCycle(nodeID string, projectID uint, targetNodeID, attrName string) bool {
+	if isGeneratedAttr(attrName) {
+		return false
 	}
-	reach := map[string]bool{}
-	queue := []string{target}
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-		for _, src := range incoming[cur] {
-			if !reach[src] {
-				reach[src] = true
-				queue = append(queue, src)
-			}
-		}
+	target, err := e.store.GetNode(targetNodeID)
+	if err != nil {
+		return true
 	}
-	return reach
+	_, err = e.resolveNodeAttr(nodeID, projectID, target.Label, attrName, map[string]bool{nodeID: true})
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "circular")
 }
 
 // Connection is a derived, read-only edge between two nodes: sourceKey on

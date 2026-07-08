@@ -618,10 +618,9 @@ func (a *App) PreviewEnvVars(nodeID string) (map[string]deploy.EnvPreview, error
 	return c.PreviewEnvVars(a.ctx, nodeID)
 }
 
-// ListReferenceTargets returns the other services in nodeID's project that can
-// be referenced from it (excluding ones that would create a reference cycle),
-// along with what's available to reference on each: address attributes plus
-// custom variable keys.
+// ListReferenceTargets returns the other services in nodeID's project along with
+// the address attributes and custom variable keys that can be referenced from
+// it without creating a circular dependency.
 func (a *App) ListReferenceTargets(nodeID string) ([]deploy.ReferenceTarget, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
