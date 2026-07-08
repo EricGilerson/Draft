@@ -151,6 +151,40 @@
     padding-left: 30px;
 }
 
+/* Action error banner ------------------------------------------------------------ */
+.docker-action-error {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    white-space: pre-line;
+}
+
+.docker-dismiss-error {
+    flex-shrink: 0;
+    padding: 2px 8px;
+}
+
+/* Bulk selection bar -------------------------------------------------------------- */
+.docker-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-1);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.docker-confirm-detail {
+    margin-top: 6px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
 /* Table ------------------------------------------------------------------------ */
 .docker-table-wrap {
     border: 1px solid var(--border);
@@ -194,6 +228,11 @@
 .docker-col-num {
     text-align: right;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.docker-col-check {
+    width: 1%;
     white-space: nowrap;
 }
 

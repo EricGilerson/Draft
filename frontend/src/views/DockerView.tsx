@@ -29,11 +29,18 @@ import {
 } from '../../wailsjs/go/main/App';
 import {deploy, types} from '../../wailsjs/go/models';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
+import Dialog from '../components/Dialog';
 import PageHeader from '../components/PageHeader';
 import {formatBytes} from '../components/VolumeEditor';
 import './DockerView.css';
 
 type ResourceTab = 'containers' | 'images' | 'volumes' | 'networks';
+
+type ConfirmState = {
+    message: string;
+    detail?: string;
+    onConfirm: () => void;
+} | null;
 
 function formatAge(input: string | number): string {
     const then = typeof input === 'number' ? input * 1000 : new Date(input).getTime();
@@ -65,6 +72,13 @@ function formatPorts(ports: deploy.ContainerSummary['ports']): string {
         .join(', ');
 }
 
+function toggleSet<T>(set: Set<T>, value: T): Set<T> {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+}
+
 export default function DockerView() {
     const [tab, setTab] = useState<ResourceTab>('containers');
     const [du, setDu] = useState<types.DiskUsage | null>(null);
@@ -74,10 +88,16 @@ export default function DockerView() {
     const [networks, setNetworks] = useState<deploy.NetworkSummary[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [actionError, setActionError] = useState('');
     const [search, setSearch] = useState('');
     const [draftOnly, setDraftOnly] = useState(true);
     const [lastAction, setLastAction] = useState('');
     const [busy, setBusy] = useState(false);
+    const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+    const [selectedContainers, setSelectedContainers] = useState<Set<string>>(new Set());
+    const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
+    const [selectedVolumes, setSelectedVolumes] = useState<Set<string>>(new Set());
+    const [selectedNetworks, setSelectedNetworks] = useState<Set<string>>(new Set());
     const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const refresh = useCallback(() => {
@@ -123,6 +143,24 @@ export default function DockerView() {
         };
     }, [refresh]);
 
+    // Clear selections tied to stale ids whenever the underlying lists refresh.
+    useEffect(() => {
+        const ids = new Set(containers.map((c) => c.id));
+        setSelectedContainers((prev) => new Set([...prev].filter((id) => ids.has(id))));
+    }, [containers]);
+    useEffect(() => {
+        const ids = new Set(images.map((i) => i.id));
+        setSelectedImages((prev) => new Set([...prev].filter((id) => ids.has(id))));
+    }, [images]);
+    useEffect(() => {
+        const names = new Set(volumes.map((v) => v.name));
+        setSelectedVolumes((prev) => new Set([...prev].filter((name) => names.has(name))));
+    }, [volumes]);
+    useEffect(() => {
+        const ids = new Set(networks.map((n) => n.id));
+        setSelectedNetworks((prev) => new Set([...prev].filter((id) => ids.has(id))));
+    }, [networks]);
+
     const summary = useMemo(() => {
         if (!du) return null;
         const imgs = du.Images ?? [];
@@ -152,52 +190,171 @@ export default function DockerView() {
 
     const runAction = useCallback(async (fn: () => Promise<unknown>, onDone?: () => void) => {
         setBusy(true);
+        setActionError('');
         try {
             await fn();
             onDone?.();
             refresh();
         } catch (e) {
-            alert(String(e));
+            setActionError(String(e));
         } finally {
             setBusy(false);
         }
     }, [refresh]);
 
+    const runBulk = useCallback(async (ids: string[], performRemove: (id: string) => Promise<unknown>, onDone?: () => void) => {
+        setBusy(true);
+        setActionError('');
+        const failures: string[] = [];
+        for (const id of ids) {
+            try {
+                await performRemove(id);
+            } catch (e) {
+                failures.push(`${shortId(id) || id}: ${String(e)}`);
+            }
+        }
+        onDone?.();
+        refresh();
+        setBusy(false);
+        if (failures.length > 0) {
+            setActionError(failures.join('\n'));
+        }
+    }, [refresh]);
+
+    const askConfirm = (message: string, onConfirm: () => void, detail?: string) => {
+        setConfirmState({message, detail, onConfirm});
+    };
+
     const handleRemoveContainer = (c: deploy.ContainerSummary) => {
         const label = c.names?.[0]?.replace(/^\//, '') || shortId(c.id);
-        if (!confirm(`Remove container "${label}"?${c.state === 'running' ? ' It is currently running.' : ''}`)) return;
-        runAction(() => RemoveDockerContainer(c.id, c.state === 'running'));
+        askConfirm(
+            `Remove container "${label}"?`,
+            () => {
+                setConfirmState(null);
+                runAction(() => RemoveDockerContainer(c.id, c.state === 'running'));
+            },
+            c.state === 'running' ? 'It is currently running.' : undefined,
+        );
     };
 
     const handleRemoveImage = (i: deploy.ImageSummary) => {
         const label = i.repoTags?.[0] || shortId(i.id);
-        if (!confirm(`Remove image "${label}"?${i.containers > 0 ? ` It is used by ${i.containers} container(s).` : ''}`)) return;
-        runAction(() => RemoveDockerImage(i.id, i.containers > 0));
+        askConfirm(
+            `Remove image "${label}"?`,
+            () => {
+                setConfirmState(null);
+                runAction(() => RemoveDockerImage(i.id, i.containers > 0));
+            },
+            i.containers > 0 ? `It is used by ${i.containers} container(s).` : undefined,
+        );
     };
 
     const handleRemoveVolume = (v: deploy.VolumeOverview) => {
-        if (!confirm(`Delete volume "${v.name}"? This permanently removes its data (${formatBytes(v.size)}).`)) return;
-        runAction(() => RemoveDockerVolume(v.name, v.refCount > 0));
+        askConfirm(
+            `Delete volume "${v.name}"? This permanently removes its data (${formatBytes(v.size)}).`,
+            () => {
+                setConfirmState(null);
+                runAction(() => RemoveDockerVolume(v.name, v.refCount > 0));
+            },
+        );
     };
 
     const handleRemoveNetwork = (n: deploy.NetworkSummary) => {
-        if (!confirm(`Remove network "${n.name}"?`)) return;
-        runAction(() => RemoveDockerNetwork(n.id));
+        askConfirm(`Remove network "${n.name}"?`, () => {
+            setConfirmState(null);
+            runAction(() => RemoveDockerNetwork(n.id));
+        });
     };
 
-    const handlePrune = async (resource: string, label: string) => {
+    const handleBulkRemoveContainers = (rows: deploy.ContainerSummary[]) => {
+        if (rows.length === 0) return;
+        const anyRunning = rows.some((c) => c.state === 'running');
+        askConfirm(
+            `Remove ${rows.length} selected container${rows.length > 1 ? 's' : ''}?`,
+            () => {
+                setConfirmState(null);
+                runBulk(
+                    rows.map((c) => c.id),
+                    (id) => {
+                        const row = rows.find((c) => c.id === id);
+                        return RemoveDockerContainer(id, row?.state === 'running');
+                    },
+                    () => setSelectedContainers(new Set()),
+                );
+            },
+            anyRunning ? 'Some of these are currently running.' : undefined,
+        );
+    };
+
+    const handleBulkRemoveImages = (rows: deploy.ImageSummary[]) => {
+        if (rows.length === 0) return;
+        const anyInUse = rows.some((i) => i.containers > 0);
+        askConfirm(
+            `Remove ${rows.length} selected image${rows.length > 1 ? 's' : ''}?`,
+            () => {
+                setConfirmState(null);
+                runBulk(
+                    rows.map((i) => i.id),
+                    (id) => {
+                        const row = rows.find((i) => i.id === id);
+                        return RemoveDockerImage(id, (row?.containers || 0) > 0);
+                    },
+                    () => setSelectedImages(new Set()),
+                );
+            },
+            anyInUse ? 'Some of these are used by existing containers.' : undefined,
+        );
+    };
+
+    const handleBulkRemoveVolumes = (rows: deploy.VolumeOverview[]) => {
+        if (rows.length === 0) return;
+        askConfirm(
+            `Delete ${rows.length} selected volume${rows.length > 1 ? 's' : ''}? This permanently removes their data.`,
+            () => {
+                setConfirmState(null);
+                runBulk(
+                    rows.map((v) => v.name),
+                    (name) => {
+                        const row = rows.find((v) => v.name === name);
+                        return RemoveDockerVolume(name, (row?.refCount || 0) > 0);
+                    },
+                    () => setSelectedVolumes(new Set()),
+                );
+            },
+        );
+    };
+
+    const handleBulkRemoveNetworks = (rows: deploy.NetworkSummary[]) => {
+        if (rows.length === 0) return;
+        askConfirm(
+            `Remove ${rows.length} selected network${rows.length > 1 ? 's' : ''}?`,
+            () => {
+                setConfirmState(null);
+                runBulk(
+                    rows.map((n) => n.id),
+                    (id) => RemoveDockerNetwork(id),
+                    () => setSelectedNetworks(new Set()),
+                );
+            },
+        );
+    };
+
+    const handlePrune = (resource: string, label: string) => {
         const scope = draftOnly ? 'Draft-managed' : 'all';
-        if (!confirm(`Remove unused ${scope} ${label}? This cannot be undone.`)) return;
-        setBusy(true);
-        try {
-            const report = await PruneDocker(resource, draftOnly);
-            setLastAction(`Freed ${formatBytes(report.spaceReclaimed || 0)} from ${label}${report.removed?.length ? ` (${report.removed.length} removed)` : ''}.`);
-            refresh();
-        } catch (e) {
-            alert(String(e));
-        } finally {
-            setBusy(false);
-        }
+        askConfirm(`Remove unused ${scope} ${label}? This cannot be undone.`, async () => {
+            setConfirmState(null);
+            setBusy(true);
+            setActionError('');
+            try {
+                const report = await PruneDocker(resource, draftOnly);
+                setLastAction(`Freed ${formatBytes(report.spaceReclaimed || 0)} from ${label}${report.removed?.length ? ` (${report.removed.length} removed)` : ''}.`);
+                refresh();
+            } catch (e) {
+                setActionError(String(e));
+            } finally {
+                setBusy(false);
+            }
+        });
     };
 
     const q = search.trim().toLowerCase();
@@ -216,6 +373,10 @@ export default function DockerView() {
     const filteredNetworks = useMemo(
         () => networks.filter((n) => !q || `${n.name} ${n.driver}`.toLowerCase().includes(q)),
         [networks, q],
+    );
+    const selectableNetworks = useMemo(
+        () => filteredNetworks.filter((n) => n.name !== 'bridge' && n.name !== 'host' && n.name !== 'none'),
+        [filteredNetworks],
     );
 
     const tabs: {id: ResourceTab; label: string; icon: typeof Box; count: number}[] = [
@@ -239,6 +400,12 @@ export default function DockerView() {
 
             <div className="docker-layout">
                 {error && <p className="form-error">{error}</p>}
+                {actionError && (
+                    <p className="form-error docker-action-error">
+                        {actionError}
+                        <button className="btn btn-ghost docker-dismiss-error" onClick={() => setActionError('')}>Dismiss</button>
+                    </p>
+                )}
 
                 <div className="docker-summary">
                     <div className="docker-summary-total">
@@ -314,6 +481,59 @@ export default function DockerView() {
                     />
                 </div>
 
+                {tab === 'containers' && selectedContainers.size > 0 && (
+                    <div className="docker-bulk-bar">
+                        <span>{selectedContainers.size} selected</span>
+                        <button className="btn btn-ghost" disabled={busy} onClick={() => setSelectedContainers(new Set())}>Clear</button>
+                        <button
+                            className="btn btn-ghost docker-icon-btn--danger"
+                            disabled={busy}
+                            onClick={() => handleBulkRemoveContainers(filteredContainers.filter((c) => selectedContainers.has(c.id)))}
+                        >
+                            <Trash2 size={13}/> Remove selected
+                        </button>
+                    </div>
+                )}
+                {tab === 'images' && selectedImages.size > 0 && (
+                    <div className="docker-bulk-bar">
+                        <span>{selectedImages.size} selected</span>
+                        <button className="btn btn-ghost" disabled={busy} onClick={() => setSelectedImages(new Set())}>Clear</button>
+                        <button
+                            className="btn btn-ghost docker-icon-btn--danger"
+                            disabled={busy}
+                            onClick={() => handleBulkRemoveImages(filteredImages.filter((i) => selectedImages.has(i.id)))}
+                        >
+                            <Trash2 size={13}/> Remove selected
+                        </button>
+                    </div>
+                )}
+                {tab === 'volumes' && selectedVolumes.size > 0 && (
+                    <div className="docker-bulk-bar">
+                        <span>{selectedVolumes.size} selected</span>
+                        <button className="btn btn-ghost" disabled={busy} onClick={() => setSelectedVolumes(new Set())}>Clear</button>
+                        <button
+                            className="btn btn-ghost docker-icon-btn--danger"
+                            disabled={busy}
+                            onClick={() => handleBulkRemoveVolumes(filteredVolumes.filter((v) => selectedVolumes.has(v.name)))}
+                        >
+                            <Trash2 size={13}/> Remove selected
+                        </button>
+                    </div>
+                )}
+                {tab === 'networks' && selectedNetworks.size > 0 && (
+                    <div className="docker-bulk-bar">
+                        <span>{selectedNetworks.size} selected</span>
+                        <button className="btn btn-ghost" disabled={busy} onClick={() => setSelectedNetworks(new Set())}>Clear</button>
+                        <button
+                            className="btn btn-ghost docker-icon-btn--danger"
+                            disabled={busy}
+                            onClick={() => handleBulkRemoveNetworks(filteredNetworks.filter((n) => selectedNetworks.has(n.id)))}
+                        >
+                            <Trash2 size={13}/> Remove selected
+                        </button>
+                    </div>
+                )}
+
                 {loading ? (
                     <div className="docker-empty">Loading…</div>
                 ) : tab === 'containers' ? (
@@ -324,6 +544,13 @@ export default function DockerView() {
                             <table className="docker-table">
                                 <thead>
                                     <tr>
+                                        <th className="docker-col-check">
+                                            <input
+                                                type="checkbox"
+                                                checked={filteredContainers.length > 0 && filteredContainers.every((c) => selectedContainers.has(c.id))}
+                                                onChange={(e) => setSelectedContainers(e.target.checked ? new Set(filteredContainers.map((c) => c.id)) : new Set())}
+                                            />
+                                        </th>
                                         <th>Name</th>
                                         <th>Image</th>
                                         <th>Status</th>
@@ -337,6 +564,13 @@ export default function DockerView() {
                                 <tbody>
                                     {filteredContainers.map((c) => (
                                         <tr key={c.id}>
+                                            <td className="docker-col-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedContainers.has(c.id)}
+                                                    onChange={() => setSelectedContainers((prev) => toggleSet(prev, c.id))}
+                                                />
+                                            </td>
                                             <td><span className="docker-name">{c.names?.[0]?.replace(/^\//, '') || shortId(c.id)}</span></td>
                                             <td><code className="docker-mono">{c.image}</code></td>
                                             <td>
@@ -389,6 +623,13 @@ export default function DockerView() {
                             <table className="docker-table">
                                 <thead>
                                     <tr>
+                                        <th className="docker-col-check">
+                                            <input
+                                                type="checkbox"
+                                                checked={filteredImages.length > 0 && filteredImages.every((i) => selectedImages.has(i.id))}
+                                                onChange={(e) => setSelectedImages(e.target.checked ? new Set(filteredImages.map((i) => i.id)) : new Set())}
+                                            />
+                                        </th>
                                         <th>Repository:Tag</th>
                                         <th>Image ID</th>
                                         <th className="docker-col-num">Size</th>
@@ -402,6 +643,13 @@ export default function DockerView() {
                                 <tbody>
                                     {filteredImages.map((i) => (
                                         <tr key={i.id}>
+                                            <td className="docker-col-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedImages.has(i.id)}
+                                                    onChange={() => setSelectedImages((prev) => toggleSet(prev, i.id))}
+                                                />
+                                            </td>
                                             <td>
                                                 {i.repoTags && i.repoTags.length > 0 ? (
                                                     <span className="docker-name">{i.repoTags[0]}</span>
@@ -440,6 +688,13 @@ export default function DockerView() {
                             <table className="docker-table">
                                 <thead>
                                     <tr>
+                                        <th className="docker-col-check">
+                                            <input
+                                                type="checkbox"
+                                                checked={filteredVolumes.length > 0 && filteredVolumes.every((v) => selectedVolumes.has(v.name))}
+                                                onChange={(e) => setSelectedVolumes(e.target.checked ? new Set(filteredVolumes.map((v) => v.name)) : new Set())}
+                                            />
+                                        </th>
                                         <th>Name</th>
                                         <th>Driver</th>
                                         <th className="docker-col-num">Size</th>
@@ -452,6 +707,13 @@ export default function DockerView() {
                                 <tbody>
                                     {filteredVolumes.map((v) => (
                                         <tr key={v.name}>
+                                            <td className="docker-col-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedVolumes.has(v.name)}
+                                                    onChange={() => setSelectedVolumes((prev) => toggleSet(prev, v.name))}
+                                                />
+                                            </td>
                                             <td><span className="docker-name docker-mono">{v.name}</span></td>
                                             <td>{v.driver || 'local'}</td>
                                             <td className="docker-col-num">{formatBytes(v.size)}</td>
@@ -484,6 +746,13 @@ export default function DockerView() {
                         <table className="docker-table">
                             <thead>
                                 <tr>
+                                    <th className="docker-col-check">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectableNetworks.length > 0 && selectableNetworks.every((n) => selectedNetworks.has(n.id))}
+                                            onChange={(e) => setSelectedNetworks(e.target.checked ? new Set(selectableNetworks.map((n) => n.id)) : new Set())}
+                                        />
+                                    </th>
                                     <th>Name</th>
                                     <th>Driver</th>
                                     <th>Scope</th>
@@ -493,36 +762,63 @@ export default function DockerView() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredNetworks.map((n) => (
-                                    <tr key={n.id}>
-                                        <td><span className="docker-name">{n.name}</span></td>
-                                        <td>{n.driver}</td>
-                                        <td>{n.scope}</td>
-                                        <td className="docker-col-num">{n.containers}</td>
-                                        <td>
-                                            {n.managed ? (
-                                                <span className="docker-badge docker-badge--managed">Draft</span>
-                                            ) : (
-                                                <span className="docker-badge docker-badge--external">External</span>
-                                            )}
-                                        </td>
-                                        <td className="docker-col-actions">
-                                            <button
-                                                className="btn btn-ghost docker-icon-btn docker-icon-btn--danger"
-                                                title="Remove"
-                                                disabled={busy || n.name === 'bridge' || n.name === 'host' || n.name === 'none'}
-                                                onClick={() => handleRemoveNetwork(n)}
-                                            >
-                                                <Trash2 size={14}/>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filteredNetworks.map((n) => {
+                                    const protectedNetwork = n.name === 'bridge' || n.name === 'host' || n.name === 'none';
+                                    return (
+                                        <tr key={n.id}>
+                                            <td className="docker-col-check">
+                                                <input
+                                                    type="checkbox"
+                                                    disabled={protectedNetwork}
+                                                    checked={selectedNetworks.has(n.id)}
+                                                    onChange={() => setSelectedNetworks((prev) => toggleSet(prev, n.id))}
+                                                />
+                                            </td>
+                                            <td><span className="docker-name">{n.name}</span></td>
+                                            <td>{n.driver}</td>
+                                            <td>{n.scope}</td>
+                                            <td className="docker-col-num">{n.containers}</td>
+                                            <td>
+                                                {n.managed ? (
+                                                    <span className="docker-badge docker-badge--managed">Draft</span>
+                                                ) : (
+                                                    <span className="docker-badge docker-badge--external">External</span>
+                                                )}
+                                            </td>
+                                            <td className="docker-col-actions">
+                                                <button
+                                                    className="btn btn-ghost docker-icon-btn docker-icon-btn--danger"
+                                                    title="Remove"
+                                                    disabled={busy || protectedNetwork}
+                                                    onClick={() => handleRemoveNetwork(n)}
+                                                >
+                                                    <Trash2 size={14}/>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
                 )}
             </div>
+
+            {confirmState && (
+                <Dialog
+                    title="Confirm"
+                    onClose={() => setConfirmState(null)}
+                    footer={
+                        <>
+                            <button className="btn btn-ghost" onClick={() => setConfirmState(null)}>Cancel</button>
+                            <button className="btn btn-danger" onClick={confirmState.onConfirm}>Remove</button>
+                        </>
+                    }
+                >
+                    <p>{confirmState.message}</p>
+                    {confirmState.detail && <p className="docker-confirm-detail">{confirmState.detail}</p>}
+                </Dialog>
+            )}
         </div>
     );
 }
