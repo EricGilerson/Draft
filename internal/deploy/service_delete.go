@@ -125,7 +125,7 @@ func (e *Engine) DeleteService(ctx context.Context, nodeID string) error {
 			_ = removeContainerAndWait(ctx, cli, d.ContainerID)
 		}
 		if cliErr == nil && d.ImageTag != "" {
-			_ = removeImageAndWait(ctx, cli, d.ImageTag)
+			_ = removeDraftDeploymentImage(ctx, cli, d.ImageTag)
 		}
 		if d.Hostname != "" {
 			_ = e.router.Unregister(d.Hostname)

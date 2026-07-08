@@ -233,6 +233,7 @@ func (e *Engine) startContainerAndRegister(
 		stopTO := stopTimeoutForSettings(settings)
 		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
 		_ = removeContainerAndWait(context.Background(), cli, createResp.ID)
+		// Only the failed new build's image — never the N-1 -previous candidate.
 		if dep.ImageTag != "" {
 			_ = removeImageAndWait(context.Background(), cli, dep.ImageTag)
 		}

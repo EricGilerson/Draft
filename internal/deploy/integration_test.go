@@ -94,6 +94,7 @@ func cleanupContainers(t *testing.T, cli *client.Client, deployments []store.Dep
 		}
 		if d.ImageTag != "" {
 			cli.ImageRemove(ctx, d.ImageTag, image.RemoveOptions{Force: true})
+			cli.ImageRemove(ctx, draftPreviousImageTag(d.ImageTag), image.RemoveOptions{Force: true})
 		}
 	}
 }
@@ -768,9 +769,10 @@ CMD ["sh", "-c", "echo stdout-marker; echo stderr-marker >&2; sleep 3600"]
 	})
 }
 
-// TestIntegrationRedeployCleansOldImage verifies that a redeploy removes the
-// previous deployment's Docker image to reclaim disk space.
-func TestIntegrationRedeployCleansOldImage(t *testing.T) {
+// TestIntegrationRedeployRetainsPreviousImage verifies keep_images=last:
+// after a redeploy the N-1 image is kept under the …:N-previous tag for
+// rollback, not left untagged and not deleted.
+func TestIntegrationRedeployRetainsPreviousImage(t *testing.T) {
 	cli := requireDocker(t)
 	defer cli.Close()
 
@@ -780,6 +782,8 @@ func TestIntegrationRedeployCleansOldImage(t *testing.T) {
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
+	// Explicit default policy.
+	s.SetNodeSetting("svc1", "keep_images", "last")
 
 	// First deploy
 	e.Deploy(context.Background(), "svc1")
@@ -791,6 +795,7 @@ func TestIntegrationRedeployCleansOldImage(t *testing.T) {
 	dep1, _ := s.ActiveDeployment("svc1")
 	firstImage := dep1.ImageTag
 	firstDeployID := dep1.ID
+	prevTag := draftPreviousImageTag(firstImage)
 
 	// Second deploy
 	e.Deploy(context.Background(), "svc1")
@@ -815,10 +820,40 @@ func TestIntegrationRedeployCleansOldImage(t *testing.T) {
 		t.Fatal("expected second deploy to reach running")
 	}
 
-	// Old image should have been removed
-	_, _, err := cli.ImageInspectWithRaw(context.Background(), firstImage)
-	if err == nil {
-		t.Errorf("expected old image %s to be removed after redeploy", firstImage)
+	// N-1 should be retained under the -previous tag (not anonymous untagged).
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), prevTag); err != nil {
+		t.Errorf("expected previous image %s to be retained for rollback: %v", prevTag, err)
+	}
+	// Live name of the old deploy should have been dropped (moved to -previous).
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), firstImage); err == nil {
+		t.Errorf("expected live tag %s to be moved to -previous after cutover", firstImage)
+	}
+
+	// Third deploy: N-2 (first image) must actually be removed.
+	dep2, _ := s.ActiveDeployment("svc1")
+	secondDeployID := dep2.ID
+	e.Deploy(context.Background(), "svc1")
+	deadline = time.Now().Add(60 * time.Second)
+	var thirdRunning *StatusEvent
+	for time.Now().Before(deadline) {
+		for _, ev := range col.get() {
+			if ev.Name == "deploy:status:svc1" {
+				se := ev.Data.(StatusEvent)
+				if se.Status == "running" && se.DeploymentID != secondDeployID && se.DeploymentID != firstDeployID {
+					thirdRunning = &se
+				}
+			}
+		}
+		if thirdRunning != nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if thirdRunning == nil {
+		t.Fatal("expected third deploy to reach running")
+	}
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), prevTag); err == nil {
+		t.Errorf("expected N-2 previous image %s to be removed after third deploy", prevTag)
 	}
 
 	t.Cleanup(func() {
@@ -968,6 +1003,8 @@ func TestIntegrationRedeployCleansStaleImages(t *testing.T) {
 
 	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
 	s.SetNodeSetting("svc1", "service_port", "80")
+	// Force full prior-image cleanup so a re-created stale tag is purged.
+	s.SetNodeSetting("svc1", "keep_images", "none")
 
 	// First deploy
 	e.Deploy(context.Background(), "svc1")
@@ -1021,6 +1058,9 @@ func TestIntegrationRedeployCleansStaleImages(t *testing.T) {
 	_, _, err = cli.ImageInspectWithRaw(context.Background(), firstImage)
 	if err == nil {
 		t.Errorf("expected stale image %s to be removed by stopPrevious", firstImage)
+	}
+	if _, _, err = cli.ImageInspectWithRaw(context.Background(), draftPreviousImageTag(firstImage)); err == nil {
+		t.Errorf("expected previous form of stale image to be removed by stopPrevious")
 	}
 
 	t.Cleanup(func() {

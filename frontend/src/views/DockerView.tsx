@@ -54,12 +54,23 @@ type ImageGroup = {
     intermediates: deploy.ImageSummary[];
 };
 
+/** Draft N-1 rollback retention tag — kept on disk for rollback, hidden in the Docker tab. */
+function isPreviousImageTag(tag: string): boolean {
+    return /:\d+-previous$/.test(tag);
+}
+
 function visibleRepoTags(tags: string[] | undefined | null): string[] {
     return (tags ?? [])
-        .filter((tag) => tag && tag !== '<none>:<none>')
+        .filter((tag) => tag && tag !== '<none>:<none>' && !isPreviousImageTag(tag))
         // Stable order so multi-env tags (main/staging/…) are easy to scan.
         .slice()
         .sort((a, b) => a.localeCompare(b));
+}
+
+/** Images that only exist as …:N-previous rollback candidates — omit from the tab. */
+function isRollbackOnlyImage(img: deploy.ImageSummary): boolean {
+    const raw = (img.repoTags ?? []).filter((tag) => tag && tag !== '<none>:<none>');
+    return raw.length > 0 && raw.every(isPreviousImageTag);
 }
 
 function imageKey(id: string | undefined | null): string {
@@ -507,9 +518,12 @@ export default function DockerView() {
         return rows;
     }, [containers, q, containerSort]);
     const imageGroups = useMemo(() => {
-        const groups = groupImages(images);
+        // Hide N-1 rollback retention images (…:N-previous) entirely — they stay
+        // on disk for Deployments → Redeploy, but clutter the Docker tab.
+        const listed = images.filter((i) => !isRollbackOnlyImage(i));
+        const groups = groupImages(listed);
         const matchesQuery = (i: deploy.ImageSummary) =>
-            !q || `${i.repoTags?.join(' ')} ${i.id} ${i.parentId || ''}`.toLowerCase().includes(q);
+            !q || `${visibleRepoTags(i.repoTags).join(' ')} ${i.id} ${i.parentId || ''}`.toLowerCase().includes(q);
 
         // Keep a group if the head or any intermediate matches (search still
         // reaches collapsed parents).

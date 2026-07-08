@@ -133,6 +133,27 @@ func TestDraftImageTagIncludesEnvironment(t *testing.T) {
 	}
 }
 
+func TestDraftPreviousImageTag(t *testing.T) {
+	live := "draft-my-app-main-api:3"
+	prev := draftPreviousImageTag(live)
+	if prev != "draft-my-app-main-api:3-previous" {
+		t.Fatalf("draftPreviousImageTag = %q", prev)
+	}
+	// Idempotent on already-previous tags.
+	if draftPreviousImageTag(prev) != prev {
+		t.Fatalf("expected previous tag to be stable, got %q", draftPreviousImageTag(prev))
+	}
+	if !isDraftPreviousImageTag(prev) {
+		t.Fatal("expected isDraftPreviousImageTag")
+	}
+	if isDraftPreviousImageTag(live) {
+		t.Fatal("live tag should not count as previous")
+	}
+	if !draftBuildTagPattern.MatchString(live) || !draftBuildTagPattern.MatchString(prev) {
+		t.Fatalf("pattern should match live and previous: %q %q", live, prev)
+	}
+}
+
 func TestDraftContainerNameIncludesEnvironment(t *testing.T) {
 	got := draftContainerName("My App", "staging", "api", 3)
 	if got != "draft-my-app-staging-api-3" {

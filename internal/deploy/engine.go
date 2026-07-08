@@ -946,6 +946,8 @@ func draftNetworkName(projectID uint, projectName, environment string) string {
 // build identical layers, Docker stores one image and attaches every tag to
 // it — the Docker tab is one row per ID, with all RepoTags listed.
 // Format: draft-{project}-{environment}-{service}:{sequence}
+// After cutover the N-1 rollback candidate is retagged to the same name with
+// a "-previous" suffix (see draftPreviousImageTag / retainImageForRollback).
 func draftImageTag(projectName, environment, serviceName string, sequence int) string {
 	env := sanitize(environment)
 	if env == "" {
@@ -1264,7 +1266,7 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 		}
 	}
 	if dep.ImageTag != "" {
-		if err := removeImageAndWait(ctx, cli, dep.ImageTag); err != nil {
+		if err := removeDraftDeploymentImage(ctx, cli, dep.ImageTag); err != nil {
 			log.Printf("[deploy] remove image %s: %v", dep.ImageTag, err)
 		}
 	}
@@ -1297,7 +1299,8 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 	// The most-recent previous deployment (highest created_at that isn't the
 	// one that just cut over) is the N-1 we keep an image of when the policy is
 	// "last", so the user can roll back to what was running a moment ago. All
-	// older images are still GC'd every deploy.
+	// older images (N-2+) are removed every deploy — both the live tag and the
+	// -previous retention tag.
 	prevKeptID := uint(0)
 	if keepImages == keepImagesLast {
 		for _, d := range deployments {
@@ -1331,18 +1334,26 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 			}
 		}
 
-		// Image retention. "all" keeps every image; "last" keeps only the N-1
-		// image (prevKeptID); "none" removes every prior image (the pre-rollback
-		// behavior). Container cleanup above always runs regardless of policy.
-		keepThisImage := false
+		// Image retention.
+		//   all  — leave every prior image tagged as built (live names).
+		//   last — keep only N-1, retagged to …:N-previous for rollback identity.
+		//   none — remove every prior image (live + -previous forms).
+		// Container cleanup above always runs regardless of policy.
 		switch keepImages {
 		case keepImagesAll:
-			keepThisImage = true
+			// Leave historical live tags in place.
 		case keepImagesLast:
-			keepThisImage = d.ID == prevKeptID
-		}
-		if !keepThisImage && d.ImageTag != "" {
-			_ = removeImageAndWait(ctx, cli, d.ImageTag)
+			if d.ID == prevKeptID {
+				if d.ImageTag != "" {
+					_ = retainImageForRollback(ctx, cli, d.ImageTag)
+				}
+			} else if d.ImageTag != "" {
+				_ = removeDraftDeploymentImage(ctx, cli, d.ImageTag)
+			}
+		default: // keepImagesNone
+			if d.ImageTag != "" {
+				_ = removeDraftDeploymentImage(ctx, cli, d.ImageTag)
+			}
 		}
 	}
 	return nil
@@ -1387,7 +1398,7 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 	}
 
 	if dep.ImageTag != "" {
-		if err := removeImageAndWait(ctx, cli, dep.ImageTag); err != nil {
+		if err := removeDraftDeploymentImage(ctx, cli, dep.ImageTag); err != nil {
 			return err
 		}
 	}
@@ -1594,7 +1605,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
 			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
 			if dep.ImageTag != "" {
-				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 			}
 		} else if inspect.State != nil && inspect.State.ExitCode != 0 {
 			dep.Status = "failed"
@@ -1607,7 +1618,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
 			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
 			if dep.ImageTag != "" {
-				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 			}
 		} else {
 			dep.Status = "stopped"
@@ -1621,7 +1632,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
 			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
 			if dep.ImageTag != "" {
-				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 			}
 		}
 		e.store.UpdateDeployment(dep)
@@ -1644,7 +1655,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			e.store.UpdateDeployment(dep)
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "interrupted", Error: dep.Error})
 			if dep.ImageTag != "" {
-				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 			}
 		case "failed":
 			if strings.Contains(dep.Error, "interrupted") {
@@ -1652,7 +1663,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 				e.store.UpdateDeployment(dep)
 			}
 			if dep.ImageTag != "" {
-				cli.ImageRemove(ctx, dep.ImageTag, image.RemoveOptions{})
+				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 			}
 		}
 	}

@@ -63,7 +63,7 @@ func (e *Engine) rollbackEligibilityForDeployment(ctx context.Context, cli *clie
 		res.Reason = "Docker not reachable"
 		return res
 	}
-	if e.imageExistsLocally(ctx, cli, d.ImageTag) {
+	if _, ok := e.resolveLocalDraftImageRef(ctx, cli, d.ImageTag); ok {
 		res.Eligible = true
 		res.Method = "run-image"
 		return res
@@ -106,7 +106,7 @@ func (e *Engine) RollbackDeployment(ctx context.Context, deploymentID uint) erro
 		if err != nil {
 			return fmt.Errorf("cannot connect to Docker: %w", err)
 		}
-		present := e.imageExistsLocally(ctx, cli, historical.ImageTag)
+		_, present := e.resolveLocalDraftImageRef(ctx, cli, historical.ImageTag)
 		cli.Close()
 		if !present {
 			if historical.SourceSHA != "" {
@@ -221,7 +221,7 @@ func (e *Engine) runRollbackDeploy(ctx context.Context, historical *store.Deploy
 	hooksWorkDir := project.Path
 
 	// Image-mode: pull if missing (the historical ref is a registry image).
-	// Build/git: the image is a local tag — never pull, require local presence.
+	// Build/git: the image is a local tag (live or -previous) — never pull.
 	if isImageMode {
 		if !e.imageExistsLocally(ctx, cli, imageRef) {
 			e.emitBuildLog(nodeID, "==> Pulling image...")
@@ -236,11 +236,20 @@ func (e *Engine) runRollbackDeploy(ctx context.Context, historical *store.Deploy
 		} else {
 			e.emitBuildLog(nodeID, fmt.Sprintf("    Image %q present locally", imageRef))
 		}
-	} else if !e.imageExistsLocally(ctx, cli, imageRef) {
-		e.failDeployment(dep, nodeID, fmt.Sprintf("image %q is no longer retained locally", imageRef))
-		return
 	} else {
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Reusing retained image %q", imageRef))
+		resolved, ok := e.resolveLocalDraftImageRef(ctx, cli, imageRef)
+		if !ok {
+			e.failDeployment(dep, nodeID, fmt.Sprintf("image %q is no longer retained locally", imageRef))
+			return
+		}
+		if resolved != imageRef {
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Reusing retained previous image %q (stored as %q)", resolved, imageRef))
+			imageRef = resolved
+			dep.ImageTag = resolved
+			e.store.UpdateDeployment(dep)
+		} else {
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Reusing retained image %q", imageRef))
+		}
 	}
 
 	now := time.Now()

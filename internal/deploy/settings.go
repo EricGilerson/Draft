@@ -293,10 +293,15 @@ func splitCSV(s string) []string {
 
 // Image retention policy for rollback support. Stored on node_settings under
 // "keep_images". Local disk is finite, so unlike hosted PaaSes we can't keep
-// every historical build image — see the rollback design in the plan.
+// every historical build image.
+//
+// Lifecycle when policy is "last" (default):
+//   - Current deploy keeps the live tag draft-…:N
+//   - N-1 is retagged to draft-…:N-previous (identifiable rollback candidate)
+//   - N-2 and older are fully removed (live + -previous tags)
 const (
-	keepImagesLast = "last" // default: keep only N-1 (the immediately previous image)
-	keepImagesNone = "none" // current behavior: remove every prior image on cutover
+	keepImagesLast = "last" // default: keep only N-1 as …:N-previous for rollback
+	keepImagesNone = "none" // remove every prior image on cutover
 	keepImagesAll  = "all"  // keep every image (power users with disk to spare)
 )
 
