@@ -55,7 +55,11 @@ type ImageGroup = {
 };
 
 function visibleRepoTags(tags: string[] | undefined | null): string[] {
-    return (tags ?? []).filter((tag) => tag && tag !== '<none>:<none>');
+    return (tags ?? [])
+        .filter((tag) => tag && tag !== '<none>:<none>')
+        // Stable order so multi-env tags (main/staging/…) are easy to scan.
+        .slice()
+        .sort((a, b) => a.localeCompare(b));
 }
 
 function imageKey(id: string | undefined | null): string {
@@ -920,11 +924,22 @@ export default function DockerView() {
                                                                     <span className="docker-expand-spacer" aria-hidden/>
                                                                 )}
                                                                 {tags.length > 0 ? (
-                                                                    <div className="docker-image-tags" title={tags.join('\n')}>
-                                                                        <span className="docker-name">{tags[0]}</span>
+                                                                    <div
+                                                                        className={`docker-image-tags${tags.length > 1 ? ' docker-image-tags--multi' : ''}`}
+                                                                        title={tags.join('\n')}
+                                                                    >
                                                                         {tags.length > 1 && (
-                                                                            <span className="docker-tag-more">+{tags.length - 1} more</span>
+                                                                            <span className="docker-tag-count">
+                                                                                {tags.length} tags
+                                                                            </span>
                                                                         )}
+                                                                        <ul className="docker-image-tag-list">
+                                                                            {tags.map((tag) => (
+                                                                                <li key={tag} className="docker-image-tag">
+                                                                                    <code>{tag}</code>
+                                                                                </li>
+                                                                            ))}
+                                                                        </ul>
                                                                     </div>
                                                                 ) : depth > 0 ? (
                                                                     <span

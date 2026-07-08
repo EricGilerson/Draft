@@ -940,8 +940,11 @@ func draftNetworkName(projectID uint, projectName, environment string) string {
 
 // draftImageTag is the deterministic Docker tag for a Draft-built image.
 // Environment is required so duplicated environments with the same service
-// labels don't overwrite each other's images (sequence is per-node, so both
-// start at :1 independently).
+// labels get distinct tags (sequence is per-node and both start at :1).
+//
+// Note: distinct tags do not always mean distinct image IDs. When two envs
+// build identical layers, Docker stores one image and attaches every tag to
+// it — the Docker tab is one row per ID, with all RepoTags listed.
 // Format: draft-{project}-{environment}-{service}:{sequence}
 func draftImageTag(projectName, environment, serviceName string, sequence int) string {
 	env := sanitize(environment)

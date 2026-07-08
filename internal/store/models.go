@@ -122,8 +122,8 @@ type Deployment struct {
 	// container name (draft-{project}-{environment}-{service}:{sequence}),
 	// scoped to the service rather than the app-wide deployment primary key
 	// (ID), so two services with unrelated deploy histories don't make each
-	// other's build numbers jump. Environment is part of the tag so duplicated
-	// environments with the same service label don't collide at :1.
+	// other's build numbers jump. Environment keeps duplicated environments
+	// with the same service label from sharing a tag at :1.
 	Sequence           int        `gorm:"not null;default:0" json:"sequence"`
 	Hostname           string     `json:"hostname"`
 	HostPort           int        `json:"hostPort"`

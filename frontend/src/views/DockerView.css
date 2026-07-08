@@ -226,7 +226,7 @@
 .docker-table tbody td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    vertical-align: middle;
+    vertical-align: top;
 }
 
 .docker-table tbody tr:last-child td {
@@ -258,15 +258,61 @@
     color: var(--text);
 }
 
+/* Repo tags: always list every tag (never "+N more"). Multi-env builds often
+   share one image ID with several draft-* tags — each must stay readable. */
 .docker-image-tags {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 12rem;
+    max-width: 28rem;
 }
 
-.docker-tag-more {
+.docker-tag-count {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+
+.docker-image-tag-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+}
+
+.docker-image-tag {
+    margin: 0;
+    padding: 3px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    max-width: 100%;
+}
+
+.docker-image-tag code {
+    display: block;
+    font-family: var(--mono);
     font-size: 0.72rem;
-    color: var(--text-muted);
+    font-weight: 600;
+    color: var(--text);
+    /* Prefer wrapping over ellipsis so env/service suffixes stay visible. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.35;
+}
+
+.docker-image-tags--multi .docker-image-tag:first-child {
+    border-color: var(--accent-border, var(--border));
+    background: var(--accent-soft, var(--surface-2));
 }
 
 .docker-mono {
@@ -336,9 +382,14 @@
 
 .docker-image-label {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     min-width: 0;
+}
+
+.docker-image-label .docker-expand-btn,
+.docker-image-label .docker-expand-spacer {
+    margin-top: 4px;
 }
 
 .docker-expand-btn {

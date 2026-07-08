@@ -121,7 +121,7 @@ func TestDraftImageTagIncludesEnvironment(t *testing.T) {
 	if got != "draft-my-app-staging-api:3" {
 		t.Fatalf("draftImageTag = %q", got)
 	}
-	// Same project+service+sequence in different envs must not collide.
+	// Same project+service+sequence in different envs must not collide on the tag.
 	main := draftImageTag("My App", "main", "api", 1)
 	staging := draftImageTag("My App", "staging", "api", 1)
 	if main == staging {

@@ -1308,13 +1308,13 @@ CMD ["sleep", "3600"]
 	if err != nil {
 		t.Fatalf("load project: %v", err)
 	}
-	// Default project environment slug is "main"; image tags include it so
-	// duplicated environments with the same service label don't collide.
+	// Default project environment slug is "main"; tags include it so duplicated
+	// environments with the same service label get distinct names.
 	expectedPrefix := fmt.Sprintf("draft-%s-main-test-svc:", sanitize(project.Name))
 	if !strings.HasPrefix(dep.ImageTag, expectedPrefix) {
 		t.Errorf("expected image tag prefix %q, got %q", expectedPrefix, dep.ImageTag)
 	}
-	if !strings.Contains(dep.ImageTag, fmt.Sprintf(":%d", dep.Sequence)) {
+	if !strings.HasSuffix(dep.ImageTag, fmt.Sprintf(":%d", dep.Sequence)) {
 		t.Errorf("expected per-service sequence in image tag, got %q", dep.ImageTag)
 	}
 	if dep.Sequence != 1 {
