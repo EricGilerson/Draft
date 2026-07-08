@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"gorm.io/gorm"
 )
 
 // VolumeTypeBind and VolumeTypeVolume are the canonical type strings used in
@@ -344,14 +346,21 @@ func (e *Engine) ListVolumesOverview(ctx context.Context) ([]VolumeOverview, err
 // enrichVolumes joins managed volumes against the store to set each one's
 // owning-node label and orphaned flag. Split out from ListVolumesOverview (and
 // its Docker call) so the orphan logic is unit-testable without a daemon.
+//
+// Only gorm.ErrRecordNotFound proves the node is gone. Any other GetNode error
+// (e.g. a transient SQLite busy/lock error under concurrent access) is
+// inconclusive, so it must not flip a live volume to "orphaned" for one
+// refresh and back on the next.
 func enrichVolumes(s *store.Store, vols []ManagedVolume) []VolumeOverview {
 	out := make([]VolumeOverview, 0, len(vols))
 	for _, v := range vols {
 		ov := VolumeOverview{ManagedVolume: v}
 		if v.NodeID != "" {
-			if node, err := s.GetNode(v.NodeID); err == nil {
+			node, err := s.GetNode(v.NodeID)
+			switch {
+			case err == nil:
 				ov.NodeLabel = node.Label
-			} else {
+			case errors.Is(err, gorm.ErrRecordNotFound):
 				ov.Orphaned = true
 			}
 		} else {
