@@ -171,35 +171,30 @@ export function ServiceConfigEditorProvider({
     }, []);
 
     const setEnvDraftUpsert = useCallback((upsert: EnvDraftUpsert) => {
-        setEnvDraft((prev) => {
-            const nextDeletes = prev.deleteKeys.filter((k) => k !== upsert.key);
-            const next = {
-                upserts: {...prev.upserts, [upsert.key]: upsert},
-                deleteKeys: nextDeletes,
-            };
-            return normalizeEnvDraft(next, committedEnv);
-        });
-    }, [committedEnv]);
+        setEnvDraft((prev) => ({
+            upserts: {...prev.upserts, [upsert.key]: upsert},
+            deleteKeys: prev.deleteKeys.filter((k) => k !== upsert.key),
+        }));
+    }, []);
 
     const setEnvDraftDelete = useCallback((key: string, remove: boolean) => {
         setEnvDraft((prev) => {
             if (!remove) {
-                const next = {
+                return {
                     upserts: Object.fromEntries(
                         Object.entries(prev.upserts).filter(([k]) => k !== key),
                     ),
                     deleteKeys: prev.deleteKeys.filter((k) => k !== key),
                 };
-                return normalizeEnvDraft(next, committedEnv);
             }
             const nextUpserts = {...prev.upserts};
             delete nextUpserts[key];
             const nextDeletes = prev.deleteKeys.includes(key)
                 ? prev.deleteKeys
                 : [...prev.deleteKeys, key];
-            return normalizeEnvDraft({upserts: nextUpserts, deleteKeys: nextDeletes}, committedEnv);
+            return {upserts: nextUpserts, deleteKeys: nextDeletes};
         });
-    }, [committedEnv]);
+    }, []);
 
     const clearEnvDraft = useCallback(() => {
         setEnvDraft(emptyEnvDraft());

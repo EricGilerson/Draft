@@ -510,6 +510,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const add = () => {
         if (!newKey.trim()) return;
         const key = newKey.trim();
+        if (vars.some((v) => v.key === key)) {
+            window.alert(`Variable ${key} already exists on this service.`);
+            return;
+        }
         setEnvDraftUpsert({key, value: newValue, scope: 'runtime'});
         setVars(prev => [...prev, store.EnvVar.createFrom({
             nodeId,
