@@ -349,6 +349,10 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                             <p className="form-error">{loadError}</p>
                         ) : (
                             <div className="csd-template-groups">
+                                <button className="csd-blank-card" onClick={pickBlank} type="button">
+                                    <strong>Start blank</strong>
+                                    <span>Configure everything yourself in the Settings tab.</span>
+                                </button>
                                 {grouped.map((group) => (
                                     <section key={group.category} className="csd-template-group">
                                         <h3 className="csd-group-title">{CATEGORY_LABELS[group.category] || group.category}</h3>
@@ -376,10 +380,6 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                                         </div>
                                     </section>
                                 ))}
-                                <button className="csd-blank-card" onClick={pickBlank} type="button">
-                                    <strong>Start blank</strong>
-                                    <span>Configure everything yourself in the Settings tab.</span>
-                                </button>
                             </div>
                         )}
                     </div>
