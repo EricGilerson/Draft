@@ -4,30 +4,30 @@ import {
     useContext,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from 'react';
 import {
     DeployService,
     DiscardStagedChanges,
+    GetEnvVars,
     GetNodeConfigStatus,
     PreviewStagedChanges,
     StageEnvVarChanges,
     StageNodeSettings,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
+import {
+    committedEnvByKey,
+    envDraftHasChanges,
+    normalizeEnvDraft,
+    type EnvDraftState,
+    type EnvDraftUpsert,
+} from './envStaging';
 import {isImmediateSetting, settingsValuesEqual} from './settingStaging';
 
-export type EnvDraftUpsert = {
-    key: string;
-    value: string;
-    scope: string;
-};
-
-export type EnvDraftState = {
-    upserts: Record<string, EnvDraftUpsert>;
-    deleteKeys: string[];
-};
+export type {EnvDraftUpsert, EnvDraftState};
 
 function mergeSettings(...maps: Array<Record<string, string>>): Record<string, string> {
     return Object.assign({}, ...maps);
@@ -82,17 +82,26 @@ export function ServiceConfigEditorProvider({
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
     const [activeDeploymentStatus, setActiveDeploymentStatus] = useState('');
     const [draftSettings, setDraftSettings] = useState<Record<string, string>>({});
+    const [appliedEnvVars, setAppliedEnvVars] = useState<store.EnvVar[]>([]);
     const [envDraft, setEnvDraft] = useState<EnvDraftState>(emptyEnvDraft);
+    const envDraftRef = useRef(envDraft);
+    const committedEnvRef = useRef(committedEnvByKey([], []));
+
+    envDraftRef.current = envDraft;
 
     const reload = useCallback(async () => {
         setLoading(true);
         try {
-            const status = await GetNodeConfigStatus(nodeId);
+            const [status, envVars] = await Promise.all([
+                GetNodeConfigStatus(nodeId),
+                GetEnvVars(nodeId),
+            ]);
             setAppliedSettings(status?.appliedSettings || {});
             setStagedSettings(status?.stagedSettings || {});
             setStagedEnvChanges(status?.stagedEnvChanges || []);
             setHasStagedChanges(!!status?.hasStagedChanges);
             setActiveDeploymentStatus(status?.activeDeploymentStatus || '');
+            setAppliedEnvVars(envVars || []);
         } finally {
             setLoading(false);
         }
@@ -121,11 +130,17 @@ export function ServiceConfigEditorProvider({
         [draftSettings],
     );
 
+    const committedEnv = useMemo(
+        () => committedEnvByKey(appliedEnvVars, stagedEnvChanges),
+        [appliedEnvVars, stagedEnvChanges],
+    );
+
+    committedEnvRef.current = committedEnv;
+
     const isSessionDirty = useMemo(
         () => Object.keys(stageableDraftSettings).length > 0
-            || Object.keys(envDraft.upserts).length > 0
-            || envDraft.deleteKeys.length > 0,
-        [stageableDraftSettings, envDraft],
+            || envDraftHasChanges(envDraft, committedEnv),
+        [stageableDraftSettings, envDraft, committedEnv],
     );
 
     const updateDraftSetting = useCallback((key: string, value: string) => {
@@ -158,29 +173,33 @@ export function ServiceConfigEditorProvider({
     const setEnvDraftUpsert = useCallback((upsert: EnvDraftUpsert) => {
         setEnvDraft((prev) => {
             const nextDeletes = prev.deleteKeys.filter((k) => k !== upsert.key);
-            return {
+            const next = {
                 upserts: {...prev.upserts, [upsert.key]: upsert},
                 deleteKeys: nextDeletes,
             };
+            return normalizeEnvDraft(next, committedEnv);
         });
-    }, []);
+    }, [committedEnv]);
 
     const setEnvDraftDelete = useCallback((key: string, remove: boolean) => {
         setEnvDraft((prev) => {
             if (!remove) {
-                const nextDeletes = prev.deleteKeys.filter((k) => k !== key);
-                const nextUpserts = {...prev.upserts};
-                delete nextUpserts[key];
-                return {upserts: nextUpserts, deleteKeys: nextDeletes};
+                const next = {
+                    upserts: Object.fromEntries(
+                        Object.entries(prev.upserts).filter(([k]) => k !== key),
+                    ),
+                    deleteKeys: prev.deleteKeys.filter((k) => k !== key),
+                };
+                return normalizeEnvDraft(next, committedEnv);
             }
             const nextUpserts = {...prev.upserts};
             delete nextUpserts[key];
             const nextDeletes = prev.deleteKeys.includes(key)
                 ? prev.deleteKeys
                 : [...prev.deleteKeys, key];
-            return {upserts: nextUpserts, deleteKeys: nextDeletes};
+            return normalizeEnvDraft({upserts: nextUpserts, deleteKeys: nextDeletes}, committedEnv);
         });
-    }, []);
+    }, [committedEnv]);
 
     const clearEnvDraft = useCallback(() => {
         setEnvDraft(emptyEnvDraft());
@@ -199,15 +218,16 @@ export function ServiceConfigEditorProvider({
             if (Object.keys(stageableDraftSettings).length > 0) {
                 await StageNodeSettings(nodeId, projectId, stageableDraftSettings);
             }
-            const upserts = Object.values(envDraft.upserts).map((u) =>
+            const normalizedEnvDraft = normalizeEnvDraft(envDraftRef.current, committedEnvRef.current);
+            const upserts = Object.values(normalizedEnvDraft.upserts).map((u) =>
                 store.EnvVarStageUpsert.createFrom({
                     key: u.key,
                     value: u.value,
                     scope: u.scope || 'runtime',
                 }),
             );
-            if (upserts.length > 0 || envDraft.deleteKeys.length > 0) {
-                await StageEnvVarChanges(nodeId, upserts, envDraft.deleteKeys);
+            if (upserts.length > 0 || normalizedEnvDraft.deleteKeys.length > 0) {
+                await StageEnvVarChanges(nodeId, upserts, normalizedEnvDraft.deleteKeys);
             }
             setDraftSettings({});
             setEnvDraft(emptyEnvDraft());
@@ -215,7 +235,7 @@ export function ServiceConfigEditorProvider({
         } finally {
             setStaging(false);
         }
-    }, [nodeId, projectId, stageableDraftSettings, envDraft, reload]);
+    }, [nodeId, projectId, stageableDraftSettings, reload]);
 
     const discardStaged = useCallback(async () => {
         setStaging(true);

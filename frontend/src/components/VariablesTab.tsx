@@ -433,18 +433,19 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     const stageEdit = (key: string, value: string) => {
-        const original = originals[key] ?? '';
+        const hasOriginal = Object.prototype.hasOwnProperty.call(originals, key);
+        const original = hasOriginal ? originals[key] : null;
         const variable = vars.find((x) => x.key === key);
         setEdits(prev => {
             const next = {...prev};
-            if (value === original) {
+            if (hasOriginal && value === original) {
                 delete next[key];
             } else {
                 next[key] = value;
             }
             return next;
         });
-        if (value === original) {
+        if (hasOriginal && value === original) {
             setEnvDraftDelete(key, false);
             return;
         }
@@ -517,7 +518,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             scope: 'runtime',
             source: 'manual',
         })]);
-        setOriginals(prev => ({...prev, [key]: newValue}));
         setNewKey('');
         setNewValue('');
         setSyncResult(null);
