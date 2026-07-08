@@ -261,19 +261,19 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
                             onChange={(e) => setSearch(e.target.value)}
                         />
                     </div>
-                    <select className="input volumes-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+                    <select className="input select-styled volumes-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
                         <option value="all">All projects</option>
                         {projectOptions.map(([id, label]) => (
                             <option key={id} value={id}>{label}</option>
                         ))}
                     </select>
-                    <select className="input volumes-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+                    <select className="input select-styled volumes-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
                         <option value="all">All statuses</option>
                         <option value="in-use">In use</option>
                         <option value="idle">Idle</option>
                         <option value="orphan">Orphaned</option>
                     </select>
-                    <select className="input volumes-select" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                    <select className="input select-styled volumes-select" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
                         <option value="size">Largest first</option>
                         <option value="name">Name</option>
                         <option value="created">Newest first</option>

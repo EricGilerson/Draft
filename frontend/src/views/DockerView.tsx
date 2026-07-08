@@ -35,6 +35,10 @@ import {formatBytes} from '../components/VolumeEditor';
 import './DockerView.css';
 
 type ResourceTab = 'containers' | 'images' | 'volumes' | 'networks';
+type ContainerSortKey = 'recent' | 'size' | 'name';
+type ImageSortKey = 'recent' | 'size' | 'name';
+type VolumeSortKey = 'recent' | 'size' | 'name';
+type NetworkSortKey = 'recent' | 'usage' | 'name';
 
 type ConfirmState = {
     message: string;
@@ -46,8 +50,12 @@ function visibleRepoTags(tags: string[] | undefined | null): string[] {
     return (tags ?? []).filter((tag) => tag && tag !== '<none>:<none>');
 }
 
+function timeValue(input: string | number): number {
+    return typeof input === 'number' ? input * 1000 : new Date(input).getTime();
+}
+
 function formatAge(input: string | number): string {
-    const then = typeof input === 'number' ? input * 1000 : new Date(input).getTime();
+    const then = timeValue(input);
     if (!Number.isFinite(then) || then <= 0) return '—';
     const secs = Math.max(0, (Date.now() - then) / 1000);
     if (secs < 60) return 'just now';
@@ -60,6 +68,12 @@ function formatAge(input: string | number): string {
     const months = days / 30;
     if (months < 12) return `${Math.floor(months)}mo ago`;
     return `${Math.floor(months / 12)}y ago`;
+}
+
+function formatTimestamp(input: string | number): string {
+    const then = timeValue(input);
+    if (!Number.isFinite(then) || then <= 0) return '';
+    return new Date(then).toLocaleString();
 }
 
 function shortId(id: string): string {
@@ -94,7 +108,6 @@ export default function DockerView() {
     const [error, setError] = useState('');
     const [actionError, setActionError] = useState('');
     const [search, setSearch] = useState('');
-    const [draftOnly, setDraftOnly] = useState(true);
     const [lastAction, setLastAction] = useState('');
     const [busy, setBusy] = useState(false);
     const [confirmState, setConfirmState] = useState<ConfirmState>(null);
@@ -102,6 +115,10 @@ export default function DockerView() {
     const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
     const [selectedVolumes, setSelectedVolumes] = useState<Set<string>>(new Set());
     const [selectedNetworks, setSelectedNetworks] = useState<Set<string>>(new Set());
+    const [containerSort, setContainerSort] = useState<ContainerSortKey>('recent');
+    const [imageSort, setImageSort] = useState<ImageSortKey>('recent');
+    const [volumeSort, setVolumeSort] = useState<VolumeSortKey>('recent');
+    const [networkSort, setNetworkSort] = useState<NetworkSortKey>('recent');
     const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const refresh = useCallback(() => {
@@ -255,7 +272,10 @@ export default function DockerView() {
             `Remove image "${label}"?`,
             () => {
                 setConfirmState(null);
-                runAction(() => RemoveDockerImage(i.id, i.containers > 0));
+                runAction(
+                    () => RemoveDockerImage(i.id, i.containers > 0),
+                    () => setLastAction(`Removed image ${shortId(i.id)}${tags[0] ? ` (${tags[0]})` : ''}.`),
+                );
             },
             details.length > 0 ? details.join(' ') : undefined,
         );
@@ -311,7 +331,10 @@ export default function DockerView() {
                         const row = rows.find((i) => i.id === id);
                         return RemoveDockerImage(id, (row?.containers || 0) > 0);
                     },
-                    () => setSelectedImages(new Set()),
+                    () => {
+                        setSelectedImages(new Set());
+                        setLastAction(`Removed ${rows.length} image${rows.length === 1 ? '' : 's'}.`);
+                    },
                 );
             },
             anyInUse ? 'Some of these are used by existing containers.' : undefined,
@@ -352,13 +375,12 @@ export default function DockerView() {
     };
 
     const handlePrune = (resource: string, label: string) => {
-        const scope = draftOnly ? 'Draft-managed' : 'all';
-        askConfirm(`Remove unused ${scope} ${label}? This cannot be undone.`, async () => {
+        askConfirm(`Remove unused ${label}? This cannot be undone.`, async () => {
             setConfirmState(null);
             setBusy(true);
             setActionError('');
             try {
-                const report = await PruneDocker(resource, draftOnly);
+                const report = await PruneDocker(resource, false);
                 setLastAction(`Freed ${formatBytes(report.spaceReclaimed || 0)} from ${label}${report.removed?.length ? ` (${report.removed.length} removed)` : ''}.`);
                 refresh();
             } catch (e) {
@@ -370,26 +392,55 @@ export default function DockerView() {
     };
 
     const q = search.trim().toLowerCase();
-    const filteredContainers = useMemo(
-        () => containers.filter((c) => !q || `${c.names?.join(' ')} ${c.image} ${c.status}`.toLowerCase().includes(q)),
-        [containers, q],
-    );
-    const filteredImages = useMemo(
-        () => images.filter((i) => !q || `${i.repoTags?.join(' ')} ${i.id}`.toLowerCase().includes(q)),
-        [images, q],
-    );
-    const filteredVolumes = useMemo(
-        () => volumes.filter((v) => !q || `${v.name} ${v.target} ${v.nodeLabel}`.toLowerCase().includes(q)),
-        [volumes, q],
-    );
-    const filteredNetworks = useMemo(
-        () => networks.filter((n) => !q || `${n.name} ${n.driver}`.toLowerCase().includes(q)),
-        [networks, q],
-    );
+    const filteredContainers = useMemo(() => {
+        const rows = containers.filter((c) => !q || `${c.names?.join(' ')} ${c.image} ${c.status}`.toLowerCase().includes(q));
+        rows.sort((a, b) => {
+            if (containerSort === 'name') return (a.names?.[0] || a.id).localeCompare(b.names?.[0] || b.id);
+            if (containerSort === 'size') return ((b.sizeRw || 0) + (b.sizeRootFs || 0)) - ((a.sizeRw || 0) + (a.sizeRootFs || 0));
+            return timeValue(b.created) - timeValue(a.created);
+        });
+        return rows;
+    }, [containers, q, containerSort]);
+    const filteredImages = useMemo(() => {
+        const rows = images.filter((i) => !q || `${i.repoTags?.join(' ')} ${i.id}`.toLowerCase().includes(q));
+        rows.sort((a, b) => {
+            if (imageSort === 'name') {
+                const aLabel = visibleRepoTags(a.repoTags)[0] || a.id;
+                const bLabel = visibleRepoTags(b.repoTags)[0] || b.id;
+                return aLabel.localeCompare(bLabel);
+            }
+            if (imageSort === 'size') return (b.size || 0) - (a.size || 0);
+            return timeValue(b.created) - timeValue(a.created);
+        });
+        return rows;
+    }, [images, q, imageSort]);
+    const filteredVolumes = useMemo(() => {
+        const rows = volumes.filter((v) => !q || `${v.name} ${v.target} ${v.nodeLabel}`.toLowerCase().includes(q));
+        rows.sort((a, b) => {
+            if (volumeSort === 'name') return a.name.localeCompare(b.name);
+            if (volumeSort === 'size') return (b.size || 0) - (a.size || 0);
+            return timeValue(b.createdAt) - timeValue(a.createdAt);
+        });
+        return rows;
+    }, [volumes, q, volumeSort]);
+    const filteredNetworks = useMemo(() => {
+        const rows = networks.filter((n) => !q || `${n.name} ${n.driver}`.toLowerCase().includes(q));
+        rows.sort((a, b) => {
+            if (networkSort === 'name') return a.name.localeCompare(b.name);
+            if (networkSort === 'usage') return (b.containers || 0) - (a.containers || 0);
+            return timeValue(b.created) - timeValue(a.created);
+        });
+        return rows;
+    }, [networks, q, networkSort]);
     const selectableNetworks = useMemo(
         () => filteredNetworks.filter((n) => n.name !== 'bridge' && n.name !== 'host' && n.name !== 'none'),
         [filteredNetworks],
     );
+    const sortLabel =
+        tab === 'containers' ? containerSort :
+            tab === 'images' ? imageSort :
+                tab === 'volumes' ? volumeSort :
+                    networkSort;
 
     const tabs: {id: ResourceTab; label: string; icon: typeof Box; count: number}[] = [
         {id: 'containers', label: 'Containers', icon: ContainerIcon, count: containers.length},
@@ -446,10 +497,6 @@ export default function DockerView() {
                 </div>
 
                 <div className="docker-cleanup">
-                    <label className="docker-scope-toggle">
-                        <input type="checkbox" checked={draftOnly} onChange={(e) => setDraftOnly(e.target.checked)}/>
-                        Draft-managed only
-                    </label>
                     <button className="btn btn-ghost" disabled={busy} onClick={() => handlePrune('containers', 'stopped containers')}>
                         <Trash2 size={13}/> Stopped containers
                     </button>
@@ -462,7 +509,7 @@ export default function DockerView() {
                     <button className="btn btn-ghost" disabled={busy} onClick={() => handlePrune('networks', 'networks')}>
                         <Trash2 size={13}/> Unused networks
                     </button>
-                    <button className="btn btn-ghost" disabled={busy} onClick={() => handlePrune('buildcache', 'build cache')} title="Build cache has no Draft-only scope — this always clears everything">
+                    <button className="btn btn-ghost" disabled={busy} onClick={() => handlePrune('buildcache', 'build cache')}>
                         <Trash2 size={13}/> Build cache
                     </button>
                 </div>
@@ -483,14 +530,44 @@ export default function DockerView() {
                     })}
                 </div>
 
-                <div className="docker-search">
-                    <Search size={14}/>
-                    <input
-                        className="input"
-                        placeholder="Search…"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
+                <div className="docker-controls">
+                    <div className="docker-search">
+                        <Search size={14}/>
+                        <input
+                            className="input"
+                            placeholder="Search…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                    </div>
+                    <label className="docker-sort">
+                        <span>Sort</span>
+                        {tab === 'containers' ? (
+                            <select className="input select-styled docker-sort-select" value={sortLabel} onChange={(e) => setContainerSort(e.target.value as ContainerSortKey)}>
+                                <option value="recent">Most recent</option>
+                                <option value="size">Largest size</option>
+                                <option value="name">Name</option>
+                            </select>
+                        ) : tab === 'images' ? (
+                            <select className="input select-styled docker-sort-select" value={sortLabel} onChange={(e) => setImageSort(e.target.value as ImageSortKey)}>
+                                <option value="recent">Most recent</option>
+                                <option value="size">Largest size</option>
+                                <option value="name">Name</option>
+                            </select>
+                        ) : tab === 'volumes' ? (
+                            <select className="input select-styled docker-sort-select" value={sortLabel} onChange={(e) => setVolumeSort(e.target.value as VolumeSortKey)}>
+                                <option value="recent">Most recent</option>
+                                <option value="size">Largest size</option>
+                                <option value="name">Name</option>
+                            </select>
+                        ) : (
+                            <select className="input select-styled docker-sort-select" value={sortLabel} onChange={(e) => setNetworkSort(e.target.value as NetworkSortKey)}>
+                                <option value="recent">Most recent</option>
+                                <option value="usage">Most containers</option>
+                                <option value="name">Name</option>
+                            </select>
+                        )}
+                    </label>
                 </div>
 
                 {tab === 'containers' && selectedContainers.size > 0 && (
@@ -590,7 +667,7 @@ export default function DockerView() {
                                             </td>
                                             <td className="docker-mono-small">{formatPorts(c.ports)}</td>
                                             <td className="docker-col-num">{formatBytes((c.sizeRw || 0) + (c.sizeRootFs || 0))}</td>
-                                            <td>{formatAge(c.created)}</td>
+                                            <td title={formatTimestamp(c.created)}>{formatAge(c.created)}</td>
                                             <td>
                                                 {c.managed ? (
                                                     <span className="docker-badge docker-badge--managed" title={c.projectName}>
@@ -680,7 +757,7 @@ export default function DockerView() {
                                                 <td className="docker-col-num">{formatBytes(i.size)}</td>
                                                 <td className="docker-col-num">{formatBytes(i.sharedSize)}</td>
                                                 <td className="docker-col-num">{i.containers}</td>
-                                                <td>{formatAge(i.created)}</td>
+                                                <td title={formatTimestamp(i.created)}>{formatAge(i.created)}</td>
                                                 <td>
                                                     {i.managed ? (
                                                         <span className="docker-badge docker-badge--managed">Draft build</span>
@@ -747,7 +824,7 @@ export default function DockerView() {
                                                     <span className="docker-badge docker-badge--external">External</span>
                                                 )}
                                             </td>
-                                            <td>{formatAge(v.createdAt)}</td>
+                                            <td title={formatTimestamp(v.createdAt)}>{formatAge(v.createdAt)}</td>
                                             <td className="docker-col-actions">
                                                 <button className="btn btn-ghost docker-icon-btn docker-icon-btn--danger" title="Remove" disabled={busy} onClick={() => handleRemoveVolume(v)}>
                                                     <Trash2 size={14}/>
@@ -778,6 +855,7 @@ export default function DockerView() {
                                     <th>Scope</th>
                                     <th className="docker-col-num">Containers</th>
                                     <th>Owner</th>
+                                    <th>Created</th>
                                     <th className="docker-col-actions"/>
                                 </tr>
                             </thead>
@@ -805,6 +883,7 @@ export default function DockerView() {
                                                     <span className="docker-badge docker-badge--external">External</span>
                                                 )}
                                             </td>
+                                            <td title={formatTimestamp(n.created)}>{formatAge(n.created)}</td>
                                             <td className="docker-col-actions">
                                                 <button
                                                     className="btn btn-ghost docker-icon-btn docker-icon-btn--danger"

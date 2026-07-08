@@ -149,7 +149,10 @@ type ImageSummary struct {
 }
 
 // ListImages returns every image on the daemon, including dangling
-// (untagged) ones, with Draft-build tags flagged via Managed.
+// (untagged) and non-head parent images, with Draft-build tags flagged via
+// Managed. All:true matters here: Docker's default head-only listing can make
+// the UI look like an image ID "changed" after delete, when in reality the
+// removed image exposed its previously hidden parent as the new top-level row.
 func (e *Engine) ListImages(ctx context.Context) ([]ImageSummary, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -157,7 +160,7 @@ func (e *Engine) ListImages(ctx context.Context) ([]ImageSummary, error) {
 	}
 	defer cli.Close()
 
-	list, err := cli.ImageList(ctx, image.ListOptions{All: false, SharedSize: true})
+	list, err := cli.ImageList(ctx, image.ListOptions{All: true, SharedSize: true})
 	if err != nil {
 		return nil, fmt.Errorf("list images: %w", err)
 	}
