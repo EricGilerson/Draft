@@ -62,8 +62,20 @@ export function DiscardStagedChanges(arg1) {
   return window['go']['main']['App']['DiscardStagedChanges'](arg1);
 }
 
+export function ExportConfig(arg1, arg2) {
+  return window['go']['main']['App']['ExportConfig'](arg1, arg2);
+}
+
+export function ExportConfigToPath(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportConfigToPath'](arg1, arg2, arg3);
+}
+
 export function ExportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ExportEnvFile'](arg1, arg2);
+}
+
+export function ExportProjectConfig(arg1, arg2) {
+  return window['go']['main']['App']['ExportProjectConfig'](arg1, arg2);
 }
 
 export function GetActiveDeployment(arg1) {
@@ -120,6 +132,18 @@ export function GetServiceRoot(arg1, arg2) {
 
 export function GetServiceTemplate(arg1) {
   return window['go']['main']['App']['GetServiceTemplate'](arg1);
+}
+
+export function ImportConfigAsProject(arg1, arg2) {
+  return window['go']['main']['App']['ImportConfigAsProject'](arg1, arg2);
+}
+
+export function ImportConfigIntoProject(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ImportConfigIntoProject'](arg1, arg2, arg3, arg4);
+}
+
+export function ImportConfigPreview(arg1) {
+  return window['go']['main']['App']['ImportConfigPreview'](arg1);
 }
 
 export function ImportEnvFile(arg1, arg2) {

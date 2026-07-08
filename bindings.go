@@ -98,6 +98,84 @@ func (a *App) CreateNodeFromTemplate(req deploy.CreateNodeFromTemplateRequest) (
 	return c.CreateNodeFromTemplate(a.ctx, req)
 }
 
+// ImportConfigPreview parses a cloud config file (docker-compose, Cloud Run,
+// ECS, Container Apps) and reports what would be imported, writing nothing.
+func (a *App) ImportConfigPreview(path string) (*deploy.ImportPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ImportConfigPreview(a.ctx, path)
+}
+
+// ImportConfigAsProject creates a new project from a config file and stamps one
+// service node per service in the file.
+func (a *App) ImportConfigAsProject(path, projectName string) (*deploy.ImportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ImportConfigAsProject(a.ctx, path, projectName)
+}
+
+// ImportConfigIntoProject stamps a config file's services as nodes into an
+// existing project, anchored at the given canvas coordinates.
+func (a *App) ImportConfigIntoProject(projectID uint, path string, x, y float64) (*deploy.ImportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ImportConfigIntoProject(a.ctx, projectID, path, x, y)
+}
+
+// ExportConfig serializes a single service to the requested cloud format,
+// returning the generated file(s) and a fidelity report.
+func (a *App) ExportConfig(nodeID, format string) (*deploy.ExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportConfig(a.ctx, nodeID, format)
+}
+
+// ExportProjectConfig serializes every service in a project to the requested
+// cloud format.
+func (a *App) ExportProjectConfig(projectID uint, format string) (*deploy.ExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportProjectConfig(a.ctx, projectID, format)
+}
+
+// ExportConfigToPath exports a service and writes the generated file(s) into
+// destDir.
+func (a *App) ExportConfigToPath(nodeID, format, destDir string) (*deploy.ExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportConfigToPath(a.ctx, nodeID, format, destDir)
+}
+
 func (a *App) UpdateNode(id string, x, y float64, label string) error {
 	if a.store == nil {
 		return errNoStore

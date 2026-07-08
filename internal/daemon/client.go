@@ -212,6 +212,57 @@ func (c *Client) ReapplyTemplate(ctx context.Context, nodeID string) (deploy.Cre
 	return out, err
 }
 
+func (c *Client) ImportConfigPreview(ctx context.Context, path string) (*deploy.ImportPreview, error) {
+	var out deploy.ImportPreview
+	if err := c.postJSON(ctx, "/config/import-preview", map[string]string{"path": path}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ImportConfigAsProject(ctx context.Context, path, projectName string) (*deploy.ImportResult, error) {
+	var out deploy.ImportResult
+	if err := c.postJSON(ctx, "/config/import-as-project", map[string]string{"path": path, "projectName": projectName}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ImportConfigIntoProject(ctx context.Context, projectID uint, path string, x, y float64) (*deploy.ImportResult, error) {
+	var out deploy.ImportResult
+	body := map[string]any{"projectId": projectID, "path": path, "x": x, "y": y}
+	if err := c.postJSON(ctx, "/config/import-into-project", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportConfig(ctx context.Context, nodeID, format string) (*deploy.ExportResult, error) {
+	var out deploy.ExportResult
+	if err := c.postJSON(ctx, "/config/export", map[string]string{"nodeId": nodeID, "format": format}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportProjectConfig(ctx context.Context, projectID uint, format string) (*deploy.ExportResult, error) {
+	var out deploy.ExportResult
+	body := map[string]any{"projectId": projectID, "format": format}
+	if err := c.postJSON(ctx, "/config/export-project", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportConfigToPath(ctx context.Context, nodeID, format, destDir string) (*deploy.ExportResult, error) {
+	var out deploy.ExportResult
+	body := map[string]string{"nodeId": nodeID, "format": format, "destDir": destDir}
+	if err := c.postJSON(ctx, "/config/export-to-path", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) RollbackDeployment(ctx context.Context, deploymentID uint) error {
 	return c.postJSON(ctx, "/rollback", map[string]any{"deploymentId": deploymentID}, nil)
 }

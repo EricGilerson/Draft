@@ -1,3 +1,56 @@
+export namespace cloudconfig {
+	
+	export class Note {
+	    kind: string;
+	    code: string;
+	    field?: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Note(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.code = source["code"];
+	        this.field = source["field"];
+	        this.message = source["message"];
+	    }
+	}
+	export class Report {
+	    notes: Note[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.notes = this.convertValues(source["notes"], Note);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace deploy {
 	
 	export class Connection {
@@ -255,6 +308,141 @@ export namespace deploy {
 	        this.declaredArgs = source["declaredArgs"];
 	        this.buildStageArgs = source["buildStageArgs"];
 	    }
+	}
+	export class ExportedFile {
+	    name: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportedFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.content = source["content"];
+	    }
+	}
+	export class ExportResult {
+	    format: string;
+	    files: ExportedFile[];
+	    report: cloudconfig.Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.files = this.convertValues(source["files"], ExportedFile);
+	        this.report = this.convertValues(source["report"], cloudconfig.Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class ServicePreview {
+	    name: string;
+	    mode: string;
+	    image?: string;
+	    port?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServicePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.mode = source["mode"];
+	        this.image = source["image"];
+	        this.port = source["port"];
+	    }
+	}
+	export class ImportPreview {
+	    format: string;
+	    services: ServicePreview[];
+	    report: cloudconfig.Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.services = this.convertValues(source["services"], ServicePreview);
+	        this.report = this.convertValues(source["report"], cloudconfig.Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportResult {
+	    projectId: number;
+	    nodes: store.CanvasNode[];
+	    report: cloudconfig.Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.nodes = this.convertValues(source["nodes"], store.CanvasNode);
+	        this.report = this.convertValues(source["report"], cloudconfig.Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ManagedVolume {
 	    name: string;
@@ -636,6 +824,7 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	
 	export class SettingsWarning {
 	    code: string;
 	    message: string;

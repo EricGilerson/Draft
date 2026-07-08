@@ -166,6 +166,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/stage-env", s.handleStageEnvVarChanges)
 	mux.HandleFunc("/node/discard-staged", s.handleDiscardStagedChanges)
 	mux.HandleFunc("/node/preview-staged", s.handlePreviewStagedChanges)
+	mux.HandleFunc("/config/import-preview", s.handleConfigImportPreview)
+	mux.HandleFunc("/config/import-as-project", s.handleConfigImportAsProject)
+	mux.HandleFunc("/config/import-into-project", s.handleConfigImportIntoProject)
+	mux.HandleFunc("/config/export", s.handleConfigExport)
+	mux.HandleFunc("/config/export-project", s.handleConfigExportProject)
+	mux.HandleFunc("/config/export-to-path", s.handleConfigExportToPath)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -265,6 +271,104 @@ func (s *Server) handleReapplyTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.engine.ReapplyTemplate(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleConfigImportPreview(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	preview, err := s.engine.ImportConfigPreview(req.Path)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, preview)
+}
+
+func (s *Server) handleConfigImportAsProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path        string `json:"path"`
+		ProjectName string `json:"projectName"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ImportConfigAsProject(req.Path, req.ProjectName)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleConfigImportIntoProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID uint    `json:"projectId"`
+		Path      string  `json:"path"`
+		X         float64 `json:"x"`
+		Y         float64 `json:"y"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ImportConfigIntoProject(req.ProjectID, req.Path, req.X, req.Y)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleConfigExport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Format string `json:"format"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportConfig(req.NodeID, req.Format)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleConfigExportProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID uint   `json:"projectId"`
+		Format    string `json:"format"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportProjectConfig(req.ProjectID, req.Format)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleConfigExportToPath(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID  string `json:"nodeId"`
+		Format  string `json:"format"`
+		DestDir string `json:"destDir"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportConfigToPath(req.NodeID, req.Format, req.DestDir)
 	if err != nil {
 		writeError(w, err)
 		return

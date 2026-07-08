@@ -37,7 +37,13 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
+export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;
+
+export function ExportConfigToPath(arg1:string,arg2:string,arg3:string):Promise<deploy.ExportResult>;
+
 export function ExportEnvFile(arg1:string,arg2:boolean):Promise<store.EnvFileSyncResult>;
+
+export function ExportProjectConfig(arg1:number,arg2:string):Promise<deploy.ExportResult>;
 
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
@@ -66,6 +72,12 @@ export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
 export function GetServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
+
+export function ImportConfigAsProject(arg1:string,arg2:string):Promise<deploy.ImportResult>;
+
+export function ImportConfigIntoProject(arg1:number,arg2:string,arg3:number,arg4:number):Promise<deploy.ImportResult>;
+
+export function ImportConfigPreview(arg1:string):Promise<deploy.ImportPreview>;
 
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
