@@ -95,15 +95,11 @@ func NodeConfigStatusFromStore(s *store.Store, nodeID string) (*NodeConfigStatus
 			Delete: row.Delete,
 		})
 	}
-	hasStaged, err := s.HasStagedChanges(nodeID)
-	if err != nil {
-		return nil, err
-	}
 	status := &NodeConfigStatus{
 		AppliedSettings:  applied,
 		StagedSettings:   staged,
 		StagedEnvChanges: envChanges,
-		HasStagedChanges: hasStaged,
+		HasStagedChanges: len(staged) > 0 || len(envChanges) > 0,
 	}
 	active, err := s.ActiveDeployment(nodeID)
 	if err != nil {

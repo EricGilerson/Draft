@@ -56,6 +56,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 setError('');
             }
         });
+        GetNodeConfigStatus(nodeId).then((status) => {
+            const applied = status?.appliedSettings || {};
+            const staged = status?.stagedSettings || {};
+            setSettings({...applied, ...staged});
+            setHasStagedChanges(!!status?.hasStagedChanges);
+        });
     }, [nodeId, version]);
 
     useEffect(() => {

@@ -17,6 +17,7 @@ import {
     StageEnvVarChanges,
     StageNodeSettings,
 } from '../../wailsjs/go/main/App';
+import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {deploy, store} from '../../wailsjs/go/models';
 import {
     committedEnvByKey,
@@ -112,6 +113,21 @@ export function ServiceConfigEditorProvider({
         setDraftSettings({});
         setEnvDraft(emptyEnvDraft());
         void reload();
+    }, [nodeId, reload]);
+
+    // Successful deploy promotes staged settings/env into applied rows; refresh
+    // once the deploy finishes so banners and per-field staging notes clear.
+    useEffect(() => {
+        const unsubscribe = EventsOn('deploy:status', (payload: any) => {
+            if (payload?.nodeId !== nodeId) {
+                return;
+            }
+            const status: string = payload?.event?.status || '';
+            if (status === 'running' || status === 'failed' || status === 'stopped') {
+                void reload();
+            }
+        });
+        return unsubscribe;
     }, [nodeId, reload]);
 
     const committedSettings = useMemo(

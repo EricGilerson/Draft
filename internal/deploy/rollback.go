@@ -95,7 +95,7 @@ func (e *Engine) RollbackDeployment(ctx context.Context, deploymentID uint) erro
 	if err != nil {
 		return err
 	}
-	settings, err := e.store.GetNodeSettings(historical.NodeID)
+	settings, err := e.store.EffectiveNodeSettings(historical.NodeID)
 	if err != nil {
 		return err
 	}
