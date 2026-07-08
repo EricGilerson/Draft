@@ -28,9 +28,7 @@ import {
     UpdateNode,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
-import ServiceNode from './ServiceNode';
-import VolumeNode, {type VolumeNodeData} from './VolumeNode';
-import VolumeMountEdge from './VolumeMountEdge';
+import ServiceNode, {type ServiceNodeVolume} from './ServiceNode';
 import EnvReferenceEdge from './EnvReferenceEdge';
 import NodeDetailPanel from './NodeDetailPanel';
 import VolumeDetailPanel from './VolumeDetailPanel';
@@ -40,7 +38,6 @@ import ImportConfigDialog from './ImportConfigDialog';
 import {parseVolumeEntries, type VolumeEntry} from './VolumeEditor';
 import {
     CanvasSelectionContext,
-    parseVolumeNodeId,
     type SelectedVolume,
 } from './canvasSelection';
 import './ProjectCanvas.css';
@@ -69,27 +66,36 @@ type ServiceNodeData = {
     templateId?: number;
     icon?: string;
     iconColor?: string;
-    volumeCount?: number;
     hasReferenceIssues?: boolean;
     health?: string;
     hostPort?: number;
     publicUrl?: string;
 };
 
-const VOLUME_OFFSET_X = 208;
-const VOLUME_OFFSET_Y = 14;
-const VOLUME_STACK_GAP = 54;
-// Approximate volume-node size, used only as the pre-measurement fallback so
-// React Flow renders the node before its ResizeObserver reports real dimensions.
-const VOLUME_NODE_W = 176;
-const VOLUME_NODE_H = 40;
-
-function volumeNodeId(parentNodeId: string, index: number) {
-    return `vol:${parentNodeId}:${index}`;
+function volumeBasename(path: string): string {
+    const trimmed = path.replace(/\/+$/, '');
+    const i = trimmed.lastIndexOf('/');
+    return i >= 0 ? trimmed.slice(i + 1) || trimmed : trimmed;
 }
 
-function isVolumeNodeId(id: string) {
-    return id.startsWith('vol:');
+function buildServiceVolumes(
+    mounts: VolumeEntry[],
+    managed: deploy.ManagedVolume[],
+    pending: boolean,
+): ServiceNodeVolume[] {
+    const managedByTarget = new Map(managed.filter((v) => v.target).map((v) => [v.target, v]));
+    return mounts.map((entry, index) => {
+        const managedVol = managedByTarget.get(entry.containerPath);
+        return {
+            index,
+            containerPath: entry.containerPath,
+            label: volumeBasename(entry.containerPath || 'volume'),
+            isNamed: entry.type === 'volume',
+            readOnly: !!entry.readOnly,
+            usageBytes: managedVol?.size,
+            pending,
+        };
+    });
 }
 
 function CanvasControls() {
@@ -145,8 +151,8 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
     const nodeClickRef = useRef(false);
 
-    const nodeTypes = useMemo(() => ({service: ServiceNode, volume: VolumeNode}), []);
-    const edgeTypes = useMemo(() => ({volumeMount: VolumeMountEdge, envReference: EnvReferenceEdge}), []);
+    const nodeTypes = useMemo(() => ({service: ServiceNode}), []);
+    const edgeTypes = useMemo(() => ({envReference: EnvReferenceEdge}), []);
 
     const templateById = useMemo(() => {
         const m = new Map<number, store.ServiceTemplate>();
@@ -202,13 +208,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
         setVolumeMountsByNode(mountsMap);
         setVolumePendingByNode(pendingMap);
         setManagedVolumesByNode(Object.fromEntries(managedPairs));
-        setServiceNodes((prev) =>
-            prev.map((n) => ({
-                ...n,
-                data: {...n.data, volumeCount: (mountsMap[n.id] || []).length},
-            })),
-        );
-    }, [project.id, setServiceNodes]);
+    }, [project.id]);
 
     const refreshNodeHealth = useCallback(async (nodeIds: string[]) => {
         if (nodeIds.length === 0) return;
@@ -287,100 +287,26 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
         onNodeFocusApplied?.();
     }, [initialSelectedNodeId, serviceNodes, onNodeFocusApplied]);
 
-    const volumeNodes = useMemo(() => {
-        const selectedVolumeNodeId = selectedVolume
-            ? volumeNodeId(selectedVolume.parentNodeId, selectedVolume.index)
-            : null;
-        const result: Node<VolumeNodeData>[] = [];
-        for (const svc of serviceNodes) {
-            const mounts = volumeMountsByNode[svc.id] || [];
-            const managed = managedVolumesByNode[svc.id] || [];
-            const hasPendingVolumes = volumePendingByNode[svc.id] || false;
-            const managedByTarget = new Map(managed.filter((v) => v.target).map((v) => [v.target, v]));
-            mounts.forEach((entry, index) => {
-                const managedVol = managedByTarget.get(entry.containerPath);
-                const resolvedName = entry.type === 'volume'
-                    ? ((entry.source || '').trim() || managedVol?.name || '')
-                    : '';
-                const id = volumeNodeId(svc.id, index);
-                result.push({
-                    id,
-                    type: 'volume',
-                    position: {
-                        x: svc.position.x + VOLUME_OFFSET_X,
-                        y: svc.position.y + VOLUME_OFFSET_Y + index * VOLUME_STACK_GAP,
-                    },
-                    // Seed dimensions so React Flow treats the node as "measured"
-                    // immediately (nodeHasDimensions) and renders it visible.
-                    // Without this, the memo recreates volume-node objects on
-                    // every serviceNodes/SSE/selection tick, and any re-adopt
-                    // that lands before the ResizeObserver measures leaves the
-                    // node at visibility:hidden — showing only the mount handle.
-                    // The real content size takes over once measured.
-                    initialWidth: VOLUME_NODE_W,
-                    initialHeight: VOLUME_NODE_H,
-                    draggable: false,
-                    selectable: true,
-                    selected: id === selectedVolumeNodeId,
-                    data: {
-                        ...entry,
-                        parentNodeId: svc.id,
-                        parentLabel: (svc.data.label as string) || svc.id,
-                        index,
-                        resolvedName,
-                        usageBytes: managedVol?.size,
-                        pending: hasPendingVolumes,
-                    },
-                });
-            });
-        }
-        return result;
-    }, [serviceNodes, volumeMountsByNode, volumePendingByNode, managedVolumesByNode, selectedVolume]);
-
-    const volumeEdges = useMemo(() => {
-        const result: Edge[] = [];
-        for (const svc of serviceNodes) {
-            const mounts = volumeMountsByNode[svc.id] || [];
-            const parentLabel = (svc.data.label as string) || svc.id;
-            mounts.forEach((entry, index) => {
-                const id = volumeNodeId(svc.id, index);
-                const edgeSelected = selectedVolume?.parentNodeId === svc.id && selectedVolume.index === index;
-                result.push({
-                    id: `${id}->${svc.id}`,
-                    type: 'volumeMount',
-                    source: id,
-                    target: svc.id,
-                    sourceHandle: 'volume-mount',
-                    targetHandle: 'volume-mount',
-                    selected: edgeSelected,
-                    selectable: true,
-                    focusable: true,
-                    reconnectable: false,
-                    data: {
-                        mountPath: entry.containerPath,
-                        readOnly: !!entry.readOnly,
-                        parentNodeId: svc.id,
-                        index,
-                        parentLabel,
-                    },
-                });
-            });
-        }
-        return result;
-    }, [serviceNodes, volumeMountsByNode, selectedVolume]);
-
     const nodes = useMemo(
-        () => [
-            ...serviceNodes.map((n) => ({...n, selected: n.id === selectedNodeId})),
-            ...volumeNodes,
-        ],
-        [serviceNodes, volumeNodes, selectedNodeId],
+        () => serviceNodes.map((n) => ({
+            ...n,
+            selected: n.id === selectedNodeId,
+            data: {
+                ...n.data,
+                volumes: buildServiceVolumes(
+                    volumeMountsByNode[n.id] || [],
+                    managedVolumesByNode[n.id] || [],
+                    volumePendingByNode[n.id] || false,
+                ),
+                selectedVolumeIndex: selectedVolume?.parentNodeId === n.id
+                    ? selectedVolume.index
+                    : undefined,
+            },
+        })),
+        [serviceNodes, volumeMountsByNode, managedVolumesByNode, volumePendingByNode, selectedNodeId, selectedVolume],
     );
 
-    const edges = useMemo(
-        () => [...connectionEdges, ...volumeEdges],
-        [connectionEdges, volumeEdges],
-    );
+    const edges = connectionEdges;
 
     useEffect(() => {
         ListNodes(project.id).then(async (saved) => {
@@ -481,8 +407,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                                 if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
                                     return n.data;
                                 }
-                                const volumeCount = (volumeMountsByNode[nodeId] || []).length;
-                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId, volumeCount};
+                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId};
                             })(),
                         }
                         : n,
@@ -494,14 +419,13 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
             }
         });
         return unsubscribe;
-    }, [setServiceNodes, volumeMountsByNode, refreshNodeHealth]);
+    }, [setServiceNodes, refreshNodeHealth]);
 
     const handleNodesChange = useCallback(
         (changes: NodeChange[]) => {
-            const serviceChanges = changes.filter((change) => !('id' in change && isVolumeNodeId(change.id)));
-            onServiceNodesChange(serviceChanges as NodeChange<Node<ServiceNodeData>>[]);
+            onServiceNodesChange(changes as NodeChange<Node<ServiceNodeData>>[]);
 
-            for (const change of serviceChanges) {
+            for (const change of changes) {
                 if (change.type === 'position' && change.dragging === false && change.position) {
                     const node = serviceNodes.find((n) => n.id === change.id);
                     const label = (node?.data?.label as string) || change.id;
@@ -551,7 +475,6 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 templateId: node.templateId || undefined,
                 icon: template?.icon,
                 iconColor: template?.color,
-                volumeCount: 0,
             },
         };
         setServiceNodes((prev) => {
@@ -579,7 +502,6 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 // the badge either way, so start optimistic.
                 status: 'starting',
                 templateId: node.templateId || undefined,
-                volumeCount: 0,
             },
         }));
         setServiceNodes((prev) => {
@@ -616,37 +538,12 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
         onServicesChanged?.();
     }, [onServicesChanged, selectedNodeId, selectedVolume, setServiceNodes]);
 
-    const handleNodeClick = useCallback((_e: MouseEvent, node: Node) => {
+    const handleNodeClick = useCallback((e: MouseEvent, node: Node) => {
+        if ((e.target as HTMLElement).closest('.service-node-volume')) return;
         nodeClickRef.current = true;
-        const parsed = parseVolumeNodeId(node.id);
-        if (parsed || node.type === 'volume') {
-            const data = node.data as VolumeNodeData;
-            selectVolume({
-                parentNodeId: parsed?.parentNodeId ?? data.parentNodeId,
-                index: parsed?.index ?? data.index,
-                parentLabel: data.parentLabel,
-            });
-            return;
-        }
         setSelectedNodeId(node.id);
         setSelectedVolume(null);
-    }, [selectVolume]);
-
-    const handleEdgeClick = useCallback((_e: MouseEvent, edge: Edge) => {
-        if (edge.type !== 'volumeMount' || !edge.data) return;
-        nodeClickRef.current = true;
-        const data = edge.data as {
-            parentNodeId?: string;
-            index?: number;
-            parentLabel?: string;
-        };
-        if (typeof data.parentNodeId !== 'string' || typeof data.index !== 'number') return;
-        selectVolume({
-            parentNodeId: data.parentNodeId,
-            index: data.index,
-            parentLabel: data.parentLabel,
-        });
-    }, [selectVolume]);
+    }, []);
 
     const handlePaneClick = useCallback(() => {
         requestAnimationFrame(() => {
@@ -704,7 +601,6 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                     onEdgesChange={() => {}}
                     edgesReconnectable={false}
                     onNodeClick={handleNodeClick}
-                    onEdgeClick={handleEdgeClick}
                     onPaneClick={handlePaneClick}
                     nodeTypes={nodeTypes}
                     edgeTypes={edgeTypes}

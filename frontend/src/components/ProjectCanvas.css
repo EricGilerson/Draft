@@ -160,7 +160,3 @@
     height: 0;
     overflow: hidden;
 }
-
-.project-canvas .react-flow__edge-volumeMount .react-flow__edge-path {
-    cursor: pointer;
-}
