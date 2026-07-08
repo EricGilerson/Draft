@@ -116,6 +116,35 @@ func TestDraftNetworkName(t *testing.T) {
 	}
 }
 
+func TestDraftImageTagIncludesEnvironment(t *testing.T) {
+	got := draftImageTag("My App", "staging", "api", 3)
+	if got != "draft-my-app-staging-api:3" {
+		t.Fatalf("draftImageTag = %q", got)
+	}
+	// Same project+service+sequence in different envs must not collide.
+	main := draftImageTag("My App", "main", "api", 1)
+	staging := draftImageTag("My App", "staging", "api", 1)
+	if main == staging {
+		t.Fatalf("main and staging image tags collided: %q", main)
+	}
+	// Empty env falls back to "default" for legacy safety.
+	if draftImageTag("app", "", "web", 1) != "draft-app-default-web:1" {
+		t.Fatalf("empty env fallback = %q", draftImageTag("app", "", "web", 1))
+	}
+}
+
+func TestDraftContainerNameIncludesEnvironment(t *testing.T) {
+	got := draftContainerName("My App", "staging", "api", 3)
+	if got != "draft-my-app-staging-api-3" {
+		t.Fatalf("draftContainerName = %q", got)
+	}
+	main := draftContainerName("My App", "main", "api", 1)
+	staging := draftContainerName("My App", "staging", "api", 1)
+	if main == staging {
+		t.Fatalf("main and staging container names collided: %q", main)
+	}
+}
+
 func TestInternalNetworkAliases(t *testing.T) {
 	got := internalNetworkAliases("api", "api.app.default.abcd.draft.local")
 	want := []string{"api", "api.app.default.abcd.draft.local"}

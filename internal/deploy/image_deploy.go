@@ -69,7 +69,7 @@ func (e *Engine) startContainerAndRegister(
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
 
 	containerPort := nat.Port(portStr + "/tcp")
-	containerName := fmt.Sprintf("draft-%s-%s-%d", projectName, serviceName, dep.Sequence)
+	containerName := draftContainerName(projectName, environment, serviceName, dep.Sequence)
 	networkName := draftNetworkName(node.ProjectID, projectName, environment)
 
 	// For TCP, lease the host port and create the route up front so we can bind
@@ -127,9 +127,10 @@ func (e *Engine) startContainerAndRegister(
 	}
 
 	labels := map[string]string{
-		"draft.project":    fmt.Sprintf("%d", node.ProjectID),
-		"draft.node":       nodeID,
-		"draft.deployment": fmt.Sprintf("%d", dep.ID),
+		"draft.project":     fmt.Sprintf("%d", node.ProjectID),
+		"draft.environment": environment,
+		"draft.node":        nodeID,
+		"draft.deployment":  fmt.Sprintf("%d", dep.ID),
 	}
 	for k, v := range overrides.Labels {
 		labels[k] = v

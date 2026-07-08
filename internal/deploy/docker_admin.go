@@ -18,12 +18,14 @@ import (
 )
 
 // draftBuildTagPattern matches the deterministic tag Draft assigns to images it
-// builds itself (see imageTag in engine.go: "draft-{projectName}-{serviceName}:{sequence}").
+// builds itself (see draftImageTag: "draft-{project}-{environment}-{service}:{sequence}").
 // Pulled images used by image-mode services (datastores, custom images) keep
 // their upstream tag untouched and carry no Draft marker at all, so this
 // pattern match is the only way to distinguish "Draft built this" from
 // "Draft is merely running this" for images specifically — unlike containers,
 // volumes, and networks, which always get real draft.* labels at creation.
+// The pattern is intentionally loose on the name segment so older tags without
+// an environment segment (pre multi-env) still count as Draft-built.
 var draftBuildTagPattern = regexp.MustCompile(`^draft-[^:]+:\d+$`)
 
 // ContainerSummary is a single Docker container as seen by the full Docker

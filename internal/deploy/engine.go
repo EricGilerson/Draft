@@ -289,7 +289,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	imageTag := fmt.Sprintf("draft-%s-%s:%d", projectName, serviceName, dep.Sequence)
+	imageTag := draftImageTag(projectName, addr.Environment, serviceName, dep.Sequence)
 	dep.ImageTag = imageTag
 	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)
@@ -936,6 +936,30 @@ func draftNetworkName(projectID uint, projectName, environment string) string {
 		env = "default"
 	}
 	return fmt.Sprintf("draft-%d-%s-%s", projectID, sanitize(projectName), env)
+}
+
+// draftImageTag is the deterministic Docker tag for a Draft-built image.
+// Environment is required so duplicated environments with the same service
+// labels don't overwrite each other's images (sequence is per-node, so both
+// start at :1 independently).
+// Format: draft-{project}-{environment}-{service}:{sequence}
+func draftImageTag(projectName, environment, serviceName string, sequence int) string {
+	env := sanitize(environment)
+	if env == "" {
+		env = "default"
+	}
+	return fmt.Sprintf("draft-%s-%s-%s:%d", sanitize(projectName), env, sanitize(serviceName), sequence)
+}
+
+// draftContainerName is the Docker container name for a deployment.
+// Same identity segments as draftImageTag (colon → hyphen for Docker name rules).
+// Format: draft-{project}-{environment}-{service}-{sequence}
+func draftContainerName(projectName, environment, serviceName string, sequence int) string {
+	env := sanitize(environment)
+	if env == "" {
+		env = "default"
+	}
+	return fmt.Sprintf("draft-%s-%s-%s-%d", sanitize(projectName), env, sanitize(serviceName), sequence)
 }
 
 func ensureDraftNetwork(ctx context.Context, cli *client.Client, name string, projectID uint, projectName, environment string) error {
