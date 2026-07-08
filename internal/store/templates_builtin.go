@@ -178,6 +178,78 @@ CMD ["npm", "start"]
 		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"HOSTNAME","value":"0.0.0.0","scope":"runtime"}]`,
 	},
 	{
+		Name:        "Go",
+		Description: "Compiled Go service built as a static binary.",
+		Category:    "language",
+		Icon:        "go",
+		Color:       "#00ADD8",
+		Mode:        "build",
+		Port:        8080,
+		Schema:      buildTemplateSchema,
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM golang:1.23-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /app/bin ./...
+
+FROM alpine:3.20
+WORKDIR /app
+COPY --from=builder /app/bin ./bin
+EXPOSE 8080
+CMD ["./bin"]
+`,
+		EnvVars: `[{"key":"PORT","value":"8080","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Rust",
+		Description: "Compiled Rust service built with cargo in release mode.",
+		Category:    "language",
+		Icon:        "rust",
+		Color:       "#CE422B",
+		Mode:        "build",
+		Port:        8080,
+		Schema:      buildTemplateSchema,
+		// The binary name "app" is a placeholder for the crate's [package].name
+		// in Cargo.toml — update both the build output path and CMD to match.
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM rust:1.82-alpine AS builder
+WORKDIR /app
+RUN apk add --no-cache musl-dev
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo build --release
+
+FROM alpine:3.20
+WORKDIR /app
+COPY --from=builder /app/target/release/app ./app
+EXPOSE 8080
+CMD ["./app"]
+`,
+		EnvVars: `[{"key":"PORT","value":"8080","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Deno",
+		Description: "Deno service run directly from source — no separate build step.",
+		Category:    "language",
+		Icon:        "deno",
+		Color:       "#000000",
+		Mode:        "build",
+		Port:        8000,
+		Schema:      buildTemplateSchema,
+		// "main.ts" is a placeholder entry point — update it to match your project.
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM denoland/deno:alpine
+WORKDIR /app
+COPY . .
+RUN deno cache main.ts
+EXPOSE 8000
+CMD ["deno", "run", "--allow-net", "--allow-env", "main.ts"]
+`,
+		EnvVars: `[{"key":"PORT","value":"8000","scope":"runtime"}]`,
+	},
+	{
 		Name:        "FastAPI / Uvicorn",
 		Description: "ASGI Python service served by Gunicorn with Uvicorn workers.",
 		Category:    "web",
@@ -243,6 +315,181 @@ EXPOSE 5173
 CMD ["nginx", "-g", "daemon off;"]
 `,
 		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Express",
+		Description: "Express.js service run via `npm start`.",
+		Category:    "web",
+		Icon:        "express",
+		Color:       "#000000",
+		Mode:        "build",
+		Port:        3000,
+		Schema:      buildTemplateSchema,
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+`,
+		EnvVars: `[{"key":"NODE_ENV","value":"production","scope":"runtime"},{"key":"PORT","value":"3000","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Django",
+		Description: "Django service served by Gunicorn. Wire `python manage.py migrate` as a post-start lifecycle hook rather than baking it into the container command.",
+		Category:    "web",
+		Icon:        "django",
+		Color:       "#092E20",
+		Mode:        "build",
+		Port:        8000,
+		Schema:      buildTemplateSchema,
+		// "config.wsgi" matches the layout `django-admin startproject config`
+		// produces — update it if your project module is named differently.
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["gunicorn", "config.wsgi:application", "-w", "2", "-b", "0.0.0.0:8000"]
+`,
+		EnvVars: `[{"key":"DJANGO_SETTINGS_MODULE","value":"config.settings","scope":"runtime"},{"key":"SECRET_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"DJANGO_ALLOWED_HOSTS","value":"*","scope":"runtime"},{"key":"PYTHONUNBUFFERED","value":"1","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Ruby on Rails",
+		Description: "Rails service served by Puma. Wire `rails db:migrate` as a post-start lifecycle hook rather than baking it into the container command.",
+		Category:    "web",
+		Icon:        "rubyonrails",
+		Color:       "#CC0000",
+		Mode:        "build",
+		Port:        3000,
+		Schema:      buildTemplateSchema,
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM ruby:3.3-slim
+WORKDIR /app
+RUN apt-get update -qq && apt-get install -y --no-install-recommends build-essential git libpq-dev && rm -rf /var/lib/apt/lists/*
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+COPY . .
+ENV RAILS_ENV=production
+EXPOSE 3000
+CMD ["bundle", "exec", "puma", "-b", "tcp://0.0.0.0:3000"]
+`,
+		// SECRET_KEY_BASE is tripled since {{draft.password}} alone (24 chars) is
+		// shorter than Rails' recommended minimum secret length.
+		EnvVars: `[{"key":"RAILS_ENV","value":"production","scope":"runtime"},{"key":"SECRET_KEY_BASE","value":"{{draft.password}}{{draft.password}}{{draft.password}}","scope":"runtime"},{"key":"RAILS_LOG_TO_STDOUT","value":"1","scope":"runtime"},{"key":"RAILS_SERVE_STATIC_FILES","value":"true","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Phoenix",
+		Description: "Elixir/Phoenix service built as an OTP release.",
+		Category:    "web",
+		Icon:        "elixir",
+		Color:       "#4B275F",
+		Mode:        "build",
+		Port:        4000,
+		Schema:      buildTemplateSchema,
+		// The release name "app" is a placeholder for your app's OTP release
+		// name (set in mix.exs) — update the copy path and CMD to match.
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM elixir:1.17-alpine AS builder
+WORKDIR /app
+RUN apk add --no-cache build-base git
+ENV MIX_ENV=prod
+RUN mix local.hex --force && mix local.rebar --force
+COPY mix.exs mix.lock ./
+RUN mix deps.get --only prod
+COPY . .
+RUN mix assets.deploy || true
+RUN mix release
+
+FROM alpine:3.20
+RUN apk add --no-cache openssl ncurses-libs libstdc++
+WORKDIR /app
+COPY --from=builder /app/_build/prod/rel/app ./
+ENV HOME=/app
+EXPOSE 4000
+CMD ["bin/app", "start"]
+`,
+		// SECRET_KEY_BASE is tripled since Phoenix requires at least 64 bytes and
+		// {{draft.password}} alone (24 chars) is shorter than that.
+		EnvVars: `[{"key":"MIX_ENV","value":"prod","scope":"runtime"},{"key":"SECRET_KEY_BASE","value":"{{draft.password}}{{draft.password}}{{draft.password}}","scope":"runtime"},{"key":"PHX_HOST","value":"{{draft.internal_hostname}}","scope":"runtime"},{"key":"PHX_SERVER","value":"true","scope":"runtime"},{"key":"PORT","value":"4000","scope":"runtime"}]`,
+	},
+	{
+		Name:        ".NET",
+		Description: "ASP.NET Core service published in Release configuration.",
+		Category:    "web",
+		Icon:        "dotnet",
+		Color:       "#512BD4",
+		Mode:        "build",
+		Port:        8080,
+		Schema:      buildTemplateSchema,
+		// "app.dll" is a placeholder for your project's assembly name — update
+		// the ENTRYPOINT to match the .dll that `dotnet publish` produces.
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
+WORKDIR /app
+COPY *.csproj ./
+RUN dotnet restore
+COPY . .
+RUN dotnet publish -c Release -o /out
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=builder /out ./
+ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_ENVIRONMENT=Production
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "app.dll"]
+`,
+		EnvVars: `[{"key":"ASPNETCORE_ENVIRONMENT","value":"Production","scope":"runtime"},{"key":"ASPNETCORE_URLS","value":"http://+:8080","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Spring Boot",
+		Description: "Spring Boot service built with Maven, packaged as a runnable jar.",
+		Category:    "web",
+		Icon:        "springboot",
+		Color:       "#6DB33F",
+		Mode:        "build",
+		Port:        8080,
+		Schema:      buildTemplateSchema,
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /app
+COPY pom.xml ./
+RUN mvn -B dependency:go-offline
+COPY src ./src
+RUN mvn -B package -DskipTests
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/target/*.jar ./app.jar
+ENV JAVA_OPTS="-Xmx512m"
+EXPOSE 8080
+CMD ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+`,
+		EnvVars: `[{"key":"SPRING_PROFILES_ACTIVE","value":"production","scope":"runtime"},{"key":"JAVA_OPTS","value":"-Xmx512m","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Static Site",
+		Description: "Static assets served by nginx — no build step. Drop pre-built HTML/CSS/JS into the service root.",
+		Category:    "web",
+		Icon:        "nginx",
+		Color:       "#009639",
+		Mode:        "build",
+		Port:        8080,
+		Schema:      buildTemplateSchema,
+		Dockerfile: `# syntax=docker/dockerfile:1
+FROM nginx:1.27-alpine
+RUN sed -i 's/listen[[:space:]]*80;/listen 8080;/' /etc/nginx/conf.d/default.conf
+COPY . /usr/share/nginx/html
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+`,
 	},
 	{
 		Name:        "PostgreSQL",

@@ -6,6 +6,7 @@ import {
     SiDocker, SiPython, SiTypescript, SiRust, SiGo, SiNginx,
     SiDjango, SiExpress, SiGunicorn, SiPnpm, SiYarn, SiBun, SiHtml5,
     SiRabbitmq, SiElixir, SiMinio, SiMeilisearch, SiClickhouse, SiAdminer,
+    SiRubyonrails, SiDotnet, SiSpringboot, SiDeno,
 } from '@icons-pack/react-simple-icons';
 
 // Shared shape for both simple-icons brand components and the lucide
@@ -52,6 +53,10 @@ const ICON_MAP: Record<string, {label: string; Comp: IconComponent}> = {
     // No simple-icons brand mark exists for these; lucide generics stand in.
     mailpit: {label: 'Mailpit', Comp: Mail},
     memcached: {label: 'Memcached', Comp: MemoryStick},
+    rubyonrails: {label: 'Ruby on Rails', Comp: SiRubyonrails},
+    dotnet: {label: '.NET', Comp: SiDotnet},
+    springboot: {label: 'Spring Boot', Comp: SiSpringboot},
+    deno: {label: 'Deno', Comp: SiDeno},
 };
 
 export const TEMPLATE_ICON_OPTIONS = Object.entries(ICON_MAP).map(([slug, {label}]) => ({
