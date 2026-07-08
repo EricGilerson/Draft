@@ -102,21 +102,30 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                     return (
                     <div key={dep.id} className="deploy-entry">
                         <div className="deploy-entry-header" onClick={() => toggleExpand(dep)}>
-                            {expandedId === dep.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                            <StatusBadge status={dep.status} />
-                            <span className="deploy-entry-tag mono">{dep.imageTag || `#${dep.id}`}</span>
-                            <span className="deploy-entry-time">
-                                {new Date(dep.createdAt).toLocaleString()}
-                            </span>
-                            <button
-                                className="btn btn-ghost deploy-entry-rollback"
-                                onClick={(e) => { e.stopPropagation(); handleRollback(dep); }}
-                                disabled={!canRollback || rollingBack === dep.id}
-                                title={rollbackTitle}
-                            >
-                                <RotateCw size={12} className={rollingBack === dep.id ? 'spin' : ''}/>
-                                Redeploy
-                            </button>
+                            <div className="deploy-entry-leading">
+                                {expandedId === dep.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                <StatusBadge status={dep.status} />
+                                <span className="deploy-entry-tag mono">{dep.imageTag || `#${dep.id}`}</span>
+                            </div>
+                            <div className="deploy-entry-actions">
+                                <span className="deploy-entry-time" title={new Date(dep.createdAt).toLocaleString()}>
+                                    {new Date(dep.createdAt).toLocaleString(undefined, {
+                                        month: 'numeric',
+                                        day: 'numeric',
+                                        hour: 'numeric',
+                                        minute: '2-digit',
+                                    })}
+                                </span>
+                                <button
+                                    className="btn btn-ghost deploy-entry-rollback"
+                                    onClick={(e) => { e.stopPropagation(); handleRollback(dep); }}
+                                    disabled={!canRollback || rollingBack === dep.id}
+                                    title={rollbackTitle}
+                                >
+                                    <RotateCw size={12} className={rollingBack === dep.id ? 'spin' : ''}/>
+                                    Redeploy
+                                </button>
+                            </div>
                         </div>
                         {expandedId === dep.id && (
                             <div className="deploy-entry-detail">
