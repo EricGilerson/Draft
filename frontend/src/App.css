@@ -49,6 +49,31 @@
     overflow: auto;
 }
 
+/* Environment switcher + canvas must share one viewport-height column.
+   Without this, the switcher sits above a height:100% canvas and the
+   bottom of the node detail panel (staging draft bar) is clipped. */
+.project-workspace {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.project-workspace-canvas {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.project-workspace-canvas > .project-canvas-layout {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+}
+
 .view-center {
     display: flex;
     align-items: center;

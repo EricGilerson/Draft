@@ -199,7 +199,7 @@ function App() {
                             <div className="app-content-glow"/>
                             <div className="app-content-scroll">
                         {selectedProject ? (
-                            <>
+                            <div className="project-workspace">
                                 <EnvironmentSwitcher
                                     projectId={selectedProject.id}
                                     selectedEnvironmentId={selectedEnvironmentId}
@@ -207,22 +207,24 @@ function App() {
                                     onDuplicating={setEnvironmentBusy}
                                 />
                                 {selectedEnvironmentId && !environmentBusy && (
-                                    <ProjectCanvas
-                                        project={selectedProject}
-                                        environmentId={selectedEnvironmentId}
-                                        onServicesChanged={() => refreshProjectServices(projectsRef.current)}
-                                        initialVolumeFocus={pendingVolumeFocus}
-                                        onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
-                                        onOpenProjectSettings={() => openProjectSettings(selectedProject)}
-                                        initialSelectedNodeId={
-                                            pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
-                                                ? pendingNodeFocus.nodeId
-                                                : null
-                                        }
-                                        onNodeFocusApplied={() => setPendingNodeFocus(null)}
-                                    />
+                                    <div className="project-workspace-canvas">
+                                        <ProjectCanvas
+                                            project={selectedProject}
+                                            environmentId={selectedEnvironmentId}
+                                            onServicesChanged={() => refreshProjectServices(projectsRef.current)}
+                                            initialVolumeFocus={pendingVolumeFocus}
+                                            onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
+                                            onOpenProjectSettings={() => openProjectSettings(selectedProject)}
+                                            initialSelectedNodeId={
+                                                pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
+                                                    ? pendingNodeFocus.nodeId
+                                                    : null
+                                            }
+                                            onNodeFocusApplied={() => setPendingNodeFocus(null)}
+                                        />
+                                    </div>
                                 )}
-                            </>
+                            </div>
                         ) : view === 'overview' ? (
                             <OverviewView
                                 loading={loading}

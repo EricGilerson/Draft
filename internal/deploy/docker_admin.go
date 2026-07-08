@@ -137,8 +137,16 @@ func (e *Engine) RemoveContainer(ctx context.Context, id string, force bool) err
 // ImageSummary is a single Docker image as seen by the Docker management tab.
 // Managed is a best-effort guess based on Draft's deterministic build-tag
 // pattern (see draftBuildTagPattern) since pulled images carry no label.
+//
+// Size is Docker's virtual size (sum of every layer the image is composed of).
+// SharedSize is the portion of those layers also used by at least one other
+// image (−1 when the daemon did not compute it). Unique reclaimable space for
+// a single row is therefore Size−SharedSize when SharedSize ≥ 0 — summing Size
+// across rows double-counts shared layers and is never a disk total.
+// ParentID lets the UI nest intermediate parent images under their head.
 type ImageSummary struct {
 	ID         string   `json:"id"`
+	ParentID   string   `json:"parentId,omitempty"`
 	RepoTags   []string `json:"repoTags"`
 	Size       int64    `json:"size"`
 	SharedSize int64    `json:"sharedSize"`
@@ -148,11 +156,13 @@ type ImageSummary struct {
 	Managed    bool     `json:"managed"`
 }
 
-// ListImages returns every image on the daemon, including dangling
-// (untagged) and non-head parent images, with Draft-build tags flagged via
-// Managed. All:true matters here: Docker's default head-only listing can make
-// the UI look like an image ID "changed" after delete, when in reality the
-// removed image exposed its previously hidden parent as the new top-level row.
+// ListImages returns every image on the daemon, including untagged intermediate
+// parent images, with Draft-build tags flagged via Managed. All:true matters:
+// Docker's default head-only listing can make the UI look like an image ID
+// "changed" after delete, when in reality the removed image exposed its
+// previously hidden parent as the new top-level row. The UI collapses parents
+// under their head via ParentID so the verbose list stays available without
+// looking like dozens of independent multi-GB images.
 func (e *Engine) ListImages(ctx context.Context) ([]ImageSummary, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -177,6 +187,7 @@ func (e *Engine) ListImages(ctx context.Context) ([]ImageSummary, error) {
 		}
 		out = append(out, ImageSummary{
 			ID:         img.ID,
+			ParentID:   img.ParentID,
 			RepoTags:   img.RepoTags,
 			Size:       img.Size,
 			SharedSize: img.SharedSize,

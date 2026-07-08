@@ -1,5 +1,7 @@
 import {
     Box,
+    ChevronDown,
+    ChevronRight,
     Container as ContainerIcon,
     HardDrive,
     Layers,
@@ -46,8 +48,32 @@ type ConfirmState = {
     onConfirm: () => void;
 } | null;
 
+type ImageGroup = {
+    head: deploy.ImageSummary;
+    /** Ancestor chain (parent → grandparent → …), collapsed under the head by default. */
+    intermediates: deploy.ImageSummary[];
+};
+
 function visibleRepoTags(tags: string[] | undefined | null): string[] {
     return (tags ?? []).filter((tag) => tag && tag !== '<none>:<none>');
+}
+
+function imageKey(id: string | undefined | null): string {
+    return (id || '').replace(/^sha256:/, '');
+}
+
+/** Exclusive layer size: Size − SharedSize. SharedSize −1 means "not computed". */
+function imageUniqueSize(img: {size?: number; sharedSize?: number}): number {
+    const size = img.size || 0;
+    const shared = img.sharedSize;
+    if (shared == null || shared < 0) return size;
+    return Math.max(0, size - shared);
+}
+
+function formatSharedBytes(sharedSize: number | undefined): string {
+    if (sharedSize == null || sharedSize < 0) return '—';
+    if (sharedSize === 0) return '0 B';
+    return formatBytes(sharedSize);
 }
 
 function timeValue(input: string | number): number {
@@ -97,6 +123,64 @@ function toggleSet<T>(set: Set<T>, value: T): Set<T> {
     return next;
 }
 
+/**
+ * Group All:true image list into head rows with collapsed parent chains.
+ * Heads are leaves in the ParentID graph (nothing points at them as parent) —
+ * tagged builds, pulled images, and true untagged orphans. Intermediate
+ * parents from multi-stage / iterative builds nest under the head that
+ * descends from them so the table doesn't look like N independent multi-GB
+ * "dangling" images.
+ */
+function groupImages(images: deploy.ImageSummary[]): ImageGroup[] {
+    const byKey = new Map<string, deploy.ImageSummary>();
+    for (const img of images) {
+        byKey.set(imageKey(img.id), img);
+    }
+
+    const childCount = new Map<string, number>();
+    for (const img of images) {
+        const parent = imageKey(img.parentId);
+        if (!parent) continue;
+        childCount.set(parent, (childCount.get(parent) || 0) + 1);
+    }
+
+    const heads = images
+        .filter((img) => (childCount.get(imageKey(img.id)) || 0) === 0)
+        // Newest heads claim shared ancestors first (typical: latest build tag).
+        .sort((a, b) => timeValue(b.created) - timeValue(a.created));
+    const claimed = new Set<string>();
+    const groups: ImageGroup[] = [];
+
+    for (const head of heads) {
+        const intermediates: deploy.ImageSummary[] = [];
+        const seen = new Set<string>([imageKey(head.id)]);
+        let parent = imageKey(head.parentId);
+        while (parent && byKey.has(parent) && !seen.has(parent)) {
+            seen.add(parent);
+            // Exclusive nest: each intermediate appears under one head so bulk
+            // select / counts stay unambiguous. Newest head wins (above sort).
+            if (!claimed.has(parent)) {
+                intermediates.push(byKey.get(parent)!);
+                claimed.add(parent);
+            }
+            parent = imageKey(byKey.get(parent)!.parentId);
+        }
+        groups.push({head, intermediates});
+    }
+
+    // Any leftover images (cycles / orphans not reachable from a head) surface
+    // as their own head so nothing disappears from the verbose list.
+    for (const img of images) {
+        const key = imageKey(img.id);
+        if (claimed.has(key)) continue;
+        if (heads.some((h) => imageKey(h.id) === key)) continue;
+        groups.push({head: img, intermediates: []});
+        claimed.add(key);
+    }
+
+    return groups;
+}
+
 export default function DockerView() {
     const [tab, setTab] = useState<ResourceTab>('containers');
     const [du, setDu] = useState<types.DiskUsage | null>(null);
@@ -119,6 +203,8 @@ export default function DockerView() {
     const [imageSort, setImageSort] = useState<ImageSortKey>('recent');
     const [volumeSort, setVolumeSort] = useState<VolumeSortKey>('recent');
     const [networkSort, setNetworkSort] = useState<NetworkSortKey>('recent');
+    /** Head image ids whose intermediate parent chain is expanded. */
+    const [expandedImageGroups, setExpandedImageGroups] = useState<Set<string>>(new Set());
     const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const refresh = useCallback(() => {
@@ -187,16 +273,22 @@ export default function DockerView() {
         const imgs = du.Images ?? [];
         const vols = du.Volumes ?? [];
         const cache = du.BuildCache ?? [];
-        const imagesTotal = imgs.reduce((s, i) => s + (i.Size || 0), 0);
-        const imagesReclaimable = imgs.reduce((s, i) => s + (i.Containers === 0 ? i.Size || 0 : 0), 0);
+        // LayersSize is the real on-disk image total (shared layers counted once).
+        // Summing per-image Size double-counts shared layers and intermediate parents.
+        const imagesTotal = typeof du.LayersSize === 'number' && du.LayersSize > 0
+            ? du.LayersSize
+            : imgs.reduce((s, i) => s + imageUniqueSize({size: i.Size, sharedSize: i.SharedSize}), 0);
+        // Reclaimable ≈ unique layers of images not used by any container (docker system df).
+        const imagesReclaimable = imgs.reduce((s, i) => {
+            if ((i.Containers || 0) > 0) return s;
+            return s + imageUniqueSize({size: i.Size, sharedSize: i.SharedSize});
+        }, 0);
         const volumesTotal = vols.reduce((s, v) => s + (v.UsageData?.Size || 0), 0);
         const volumesReclaimable = vols.reduce((s, v) => s + ((v.UsageData?.RefCount || 0) === 0 ? v.UsageData?.Size || 0 : 0), 0);
         const buildCacheTotal = cache.reduce((s, c) => s + (c.Size || 0), 0);
         const buildCacheReclaimable = cache.reduce((s, c) => s + (!c.InUse ? c.Size || 0 : 0), 0);
-        // container.Summary's SizeRw/SizeRootFs aren't available on du.Containers
-        // (Docker SDK struct quirk), so the containers total comes from our own
-        // ContainerSummary list, which we already fetch for the Containers tab.
-        const containersTotal = containers.reduce((s, c) => s + (c.sizeRw || 0) + (c.sizeRootFs || 0), 0);
+        // Only the writable layer is container-owned; SizeRootFs includes the image.
+        const containersTotal = containers.reduce((s, c) => s + (c.sizeRw || 0), 0);
         return {
             imagesTotal,
             imagesReclaimable,
@@ -267,6 +359,15 @@ export default function DockerView() {
         }
         if (i.containers > 0) {
             details.push(`It is used by ${i.containers} container(s).`);
+        }
+        const unique = imageUniqueSize(i);
+        const shared = i.sharedSize;
+        if (unique > 0 && shared != null && shared > 0) {
+            details.push(
+                `Up to ${formatBytes(unique)} exclusive layers may be freed; ${formatBytes(shared)} is shared with other images and stays until those are removed too.`,
+            );
+        } else if (unique > 0) {
+            details.push(`About ${formatBytes(unique)} may be freed if no other image needs these layers.`);
         }
         askConfirm(
             `Remove image "${label}"?`,
@@ -401,19 +502,47 @@ export default function DockerView() {
         });
         return rows;
     }, [containers, q, containerSort]);
-    const filteredImages = useMemo(() => {
-        const rows = images.filter((i) => !q || `${i.repoTags?.join(' ')} ${i.id}`.toLowerCase().includes(q));
-        rows.sort((a, b) => {
+    const imageGroups = useMemo(() => {
+        const groups = groupImages(images);
+        const matchesQuery = (i: deploy.ImageSummary) =>
+            !q || `${i.repoTags?.join(' ')} ${i.id} ${i.parentId || ''}`.toLowerCase().includes(q);
+
+        // Keep a group if the head or any intermediate matches (search still
+        // reaches collapsed parents).
+        const filtered = groups.filter(
+            (g) => matchesQuery(g.head) || g.intermediates.some(matchesQuery),
+        );
+
+        filtered.sort((a, b) => {
             if (imageSort === 'name') {
-                const aLabel = visibleRepoTags(a.repoTags)[0] || a.id;
-                const bLabel = visibleRepoTags(b.repoTags)[0] || b.id;
+                const aLabel = visibleRepoTags(a.head.repoTags)[0] || a.head.id;
+                const bLabel = visibleRepoTags(b.head.repoTags)[0] || b.head.id;
                 return aLabel.localeCompare(bLabel);
             }
-            if (imageSort === 'size') return (b.size || 0) - (a.size || 0);
-            return timeValue(b.created) - timeValue(a.created);
+            if (imageSort === 'size') return imageUniqueSize(b.head) - imageUniqueSize(a.head);
+            return timeValue(b.head.created) - timeValue(a.head.created);
         });
-        return rows;
+        return filtered;
     }, [images, q, imageSort]);
+
+    /** Flat list of currently visible image rows (heads + expanded intermediates). */
+    const visibleImageRows = useMemo(() => {
+        const rows: deploy.ImageSummary[] = [];
+        for (const g of imageGroups) {
+            rows.push(g.head);
+            if (expandedImageGroups.has(g.head.id) || (q && g.intermediates.some((i) =>
+                `${i.repoTags?.join(' ')} ${i.id}`.toLowerCase().includes(q),
+            ))) {
+                rows.push(...g.intermediates);
+            }
+        }
+        return rows;
+    }, [imageGroups, expandedImageGroups, q]);
+
+    const intermediateCount = useMemo(
+        () => imageGroups.reduce((n, g) => n + g.intermediates.length, 0),
+        [imageGroups],
+    );
     const filteredVolumes = useMemo(() => {
         const rows = volumes.filter((v) => !q || `${v.name} ${v.target} ${v.nodeLabel}`.toLowerCase().includes(q));
         rows.sort((a, b) => {
@@ -442,9 +571,10 @@ export default function DockerView() {
                 tab === 'volumes' ? volumeSort :
                     networkSort;
 
+    const headImageCount = useMemo(() => groupImages(images).length, [images]);
     const tabs: {id: ResourceTab; label: string; icon: typeof Box; count: number}[] = [
         {id: 'containers', label: 'Containers', icon: ContainerIcon, count: containers.length},
-        {id: 'images', label: 'Images', icon: Layers, count: images.length},
+        {id: 'images', label: 'Images', icon: Layers, count: headImageCount},
         {id: 'volumes', label: 'Volumes', icon: HardDrive, count: volumes.length},
         {id: 'networks', label: 'Networks', icon: Network, count: networks.length},
     ];
@@ -551,7 +681,7 @@ export default function DockerView() {
                         ) : tab === 'images' ? (
                             <select className="input select-styled docker-sort-select" value={sortLabel} onChange={(e) => setImageSort(e.target.value as ImageSortKey)}>
                                 <option value="recent">Most recent</option>
-                                <option value="size">Largest size</option>
+                                <option value="size">Largest unique size</option>
                                 <option value="name">Name</option>
                             </select>
                         ) : tab === 'volumes' ? (
@@ -590,7 +720,7 @@ export default function DockerView() {
                         <button
                             className="btn btn-ghost docker-icon-btn--danger"
                             disabled={busy}
-                            onClick={() => handleBulkRemoveImages(filteredImages.filter((i) => selectedImages.has(i.id)))}
+                            onClick={() => handleBulkRemoveImages(images.filter((i) => selectedImages.has(i.id)))}
                         >
                             <Trash2 size={13}/> Remove selected
                         </button>
@@ -644,7 +774,7 @@ export default function DockerView() {
                                         <th>Image</th>
                                         <th>Status</th>
                                         <th>Ports</th>
-                                        <th className="docker-col-num">Size</th>
+                                        <th className="docker-col-num" title="Writable container layer only">Writable</th>
                                         <th>Created</th>
                                         <th>Owner</th>
                                         <th className="docker-col-actions"/>
@@ -666,7 +796,9 @@ export default function DockerView() {
                                                 <span className={`docker-status docker-status--${c.state === 'running' ? 'up' : 'down'}`}>{c.status}</span>
                                             </td>
                                             <td className="docker-mono-small">{formatPorts(c.ports)}</td>
-                                            <td className="docker-col-num">{formatBytes((c.sizeRw || 0) + (c.sizeRootFs || 0))}</td>
+                                            <td className="docker-col-num" title="Writable layer only (image layers counted under Images)">
+                                                {formatBytes(c.sizeRw || 0)}
+                                            </td>
                                             <td title={formatTimestamp(c.created)}>{formatAge(c.created)}</td>
                                             <td>
                                                 {c.managed ? (
@@ -705,77 +837,142 @@ export default function DockerView() {
                         </div>
                     )
                 ) : tab === 'images' ? (
-                    filteredImages.length === 0 ? (
+                    imageGroups.length === 0 ? (
                         <div className="docker-empty">No images found.</div>
                     ) : (
-                        <div className="docker-table-wrap">
-                            <table className="docker-table">
-                                <thead>
-                                    <tr>
-                                        <th className="docker-col-check">
-                                            <input
-                                                type="checkbox"
-                                                checked={filteredImages.length > 0 && filteredImages.every((i) => selectedImages.has(i.id))}
-                                                onChange={(e) => setSelectedImages(e.target.checked ? new Set(filteredImages.map((i) => i.id)) : new Set())}
-                                            />
-                                        </th>
-                                        <th>Repository:Tag</th>
-                                        <th>Image ID</th>
-                                        <th className="docker-col-num">Size</th>
-                                        <th className="docker-col-num">Shared</th>
-                                        <th className="docker-col-num">In use</th>
-                                        <th>Created</th>
-                                        <th>Owner</th>
-                                        <th className="docker-col-actions"/>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filteredImages.map((i) => {
-                                        const tags = visibleRepoTags(i.repoTags);
-                                        return (
-                                            <tr key={i.id}>
-                                                <td className="docker-col-check">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={selectedImages.has(i.id)}
-                                                        onChange={() => setSelectedImages((prev) => toggleSet(prev, i.id))}
-                                                    />
-                                                </td>
-                                                <td>
-                                                    {tags.length > 0 ? (
-                                                        <div className="docker-image-tags" title={tags.join('\n')}>
-                                                            <span className="docker-name">{tags[0]}</span>
-                                                            {tags.length > 1 && (
-                                                                <span className="docker-tag-more">+{tags.length - 1} more</span>
+                        <>
+                            {intermediateCount > 0 && (
+                                <p className="docker-image-hint">
+                                    {intermediateCount} intermediate parent image{intermediateCount === 1 ? '' : 's'} nested under builds
+                                    (expand a row to inspect or delete). Unique is exclusive layers; Shared is already counted on other images. Disk total above uses Docker&apos;s layer store (no double-counting).
+                                </p>
+                            )}
+                            <div className="docker-table-wrap">
+                                <table className="docker-table">
+                                    <thead>
+                                        <tr>
+                                            <th className="docker-col-check">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={visibleImageRows.length > 0 && visibleImageRows.every((i) => selectedImages.has(i.id))}
+                                                    onChange={(e) => setSelectedImages(e.target.checked ? new Set(visibleImageRows.map((i) => i.id)) : new Set())}
+                                                />
+                                            </th>
+                                            <th>Repository:Tag</th>
+                                            <th>Image ID</th>
+                                            <th className="docker-col-num" title="Layers unique to this image (Size − Shared). Not the full virtual size.">Unique</th>
+                                            <th className="docker-col-num" title="Layers also used by at least one other image. Not freed until those images are removed.">Shared</th>
+                                            <th className="docker-col-num" title="Full virtual size of this image (all layers). Summing this column overcounts disk.">Virtual</th>
+                                            <th className="docker-col-num">In use</th>
+                                            <th>Created</th>
+                                            <th>Owner</th>
+                                            <th className="docker-col-actions"/>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {imageGroups.flatMap((group) => {
+                                            const head = group.head;
+                                            const expanded = expandedImageGroups.has(head.id)
+                                                || (!!q && group.intermediates.some((i) =>
+                                                    `${i.repoTags?.join(' ')} ${i.id}`.toLowerCase().includes(q),
+                                                ));
+                                            const rows: {img: deploy.ImageSummary; depth: number; isHead: boolean}[] = [
+                                                {img: head, depth: 0, isHead: true},
+                                            ];
+                                            if (expanded) {
+                                                for (const inter of group.intermediates) {
+                                                    rows.push({img: inter, depth: 1, isHead: false});
+                                                }
+                                            }
+                                            return rows.map(({img, depth, isHead}) => {
+                                                const tags = visibleRepoTags(img.repoTags);
+                                                const unique = imageUniqueSize(img);
+                                                return (
+                                                    <tr
+                                                        key={img.id}
+                                                        className={depth > 0 ? 'docker-image-row--nested' : undefined}
+                                                    >
+                                                        <td className="docker-col-check">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedImages.has(img.id)}
+                                                                onChange={() => setSelectedImages((prev) => toggleSet(prev, img.id))}
+                                                            />
+                                                        </td>
+                                                        <td>
+                                                            <div
+                                                                className="docker-image-label"
+                                                                style={depth > 0 ? {paddingLeft: 12} : undefined}
+                                                            >
+                                                                {isHead && group.intermediates.length > 0 ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="docker-expand-btn"
+                                                                        title={expanded
+                                                                            ? `Hide ${group.intermediates.length} intermediate parent${group.intermediates.length === 1 ? '' : 's'}`
+                                                                            : `Show ${group.intermediates.length} intermediate parent${group.intermediates.length === 1 ? '' : 's'}`}
+                                                                        onClick={() => setExpandedImageGroups((prev) => toggleSet(prev, head.id))}
+                                                                    >
+                                                                        {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                                                                        <span className="docker-expand-count">{group.intermediates.length}</span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <span className="docker-expand-spacer" aria-hidden/>
+                                                                )}
+                                                                {tags.length > 0 ? (
+                                                                    <div className="docker-image-tags" title={tags.join('\n')}>
+                                                                        <span className="docker-name">{tags[0]}</span>
+                                                                        {tags.length > 1 && (
+                                                                            <span className="docker-tag-more">+{tags.length - 1} more</span>
+                                                                        )}
+                                                                    </div>
+                                                                ) : depth > 0 ? (
+                                                                    <span
+                                                                        className="docker-badge docker-badge--intermediate"
+                                                                        title="Untagged parent from a prior build layer — not a separate full image on disk"
+                                                                    >
+                                                                        intermediate
+                                                                    </span>
+                                                                ) : (
+                                                                    <span
+                                                                        className="docker-badge docker-badge--external"
+                                                                        title="Untagged image with no children (true dangling)"
+                                                                    >
+                                                                        untagged
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td><code className="docker-mono">{shortId(img.id)}</code></td>
+                                                        <td className="docker-col-num" title={img.size ? `Virtual ${formatBytes(img.size)}` : undefined}>
+                                                            {formatBytes(unique)}
+                                                        </td>
+                                                        <td className="docker-col-num">{formatSharedBytes(img.sharedSize)}</td>
+                                                        <td className="docker-col-num docker-col-muted">{formatBytes(img.size)}</td>
+                                                        <td className="docker-col-num">{img.containers < 0 ? '—' : img.containers}</td>
+                                                        <td title={formatTimestamp(img.created)}>{formatAge(img.created)}</td>
+                                                        <td>
+                                                            {img.managed ? (
+                                                                <span className="docker-badge docker-badge--managed">Draft build</span>
+                                                            ) : depth > 0 ? (
+                                                                <span className="docker-badge docker-badge--intermediate">Parent</span>
+                                                            ) : (
+                                                                <span className="docker-badge docker-badge--external">External</span>
                                                             )}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="docker-badge docker-badge--external">dangling</span>
-                                                    )}
-                                                </td>
-                                                <td><code className="docker-mono">{shortId(i.id)}</code></td>
-                                                <td className="docker-col-num">{formatBytes(i.size)}</td>
-                                                <td className="docker-col-num">{formatBytes(i.sharedSize)}</td>
-                                                <td className="docker-col-num">{i.containers}</td>
-                                                <td title={formatTimestamp(i.created)}>{formatAge(i.created)}</td>
-                                                <td>
-                                                    {i.managed ? (
-                                                        <span className="docker-badge docker-badge--managed">Draft build</span>
-                                                    ) : (
-                                                        <span className="docker-badge docker-badge--external">External</span>
-                                                    )}
-                                                </td>
-                                                <td className="docker-col-actions">
-                                                    <button className="btn btn-ghost docker-icon-btn docker-icon-btn--danger" title="Remove" disabled={busy} onClick={() => handleRemoveImage(i)}>
-                                                        <Trash2 size={14}/>
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                                                        </td>
+                                                        <td className="docker-col-actions">
+                                                            <button className="btn btn-ghost docker-icon-btn docker-icon-btn--danger" title="Remove" disabled={busy} onClick={() => handleRemoveImage(img)}>
+                                                                <Trash2 size={14}/>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
                     )
                 ) : tab === 'volumes' ? (
                     filteredVolumes.length === 0 ? (

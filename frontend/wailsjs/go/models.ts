@@ -607,6 +607,7 @@ export namespace deploy {
 	
 	export class ImageSummary {
 	    id: string;
+	    parentId?: string;
 	    repoTags: string[];
 	    size: number;
 	    sharedSize: number;
@@ -622,6 +623,7 @@ export namespace deploy {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	        this.parentId = source["parentId"];
 	        this.repoTags = source["repoTags"];
 	        this.size = source["size"];
 	        this.sharedSize = source["sharedSize"];
