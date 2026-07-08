@@ -1518,28 +1518,6 @@ export namespace store {
 		    return a;
 		}
 	}
-	export class ProjectSecretEntry {
-	    projectId: number;
-	    projectName: string;
-	    key: string;
-	    value: string;
-	    scope: string;
-	    secret: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProjectSecretEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.projectId = source["projectId"];
-	        this.projectName = source["projectName"];
-	        this.key = source["key"];
-	        this.value = source["value"];
-	        this.scope = source["scope"];
-	        this.secret = source["secret"];
-	    }
-	}
 	export class ServiceTemplate {
 	    id: number;
 	    name: string;

@@ -748,8 +748,8 @@ func (a *App) DeleteProject(id uint) error {
 	return c.DeleteProject(a.ctx, id)
 }
 
-// ListProjectEnvVars returns project-level env vars injected into every
-// service in the project at deploy time (as defaults a node var can override).
+// ListProjectEnvVars returns project-level shared values referenced via
+// {{project.KEY}} from services in the project.
 func (a *App) ListProjectEnvVars(projectID uint) ([]store.ProjectEnvVar, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -783,32 +783,6 @@ func (a *App) DeleteProjectEnvVar(projectID uint, key string) error {
 		return errNoStore
 	}
 	return c.DeleteProjectEnvVar(a.ctx, projectID, key)
-}
-
-// SetProjectEnvVarSecret toggles the secret flag on a project-level env var.
-func (a *App) SetProjectEnvVarSecret(projectID uint, key string, secret bool) error {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return err
-	}
-	if c == nil {
-		return errNoStore
-	}
-	return c.SetProjectEnvVarSecret(a.ctx, projectID, key, secret)
-}
-
-// RotateProjectEnvSecret replaces a project-level secret's value with a fresh
-// random string and redeploys running services in the project. Returns the new
-// value once for the UI to surface to the user.
-func (a *App) RotateProjectEnvSecret(projectID uint, key string) (string, error) {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return "", err
-	}
-	if c == nil {
-		return "", errNoStore
-	}
-	return c.RotateProjectEnvSecret(a.ctx, projectID, key)
 }
 
 // DaemonConnection returns the daemon's 127.0.0.1 address and auth token so the
@@ -1252,7 +1226,7 @@ func (a *App) ListAppSecretUsages(key string) ([]deploy.SecretUsage, error) {
 	return c.ListAppSecretUsages(a.ctx, key)
 }
 
-func (a *App) ListAllProjectSecrets() ([]store.ProjectSecretEntry, error) {
+func (a *App) ListProjectEnvVarUsages(projectID uint, key string) ([]deploy.SecretUsage, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -1260,16 +1234,6 @@ func (a *App) ListAllProjectSecrets() ([]store.ProjectSecretEntry, error) {
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.ListAllProjectSecrets(a.ctx)
+	return c.ListProjectEnvVarUsages(a.ctx, projectID, key)
 }
 
-func (a *App) ListProjectSecretUsages(projectID uint, key string) ([]deploy.SecretUsage, error) {
-	c, err := a.ensureDaemon()
-	if err != nil {
-		return nil, err
-	}
-	if c == nil {
-		return nil, errNoStore
-	}
-	return c.ListProjectSecretUsages(a.ctx, projectID, key)
-}

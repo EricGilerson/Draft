@@ -541,6 +541,19 @@
     align-items: center;
 }
 
+.project-var-token {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.var-source--project-secret {
+    color: var(--yellow, #d4a72c);
+}
+
 .project-var-value-input {
     flex: 1;
     min-width: 0;

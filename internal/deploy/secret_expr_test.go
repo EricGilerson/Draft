@@ -140,33 +140,6 @@ func TestListAppSecretUsages(t *testing.T) {
 	}
 }
 
-func TestListProjectSecretUsages(t *testing.T) {
-	s := openTestStore(t)
-	e, _ := newTestEngine(t, s)
-
-	project, err := s.CreateProject("p", "/tmp/p", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker", ProjectID: project.ID, Label: "worker"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetProjectEnvVar(project.ID, "JWT_SECRET", "abc", store.EnvScopeRuntime, true); err != nil {
-		t.Fatal(err)
-	}
-
-	usages, err := e.ListProjectSecretUsages(project.ID, "JWT_SECRET")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(usages) != 2 {
-		t.Fatalf("expected 2 usages, got %d", len(usages))
-	}
-}
-
 func TestDeleteAppSecretBlockedWhenReferenced(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

@@ -137,6 +137,14 @@ func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string,
 		raw = expanded
 	}
 
+	if containsProjectExpr(raw) {
+		expanded, err := e.resolveProjectExprs(selfNodeID, projectID, raw, visited, preserveSecretExprs)
+		if err != nil {
+			return "", err
+		}
+		raw = expanded
+	}
+
 	matches := refPattern.FindAllStringSubmatchIndex(raw, -1)
 	if matches == nil {
 		return raw, nil
@@ -200,7 +208,7 @@ func isGeneratedAttr(attrName string) bool {
 }
 
 // ResolveEnvVars returns nodeID's env vars with service reference tokens
-// expanded for .env export. {{secret.KEY}} tokens are preserved literally.
+// expanded for .env export. {{secret.*}} and {{project.*}} tokens are preserved literally.
 func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
@@ -390,6 +398,7 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 	var issues []ReferenceIssue
 	for _, v := range vars {
 		issues = append(issues, listMissingSecretExprs(s, v.Key, v.Value)...)
+		issues = append(issues, listMissingProjectExprs(s, node.ProjectID, v.Key, v.Value)...)
 		for _, m := range refPattern.FindAllStringSubmatch(v.Value, -1) {
 			label, attrName := m[1], m[2]
 			token := m[0]

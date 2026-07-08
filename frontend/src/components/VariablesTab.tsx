@@ -51,24 +51,46 @@ type VariablesTabProps = {
 // row's link icon — the key is already fixed).
 type LinkerState = {
     mode: 'new' | 'existing';
-    source: 'service' | 'app-secret';
+    source: 'service' | 'app-secret' | 'project';
     localKey: string;
     targetId: string;
     targetAttr: string;
     appSecretKey: string;
+    projectRefKey: string;
     newTargetKey: string;
     newTargetValue: string;
 };
 
-// Tracks an in-progress @{...} or {{secret. ...}} token while typing.
+// Tracks an in-progress @{...}, {{secret...}}, or {{project...}} token while typing.
 type AutocompleteState = {
     key: string;
-    stage: 'service' | 'attr' | 'secret';
+    stage: 'service' | 'attr' | 'secret' | 'project';
     query: string;
     start: number;
     end: number;
     target?: deploy.ReferenceTarget;
 } | null;
+
+type ExprOpenMatch = {
+    stage: 'secret' | 'project';
+    openIdx: number;
+    prefixLen: number;
+};
+
+function findExprOpen(before: string): ExprOpenMatch | null {
+    const candidates: ExprOpenMatch[] = [
+        {stage: 'project', openIdx: before.lastIndexOf('{{project.'), prefixLen: 10},
+        {stage: 'secret', openIdx: before.lastIndexOf('{{secret.'), prefixLen: 9},
+    ];
+    let best: ExprOpenMatch | null = null;
+    for (const c of candidates) {
+        if (c.openIdx < 0) continue;
+        if (!best || c.openIdx > best.openIdx) {
+            best = c;
+        }
+    }
+    return best;
+}
 
 function RuntimeVarsSection() {
     const [expanded, setExpanded] = useState(false);
@@ -101,7 +123,6 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
     loading: boolean;
 }) {
     const [expanded, setExpanded] = useState(true);
-    const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
     if (!loading && vars.length === 0) {
         return null;
@@ -111,44 +132,30 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
         <div className="project-vars-section">
             <button className="runtime-vars-toggle" onClick={() => setExpanded(!expanded)}>
                 {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-                <span>Shared project variables{vars.length > 0 ? ` (${vars.length})` : ''}</span>
+                <span>Project references{vars.length > 0 ? ` (${vars.length})` : ''}</span>
             </button>
             {expanded && (
                 <div className="project-vars-list">
                     <p className="runtime-vars-hint">
-                        These non-secret defaults are injected into every service at deploy time. A service variable with the same key overrides the project value. Project secrets are managed in the Secrets tab.
+                        Reference shared project values using {`{{project.KEY}}`}. Use the Link button or type to insert a token.
                     </p>
                     {loading && <div className="variables-empty">Loading project variables…</div>}
                     {!loading && vars.map((v) => {
-                        const overridden = serviceKeys.has(v.key);
-                        const isRevealed = !!revealed[v.key];
+                        const definedLocally = serviceKeys.has(v.key);
+                        const token = `{{project.${v.key}}}`;
                         return (
-                            <div key={v.key} className={`project-var-row ${overridden ? 'project-var-row--overridden' : ''}`}>
+                            <div key={v.key} className={`project-var-row ${definedLocally ? 'project-var-row--overridden' : ''}`}>
                                 <div className="var-key-cell">
                                     <div className="var-key" title={v.key}>{v.key}</div>
-                                    <div className="var-source var-source--project">project</div>
+                                    <div className="var-source var-source--project">project var</div>
                                 </div>
                                 <div className="var-value-col">
                                     <div className="var-value project-var-value">
-                                        <input
-                                            className="var-value-mask project-var-value-input"
-                                            type={isRevealed ? 'text' : 'password'}
-                                            value={v.value}
-                                            disabled
-                                            readOnly
-                                        />
-                                        <button
-                                            type="button"
-                                            className="var-toggle"
-                                            onClick={() => setRevealed((r) => ({...r, [v.key]: !r[v.key]}))}
-                                            title={isRevealed ? 'Hide value' : 'Show value'}
-                                        >
-                                            {isRevealed ? <EyeOff size={14}/> : <Eye size={14}/>}
-                                        </button>
+                                        <code className="project-var-token">{token}</code>
                                         <span className="project-var-scope" title="Variable scope">{v.scope || 'runtime'}</span>
-                                        {overridden && (
-                                            <span className="project-var-override" title="This service defines its own variable with the same key, which wins at deploy time">
-                                                overridden
+                                        {definedLocally && (
+                                            <span className="project-var-override" title="This service also defines its own variable with the same key">
+                                                local key too
                                             </span>
                                         )}
                                     </div>
@@ -162,13 +169,15 @@ function ProjectVarsSection({vars, serviceKeys, loading}: {
     );
 }
 
-function VarAutocomplete({autocomplete, linkTargets, appSecrets, onSelectService, onSelectAttr, onSelectSecret}: {
+function VarAutocomplete({autocomplete, linkTargets, appSecrets, projectVars, onSelectService, onSelectAttr, onSelectSecret, onSelectProject}: {
     autocomplete: AutocompleteState;
     linkTargets: deploy.ReferenceTarget[];
     appSecrets: store.AppSecret[];
+    projectVars: store.ProjectEnvVar[];
     onSelectService: (t: deploy.ReferenceTarget) => void;
     onSelectAttr: (attr: string) => void;
     onSelectSecret: (key: string) => void;
+    onSelectProject: (key: string) => void;
 }) {
     if (!autocomplete) return null;
 
@@ -179,6 +188,20 @@ function VarAutocomplete({autocomplete, linkTargets, appSecrets, onSelectService
                 {matches.length === 0 && <span className="var-autocomplete-empty">No matching app secret</span>}
                 {matches.map(s => (
                     <button key={s.key} onMouseDown={e => { e.preventDefault(); onSelectSecret(s.key); }}>
+                        {s.key}
+                    </button>
+                ))}
+            </div>
+        );
+    }
+
+    if (autocomplete.stage === 'project') {
+        const matches = projectVars.filter(s => s.key.toLowerCase().startsWith(autocomplete.query.toLowerCase()));
+        return (
+            <div className="var-autocomplete">
+                {matches.length === 0 && <span className="var-autocomplete-empty">No matching project value</span>}
+                {matches.map(s => (
+                    <button key={s.key} onMouseDown={e => { e.preventDefault(); onSelectProject(s.key); }}>
                         {s.key}
                     </button>
                 ))}
@@ -554,11 +577,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     const openLinkerForKey = (key: string) => {
         setVisible(prev => ({...prev, [key]: true}));
-        setLinker({mode: 'existing', source: 'service', localKey: key, targetId: '', targetAttr: '', appSecretKey: '', newTargetKey: '', newTargetValue: ''});
+        setLinker({mode: 'existing', source: 'service', localKey: key, targetId: '', targetAttr: '', appSecretKey: '', projectRefKey: '', newTargetKey: '', newTargetValue: ''});
     };
 
     const openNewLinker = () => {
-        setLinker({mode: 'new', source: 'service', localKey: '', targetId: '', targetAttr: '', appSecretKey: '', newTargetKey: '', newTargetValue: ''});
+        setLinker({mode: 'new', source: 'service', localKey: '', targetId: '', targetAttr: '', appSecretKey: '', projectRefKey: '', newTargetKey: '', newTargetValue: ''});
     };
 
     const closeLinker = () => setLinker(null);
@@ -572,6 +595,23 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 const secretKey = linker.appSecretKey.trim();
                 if (!secretKey) return;
                 const token = `{{secret.${secretKey}}}`;
+                if (linker.mode === 'existing') {
+                    insertAtCursor(linker.localKey, token);
+                    setLinker(null);
+                } else {
+                    const localKey = linker.localKey.trim();
+                    if (!localKey) return;
+                    await SetEnvVar(nodeId, localKey, token);
+                    setLinker(null);
+                    await refreshAll();
+                }
+                return;
+            }
+
+            if (linker.source === 'project') {
+                const refKey = linker.projectRefKey.trim();
+                if (!refKey) return;
+                const token = `{{project.${refKey}}}`;
                 if (linker.mode === 'existing') {
                     insertAtCursor(linker.localKey, token);
                     setLinker(null);
@@ -622,15 +662,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         const cursor = el.selectionStart ?? value.length;
         const before = value.slice(0, cursor);
 
-        const secretOpenIdx = before.lastIndexOf('{{secret.');
+        const exprOpen = findExprOpen(before);
         const serviceOpenIdx = before.lastIndexOf('@{');
-        if (secretOpenIdx >= 0 && (serviceOpenIdx < 0 || secretOpenIdx > serviceOpenIdx)) {
-            const inner = before.slice(secretOpenIdx + 9);
+        if (exprOpen && (serviceOpenIdx < 0 || exprOpen.openIdx > serviceOpenIdx)) {
+            const inner = before.slice(exprOpen.openIdx + exprOpen.prefixLen);
             if (inner.includes('}') || inner.includes('\n')) {
                 setAutocomplete(a => (a?.key === key ? null : a));
                 return;
             }
-            setAutocomplete({key, stage: 'secret', query: inner, start: secretOpenIdx + 9, end: cursor});
+            setAutocomplete({key, stage: exprOpen.stage, query: inner, start: exprOpen.openIdx + exprOpen.prefixLen, end: cursor});
             return;
         }
 
@@ -679,6 +719,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         focusAt(key, pos);
     };
 
+    const selectAutocompleteProject = (refKey: string) => {
+        if (!autocomplete) return;
+        const {key, start, end} = autocomplete;
+        const pos = replaceRange(key, start, end, `${refKey}}}`);
+        setAutocomplete(null);
+        focusAt(key, pos);
+    };
+
     const runSync = async (action: 'import' | 'refresh' | 'export') => {
         setSyncing(true);
         setSyncError('');
@@ -712,7 +760,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         conflicts.length ? `${conflicts.length} conflict${conflicts.length > 1 ? 's' : ''}` : '',
     ].filter(Boolean).join(' · ') : '';
 
-    const sharedProjectVars = useMemo(() => projectVars.filter((v) => !v.secret), [projectVars]);
+    const canLink = linkTargets.length > 0 || appSecrets.length > 0 || projectVars.length > 0;
 
     if (loading) {
         return <div className="variables-loading">Loading...</div>;
@@ -730,10 +778,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             )}
             <select
                 value={linker!.source}
-                onChange={e => setLinker(l => l && {...l, source: e.target.value as 'service' | 'app-secret', targetId: '', targetAttr: '', appSecretKey: ''})}
+                onChange={e => setLinker(l => l && {...l, source: e.target.value as LinkerState['source'], targetId: '', targetAttr: '', appSecretKey: '', projectRefKey: ''})}
             >
                 <option value="service">Service reference</option>
                 <option value="app-secret">App secret</option>
+                <option value="project">Project value</option>
             </select>
             {linker!.source === 'app-secret' ? (
                 <select
@@ -742,6 +791,16 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 >
                     <option value="">Select app secret…</option>
                     {appSecrets.map(s => (
+                        <option key={s.key} value={s.key}>{s.key}</option>
+                    ))}
+                </select>
+            ) : linker!.source === 'project' ? (
+                <select
+                    value={linker!.projectRefKey}
+                    onChange={e => setLinker(l => l && {...l, projectRefKey: e.target.value})}
+                >
+                    <option value="">Select project value…</option>
+                    {projectVars.map(s => (
                         <option key={s.key} value={s.key}>{s.key}</option>
                     ))}
                 </select>
@@ -805,9 +864,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             autocomplete={autocomplete}
                             linkTargets={linkTargets}
                             appSecrets={appSecrets}
+                            projectVars={projectVars}
                             onSelectService={selectAutocompleteService}
                             onSelectAttr={selectAutocompleteAttr}
                             onSelectSecret={selectAutocompleteSecret}
+                            onSelectProject={selectAutocompleteProject}
                         />
                     )}
                 </>
@@ -872,7 +933,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             </div>
 
             <div className="var-add-col">
-                <span className="settings-hint">Values support @{'{Service.ATTR}'} cross-service references, {`{{secret.KEY}}`} app secrets, and {`{{draft.X}}`} identity expressions (e.g. {`{{draft.password}}`}, {`{{draft.internal_hostname}}`}).</span>
+                <span className="settings-hint">Values support @{'{Service.ATTR}'} cross-service references, {`{{secret.KEY}}`} app secrets, {`{{project.KEY}}`} project values, and {`{{draft.X}}`} identity expressions.</span>
                 <div className="var-add">
                     <input
                         placeholder="KEY"
@@ -899,8 +960,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     <button
                         className={`btn btn-ghost ${linker?.mode === 'new' ? 'var-toggle--active' : ''}`}
                         onClick={() => linker?.mode === 'new' ? closeLinker() : openNewLinker()}
-                        disabled={linkTargets.length === 0}
-                        title="Add a new variable that references another service"
+                        disabled={!canLink}
+                        title="Add a new variable that references another service, secret, or project value"
                     >
                         <Link2 size={14}/> Link
                     </button>
@@ -910,9 +971,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         autocomplete={autocomplete}
                         linkTargets={linkTargets}
                         appSecrets={appSecrets}
+                        projectVars={projectVars}
                         onSelectService={selectAutocompleteService}
                         onSelectAttr={selectAutocompleteAttr}
                         onSelectSecret={selectAutocompleteSecret}
+                        onSelectProject={selectAutocompleteProject}
                     />
                 )}
             </div>
@@ -1027,9 +1090,11 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                     autocomplete={autocomplete}
                                     linkTargets={linkTargets}
                                     appSecrets={appSecrets}
+                                    projectVars={projectVars}
                                     onSelectService={selectAutocompleteService}
                                     onSelectAttr={selectAutocompleteAttr}
                                     onSelectSecret={selectAutocompleteSecret}
+                                    onSelectProject={selectAutocompleteProject}
                                 />
                             )}
                             {linker?.mode === 'existing' && linker.localKey === v.key && renderLinkerPanel()}
@@ -1039,7 +1104,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 })}
             </div>
 
-            <ProjectVarsSection vars={sharedProjectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
+            <ProjectVarsSection vars={projectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
 
             <RuntimeVarsSection />
 

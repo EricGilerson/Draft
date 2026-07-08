@@ -30,24 +30,3 @@ func TestAppSecretsCRUD(t *testing.T) {
 	}
 }
 
-func TestListAllProjectSecrets(t *testing.T) {
-	s := openTemp(t)
-	project, err := s.CreateProject("demo", "/tmp/demo", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetProjectEnvVar(project.ID, "JWT", "secret", EnvScopeRuntime, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetProjectEnvVar(project.ID, "LOG_LEVEL", "debug", EnvScopeRuntime, false); err != nil {
-		t.Fatal(err)
-	}
-
-	entries, err := s.ListAllProjectSecrets()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Key != "JWT" || entries[0].ProjectName != "demo" {
-		t.Fatalf("entries=%+v", entries)
-	}
-}

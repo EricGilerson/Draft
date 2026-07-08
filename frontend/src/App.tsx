@@ -37,7 +37,6 @@ function App() {
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
-    const [secretsProjectFilter, setSecretsProjectFilter] = useState<number | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
 
     const refreshProjectServices = useCallback(async (items: store.Project[]) => {
@@ -92,13 +91,9 @@ function App() {
         if (next !== 'projects') {
             setSelectedProject(null);
         }
-        if (next !== 'secrets') {
-            setSecretsProjectFilter(null);
-        }
     };
 
-    const openSecretsForProject = (projectId: number) => {
-        setSecretsProjectFilter(projectId);
+    const openSecretsTab = () => {
         setSelectedProject(null);
         setView('secrets');
         setSettingsProject(null);
@@ -222,10 +217,7 @@ function App() {
                         ) : view === 'templates' ? (
                             <TemplatesView/>
                         ) : view === 'secrets' ? (
-                            <SecretsView
-                                filterProjectId={secretsProjectFilter}
-                                onClearProjectFilter={() => setSecretsProjectFilter(null)}
-                            />
+                            <SecretsView/>
                         ) : view === 'volumes' ? (
                             <VolumesView onRevealVolume={revealVolume}/>
                         ) : view === 'routes' ? (
@@ -270,7 +262,7 @@ function App() {
                     onClose={() => setSettingsProject(null)}
                     onProjectUpdated={handleProjectUpdated}
                     onProjectDeleted={handleProjectDeleted}
-                    onOpenSecrets={() => openSecretsForProject(settingsProject.id)}
+                    onOpenSecrets={openSecretsTab}
                 />
             )}
         </div>

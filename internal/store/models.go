@@ -136,10 +136,8 @@ type EnvVar struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// ProjectEnvVar is a project-wide environment variable injected into every
-// service in the project at deploy time, as a default that a node-level var of
-// the same key overrides. Used for shared values (DATABASE_URL, LOG_LEVEL,
-// shared API keys) that would otherwise be copy-pasted across services.
+// ProjectEnvVar is a project-scoped shared value referenced explicitly from
+// service env vars via {{project.KEY}} tokens.
 type ProjectEnvVar struct {
 	ProjectID uint      `gorm:"primaryKey;not null;index" json:"projectId"`
 	Key       string    `gorm:"primaryKey;not null" json:"key"`

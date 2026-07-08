@@ -1,13 +1,16 @@
-import {useEffect, useMemo, useState} from 'react';
-import {AlertTriangle, Eye, EyeOff, Plus, Trash2} from 'lucide-react';
+import {useEffect, useState} from 'react';
+import {AlertTriangle, Eye, EyeOff, Pencil, Plus, Trash2} from 'lucide-react';
 import {
     ListProjectEnvVars, SetProjectEnvVar, DeleteProjectEnvVar,
+    ListProjectEnvVarUsages, DeployService,
     UpdateProject, DeleteProject,
 } from '../../wailsjs/go/main/App';
-import {store} from '../../wailsjs/go/models';
+import {deploy, store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
+import ScopedValueUsages from './ScopedValueUsages';
 import './VariablesTab.css';
 import './ProjectSettingsDialog.css';
+import '../views/SecretsView.css';
 
 type ProjectSettingsDialogProps = {
     project: store.Project;
@@ -17,12 +20,13 @@ type ProjectSettingsDialogProps = {
     onOpenSecrets?: () => void;
 };
 
+type EditorMode =
+    | {kind: 'closed'}
+    | {kind: 'add'}
+    | {kind: 'edit'; entry: store.ProjectEnvVar};
+
 const SCOPES = ['runtime', 'build', 'both'];
 
-// ProjectSettingsDialog exposes the project-level controls that don't belong
-// on any single service: identity (name/description), shared non-secret env
-// vars injected into every service at deploy time, and a danger zone to delete
-// the project. Project secrets are managed in the Secrets tab.
 export default function ProjectSettingsDialog({project, onClose, onProjectUpdated, onProjectDeleted, onOpenSecrets}: ProjectSettingsDialogProps) {
     const [name, setName] = useState(project.name);
     const [description, setDescription] = useState(project.description || '');
@@ -32,17 +36,12 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
 
     const [vars, setVars] = useState<store.ProjectEnvVar[]>([]);
     const [loadingVars, setLoadingVars] = useState(true);
-    const [newKey, setNewKey] = useState('');
-    const [newValue, setNewValue] = useState('');
-    const [newScope, setNewScope] = useState('runtime');
     const [varError, setVarError] = useState<string | null>(null);
-    const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+    const [editor, setEditor] = useState<EditorMode>({kind: 'closed'});
 
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
-
-    const sharedVars = useMemo(() => vars.filter((v) => !v.secret), [vars]);
 
     const loadVars = () => {
         ListProjectEnvVars(project.id)
@@ -70,41 +69,15 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
             });
     };
 
-    const addVar = () => {
-        const key = newKey.trim();
-        if (!key) return;
+    const removeVar = async (key: string) => {
+        if (!window.confirm(`Remove ${key}? Services referencing {{project.${key}}} will fail until updated.`)) return;
         setVarError(null);
-        SetProjectEnvVar(project.id, key, newValue, newScope, false)
-            .then(() => {
-                setNewKey('');
-                setNewValue('');
-                setNewScope('runtime');
-                loadVars();
-            })
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not add var'));
-    };
-
-    const updateValue = (key: string, value: string) => {
-        const existing = vars.find((v) => v.key === key);
-        if (!existing) return;
-        SetProjectEnvVar(project.id, key, value, existing.scope || 'runtime', false)
-            .then(loadVars)
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not save'));
-    };
-
-    const updateScope = (key: string, scope: string) => {
-        const existing = vars.find((v) => v.key === key);
-        if (!existing) return;
-        SetProjectEnvVar(project.id, key, existing.value, scope, false)
-            .then(loadVars)
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not save'));
-    };
-
-    const removeVar = (key: string) => {
-        if (!window.confirm(`Remove ${key} from the project? It will no longer be injected into services on their next deploy.`)) return;
-        DeleteProjectEnvVar(project.id, key)
-            .then(loadVars)
-            .catch((e: any) => setVarError(typeof e === 'string' ? e : e?.message || 'could not delete'));
+        try {
+            await DeleteProjectEnvVar(project.id, key);
+            loadVars();
+        } catch (e: any) {
+            setVarError(typeof e === 'string' ? e : e?.message || 'could not delete');
+        }
     };
 
     const handleDelete = () => {
@@ -149,10 +122,15 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                 </section>
 
                 <section className="project-settings-section">
-                    <h3 className="project-settings-section-title">Shared environment</h3>
+                    <div className="secrets-section-head">
+                        <h3 className="project-settings-section-title">Shared values</h3>
+                        <button type="button" className="btn btn-primary" onClick={() => setEditor({kind: 'add'})}>
+                            <Plus size={14}/> Add
+                        </button>
+                    </div>
                     <p className="settings-hint">
-                        Non-secret variables injected into every service in this project. Use for shared config like <code>LOG_LEVEL</code> or <code>FEATURE_FLAGS</code>.
-                        {' '}Project secrets are managed in the{' '}
+                        Project-scoped values referenced from services in this project as <code>{'{{project.KEY}}'}</code>.
+                        {' '}App-wide secrets use <code>{'{{secret.KEY}}'}</code> from the{' '}
                         {onOpenSecrets ? (
                             <button type="button" className="project-settings-link" onClick={onOpenSecrets}>Secrets tab</button>
                         ) : (
@@ -160,51 +138,30 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                         )}.
                     </p>
                     {varError && <p className="form-error">{varError}</p>}
-                    <div className="var-add project-settings-var-add">
-                        <input placeholder="KEY" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
-                        <input placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
-                        <select className="input select-styled" value={newScope} onChange={(e) => setNewScope(e.target.value)}>
-                            {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                        <button className="btn btn-primary" onClick={addVar} disabled={!newKey.trim()}>
-                            <Plus size={14}/> Add
-                        </button>
-                    </div>
-                    <div className="variables-list project-settings-vars">
-                        {loadingVars && <div className="variables-empty">Loading…</div>}
-                        {!loadingVars && sharedVars.length === 0 && <div className="variables-empty">No shared project variables yet.</div>}
-                        {sharedVars.map((v) => (
-                            <div key={v.key} className="var-row">
-                                <div className="var-key-cell">
-                                    <div className="var-key" title={v.key}>{v.key}</div>
-                                </div>
-                                <div className="var-value-col">
-                                    <div className="var-value">
-                                        <input
-                                            className="var-value-mask"
-                                            type={revealed[v.key] ? 'text' : 'password'}
-                                            value={v.value}
-                                            onChange={(e) => updateValue(v.key, e.target.value)}
-                                        />
-                                        <button type="button" className="var-toggle" onClick={() => setRevealed((r) => ({...r, [v.key]: !r[v.key]}))} title={revealed[v.key] ? 'Hide value' : 'Show value'}>
-                                            {revealed[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
+                    {loadingVars ? (
+                        <div className="variables-empty">Loading…</div>
+                    ) : vars.length === 0 ? (
+                        <div className="variables-empty">No shared project values yet.</div>
+                    ) : (
+                        <div className="secrets-list">
+                            {vars.map((v) => (
+                                <div key={v.key} className="secrets-row">
+                                    <div className="secrets-row-main">
+                                        <span className="secrets-key">{v.key}</span>
+                                        <span className="secrets-scope">{v.scope || 'runtime'}</span>
+                                    </div>
+                                    <div className="secrets-row-actions">
+                                        <button type="button" className="btn btn-ghost" onClick={() => setEditor({kind: 'edit', entry: v})} title="Edit">
+                                            <Pencil size={14}/>
                                         </button>
-                                        <select
-                                            className="input select-styled var-scope-select"
-                                            value={v.scope || 'runtime'}
-                                            onChange={(e) => updateScope(v.key, e.target.value)}
-                                            title="Variable scope"
-                                        >
-                                            {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
-                                        </select>
-                                        <button className="var-toggle var-toggle--danger" onClick={() => removeVar(v.key)} title="Remove from project">
+                                        <button type="button" className="btn btn-ghost secrets-delete" onClick={() => removeVar(v.key)} title="Delete">
                                             <Trash2 size={14}/>
                                         </button>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                            ))}
+                        </div>
+                    )}
                 </section>
 
                 <section className="project-settings-section project-settings-danger">
@@ -225,6 +182,137 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                         </div>
                     )}
                 </section>
+            </div>
+
+            {editor.kind !== 'closed' && (
+                <ProjectValueEditorDialog
+                    projectId={project.id}
+                    mode={editor}
+                    onClose={() => setEditor({kind: 'closed'})}
+                    onSaved={loadVars}
+                />
+            )}
+        </Dialog>
+    );
+}
+
+function ProjectValueEditorDialog({projectId, mode, onClose, onSaved}: {
+    projectId: number;
+    mode: Exclude<EditorMode, {kind: 'closed'}>;
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const isAdd = mode.kind === 'add';
+    const [key, setKey] = useState(mode.kind === 'edit' ? mode.entry.key : '');
+    const [value, setValue] = useState(mode.kind === 'edit' ? mode.entry.value : '');
+    const [scope, setScope] = useState(mode.kind === 'edit' ? (mode.entry.scope || 'runtime') : 'runtime');
+    const [revealed, setRevealed] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+    const [usages, setUsages] = useState<deploy.SecretUsage[]>([]);
+    const [loadingUsages, setLoadingUsages] = useState(false);
+    const [redeploying, setRedeploying] = useState<string | null>(null);
+
+    const title = isAdd ? 'Add project value' : `Edit ${key}`;
+
+    const loadUsages = () => {
+        if (isAdd || !key.trim()) return;
+        setLoadingUsages(true);
+        ListProjectEnvVarUsages(projectId, key)
+            .then((list) => setUsages(list ?? []))
+            .catch(() => setUsages([]))
+            .finally(() => setLoadingUsages(false));
+    };
+
+    useEffect(() => { loadUsages(); }, [projectId, key, isAdd]);
+
+    const save = async () => {
+        const trimmedKey = key.trim();
+        if (!trimmedKey) return;
+        setSaving(true);
+        setError('');
+        try {
+            await SetProjectEnvVar(projectId, trimmedKey, value, scope, false);
+            onSaved();
+            if (!isAdd) {
+                loadUsages();
+            } else {
+                onClose();
+            }
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Save failed');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const redeploy = async (nodeId: string) => {
+        setRedeploying(nodeId);
+        try {
+            await DeployService(nodeId);
+            loadUsages();
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Redeploy failed');
+        } finally {
+            setRedeploying(null);
+        }
+    };
+
+    const redeployAllRunning = async () => {
+        for (const u of usages.filter((usage) => usage.isRunning)) {
+            await redeploy(u.nodeId);
+        }
+    };
+
+    return (
+        <Dialog title={title} onClose={onClose}>
+            <div className="secret-editor">
+                {error && <p className="form-error">{error}</p>}
+
+                <div className="form-field">
+                    <label className="form-label">Key</label>
+                    <input className="input" value={key} onChange={(e) => setKey(e.target.value)} disabled={!isAdd} placeholder="LOG_LEVEL" />
+                </div>
+
+                <div className="form-field">
+                    <label className="form-label">Value</label>
+                    <div className="secret-value-row">
+                        <input
+                            className="input"
+                            type={revealed ? 'text' : 'password'}
+                            value={value}
+                            onChange={(e) => setValue(e.target.value)}
+                            autoComplete="off"
+                        />
+                        <button type="button" className="btn btn-ghost" onClick={() => setRevealed((r) => !r)}>
+                            {revealed ? <EyeOff size={14}/> : <Eye size={14}/>}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="form-field">
+                    <label className="form-label">Scope</label>
+                    <select className="input select-styled" value={scope} onChange={(e) => setScope(e.target.value)}>
+                        {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                </div>
+
+                <div className="secret-editor-actions">
+                    <button type="button" className="btn btn-primary" onClick={save} disabled={saving || !key.trim()}>
+                        {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button type="button" className="btn btn-ghost" onClick={onClose}>Cancel</button>
+                </div>
+
+                {!isAdd && (
+                    <ScopedValueUsages
+                        usages={usages}
+                        loading={loadingUsages}
+                        redeploying={redeploying}
+                        onRedeploy={redeploy}
+                        onRedeployAllRunning={redeployAllRunning}
+                    />
+                )}
             </div>
         </Dialog>
     );

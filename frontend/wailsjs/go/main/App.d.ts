@@ -87,8 +87,6 @@ export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.Dockerfil
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
-export function ListAllProjectSecrets():Promise<Array<store.ProjectSecretEntry>>;
-
 export function ListAppSecretUsages(arg1:string):Promise<Array<deploy.SecretUsage>>;
 
 export function ListAppSecrets():Promise<Array<store.AppSecret>>;
@@ -101,9 +99,9 @@ export function ListNodes(arg1:number):Promise<Array<store.CanvasNode>>;
 
 export function ListNodesWithReferenceIssues(arg1:number):Promise<Array<string>>;
 
-export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
+export function ListProjectEnvVarUsages(arg1:number,arg2:string):Promise<Array<deploy.SecretUsage>>;
 
-export function ListProjectSecretUsages(arg1:number,arg2:string):Promise<Array<deploy.SecretUsage>>;
+export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVar>>;
 
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
 
@@ -137,8 +135,6 @@ export function RollbackDeployment(arg1:number):Promise<void>;
 
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
 
-export function RotateProjectEnvSecret(arg1:number,arg2:string):Promise<string>;
-
 export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
@@ -158,8 +154,6 @@ export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetProjectEnvVar(arg1:number,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<void>;
-
-export function SetProjectEnvVarSecret(arg1:number,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetRedeployOnPull(arg1:string,arg2:number,arg3:boolean):Promise<void>;
 

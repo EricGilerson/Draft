@@ -80,37 +80,3 @@ func (s *Server) handleListAppSecretUsages(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, usages)
 }
 
-func (s *Server) handleListAllProjectSecrets(w http.ResponseWriter, r *http.Request) {
-	var req struct{}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	entries, err := s.store.ListAllProjectSecrets()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if entries == nil {
-		entries = []store.ProjectSecretEntry{}
-	}
-	writeJSON(w, entries)
-}
-
-func (s *Server) handleListProjectSecretUsages(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ProjectID uint   `json:"projectId"`
-		Key       string `json:"key"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	usages, err := s.engine.ListProjectSecretUsages(req.ProjectID, req.Key)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if usages == nil {
-		usages = []deploy.SecretUsage{}
-	}
-	writeJSON(w, usages)
-}

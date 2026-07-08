@@ -162,10 +162,6 @@ export function IsGitRepo(arg1, arg2) {
   return window['go']['main']['App']['IsGitRepo'](arg1, arg2);
 }
 
-export function ListAllProjectSecrets() {
-  return window['go']['main']['App']['ListAllProjectSecrets']();
-}
-
 export function ListAppSecretUsages(arg1) {
   return window['go']['main']['App']['ListAppSecretUsages'](arg1);
 }
@@ -190,12 +186,12 @@ export function ListNodesWithReferenceIssues(arg1) {
   return window['go']['main']['App']['ListNodesWithReferenceIssues'](arg1);
 }
 
-export function ListProjectEnvVars(arg1) {
-  return window['go']['main']['App']['ListProjectEnvVars'](arg1);
+export function ListProjectEnvVarUsages(arg1, arg2) {
+  return window['go']['main']['App']['ListProjectEnvVarUsages'](arg1, arg2);
 }
 
-export function ListProjectSecretUsages(arg1, arg2) {
-  return window['go']['main']['App']['ListProjectSecretUsages'](arg1, arg2);
+export function ListProjectEnvVars(arg1) {
+  return window['go']['main']['App']['ListProjectEnvVars'](arg1);
 }
 
 export function ListProjectServices(arg1) {
@@ -262,10 +258,6 @@ export function RollbackEligibility(arg1) {
   return window['go']['main']['App']['RollbackEligibility'](arg1);
 }
 
-export function RotateProjectEnvSecret(arg1, arg2) {
-  return window['go']['main']['App']['RotateProjectEnvSecret'](arg1, arg2);
-}
-
 export function RunCommand(arg1, arg2, arg3) {
   return window['go']['main']['App']['RunCommand'](arg1, arg2, arg3);
 }
@@ -304,10 +296,6 @@ export function SetNodeSetting(arg1, arg2, arg3) {
 
 export function SetProjectEnvVar(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['SetProjectEnvVar'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function SetProjectEnvVarSecret(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SetProjectEnvVarSecret'](arg1, arg2, arg3);
 }
 
 export function SetRedeployOnPull(arg1, arg2, arg3) {

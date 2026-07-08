@@ -46,18 +46,10 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	if err != nil {
 		return deploymentEnv{}, err
 	}
-	projectVars, err := e.store.ListProjectEnvVars(in.ProjectID)
-	if err != nil {
-		return deploymentEnv{}, err
-	}
 
-	runtimeValues := make(map[string]string, len(nodeVars)+len(projectVars)+len(generatedEnvKeys))
+	runtimeValues := make(map[string]string, len(nodeVars)+len(generatedEnvKeys))
 	buildArgs := map[string]*string{}
 
-	// Project-level vars are injected first, as defaults. A node-level var with
-	// the same key (added below) overrides them. This lets a project share
-	// DATABASE_URL / LOG_LEVEL / API keys across services while still allowing
-	// one service to override.
 	addVar := func(v scopeVar) error {
 		if _, reserved := generatedEnvKeys[v.Key]; reserved {
 			return fmt.Errorf("%s is reserved for Draft-generated deployment values", v.Key)
@@ -70,9 +62,6 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		case store.EnvScopeRuntime, store.EnvScopeBoth:
 			runtimeValues[v.Key] = value
 		case store.EnvScopeBuild:
-			// Build-only vars must not leak into the running container. A later
-			// node-level override can also demote a project "both" var to
-			// build-only, so clear any runtime value seeded earlier.
 			delete(runtimeValues, v.Key)
 		default:
 			runtimeValues[v.Key] = value
@@ -80,18 +69,11 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		if v.Scope == store.EnvScopeBuild || v.Scope == store.EnvScopeBoth {
 			buildArgs[v.Key] = &value
 		} else if _, ok := buildArgs[v.Key]; ok {
-			// A node var that overrides a project build-arg must also clear the
-			// build arg unless the node var itself is build-scoped.
 			delete(buildArgs, v.Key)
 		}
 		return nil
 	}
 
-	for _, pv := range projectVars {
-		if err := addVar(scopeVar{Key: pv.Key, Value: pv.Value, Scope: pv.Scope}); err != nil {
-			return deploymentEnv{}, err
-		}
-	}
 	for _, v := range nodeVars {
 		if err := addVar(scopeVar{Key: v.Key, Value: v.Value, Scope: v.Scope}); err != nil {
 			return deploymentEnv{}, err
@@ -139,8 +121,7 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	}, nil
 }
 
-// scopeVar is the common shape of a node- or project-level env var for the
-// resolution loop above.
+// scopeVar is the common shape of a node-level env var for the resolution loop above.
 type scopeVar struct {
 	Key   string
 	Value string

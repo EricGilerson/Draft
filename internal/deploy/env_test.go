@@ -59,7 +59,7 @@ func TestResolveDeploymentEnvRuntimeBuildArgsAndGenerated(t *testing.T) {
 	}
 }
 
-func TestResolveDeploymentEnvProjectVarsByScope(t *testing.T) {
+func TestResolveDeploymentEnvProjectVarsNotAutoInjected(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 
@@ -80,9 +80,6 @@ func TestResolveDeploymentEnvProjectVarsByScope(t *testing.T) {
 	if err := s.SetProjectEnvVar(project.ID, "SHARED_BOTH", "bo", store.EnvScopeBoth, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetProjectEnvVar(project.ID, "SHARED_SECRET", "sekret", store.EnvScopeRuntime, true); err != nil {
-		t.Fatal(err)
-	}
 
 	resolved, err := e.resolveDeploymentEnv(deploymentEnvInput{
 		NodeID:      "api",
@@ -104,78 +101,13 @@ func TestResolveDeploymentEnvProjectVarsByScope(t *testing.T) {
 		runtime[key] = value
 	}
 
-	if runtime["SHARED_RUNTIME"] != "rt" {
-		t.Fatalf("SHARED_RUNTIME = %q", runtime["SHARED_RUNTIME"])
-	}
-	if runtime["SHARED_BOTH"] != "bo" {
-		t.Fatalf("SHARED_BOTH = %q", runtime["SHARED_BOTH"])
-	}
-	if runtime["SHARED_SECRET"] != "sekret" {
-		t.Fatalf("secret project var should still be injected at deploy time, got %q", runtime["SHARED_SECRET"])
-	}
-	if _, ok := runtime["SHARED_BUILD"]; ok {
-		t.Fatal("build-only project var should not be in runtime env")
-	}
-
-	if arg := resolved.BuildArgs["SHARED_BUILD"]; arg == nil || *arg != "bd" {
-		t.Fatalf("SHARED_BUILD build arg = %v", arg)
-	}
-	if arg := resolved.BuildArgs["SHARED_BOTH"]; arg == nil || *arg != "bo" {
-		t.Fatalf("SHARED_BOTH build arg = %v", arg)
-	}
-	if _, ok := resolved.BuildArgs["SHARED_RUNTIME"]; ok {
-		t.Fatal("runtime-only project var should not be a build arg")
-	}
-	if _, ok := resolved.BuildArgs["SHARED_SECRET"]; ok {
-		t.Fatal("secret flag must not affect build-arg injection")
-	}
-}
-
-func TestResolveDeploymentEnvProjectVarsOverriddenByNode(t *testing.T) {
-	s := openTestStore(t)
-	e, _ := newTestEngine(t, s)
-
-	project, err := s.CreateProject("shared", "/tmp/shared", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.SetProjectEnvVar(project.ID, "LOG_LEVEL", "info", store.EnvScopeBoth, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.UpsertEnvVar(store.EnvVar{
-		NodeID: "api", Key: "LOG_LEVEL", Value: "debug", Scope: store.EnvScopeRuntime, Source: store.EnvSourceManual,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	resolved, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      "api",
-		ProjectID:   project.ID,
-		ServiceName: "api",
-		ProjectName: "shared",
-		ServicePort: "3000",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	runtime := map[string]string{}
-	for _, item := range resolved.RuntimeEnv {
-		key, value, ok := splitEnv(item)
-		if !ok {
-			t.Fatalf("bad env item %q", item)
+	for _, key := range []string{"SHARED_RUNTIME", "SHARED_BOTH", "SHARED_BUILD"} {
+		if _, ok := runtime[key]; ok {
+			t.Fatalf("%s should not be auto-injected, got %q", key, runtime[key])
 		}
-		runtime[key] = value
 	}
-	if runtime["LOG_LEVEL"] != "debug" {
-		t.Fatalf("node override runtime LOG_LEVEL = %q", runtime["LOG_LEVEL"])
-	}
-	if _, ok := resolved.BuildArgs["LOG_LEVEL"]; ok {
-		t.Fatal("node runtime-only override should clear project build arg")
+	if len(resolved.BuildArgs) != 0 {
+		t.Fatalf("expected no build args without explicit references, got %+v", resolved.BuildArgs)
 	}
 }
 

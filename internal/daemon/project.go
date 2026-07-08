@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"net/http"
+
+	"Draft/internal/deploy"
 )
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +77,15 @@ func (s *Server) handleDeleteProjectEnvVar(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
+	count, err := s.engine.CountProjectEnvVarReferences(req.ProjectID, req.Key)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if count > 0 {
+		http.Error(w, "project value is still referenced by services", http.StatusConflict)
+		return
+	}
 	if err := s.store.DeleteProjectEnvVar(req.ProjectID, req.Key); err != nil {
 		writeError(w, err)
 		return
@@ -82,23 +93,7 @@ func (s *Server) handleDeleteProjectEnvVar(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-func (s *Server) handleSetProjectEnvVarSecret(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ProjectID uint   `json:"projectId"`
-		Key       string `json:"key"`
-		Secret    bool   `json:"secret"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	if err := s.store.SetProjectEnvVarSecret(req.ProjectID, req.Key, req.Secret); err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, map[string]any{"ok": true})
-}
-
-func (s *Server) handleRotateProjectEnvVar(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListProjectEnvVarUsages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ProjectID uint   `json:"projectId"`
 		Key       string `json:"key"`
@@ -106,10 +101,14 @@ func (s *Server) handleRotateProjectEnvVar(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	newValue, err := s.engine.RotateProjectEnvSecret(r.Context(), req.ProjectID, req.Key)
+	usages, err := s.engine.ListProjectEnvVarUsages(req.ProjectID, req.Key)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "value": newValue})
+	if usages == nil {
+		usages = []deploy.SecretUsage{}
+	}
+	writeJSON(w, usages)
 }
+

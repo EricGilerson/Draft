@@ -83,7 +83,7 @@ func braceDelta(line string) int {
 }
 
 // Write serializes vars to a .env file at path. Stored values are written
-// as-is (reference tokens like {{secret.KEY}} are preserved literally).
+// as-is (reference tokens like {{secret.KEY}} and {{project.*}} are preserved literally).
 func Write(path string, vars []store.EnvVar) (int, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return 0, err

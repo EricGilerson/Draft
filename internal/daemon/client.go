@@ -310,19 +310,13 @@ func (c *Client) DeleteProjectEnvVar(ctx context.Context, projectID uint, key st
 	return c.postJSON(ctx, "/project/env/delete", map[string]any{"projectId": projectID, "key": key}, nil)
 }
 
-// SetProjectEnvVarSecret toggles the secret flag on a project-level env var.
-func (c *Client) SetProjectEnvVarSecret(ctx context.Context, projectID uint, key string, secret bool) error {
-	return c.postJSON(ctx, "/project/env/secret", map[string]any{"projectId": projectID, "key": key, "secret": secret}, nil)
-}
-
-// RotateProjectEnvSecret replaces a project-level secret's value and redeploys
-// running services in the project. Returns the new value once.
-func (c *Client) RotateProjectEnvSecret(ctx context.Context, projectID uint, key string) (string, error) {
-	var out struct {
-		Value string `json:"value"`
-	}
-	err := c.postJSON(ctx, "/project/env/rotate", map[string]any{"projectId": projectID, "key": key}, &out)
-	return out.Value, err
+// ListProjectEnvVarUsages returns services referencing {{project.key}}.
+func (c *Client) ListProjectEnvVarUsages(ctx context.Context, projectID uint, key string) ([]deploy.SecretUsage, error) {
+	var out []deploy.SecretUsage
+	err := c.postJSON(ctx, "/project/env/usages", map[string]any{
+		"projectId": projectID, "key": key,
+	}, &out)
+	return out, err
 }
 
 // ListRoutes returns routes, optionally filtered by project. Each row is
@@ -616,20 +610,6 @@ func (c *Client) DeleteAppSecret(ctx context.Context, key string) error {
 func (c *Client) ListAppSecretUsages(ctx context.Context, key string) ([]deploy.SecretUsage, error) {
 	var out []deploy.SecretUsage
 	err := c.postJSON(ctx, "/secrets/usages", map[string]string{"key": key}, &out)
-	return out, err
-}
-
-func (c *Client) ListAllProjectSecrets(ctx context.Context) ([]store.ProjectSecretEntry, error) {
-	var out []store.ProjectSecretEntry
-	err := c.postJSON(ctx, "/project/secrets", map[string]any{}, &out)
-	return out, err
-}
-
-func (c *Client) ListProjectSecretUsages(ctx context.Context, projectID uint, key string) ([]deploy.SecretUsage, error) {
-	var out []deploy.SecretUsage
-	err := c.postJSON(ctx, "/project/secrets/usages", map[string]any{
-		"projectId": projectID, "key": key,
-	}, &out)
 	return out, err
 }
 

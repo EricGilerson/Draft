@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// SecretUsage describes one service affected by an app or project secret.
+// SecretUsage describes one service affected by an app secret.
 type SecretUsage struct {
 	ProjectID            uint   `json:"projectId"`
 	ProjectName          string `json:"projectName"`
@@ -17,8 +17,8 @@ type SecretUsage struct {
 	ReceivesViaInjection bool   `json:"receivesViaInjection,omitempty"`
 }
 
-// ListAppSecretUsages returns every service whose env vars (or project env vars)
-// reference {{secret.key}}.
+// ListAppSecretUsages returns every service whose env var values reference
+// {{secret.key}} directly.
 func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -32,41 +32,6 @@ func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 	var out []SecretUsage
 	seen := make(map[string]bool)
 	for _, project := range projects {
-		pvars, err := e.store.ListProjectEnvVars(project.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, pv := range pvars {
-			if strings.Contains(pv.Value, token) {
-				// Project var references app secret — all services inherit unless overridden.
-				nodes, err := e.store.ListNodes(project.ID)
-				if err != nil {
-					return nil, err
-				}
-				for _, node := range nodes {
-					usageKey := fmt.Sprintf("%s:%s", node.ID, pv.Key)
-					if seen[usageKey] {
-						continue
-					}
-					overridden := false
-					if nv, err := e.store.GetEnvVar(node.ID, pv.Key); err == nil && nv.Value != "" {
-						overridden = true
-					}
-					running, _ := e.isNodeRunning(node.ID)
-					out = append(out, SecretUsage{
-						ProjectID:            project.ID,
-						ProjectName:          project.Name,
-						NodeID:               node.ID,
-						NodeLabel:            node.Label,
-						VarKey:               pv.Key,
-						IsRunning:            running,
-						Overridden:           overridden,
-						ReceivesViaInjection: !overridden,
-					})
-					seen[usageKey] = true
-				}
-			}
-		}
 		nodes, err := e.store.ListNodes(project.ID)
 		if err != nil {
 			return nil, err
@@ -100,45 +65,6 @@ func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 	return out, nil
 }
 
-// ListProjectSecretUsages returns services in projectID affected by a project
-// secret key injected via project_env_vars.
-func (e *Engine) ListProjectSecretUsages(projectID uint, key string) ([]SecretUsage, error) {
-	key = strings.TrimSpace(key)
-	if projectID == 0 || key == "" {
-		return nil, fmt.Errorf("projectID and key are required")
-	}
-	project, err := e.store.GetProject(projectID)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := e.store.GetProjectEnvVar(projectID, key); err != nil {
-		return nil, fmt.Errorf("project secret %s not found", key)
-	}
-	nodes, err := e.store.ListNodes(projectID)
-	if err != nil {
-		return nil, err
-	}
-	var out []SecretUsage
-	for _, node := range nodes {
-		overridden := false
-		if _, err := e.store.GetEnvVar(node.ID, key); err == nil {
-			overridden = true
-		}
-		running, _ := e.isNodeRunning(node.ID)
-		out = append(out, SecretUsage{
-			ProjectID:            projectID,
-			ProjectName:          project.Name,
-			NodeID:               node.ID,
-			NodeLabel:            node.Label,
-			VarKey:               key,
-			IsRunning:            running,
-			Overridden:           overridden,
-			ReceivesViaInjection: !overridden,
-		})
-	}
-	return out, nil
-}
-
 func (e *Engine) isNodeRunning(nodeID string) (bool, error) {
 	dep, err := e.store.ActiveDeployment(nodeID)
 	if err != nil {
@@ -150,6 +76,65 @@ func (e *Engine) isNodeRunning(nodeID string) (bool, error) {
 // CountAppSecretReferences returns how many distinct service usages reference key.
 func (e *Engine) CountAppSecretReferences(key string) (int, error) {
 	usages, err := e.ListAppSecretUsages(key)
+	if err != nil {
+		return 0, err
+	}
+	return len(usages), nil
+}
+
+// ListProjectEnvVarUsages returns services in projectID whose env var values
+// reference {{project.key}}.
+func (e *Engine) ListProjectEnvVarUsages(projectID uint, key string) ([]SecretUsage, error) {
+	key = strings.TrimSpace(key)
+	if projectID == 0 || key == "" {
+		return nil, fmt.Errorf("projectID and key are required")
+	}
+	project, err := e.store.GetProject(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := e.store.GetProjectEnvVar(projectID, key); err != nil {
+		return nil, fmt.Errorf("project value %s not found", key)
+	}
+
+	token := projectExprToken(key)
+	nodes, err := e.store.ListNodes(projectID)
+	if err != nil {
+		return nil, err
+	}
+	var out []SecretUsage
+	seen := make(map[string]bool)
+	for _, node := range nodes {
+		vars, err := e.store.ListEnvVars(node.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range vars {
+			if !strings.Contains(v.Value, token) {
+				continue
+			}
+			usageKey := fmt.Sprintf("%s:%s", node.ID, v.Key)
+			if seen[usageKey] {
+				continue
+			}
+			running, _ := e.isNodeRunning(node.ID)
+			out = append(out, SecretUsage{
+				ProjectID:   projectID,
+				ProjectName: project.Name,
+				NodeID:      node.ID,
+				NodeLabel:   node.Label,
+				VarKey:      v.Key,
+				IsRunning:   running,
+			})
+			seen[usageKey] = true
+		}
+	}
+	return out, nil
+}
+
+// CountProjectEnvVarReferences returns how many distinct service usages reference key.
+func (e *Engine) CountProjectEnvVarReferences(projectID uint, key string) (int, error) {
+	usages, err := e.ListProjectEnvVarUsages(projectID, key)
 	if err != nil {
 		return 0, err
 	}

@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// ListProjectEnvVars returns the project-level env vars for projectID, ordered
-// by key for stable display.
+// ListProjectEnvVars returns project-level env vars for projectID, ordered by
+// key for stable display.
 func (s *Store) ListProjectEnvVars(projectID uint) ([]ProjectEnvVar, error) {
 	var vars []ProjectEnvVar
 	if err := s.DB.Where("project_id = ?", projectID).Order("key asc").Find(&vars).Error; err != nil {
@@ -47,57 +47,9 @@ func (s *Store) GetProjectEnvVar(projectID uint, key string) (ProjectEnvVar, err
 	return v, err
 }
 
-// ProjectSecretEntry is a project_env_var with secret=true plus project metadata.
-type ProjectSecretEntry struct {
-	ProjectID   uint   `json:"projectId"`
-	ProjectName string `json:"projectName"`
-	Key         string `json:"key"`
-	Value       string `json:"value"`
-	Scope       string `json:"scope"`
-	Secret      bool   `json:"secret"`
-}
-
-// ListAllProjectSecrets returns every project secret across all projects.
-func (s *Store) ListAllProjectSecrets() ([]ProjectSecretEntry, error) {
-	var rows []ProjectEnvVar
-	if err := s.DB.Where("secret = ?", true).Order("project_id asc, key asc").Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-	projects, err := s.ListProjects()
-	if err != nil {
-		return nil, err
-	}
-	nameByID := make(map[uint]string, len(projects))
-	for _, p := range projects {
-		nameByID[p.ID] = p.Name
-	}
-	out := make([]ProjectSecretEntry, len(rows))
-	for i, row := range rows {
-		out[i] = ProjectSecretEntry{
-			ProjectID:   row.ProjectID,
-			ProjectName: nameByID[row.ProjectID],
-			Key:         row.Key,
-			Value:       row.Value,
-			Scope:       row.Scope,
-			Secret:      row.Secret,
-		}
-	}
-	return out, nil
-}
-
 // DeleteProjectEnvVars removes every project-level env var for a project.
 func (s *Store) DeleteProjectEnvVars(projectID uint) error {
 	return s.DB.Where("project_id = ?", projectID).Delete(&ProjectEnvVar{}).Error
-}
-
-// SetProjectEnvVarSecret toggles the secret flag on a project-level env var.
-func (s *Store) SetProjectEnvVarSecret(projectID uint, key string, secret bool) error {
-	return s.DB.Model(&ProjectEnvVar{}).
-		Where("project_id = ? AND key = ?", projectID, key).
-		Update("secret", secret).Error
 }
 
 // SetProjectEnvVarValue updates just the value of a project-level env var.
