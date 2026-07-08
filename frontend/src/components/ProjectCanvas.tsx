@@ -18,9 +18,9 @@ import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeleteNode,
     GetDeployments,
+    GetEnvironmentConnections,
     GetNodeConfigStatus,
     GetNodeHealth,
-    GetProjectConnections,
     ListManagedVolumes,
     ListNodes,
     ListNodesWithReferenceIssues,
@@ -44,6 +44,7 @@ import './ProjectCanvas.css';
 
 type ProjectCanvasProps = {
     project: store.Project;
+    environmentId: number;
     onServicesChanged?: () => void;
     /** When set (e.g. from the global Volumes tab's "reveal on canvas"), select
      * the matching volume node once its mounts have loaded. Matched by owning
@@ -138,7 +139,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -242,7 +243,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     }, [setServiceNodes]);
 
     const refreshReferenceIssueNodes = useCallback(() => {
-        ListNodesWithReferenceIssues(project.id)
+        ListNodesWithReferenceIssues(environmentId)
             .then((ids) => {
                 const flagged = new Set(ids ?? []);
                 setServiceNodes((prev) =>
@@ -253,7 +254,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 );
             })
             .catch(() => {});
-    }, [project.id, setServiceNodes]);
+    }, [environmentId, setServiceNodes]);
 
     const selectVolume = useCallback((volume: SelectedVolume) => {
         nodeClickRef.current = true;
@@ -309,7 +310,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     const edges = connectionEdges;
 
     useEffect(() => {
-        ListNodes(project.id).then(async (saved) => {
+        ListNodes(environmentId).then(async (saved) => {
             if (!saved || saved.length === 0) return;
             // Make sure templates are loaded so we can attach icon metadata to
             // nodes created from a template. If the templates list isn't ready
@@ -356,7 +357,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
             refreshNodeHealth(flowNodes.map((n) => n.id));
             refreshReferenceIssueNodes();
         });
-    }, [project.id, setServiceNodes, templates, refreshVolumeMounts, refreshNodeHealth, refreshReferenceIssueNodes]);
+    }, [environmentId, setServiceNodes, templates, refreshVolumeMounts, refreshNodeHealth, refreshReferenceIssueNodes]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -366,7 +367,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     useEffect(() => {
         const nodeIds = new Set(serviceNodes.map((n) => n.id));
         const labelById = new Map(serviceNodes.map((n) => [n.id, n.data.label]));
-        GetProjectConnections(project.id)
+        GetEnvironmentConnections(environmentId)
             .then((conns) => {
                 // Group same-pair connections into a single edge — a pair can have
                 // several vars referencing each other (or references in both
@@ -406,7 +407,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 setConnectionEdges(flowEdges);
             })
             .catch(() => {});
-    }, [project.id, selectedNodeId, selectedVolume, setConnectionEdges, serviceNodes]);
+    }, [environmentId, selectedNodeId, selectedVolume, setConnectionEdges, serviceNodes]);
 
     useEffect(() => {
         refreshReferenceIssueNodes();
@@ -673,6 +674,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
             {showCreate && (
                 <CreateServiceDialog
                     projectId={project.id}
+                    environmentId={environmentId}
                     position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
                     onClose={() => setShowCreate(false)}
                     onCreated={handleCreated}
@@ -683,6 +685,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                 <ImportConfigDialog
                     mode="canvas"
                     projectId={project.id}
+                    environmentId={environmentId}
                     position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
                     onClose={() => setShowImport(false)}
                     onImported={handleImported}

@@ -50,7 +50,7 @@ func TestResolveValueForExportPreservesSecretToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestResolveValueForExportPreservesSecretToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := e.resolveValueForExport(node.ID, project.ID, "{{secret.TOKEN}}", map[string]bool{node.ID: true})
+	got, err := e.resolveValueForExport(node.ID, project.ID, node.EnvironmentID, "{{secret.TOKEN}}", map[string]bool{node.ID: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestResolveValueExpandsSecretAtDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestResolveValueExpandsSecretAtDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := e.resolveValue(node.ID, project.ID, "{{secret.TOKEN}}", map[string]bool{node.ID: true})
+	got, err := e.resolveValue(node.ID, project.ID, node.EnvironmentID, "{{secret.TOKEN}}", map[string]bool{node.ID: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestListAppSecretUsages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestDeleteAppSecretBlockedWhenReferenced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}

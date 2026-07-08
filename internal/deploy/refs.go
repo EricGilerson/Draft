@@ -77,6 +77,9 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 	serviceName := sanitize(node.Label)
 	projectName := sanitize(project.Name)
 	environment := "default"
+	if env, err := e.store.GetEnvironment(node.EnvironmentID); err == nil {
+		environment = env.Slug
+	}
 	portStr := settings["service_port"]
 
 	hostname := networking.Hostname(serviceName, projectName, environment, uid)
@@ -103,20 +106,22 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 // in raw with its resolved value. Template expressions expand first, against
 // selfNodeID's identity, so a value like "@{db.DATABASE_URL}" picks up the db's
 // own already-expanded {{draft.*}} connection string when it recurses.
-// projectID is the (constant) project scope for label lookups; selfNodeID is
+// projectID is the (constant) project scope for {{project.*}} lookups;
+// environmentID is the (constant) environment scope for @{Label.ATTR} sibling
+// lookups, so a reference never resolves across environments; selfNodeID is
 // the node whose value is being resolved and changes per recursion level.
 // visited tracks node IDs on the current reference path (seeded with the
 // starting node) so a reference cycle fails fast with a readable error instead
 // of recursing forever.
-func (e *Engine) resolveValue(selfNodeID string, projectID uint, raw string, visited map[string]bool) (string, error) {
-	return e.resolveValueOpts(selfNodeID, projectID, raw, visited, false)
+func (e *Engine) resolveValue(selfNodeID string, projectID, environmentID uint, raw string, visited map[string]bool) (string, error) {
+	return e.resolveValueOpts(selfNodeID, projectID, environmentID, raw, visited, false)
 }
 
-func (e *Engine) resolveValueForExport(selfNodeID string, projectID uint, raw string, visited map[string]bool) (string, error) {
-	return e.resolveValueOpts(selfNodeID, projectID, raw, visited, true)
+func (e *Engine) resolveValueForExport(selfNodeID string, projectID, environmentID uint, raw string, visited map[string]bool) (string, error) {
+	return e.resolveValueOpts(selfNodeID, projectID, environmentID, raw, visited, true)
 }
 
-func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string, visited map[string]bool, preserveSecretExprs bool) (string, error) {
+func (e *Engine) resolveValueOpts(selfNodeID string, projectID, environmentID uint, raw string, visited map[string]bool, preserveSecretExprs bool) (string, error) {
 	if strings.Contains(raw, "{{draft.") {
 		in, err := e.nodeExprInput(selfNodeID)
 		if err != nil {
@@ -138,7 +143,7 @@ func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string,
 	}
 
 	if containsProjectExpr(raw) {
-		expanded, err := e.resolveProjectExprs(selfNodeID, projectID, raw, visited, preserveSecretExprs)
+		expanded, err := e.resolveProjectExprs(selfNodeID, projectID, environmentID, raw, visited, preserveSecretExprs)
 		if err != nil {
 			return "", err
 		}
@@ -156,7 +161,7 @@ func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string,
 		out.WriteString(raw[last:m[0]])
 		label := raw[m[2]:m[3]]
 		attrName := raw[m[4]:m[5]]
-		resolved, err := e.resolveNodeAttr(selfNodeID, projectID, label, attrName, visited)
+		resolved, err := e.resolveNodeAttr(selfNodeID, projectID, environmentID, label, attrName, visited)
 		if err != nil {
 			return "", fmt.Errorf("%s: %w", raw[m[0]:m[1]], err)
 		}
@@ -167,8 +172,8 @@ func (e *Engine) resolveValueOpts(selfNodeID string, projectID uint, raw string,
 	return out.String(), nil
 }
 
-func (e *Engine) resolveNodeAttr(selfNodeID string, projectID uint, label, attrName string, visited map[string]bool) (string, error) {
-	node, err := e.store.GetNodeByLabel(projectID, label)
+func (e *Engine) resolveNodeAttr(selfNodeID string, projectID, environmentID uint, label, attrName string, visited map[string]bool) (string, error) {
+	node, err := e.store.GetNodeByLabel(environmentID, label)
 	if err != nil {
 		return "", fmt.Errorf("no service named %q", label)
 	}
@@ -195,7 +200,7 @@ func (e *Engine) resolveNodeAttr(selfNodeID string, projectID uint, label, attrN
 	defer delete(visited, node.ID)
 	// The referenced node owns this value, so its draft expressions resolve
 	// against the referenced node's identity, not the caller's.
-	return e.resolveValue(node.ID, projectID, v.Value, visited)
+	return e.resolveValue(node.ID, projectID, environmentID, v.Value, visited)
 }
 
 func isGeneratedAttr(attrName string) bool {
@@ -220,7 +225,7 @@ func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	}
 	resolved := make([]store.EnvVar, len(vars))
 	for i, v := range vars {
-		value, err := e.resolveValueForExport(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
+		value, err := e.resolveValueForExport(node.ID, node.ProjectID, node.EnvironmentID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", v.Key, err)
 		}
@@ -250,7 +255,7 @@ func (e *Engine) PreviewEnvVars(nodeID string) (map[string]EnvPreview, error) {
 	}
 	out := make(map[string]EnvPreview, len(vars))
 	for _, v := range vars {
-		value, err := e.resolveValue(node.ID, node.ProjectID, v.Value, map[string]bool{nodeID: true})
+		value, err := e.resolveValue(node.ID, node.ProjectID, node.EnvironmentID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			out[v.Key] = EnvPreview{Error: err.Error()}
 			continue
@@ -279,7 +284,7 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := e.store.ListNodes(node.ProjectID)
+	nodes, err := e.store.ListNodesByEnvironment(node.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +300,7 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 		}
 		customKeys := make([]string, 0, len(vars))
 		for _, v := range vars {
-			if e.referenceWouldCycle(nodeID, node.ProjectID, n.ID, v.Key) {
+			if e.referenceWouldCycle(nodeID, node.ProjectID, node.EnvironmentID, n.ID, v.Key) {
 				continue
 			}
 			customKeys = append(customKeys, v.Key)
@@ -314,7 +319,7 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 
 // referenceWouldCycle reports whether nodeID referencing attrName on targetNodeID
 // would recurse back into nodeID. Generated address attrs never cycle.
-func (e *Engine) referenceWouldCycle(nodeID string, projectID uint, targetNodeID, attrName string) bool {
+func (e *Engine) referenceWouldCycle(nodeID string, projectID, environmentID uint, targetNodeID, attrName string) bool {
 	if isGeneratedAttr(attrName) {
 		return false
 	}
@@ -322,7 +327,7 @@ func (e *Engine) referenceWouldCycle(nodeID string, projectID uint, targetNodeID
 	if err != nil {
 		return true
 	}
-	_, err = e.resolveNodeAttr(nodeID, projectID, target.Label, attrName, map[string]bool{nodeID: true})
+	_, err = e.resolveNodeAttr(nodeID, projectID, environmentID, target.Label, attrName, map[string]bool{nodeID: true})
 	if err == nil {
 		return false
 	}
@@ -366,7 +371,7 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := s.ListNodes(node.ProjectID)
+	nodes, err := s.ListNodesByEnvironment(node.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -412,10 +417,11 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 	return issues, nil
 }
 
-// ListNodesWithReferenceIssues returns the IDs of every node in the project
-// that has at least one unresolved @{Label.ATTR} token in its env vars.
-func ListNodesWithReferenceIssues(s *store.Store, projectID uint) ([]string, error) {
-	nodes, err := s.ListNodes(projectID)
+// ListNodesWithReferenceIssues returns the IDs of every node in the
+// environment that has at least one unresolved @{Label.ATTR} token in its env
+// vars.
+func ListNodesWithReferenceIssues(s *store.Store, environmentID uint) ([]string, error) {
+	nodes, err := s.ListNodesByEnvironment(environmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +458,7 @@ func listServiceDependents(s *store.Store, nodeID string) ([]ReferenceDependent,
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := s.ListNodes(node.ProjectID)
+	nodes, err := s.ListNodesByEnvironment(node.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +467,7 @@ func listServiceDependents(s *store.Store, nodeID string) ([]ReferenceDependent,
 		idToLabel[n.ID] = n.Label
 	}
 
-	conns, err := getProjectConnections(s, node.ProjectID)
+	conns, err := getEnvironmentConnections(s, node.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -493,16 +499,16 @@ func listServiceDependents(s *store.Store, nodeID string) ([]ReferenceDependent,
 	return out, nil
 }
 
-// GetProjectConnections scans every node's env vars in the project for
+// GetEnvironmentConnections scans every node's env vars in the environment for
 // reference tokens and returns the resulting edges, for the canvas to render
 // read-only (no drag-to-connect — connections are only created via the
 // variable picker).
-func (e *Engine) GetProjectConnections(projectID uint) ([]Connection, error) {
-	return getProjectConnections(e.store, projectID)
+func (e *Engine) GetEnvironmentConnections(environmentID uint) ([]Connection, error) {
+	return getEnvironmentConnections(e.store, environmentID)
 }
 
-func getProjectConnections(s *store.Store, projectID uint) ([]Connection, error) {
-	nodes, err := s.ListNodes(projectID)
+func getEnvironmentConnections(s *store.Store, environmentID uint) ([]Connection, error) {
+	nodes, err := s.ListNodesByEnvironment(environmentID)
 	if err != nil {
 		return nil, err
 	}

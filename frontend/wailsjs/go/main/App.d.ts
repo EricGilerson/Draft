@@ -11,7 +11,9 @@ export function CheckDocker():Promise<dockerwatch.DaemonStatus>;
 
 export function CloneServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
 
-export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number):Promise<store.CanvasNode>;
+export function CreateEnvironment(arg1:number,arg2:string):Promise<store.Environment>;
+
+export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:number):Promise<store.CanvasNode>;
 
 export function CreateNodeFromTemplate(arg1:deploy.CreateNodeFromTemplateRequest):Promise<deploy.CreateNodeFromTemplateResult>;
 
@@ -24,6 +26,8 @@ export function DaemonConnection():Promise<main.DaemonConnectionInfo>;
 export function DeleteAppSecret(arg1:string):Promise<void>;
 
 export function DeleteEnvVar(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteEnvironment(arg1:number):Promise<void>;
 
 export function DeleteManagedVolume(arg1:string,arg2:boolean):Promise<void>;
 
@@ -39,6 +43,8 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
+export function DuplicateEnvironment(arg1:number,arg2:string):Promise<store.Environment>;
+
 export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;
 
 export function ExportConfigToPath(arg1:string,arg2:string,arg3:string):Promise<deploy.ExportResult>;
@@ -51,9 +57,13 @@ export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
 export function GetBuildLog(arg1:number):Promise<string>;
 
+export function GetDefaultEnvironment(arg1:number):Promise<store.Environment>;
+
 export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
 export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
+
+export function GetEnvironmentConnections(arg1:number):Promise<Array<deploy.Connection>>;
 
 export function GetGitHookStatus(arg1:string,arg2:number):Promise<main.GitHookStatus>;
 
@@ -67,8 +77,6 @@ export function GetNodeHealth(arg1:string):Promise<deploy.NodeHealth>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
-export function GetProjectConnections(arg1:number):Promise<Array<deploy.Connection>>;
-
 export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
@@ -77,7 +85,7 @@ export function GetServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
 
 export function ImportConfigAsProject(arg1:string,arg2:string):Promise<deploy.ImportResult>;
 
-export function ImportConfigIntoProject(arg1:number,arg2:string,arg3:number,arg4:number):Promise<deploy.ImportResult>;
+export function ImportConfigIntoProject(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number):Promise<deploy.ImportResult>;
 
 export function ImportConfigPreview(arg1:string):Promise<deploy.ImportPreview>;
 
@@ -90,6 +98,8 @@ export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 export function ListAppSecretUsages(arg1:string):Promise<Array<deploy.SecretUsage>>;
 
 export function ListAppSecrets():Promise<Array<store.AppSecret>>;
+
+export function ListEnvironments(arg1:number):Promise<Array<store.Environment>>;
 
 export function ListGitBranches(arg1:string,arg2:number):Promise<Array<string>>;
 
@@ -128,6 +138,8 @@ export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Pr
 export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTemplateResult>;
 
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
+
+export function RenameEnvironment(arg1:number,arg2:string):Promise<void>;
 
 export function RestartService(arg1:string):Promise<void>;
 

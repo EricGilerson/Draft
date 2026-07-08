@@ -14,7 +14,7 @@ func TestNodeConfigStatusClearsAfterPromote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: p.ID, Label: "app", X: 0, Y: 0})
+	n, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: p.ID, EnvironmentID: defaultEnvID(t, s, p.ID), Label: "app", X: 0, Y: 0})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -274,6 +274,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
 		NodeID:           nodeID,
 		ProjectID:        node.ProjectID,
+		EnvironmentID:    node.EnvironmentID,
 		ServiceName:      addr.ServiceName,
 		ProjectName:      addr.ProjectName,
 		Environment:      addr.Environment,

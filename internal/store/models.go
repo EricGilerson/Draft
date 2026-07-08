@@ -13,13 +13,31 @@ type Project struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// Environment is a named, independently deployable copy of a project's
+// services (e.g. "Main", "Staging"). Every project has exactly one default
+// environment, created alongside the project. Slug is generated once and
+// never changes — it's the segment baked into hostnames
+// (service.project.environment.uid.draft.local), Docker network names
+// (draft-{project}-{environment}), and volume names, so renaming a project's
+// display Name never disturbs already-running containers.
+type Environment struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	ProjectID uint      `gorm:"index;not null;uniqueIndex:idx_env_project_slug" json:"projectId"`
+	Name      string    `gorm:"not null" json:"name"`
+	Slug      string    `gorm:"not null;uniqueIndex:idx_env_project_slug" json:"slug"`
+	IsDefault bool      `gorm:"not null;default:false" json:"isDefault"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // CanvasNode is a single node on a project's visual canvas.
 type CanvasNode struct {
-	ID        string  `gorm:"primaryKey" json:"id"`
-	ProjectID uint    `gorm:"index;not null" json:"projectId"`
-	Label     string  `gorm:"not null" json:"label"`
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
+	ID            string  `gorm:"primaryKey" json:"id"`
+	ProjectID     uint    `gorm:"index;not null" json:"projectId"`
+	EnvironmentID uint    `gorm:"index;not null" json:"environmentId"`
+	Label         string  `gorm:"not null" json:"label"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
 	// UID is a short, stable identifier used to build the node's Draft hostname
 	// (service.project.environment.uid.draft.local). It's generated once and
 	// never changes, so the hostname stays valid across redeploys and other

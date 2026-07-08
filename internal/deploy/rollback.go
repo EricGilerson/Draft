@@ -168,6 +168,7 @@ func (e *Engine) runRollbackDeploy(ctx context.Context, historical *store.Deploy
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
 		NodeID:           nodeID,
 		ProjectID:        node.ProjectID,
+		EnvironmentID:    node.EnvironmentID,
 		ServiceName:      addr.ServiceName,
 		ProjectName:      addr.ProjectName,
 		Environment:      addr.Environment,

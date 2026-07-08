@@ -1,0 +1,73 @@
+.environment-switcher-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.environment-switcher-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.environment-switcher-tab:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.environment-switcher-tab--active {
+    background: rgba(140, 150, 144, 0.08);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+}
+
+.environment-switcher-tab--active:hover {
+    background: rgba(140, 150, 144, 0.08);
+    color: var(--accent-text);
+}
+
+.environment-switcher-tab-remove {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 0 2px;
+    border-radius: 4px;
+}
+
+.environment-switcher-tab-remove:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+}
+
+.environment-switcher-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    margin-left: 4px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.environment-switcher-action:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}

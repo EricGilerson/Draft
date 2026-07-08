@@ -23,8 +23,14 @@ type ProjectService struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// ListProjectServices projects the project's default (main) environment for
+// dashboard cards — other environments intentionally don't roll up here.
 func ListProjectServices(s *store.Store, projectID uint) ([]ProjectService, error) {
-	nodes, err := s.ListNodes(projectID)
+	env, err := s.GetDefaultEnvironment(projectID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := s.ListNodesByEnvironment(env.ID)
 	if err != nil {
 		return nil, err
 	}

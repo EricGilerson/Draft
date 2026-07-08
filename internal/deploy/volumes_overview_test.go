@@ -18,7 +18,7 @@ func TestEnrichVolumesFlagsOrphans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "node-live", ProjectID: p.ID, Label: "db"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "node-live", ProjectID: p.ID, EnvironmentID: defaultEnvID(t, s, p.ID), Label: "db"}); err != nil {
 		t.Fatal(err)
 	}
 

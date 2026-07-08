@@ -13,11 +13,12 @@ func setupRefTestNodes(t *testing.T, s *store.Store) (project *store.Project, ap
 	if err != nil {
 		t.Fatal(err)
 	}
-	api, err = s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	envID := defaultEnvID(t, s, project.ID)
+	api, err = s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: envID, Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err = s.CreateNode(&store.CanvasNode{ID: "db", ProjectID: project.ID, Label: "db"})
+	db, err = s.CreateNode(&store.CanvasNode{ID: "db", ProjectID: project.ID, EnvironmentID: envID, Label: "db"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,11 +41,12 @@ func TestResolveValueGeneratedAttribute(t *testing.T) {
 	}
 
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      api.ID,
-		ProjectID:   project.ID,
-		ServiceName: "api",
-		ProjectName: "myapp",
-		ServicePort: "3000",
+		NodeID:        api.ID,
+		ProjectID:     project.ID,
+		EnvironmentID: api.EnvironmentID,
+		ServiceName:   "api",
+		ProjectName:   "myapp",
+		ServicePort:   "3000",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +58,7 @@ func TestResolveValueGeneratedAttribute(t *testing.T) {
 			dbURL = v
 		}
 	}
-	if !strings.HasPrefix(dbURL, "postgres://db.myapp.default.") || !strings.HasSuffix(dbURL, ":5432/app") {
+	if !strings.HasPrefix(dbURL, "postgres://db.myapp.main.") || !strings.HasSuffix(dbURL, ":5432/app") {
 		t.Fatalf("DATABASE_URL = %q", dbURL)
 	}
 }
@@ -74,11 +76,12 @@ func TestResolveValueCustomVarReference(t *testing.T) {
 	}
 
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      api.ID,
-		ProjectID:   project.ID,
-		ServiceName: "api",
-		ProjectName: "myapp",
-		ServicePort: "3000",
+		NodeID:        api.ID,
+		ProjectID:     project.ID,
+		EnvironmentID: api.EnvironmentID,
+		ServiceName:   "api",
+		ProjectName:   "myapp",
+		ServicePort:   "3000",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -110,11 +113,12 @@ func TestResolveValueDetectsCycle(t *testing.T) {
 	}
 
 	_, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      api.ID,
-		ProjectID:   project.ID,
-		ServiceName: "api",
-		ProjectName: "myapp",
-		ServicePort: "3000",
+		NodeID:        api.ID,
+		ProjectID:     project.ID,
+		EnvironmentID: api.EnvironmentID,
+		ServiceName:   "api",
+		ProjectName:   "myapp",
+		ServicePort:   "3000",
 	})
 	if err == nil || !strings.Contains(err.Error(), "circular") {
 		t.Fatalf("expected circular reference error, got %v", err)
@@ -131,11 +135,12 @@ func TestResolveValueMissingReference(t *testing.T) {
 	}
 
 	_, err := e.resolveDeploymentEnv(deploymentEnvInput{
-		NodeID:      api.ID,
-		ProjectID:   project.ID,
-		ServiceName: "api",
-		ProjectName: "myapp",
-		ServicePort: "3000",
+		NodeID:        api.ID,
+		ProjectID:     project.ID,
+		EnvironmentID: api.EnvironmentID,
+		ServiceName:   "api",
+		ProjectName:   "myapp",
+		ServicePort:   "3000",
 	})
 	if err == nil || !strings.Contains(err.Error(), "no service named") {
 		t.Fatalf("expected missing service error, got %v", err)
@@ -145,13 +150,13 @@ func TestResolveValueMissingReference(t *testing.T) {
 func TestGetProjectConnectionsAndReferenceTargets(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
-	project, api, db := setupRefTestNodes(t, s)
+	_, api, db := setupRefTestNodes(t, s)
 
 	if err := s.SetEnvVar(api.ID, "DATABASE_URL", "@{db.DRAFT_INTERNAL_URL}"); err != nil {
 		t.Fatal(err)
 	}
 
-	conns, err := e.GetProjectConnections(project.ID)
+	conns, err := e.GetEnvironmentConnections(api.EnvironmentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,6 +267,84 @@ func TestListReferenceTargetsBlocksMutualCustomKeyCycle(t *testing.T) {
 	}
 	if containsString(apiTarget.CustomKeys, "A") {
 		t.Fatalf("api.A should be excluded from db's picker (mutual cycle), customKeys = %+v", apiTarget.CustomKeys)
+	}
+}
+
+// TestReferenceResolutionIsScopedPerEnvironment builds two environments in
+// the same project, each with their own "api" and "db" nodes, and confirms
+// api's @{db.ATTR} reference always resolves to its own environment's db —
+// never crosses into the other environment's db, even though both nodes
+// share the label "db".
+func TestReferenceResolutionIsScopedPerEnvironment(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	project, err := s.CreateProject("myapp", "/tmp/myapp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainEnv := defaultEnvID(t, s, project.ID)
+	stagingEnv, err := s.CreateEnvironment(project.ID, "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mainAPI, err := s.CreateNode(&store.CanvasNode{ID: "main-api", ProjectID: project.ID, EnvironmentID: mainEnv, Label: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainDB, err := s.CreateNode(&store.CanvasNode{ID: "main-db", ProjectID: project.ID, EnvironmentID: mainEnv, Label: "db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagingAPI, err := s.CreateNode(&store.CanvasNode{ID: "staging-api", ProjectID: project.ID, EnvironmentID: stagingEnv.ID, Label: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagingDB, err := s.CreateNode(&store.CanvasNode{ID: "staging-db", ProjectID: project.ID, EnvironmentID: stagingEnv.ID, Label: "db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []*store.CanvasNode{mainDB, stagingDB} {
+		if err := s.SetNodeSetting(n.ID, "service_port", "5432"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []*store.CanvasNode{mainAPI, stagingAPI} {
+		if err := s.UpsertEnvVar(store.EnvVar{
+			NodeID: n.ID, Key: "DATABASE_URL", Value: "@{db.DRAFT_INTERNAL_HOSTNAME}",
+			Scope: store.EnvScopeRuntime, Source: store.EnvSourceManual,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	mainResolved, err := e.PreviewEnvVars(mainAPI.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mainResolved["DATABASE_URL"].Error != "" {
+		t.Fatalf("main DATABASE_URL failed to resolve: %s", mainResolved["DATABASE_URL"].Error)
+	}
+	if !strings.Contains(mainResolved["DATABASE_URL"].Value, mainDB.UID) {
+		t.Errorf("main api's DATABASE_URL should resolve to main db (%s), got %q", mainDB.UID, mainResolved["DATABASE_URL"].Value)
+	}
+	if strings.Contains(mainResolved["DATABASE_URL"].Value, stagingDB.UID) {
+		t.Errorf("main api's DATABASE_URL leaked staging db's UID: %q", mainResolved["DATABASE_URL"].Value)
+	}
+
+	stagingResolved, err := e.PreviewEnvVars(stagingAPI.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stagingResolved["DATABASE_URL"].Error != "" {
+		t.Fatalf("staging DATABASE_URL failed to resolve: %s", stagingResolved["DATABASE_URL"].Error)
+	}
+	if !strings.Contains(stagingResolved["DATABASE_URL"].Value, stagingDB.UID) {
+		t.Errorf("staging api's DATABASE_URL should resolve to staging db (%s), got %q", stagingDB.UID, stagingResolved["DATABASE_URL"].Value)
+	}
+	if strings.Contains(stagingResolved["DATABASE_URL"].Value, mainDB.UID) {
+		t.Errorf("staging api's DATABASE_URL leaked main db's UID: %q", stagingResolved["DATABASE_URL"].Value)
 	}
 }
 

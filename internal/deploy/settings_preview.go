@@ -127,6 +127,10 @@ func volumeMountChangeWarnings(s *store.Store, nodeID, oldRaw, newRaw string) ([
 	if err != nil {
 		return nil, err
 	}
+	envSlug := "default"
+	if env, err := s.GetEnvironment(node.EnvironmentID); err == nil {
+		envSlug = env.Slug
+	}
 	uid, _ := s.EnsureNodeUID(nodeID)
 	oldSpecs := ParseVolumeSpecs(oldRaw)
 	newSpecs := ParseVolumeSpecs(newRaw)
@@ -145,14 +149,14 @@ func volumeMountChangeWarnings(s *store.Store, nodeID, oldRaw, newRaw string) ([
 			if had && (old.Type == VolumeTypeVolume || old.Type == "") {
 				src := strings.TrimSpace(old.Source)
 				if src == "" {
-					oldName = DraftVolumeName(node.ProjectID, project.Name, "default", uid, old.ContainerPath)
+					oldName = DraftVolumeName(node.ProjectID, project.Name, envSlug, uid, old.ContainerPath)
 				} else {
 					oldName = src
 				}
 			}
 			newName := strings.TrimSpace(spec.Source)
 			if newName == "" {
-				newName = DraftVolumeName(node.ProjectID, project.Name, "default", uid, spec.ContainerPath)
+				newName = DraftVolumeName(node.ProjectID, project.Name, envSlug, uid, spec.ContainerPath)
 			}
 			if oldName != "" && oldName != newName {
 				warnings = append(warnings, SettingsWarning{

@@ -40,6 +40,18 @@ func newTestEngine(t *testing.T, s *store.Store) (*Engine, *eventCollector) {
 	return e, col
 }
 
+// defaultEnvID returns the default ("Main") environment CreateProject creates
+// for projectID, for tests that just need a valid EnvironmentID to satisfy
+// CreateNode.
+func defaultEnvID(t *testing.T, s *store.Store, projectID uint) uint {
+	t.Helper()
+	env, err := s.GetDefaultEnvironment(projectID)
+	if err != nil {
+		t.Fatalf("GetDefaultEnvironment: %v", err)
+	}
+	return env.ID
+}
+
 type eventCollector struct {
 	mu     sync.Mutex
 	events []emittedEvent

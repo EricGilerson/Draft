@@ -20,6 +20,7 @@ type Props =
     | {
           mode: 'canvas';
           projectId: number;
+          environmentId: number;
           position: {x: number; y: number};
           onClose: () => void;
           onImported: (nodes: store.CanvasNode[]) => void;
@@ -67,7 +68,7 @@ export default function ImportConfigDialog(props: Props) {
                 const res = await ImportConfigAsProject(path, projectName);
                 props.onImported(res.projectId);
             } else {
-                const res = await ImportConfigIntoProject(props.projectId, path, props.position.x, props.position.y);
+                const res = await ImportConfigIntoProject(props.projectId, props.environmentId, path, props.position.x, props.position.y);
                 props.onImported(res.nodes ?? []);
             }
             props.onClose();

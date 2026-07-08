@@ -46,13 +46,14 @@ type Step = 'template' | 'identity' | 'source' | 'volumes' | 'review';
 
 type Props = {
     projectId: number;
+    environmentId: number;
     onClose: () => void;
     onCreated: (node: store.CanvasNode, template?: store.ServiceTemplate) => void;
     /** Position for the new node on the canvas. */
     position: {x: number; y: number};
 };
 
-export default function CreateServiceDialog({projectId, onClose, onCreated, position}: Props) {
+export default function CreateServiceDialog({projectId, environmentId, onClose, onCreated, position}: Props) {
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
@@ -219,7 +220,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
             const id = generateId();
             const name = label.trim() || id;
             if (blankMode) {
-                const node = await CreateNode(id, name, projectId, position.x, position.y);
+                const node = await CreateNode(id, name, projectId, environmentId, position.x, position.y);
                 onCreated(node, undefined);
                 return;
             }
@@ -265,6 +266,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
                 id,
                 label: name,
                 projectId,
+                environmentId,
                 x: position.x,
                 y: position.y,
                 templateId: selected.id,
@@ -282,7 +284,7 @@ export default function CreateServiceDialog({projectId, onClose, onCreated, posi
         } finally {
             setBusy(false);
         }
-    }, [blankMode, selected, label, projectId, position, serviceRoot, overrides, onCreated, isImageMode, imageChoice, imageCustom, showVolumesStep, volumes]);
+    }, [blankMode, selected, label, projectId, environmentId, position, serviceRoot, overrides, onCreated, isImageMode, imageChoice, imageCustom, showVolumesStep, volumes]);
 
     const close = () => {
         if (busy) return;

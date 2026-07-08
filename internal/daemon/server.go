@@ -158,6 +158,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
 	mux.HandleFunc("/node/delete", s.handleDeleteService)
 	mux.HandleFunc("/node/reapply-template", s.handleReapplyTemplate)
+	mux.HandleFunc("/environment/delete", s.handleDeleteEnvironment)
+	mux.HandleFunc("/environment/duplicate", s.handleDuplicateEnvironment)
 	mux.HandleFunc("/rollback", s.handleRollback)
 	mux.HandleFunc("/deployments/rollback-eligible", s.handleRollbackEligible)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
@@ -279,6 +281,32 @@ func (s *Server) handleReapplyTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result)
 }
 
+func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EnvironmentID uint `json:"environmentId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.engine.DeleteEnvironment(context.Background(), req.EnvironmentID))
+}
+
+func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourceEnvironmentID uint   `json:"sourceEnvironmentId"`
+		NewName             string `json:"newName"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	env, err := s.engine.DuplicateEnvironment(req.SourceEnvironmentID, req.NewName)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, env)
+}
+
 func (s *Server) handleConfigImportPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Path string `json:"path"`
@@ -312,15 +340,16 @@ func (s *Server) handleConfigImportAsProject(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleConfigImportIntoProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProjectID uint    `json:"projectId"`
-		Path      string  `json:"path"`
-		X         float64 `json:"x"`
-		Y         float64 `json:"y"`
+		ProjectID     uint    `json:"projectId"`
+		EnvironmentID uint    `json:"environmentId"`
+		Path          string  `json:"path"`
+		X             float64 `json:"x"`
+		Y             float64 `json:"y"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := s.engine.ImportConfigIntoProject(req.ProjectID, req.Path, req.X, req.Y)
+	result, err := s.engine.ImportConfigIntoProject(req.ProjectID, req.EnvironmentID, req.Path, req.X, req.Y)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -947,12 +976,12 @@ func (s *Server) handleReferenceIssues(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
-	projectID, err := strconv.ParseUint(r.URL.Query().Get("projectId"), 10, 64)
+	environmentID, err := strconv.ParseUint(r.URL.Query().Get("environmentId"), 10, 64)
 	if err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	conns, err := s.engine.GetProjectConnections(uint(projectID))
+	conns, err := s.engine.GetEnvironmentConnections(uint(environmentID))
 	if err != nil {
 		writeError(w, err)
 		return

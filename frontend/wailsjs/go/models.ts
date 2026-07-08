@@ -75,6 +75,7 @@ export namespace deploy {
 	    id: string;
 	    label: string;
 	    projectId: number;
+	    environmentId: number;
 	    x: number;
 	    y: number;
 	    templateId: number;
@@ -90,6 +91,7 @@ export namespace deploy {
 	        this.id = source["id"];
 	        this.label = source["label"];
 	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
 	        this.x = source["x"];
 	        this.y = source["y"];
 	        this.templateId = source["templateId"];
@@ -1175,6 +1177,7 @@ export namespace store {
 	export class CanvasNode {
 	    id: string;
 	    projectId: number;
+	    environmentId: number;
 	    label: string;
 	    x: number;
 	    y: number;
@@ -1193,6 +1196,7 @@ export namespace store {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
 	        this.label = source["label"];
 	        this.x = source["x"];
 	        this.y = source["y"];
@@ -1431,6 +1435,50 @@ export namespace store {
 	        this.source = source["source"];
 	        this.envFile = source["envFile"];
 	    }
+	}
+	export class Environment {
+	    id: number;
+	    projectId: number;
+	    name: string;
+	    slug: string;
+	    isDefault: boolean;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Environment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.isDefault = source["isDefault"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Project {
 	    id: number;

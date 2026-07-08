@@ -20,17 +20,17 @@ func containsProjectExpr(raw string) bool {
 
 // resolveProjectExprs substitutes {{project.KEY}} tokens from project_env_vars.
 // When preserveExprs is true, tokens are left literal (used during .env export).
-func (e *Engine) resolveProjectExprs(selfNodeID string, projectID uint, raw string, visited map[string]bool, preserveExprs bool) (string, error) {
+func (e *Engine) resolveProjectExprs(selfNodeID string, projectID, environmentID uint, raw string, visited map[string]bool, preserveExprs bool) (string, error) {
 	if !containsProjectExpr(raw) {
 		return raw, nil
 	}
 	if preserveExprs {
 		return raw, nil
 	}
-	return e.replaceProjectExprMatches(raw, projectID, selfNodeID, visited)
+	return e.replaceProjectExprMatches(raw, projectID, environmentID, selfNodeID, visited)
 }
 
-func (e *Engine) replaceProjectExprMatches(raw string, projectID uint, selfNodeID string, visited map[string]bool) (string, error) {
+func (e *Engine) replaceProjectExprMatches(raw string, projectID, environmentID uint, selfNodeID string, visited map[string]bool) (string, error) {
 	matches := projectExprPattern.FindAllStringSubmatchIndex(raw, -1)
 	if matches == nil {
 		return raw, nil
@@ -40,7 +40,7 @@ func (e *Engine) replaceProjectExprMatches(raw string, projectID uint, selfNodeI
 	for _, m := range matches {
 		out.WriteString(raw[last:m[0]])
 		key := raw[m[2]:m[3]]
-		value, err := e.resolveProjectRef(projectID, key, selfNodeID, visited)
+		value, err := e.resolveProjectRef(projectID, environmentID, key, selfNodeID, visited)
 		if err != nil {
 			token := raw[m[0]:m[1]]
 			return "", fmt.Errorf("%s: %w", token, err)
@@ -52,12 +52,12 @@ func (e *Engine) replaceProjectExprMatches(raw string, projectID uint, selfNodeI
 	return out.String(), nil
 }
 
-func (e *Engine) resolveProjectRef(projectID uint, key string, selfNodeID string, visited map[string]bool) (string, error) {
+func (e *Engine) resolveProjectRef(projectID, environmentID uint, key string, selfNodeID string, visited map[string]bool) (string, error) {
 	pv, err := e.store.GetProjectEnvVar(projectID, key)
 	if err != nil {
 		return "", fmt.Errorf("project value not found")
 	}
-	return e.resolveValue(selfNodeID, projectID, pv.Value, visited)
+	return e.resolveValue(selfNodeID, projectID, environmentID, pv.Value, visited)
 }
 
 func listMissingProjectExprs(s *store.Store, projectID uint, varKey, raw string) []ReferenceIssue {

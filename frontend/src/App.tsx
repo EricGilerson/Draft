@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {FlaskConical} from 'lucide-react';
 import './App.css';
-import {ListProjects, ListProjectServices} from '../wailsjs/go/main/App';
+import {ListProjects, ListProjectServices, GetDefaultEnvironment} from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
@@ -14,6 +14,7 @@ import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
 import {useActivityLog} from './lib/useActivityLog';
 import ProjectCanvas from './components/ProjectCanvas';
+import EnvironmentSwitcher from './components/EnvironmentSwitcher';
 import ProjectsView from './views/ProjectsView';
 import OverviewView from './views/OverviewView';
 import SettingsView from './views/SettingsView';
@@ -34,6 +35,8 @@ function App() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
+    const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<number | null>(null);
+    const [environmentBusy, setEnvironmentBusy] = useState(false);
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
@@ -80,6 +83,24 @@ function App() {
         });
         return unsubscribe;
     }, [refreshProjectServices]);
+
+    useEffect(() => {
+        if (!selectedProject) {
+            setSelectedEnvironmentId(null);
+            return;
+        }
+        let cancelled = false;
+        GetDefaultEnvironment(selectedProject.id)
+            .then((env) => {
+                if (!cancelled) setSelectedEnvironmentId(env.id);
+            })
+            .catch(() => {
+                if (!cancelled) setSelectedEnvironmentId(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedProject]);
 
     const summaries = useMemo(() => decorateProjects(projects, servicesByProject), [projects, servicesByProject]);
     const activity = useActivityLog(projects, servicesByProject);
@@ -175,19 +196,30 @@ function App() {
                     <div className="app-content-glow"/>
                     <div className="app-content-scroll">
                         {selectedProject ? (
-                            <ProjectCanvas
-                                project={selectedProject}
-                                onServicesChanged={() => refreshProjectServices(projectsRef.current)}
-                                initialVolumeFocus={pendingVolumeFocus}
-                                onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
-                                onOpenProjectSettings={() => openProjectSettings(selectedProject)}
-                                initialSelectedNodeId={
-                                    pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
-                                        ? pendingNodeFocus.nodeId
-                                        : null
-                                }
-                                onNodeFocusApplied={() => setPendingNodeFocus(null)}
-                            />
+                            <>
+                                <EnvironmentSwitcher
+                                    projectId={selectedProject.id}
+                                    selectedEnvironmentId={selectedEnvironmentId}
+                                    onSelect={setSelectedEnvironmentId}
+                                    onDuplicating={setEnvironmentBusy}
+                                />
+                                {selectedEnvironmentId && !environmentBusy && (
+                                    <ProjectCanvas
+                                        project={selectedProject}
+                                        environmentId={selectedEnvironmentId}
+                                        onServicesChanged={() => refreshProjectServices(projectsRef.current)}
+                                        initialVolumeFocus={pendingVolumeFocus}
+                                        onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
+                                        onOpenProjectSettings={() => openProjectSettings(selectedProject)}
+                                        initialSelectedNodeId={
+                                            pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
+                                                ? pendingNodeFocus.nodeId
+                                                : null
+                                        }
+                                        onNodeFocusApplied={() => setPendingNodeFocus(null)}
+                                    />
+                                )}
+                            </>
                         ) : view === 'overview' ? (
                             <OverviewView
                                 loading={loading}

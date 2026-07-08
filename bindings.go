@@ -69,18 +69,80 @@ func (a *App) ListProjects() ([]store.Project, error) {
 	return a.store.ListProjects()
 }
 
-func (a *App) CreateNode(id, label string, projectID uint, x, y float64) (*store.CanvasNode, error) {
+func (a *App) CreateNode(id, label string, projectID, environmentID uint, x, y float64) (*store.CanvasNode, error) {
 	if a.store == nil {
 		return nil, errNoStore
 	}
 	node := &store.CanvasNode{
-		ID:        id,
-		Label:     label,
-		ProjectID: projectID,
-		X:         x,
-		Y:         y,
+		ID:            id,
+		Label:         label,
+		ProjectID:     projectID,
+		EnvironmentID: environmentID,
+		X:             x,
+		Y:             y,
 	}
 	return a.store.CreateNode(node)
+}
+
+// CreateEnvironment adds a new, non-default environment to a project.
+func (a *App) CreateEnvironment(projectID uint, name string) (*store.Environment, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.CreateEnvironment(projectID, name)
+}
+
+// ListEnvironments returns every environment in a project, default first.
+func (a *App) ListEnvironments(projectID uint) ([]store.Environment, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.ListEnvironments(projectID)
+}
+
+// GetDefaultEnvironment returns a project's default ("Main") environment.
+func (a *App) GetDefaultEnvironment(projectID uint) (*store.Environment, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.GetDefaultEnvironment(projectID)
+}
+
+// RenameEnvironment updates an environment's display name.
+func (a *App) RenameEnvironment(id uint, name string) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.RenameEnvironment(id, name)
+}
+
+// DeleteEnvironment stops/removes the environment's containers and network,
+// then deletes it and everything scoped to it. Fails on the default or only
+// remaining environment in a project.
+func (a *App) DeleteEnvironment(environmentID uint) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteEnvironment(a.ctx, environmentID)
+}
+
+// DuplicateEnvironment clones every node (settings + env vars, fresh UIDs) in
+// sourceEnvironmentID into a brand new environment named newName. Deployment
+// history, routes, port leases, and Docker volumes are not copied — they
+// start fresh on first deploy.
+func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string) (*store.Environment, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName)
 }
 
 // CreateNodeFromTemplate stamps a new service node out of a template via the
@@ -125,8 +187,8 @@ func (a *App) ImportConfigAsProject(path, projectName string) (*deploy.ImportRes
 }
 
 // ImportConfigIntoProject stamps a config file's services as nodes into an
-// existing project, anchored at the given canvas coordinates.
-func (a *App) ImportConfigIntoProject(projectID uint, path string, x, y float64) (*deploy.ImportResult, error) {
+// existing project's environment, anchored at the given canvas coordinates.
+func (a *App) ImportConfigIntoProject(projectID, environmentID uint, path string, x, y float64) (*deploy.ImportResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -134,7 +196,7 @@ func (a *App) ImportConfigIntoProject(projectID uint, path string, x, y float64)
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.ImportConfigIntoProject(a.ctx, projectID, path, x, y)
+	return c.ImportConfigIntoProject(a.ctx, projectID, environmentID, path, x, y)
 }
 
 // ExportConfig serializes a single service to the requested cloud format,
@@ -270,20 +332,22 @@ func (a *App) ListReferenceIssues(nodeID string) ([]deploy.ReferenceIssue, error
 	return deploy.ListReferenceIssuesFromStore(a.store, nodeID)
 }
 
-// ListNodesWithReferenceIssues returns node IDs in the project whose env vars
-// contain at least one broken @{Label.ATTR} reference.
-func (a *App) ListNodesWithReferenceIssues(projectID int) ([]string, error) {
+// ListNodesWithReferenceIssues returns node IDs in the environment whose env
+// vars contain at least one broken @{Label.ATTR} reference.
+func (a *App) ListNodesWithReferenceIssues(environmentID int) ([]string, error) {
 	if a.store == nil {
 		return nil, errNoStore
 	}
-	return deploy.ListNodesWithReferenceIssues(a.store, uint(projectID))
+	return deploy.ListNodesWithReferenceIssues(a.store, uint(environmentID))
 }
 
-func (a *App) ListNodes(projectID uint) ([]store.CanvasNode, error) {
+// ListNodes returns every node in a single environment (not the whole
+// project — use ListEnvironments to enumerate a project's environments).
+func (a *App) ListNodes(environmentID uint) ([]store.CanvasNode, error) {
 	if a.store == nil {
 		return nil, errNoStore
 	}
-	return a.store.ListNodes(projectID)
+	return a.store.ListNodesByEnvironment(environmentID)
 }
 
 // GetNode returns a single canvas node by id, including its TemplateID so the
@@ -632,9 +696,9 @@ func (a *App) ListReferenceTargets(nodeID string) ([]deploy.ReferenceTarget, err
 	return c.ListReferenceTargets(a.ctx, nodeID)
 }
 
-// GetProjectConnections returns the read-only edges derived from variable
-// references across every node in the project, for the canvas to render.
-func (a *App) GetProjectConnections(projectID int) ([]deploy.Connection, error) {
+// GetEnvironmentConnections returns the read-only edges derived from variable
+// references across every node in the environment, for the canvas to render.
+func (a *App) GetEnvironmentConnections(environmentID int) ([]deploy.Connection, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -642,7 +706,7 @@ func (a *App) GetProjectConnections(projectID int) ([]deploy.Connection, error) 
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.GetProjectConnections(a.ctx, uint(projectID))
+	return c.GetEnvironmentConnections(a.ctx, uint(environmentID))
 }
 
 func (a *App) GetServiceMetrics(nodeID string) (deploy.ServiceMetrics, error) {

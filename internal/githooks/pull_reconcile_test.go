@@ -36,7 +36,11 @@ func TestSetRedeployOnPullInstallsPostMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, Label: "svc"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("svc-1", "git_branch", "main"); err != nil {
@@ -90,7 +94,11 @@ func TestRedeployOnPullIndependentOfManualTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, Label: "svc"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("svc-1", "git_branch", "main"); err != nil {
@@ -125,7 +133,11 @@ func TestRedeployOnPullWithoutBranchDoesNotInstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, Label: "svc"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("svc-1", "deploy_trigger", "manual"); err != nil {
@@ -155,7 +167,11 @@ func TestStatusForProjectReportsPullForeign(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, Label: "svc"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("svc-1", "git_branch", "main"); err != nil {

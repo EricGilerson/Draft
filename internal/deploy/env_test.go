@@ -67,7 +67,7 @@ func TestResolveDeploymentEnvProjectVarsNotAutoInjected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -27,6 +27,7 @@ import (
 // here as the schema is designed.
 var registeredModels = []any{
 	&Project{},
+	&Environment{},
 	&CanvasNode{},
 	&Route{},
 	&PortLease{},

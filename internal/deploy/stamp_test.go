@@ -42,12 +42,13 @@ func TestStampFromBuildTemplate(t *testing.T) {
 	tpl := findBuiltin(t, s, "Node.js")
 
 	res, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
-		ID:         "n1",
-		Label:      "api",
-		ProjectID:  p.ID,
-		X:          10,
-		Y:          20,
-		TemplateID: tpl.ID,
+		ID:            "n1",
+		Label:         "api",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		X:             10,
+		Y:             20,
+		TemplateID:    tpl.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateNodeFromTemplate: %v", err)
@@ -110,10 +111,11 @@ func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
 	tpl := findBuiltin(t, s, "PostgreSQL")
 
 	res, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
-		ID:         "db1",
-		Label:      "db",
-		ProjectID:  p.ID,
-		TemplateID: tpl.ID,
+		ID:            "db1",
+		Label:         "db",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		TemplateID:    tpl.ID,
 		// A stray service root should be ignored for image templates.
 		ServiceRoot: filepath.Join(dir, "should-be-ignored"),
 	})
@@ -162,11 +164,12 @@ func TestStampFromImageTemplateHonorsImageOverride(t *testing.T) {
 	tpl := findBuiltin(t, s, "PostgreSQL")
 
 	if _, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
-		ID:         "dbv",
-		Label:      "db",
-		ProjectID:  p.ID,
-		TemplateID: tpl.ID,
-		Overrides:  map[string]string{"image": "postgres:15-alpine"},
+		ID:            "dbv",
+		Label:         "db",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		TemplateID:    tpl.ID,
+		Overrides:     map[string]string{"image": "postgres:15-alpine"},
 	}); err != nil {
 		t.Fatalf("CreateNodeFromTemplate: %v", err)
 	}
@@ -191,7 +194,7 @@ func TestStampWritesDockerfileOnlyWhenAbsent(t *testing.T) {
 	}
 
 	res, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
-		ID: "n2", Label: "api2", ProjectID: p.ID, TemplateID: tpl.ID,
+		ID: "n2", Label: "api2", ProjectID: p.ID, EnvironmentID: defaultEnvID(t, s, p.ID), TemplateID: tpl.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateNodeFromTemplate: %v", err)

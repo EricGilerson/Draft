@@ -31,7 +31,7 @@ CMD ["npm", "start"]
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, Label: "web"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "web"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("web-1", "dockerfile", "Dockerfile"); err != nil {
@@ -67,7 +67,7 @@ func TestInspectDockerfileBuildInfoImageMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "db-1", ProjectID: project.ID, Label: "db"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "db-1", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "db"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("db-1", "image", "postgres:16"); err != nil {
@@ -94,7 +94,7 @@ func TestInspectDockerfileBuildInfoMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, Label: "web"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "web"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("web-1", "dockerfile", "Dockerfile"); err != nil {

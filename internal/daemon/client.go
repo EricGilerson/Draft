@@ -128,6 +128,19 @@ func (c *Client) DeleteService(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/node/delete", nodeID)
 }
 
+func (c *Client) DeleteEnvironment(ctx context.Context, environmentID uint) error {
+	return c.postJSON(ctx, "/environment/delete", map[string]uint{"environmentId": environmentID}, nil)
+}
+
+func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string) (*store.Environment, error) {
+	var out store.Environment
+	body := map[string]any{"sourceEnvironmentId": sourceEnvironmentID, "newName": newName}
+	if err := c.postJSON(ctx, "/environment/duplicate", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) PreviewDeleteService(ctx context.Context, nodeID string) (*deploy.DeleteServicePreview, error) {
 	var out deploy.DeleteServicePreview
 	if err := c.postJSON(ctx, "/node/delete-preview", nodeRequest{NodeID: nodeID}, &out); err != nil {
@@ -228,9 +241,9 @@ func (c *Client) ImportConfigAsProject(ctx context.Context, path, projectName st
 	return &out, nil
 }
 
-func (c *Client) ImportConfigIntoProject(ctx context.Context, projectID uint, path string, x, y float64) (*deploy.ImportResult, error) {
+func (c *Client) ImportConfigIntoProject(ctx context.Context, projectID, environmentID uint, path string, x, y float64) (*deploy.ImportResult, error) {
 	var out deploy.ImportResult
-	body := map[string]any{"projectId": projectID, "path": path, "x": x, "y": y}
+	body := map[string]any{"projectId": projectID, "environmentId": environmentID, "path": path, "x": x, "y": y}
 	if err := c.postJSON(ctx, "/config/import-into-project", body, &out); err != nil {
 		return nil, err
 	}
@@ -450,9 +463,9 @@ func (c *Client) ListReferenceIssues(ctx context.Context, nodeID string) ([]depl
 	return out, err
 }
 
-func (c *Client) GetProjectConnections(ctx context.Context, projectID uint) ([]deploy.Connection, error) {
+func (c *Client) GetEnvironmentConnections(ctx context.Context, environmentID uint) ([]deploy.Connection, error) {
 	var out []deploy.Connection
-	err := c.get(ctx, fmt.Sprintf("/connections?projectId=%d", projectID), &out)
+	err := c.get(ctx, fmt.Sprintf("/connections?environmentId=%d", environmentID), &out)
 	return out, err
 }
 

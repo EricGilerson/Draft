@@ -362,6 +362,7 @@ func (e *Engine) runImageDeploy(ctx context.Context, nodeID string, settings map
 	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
 		NodeID:           nodeID,
 		ProjectID:        node.ProjectID,
+		EnvironmentID:    node.EnvironmentID,
 		ServiceName:      addr.ServiceName,
 		ProjectName:      addr.ProjectName,
 		Environment:      addr.Environment,

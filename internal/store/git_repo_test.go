@@ -60,7 +60,11 @@ func createProjectNode(t *testing.T, s *Store, projectPath string) (*Project, *C
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	node, err := s.CreateNode(&CanvasNode{ID: "node-1", ProjectID: project.ID, Label: "api"})
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("GetDefaultEnvironment: %v", err)
+	}
+	node, err := s.CreateNode(&CanvasNode{ID: "node-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "api"})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}

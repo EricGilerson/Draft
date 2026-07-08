@@ -24,11 +24,11 @@ var generateUID = func() string {
 	return hex.EncodeToString(b)
 }
 
-// nodeUIDExists reports whether any node in the project already has the
+// nodeUIDExists reports whether any node in the environment already has the
 // given UID.
-func (s *Store) nodeUIDExists(projectID uint, uid string) (bool, error) {
+func (s *Store) nodeUIDExists(environmentID uint, uid string) (bool, error) {
 	var count int64
-	err := s.DB.Model(&CanvasNode{}).Where("project_id = ? AND uid = ?", projectID, uid).Count(&count).Error
+	err := s.DB.Model(&CanvasNode{}).Where("environment_id = ? AND uid = ?", environmentID, uid).Count(&count).Error
 	return count > 0, err
 }
 
@@ -40,6 +40,14 @@ func (s *Store) nodeUIDExists(projectID uint, uid string) (bool, error) {
 // string — otherwise "API" and "api" (or "my_svc" and "my-svc") could both
 // be created and only collide later, at deploy time.
 func sanitizeLabel(name string) string {
+	return sanitizeSlugChars(name)
+}
+
+// sanitizeSlugChars lowercases name and replaces every character outside
+// [a-z0-9-] with '-', trimming leading/trailing '-'. Shared by node label
+// normalization and environment slug generation, since both feed the same
+// Docker-name-safe identifier space (hostnames, network names, aliases).
+func sanitizeSlugChars(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	return strings.Trim(strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
@@ -49,17 +57,17 @@ func sanitizeLabel(name string) string {
 	}, s), "-")
 }
 
-// nodeLabelTaken reports whether another node in the project already has a
-// label that normalizes to the same value, excluding excludeID (used so
+// nodeLabelTaken reports whether another node in the environment already has
+// a label that normalizes to the same value, excluding excludeID (used so
 // updating a node's position, or re-saving its own unchanged label, never
 // conflicts with itself).
-func (s *Store) nodeLabelTaken(projectID uint, label, excludeID string) (bool, error) {
+func (s *Store) nodeLabelTaken(environmentID uint, label, excludeID string) (bool, error) {
 	target := sanitizeLabel(label)
 	if target == "" {
 		return false, nil
 	}
 	var siblings []CanvasNode
-	if err := s.DB.Where("project_id = ? AND id <> ?", projectID, excludeID).Find(&siblings).Error; err != nil {
+	if err := s.DB.Where("environment_id = ? AND id <> ?", environmentID, excludeID).Find(&siblings).Error; err != nil {
 		return false, err
 	}
 	for _, n := range siblings {
@@ -70,12 +78,12 @@ func (s *Store) nodeLabelTaken(projectID uint, label, excludeID string) (bool, e
 	return false, nil
 }
 
-// uniqueUIDForProject generates a UID guaranteed not to collide with an
-// existing node's UID in the same project.
-func (s *Store) uniqueUIDForProject(projectID uint) (string, error) {
+// uniqueUIDForEnvironment generates a UID guaranteed not to collide with an
+// existing node's UID in the same environment.
+func (s *Store) uniqueUIDForEnvironment(environmentID uint) (string, error) {
 	for {
 		uid := generateUID()
-		exists, err := s.nodeUIDExists(projectID, uid)
+		exists, err := s.nodeUIDExists(environmentID, uid)
 		if err != nil {
 			return "", err
 		}
@@ -88,16 +96,16 @@ func (s *Store) uniqueUIDForProject(projectID uint) (string, error) {
 func (s *Store) CreateNode(node *CanvasNode) (*CanvasNode, error) {
 	node.ID = strings.TrimSpace(node.ID)
 	node.Label = strings.TrimSpace(node.Label)
-	if node.ID == "" || node.Label == "" {
+	if node.ID == "" || node.Label == "" || node.EnvironmentID == 0 {
 		return nil, ErrInvalidNode
 	}
-	if taken, err := s.nodeLabelTaken(node.ProjectID, node.Label, node.ID); err != nil {
+	if taken, err := s.nodeLabelTaken(node.EnvironmentID, node.Label, node.ID); err != nil {
 		return nil, err
 	} else if taken {
 		return nil, ErrDuplicateNodeLabel
 	}
 	if node.UID == "" {
-		uid, err := s.uniqueUIDForProject(node.ProjectID)
+		uid, err := s.uniqueUIDForEnvironment(node.EnvironmentID)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +128,7 @@ func (s *Store) EnsureNodeUID(id string) (string, error) {
 	if node.UID != "" {
 		return node.UID, nil
 	}
-	uid, err := s.uniqueUIDForProject(node.ProjectID)
+	uid, err := s.uniqueUIDForEnvironment(node.EnvironmentID)
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +147,7 @@ func (s *Store) UpdateNode(id string, x, y float64, label string) error {
 	if err != nil {
 		return err
 	}
-	if taken, err := s.nodeLabelTaken(node.ProjectID, label, id); err != nil {
+	if taken, err := s.nodeLabelTaken(node.EnvironmentID, label, id); err != nil {
 		return err
 	} else if taken {
 		return ErrDuplicateNodeLabel
@@ -155,9 +163,22 @@ func (s *Store) DeleteNode(id string) error {
 	return s.DB.Delete(&CanvasNode{}, "id = ?", id).Error
 }
 
+// ListNodes returns every node in a project across all of its environments.
+// Used by project-wide concerns (git hook reconcile, secrets usage scan,
+// project delete cascade) that intentionally aren't environment-scoped. For
+// the nodes in a single environment, use ListNodesByEnvironment.
 func (s *Store) ListNodes(projectID uint) ([]CanvasNode, error) {
 	var nodes []CanvasNode
 	if err := s.DB.Where("project_id = ?", projectID).Order("created_at asc").Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
+// ListNodesByEnvironment returns every node belonging to a single environment.
+func (s *Store) ListNodesByEnvironment(environmentID uint) ([]CanvasNode, error) {
+	var nodes []CanvasNode
+	if err := s.DB.Where("environment_id = ?", environmentID).Order("created_at asc").Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	return nodes, nil
@@ -171,12 +192,13 @@ func (s *Store) GetNode(id string) (*CanvasNode, error) {
 	return &n, nil
 }
 
-// GetNodeByLabel finds a node in a project by its label, matching on the same
-// normalized form used to enforce label uniqueness (case/format-insensitive).
-func (s *Store) GetNodeByLabel(projectID uint, label string) (*CanvasNode, error) {
+// GetNodeByLabel finds a node in an environment by its label, matching on the
+// same normalized form used to enforce label uniqueness (case/format-
+// insensitive).
+func (s *Store) GetNodeByLabel(environmentID uint, label string) (*CanvasNode, error) {
 	target := sanitizeLabel(label)
 	var nodes []CanvasNode
-	if err := s.DB.Where("project_id = ?", projectID).Find(&nodes).Error; err != nil {
+	if err := s.DB.Where("environment_id = ?", environmentID).Find(&nodes).Error; err != nil {
 		return nil, err
 	}
 	for i := range nodes {

@@ -19,7 +19,7 @@ func openPreviewTestStore(t *testing.T) (*store.Store, *store.CanvasNode) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.CreateNode(&store.CanvasNode{ID: "node-preview", ProjectID: p.ID, Label: "api", X: 0, Y: 0})
+	n, err := s.CreateNode(&store.CanvasNode{ID: "node-preview", ProjectID: p.ID, EnvironmentID: defaultEnvID(t, s, p.ID), Label: "api", X: 0, Y: 0})
 	if err != nil {
 		t.Fatal(err)
 	}

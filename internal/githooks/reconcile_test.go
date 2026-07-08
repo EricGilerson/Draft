@@ -55,7 +55,11 @@ func TestReconcileAllProjectsInstallsHooksAndNormalizesBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, Label: "svc"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 	if err := s.SetNodeSetting("svc-1", "git_branch", "origin/main"); err != nil {
@@ -104,10 +108,18 @@ func TestReconcileRepoHooks_ReferenceCountsAcrossProjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project B: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-a", ProjectID: projectA.ID, Label: "svc-a"}); err != nil {
+	envA, err := s.GetDefaultEnvironment(projectA.ID)
+	if err != nil {
+		t.Fatalf("get default environment A: %v", err)
+	}
+	envB, err := s.GetDefaultEnvironment(projectB.ID)
+	if err != nil {
+		t.Fatalf("get default environment B: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-a", ProjectID: projectA.ID, EnvironmentID: envA.ID, Label: "svc-a"}); err != nil {
 		t.Fatalf("create node A: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-b", ProjectID: projectB.ID, Label: "svc-b"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-b", ProjectID: projectB.ID, EnvironmentID: envB.ID, Label: "svc-b"}); err != nil {
 		t.Fatalf("create node B: %v", err)
 	}
 	for _, nodeID := range []string{"svc-a", "svc-b"} {

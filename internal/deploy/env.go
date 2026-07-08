@@ -31,6 +31,7 @@ type deploymentEnv struct {
 type deploymentEnvInput struct {
 	NodeID           string
 	ProjectID        uint
+	EnvironmentID    uint
 	ServiceName      string
 	ProjectName      string
 	Environment      string
@@ -54,7 +55,7 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		if _, reserved := generatedEnvKeys[v.Key]; reserved {
 			return fmt.Errorf("%s is reserved for Draft-generated deployment values", v.Key)
 		}
-		value, err := e.resolveValue(in.NodeID, in.ProjectID, v.Value, map[string]bool{in.NodeID: true})
+		value, err := e.resolveValue(in.NodeID, in.ProjectID, in.EnvironmentID, v.Value, map[string]bool{in.NodeID: true})
 		if err != nil {
 			return fmt.Errorf("%s: %w", v.Key, err)
 		}

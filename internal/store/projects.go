@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 // ErrInvalidProject is returned when required project fields are missing.
 var ErrInvalidProject = errors.New("project name and path are required")
 
-// CreateProject inserts a new project after trimming and validating input.
+// CreateProject inserts a new project after trimming and validating input,
+// along with its default "Main" environment.
 func (s *Store) CreateProject(name, path, description string) (*Project, error) {
 	name = strings.TrimSpace(name)
 	path = strings.TrimSpace(path)
@@ -18,7 +21,14 @@ func (s *Store) CreateProject(name, path, description string) (*Project, error) 
 	}
 
 	p := &Project{Name: name, Path: path, Description: strings.TrimSpace(description)}
-	if err := s.DB.Create(p).Error; err != nil {
+	err := s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(p).Error; err != nil {
+			return err
+		}
+		env := &Environment{ProjectID: p.ID, Name: "Main", Slug: "main", IsDefault: true}
+		return tx.Create(env).Error
+	})
+	if err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -146,6 +156,9 @@ func (s *Store) DeleteProject(id uint) error {
 		return err
 	}
 	if err := s.DeleteProjectEnvVars(id); err != nil {
+		return err
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&Environment{}).Error; err != nil {
 		return err
 	}
 	return s.DB.Delete(&Project{}, "id = ?", id).Error

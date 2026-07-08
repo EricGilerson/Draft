@@ -18,10 +18,11 @@ func TestListProjectServicesUsesRealCanvasNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, Label: "web"}); err != nil {
+	envID := defaultEnvID(t, s, project.ID)
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "web-1", ProjectID: project.ID, EnvironmentID: envID, Label: "web"}); err != nil {
 		t.Fatalf("create web node: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker-1", ProjectID: project.ID, Label: "queue worker"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker-1", ProjectID: project.ID, EnvironmentID: envID, Label: "queue worker"}); err != nil {
 		t.Fatalf("create worker node: %v", err)
 	}
 	if err := s.SetNodeSetting("web-1", "service_port", "8080"); err != nil {

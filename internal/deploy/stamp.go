@@ -16,14 +16,15 @@ import (
 // to stamp a new node out of a template. It works uniformly for built-in,
 // cloned, and user-authored templates — the template's Schema drives behavior.
 type CreateNodeFromTemplateRequest struct {
-	ID          string            `json:"id"`
-	Label       string            `json:"label"`
-	ProjectID   uint              `json:"projectId"`
-	X           float64           `json:"x"`
-	Y           float64           `json:"y"`
-	TemplateID  uint              `json:"templateId"`
-	ServiceRoot string            `json:"serviceRoot"` // absolute or project-relative; "" => none
-	Overrides   map[string]string `json:"overrides"`   // wizard field overrides (settings + env)
+	ID            string            `json:"id"`
+	Label         string            `json:"label"`
+	ProjectID     uint              `json:"projectId"`
+	EnvironmentID uint              `json:"environmentId"`
+	X             float64           `json:"x"`
+	Y             float64           `json:"y"`
+	TemplateID    uint              `json:"templateId"`
+	ServiceRoot   string            `json:"serviceRoot"` // absolute or project-relative; "" => none
+	Overrides     map[string]string `json:"overrides"`   // wizard field overrides (settings + env)
 }
 
 // CreateNodeFromTemplateResult is the stamp result returned to the frontend.
@@ -71,12 +72,13 @@ func (e *Engine) CreateNodeFromTemplate(req CreateNodeFromTemplateRequest) (*Cre
 
 	// 1. Create the node row with the template link.
 	node, err := e.store.CreateNode(&store.CanvasNode{
-		ID:         req.ID,
-		Label:      req.Label,
-		ProjectID:  req.ProjectID,
-		X:          req.X,
-		Y:          req.Y,
-		TemplateID: req.TemplateID,
+		ID:            req.ID,
+		Label:         req.Label,
+		ProjectID:     req.ProjectID,
+		EnvironmentID: req.EnvironmentID,
+		X:             req.X,
+		Y:             req.Y,
+		TemplateID:    req.TemplateID,
 	})
 	if err != nil {
 		return nil, err

@@ -10,8 +10,12 @@ export function CloneServiceTemplate(arg1) {
   return window['go']['main']['App']['CloneServiceTemplate'](arg1);
 }
 
-export function CreateNode(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['CreateNode'](arg1, arg2, arg3, arg4, arg5);
+export function CreateEnvironment(arg1, arg2) {
+  return window['go']['main']['App']['CreateEnvironment'](arg1, arg2);
+}
+
+export function CreateNode(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['CreateNode'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function CreateNodeFromTemplate(arg1) {
@@ -36,6 +40,10 @@ export function DeleteAppSecret(arg1) {
 
 export function DeleteEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteEnvVar'](arg1, arg2);
+}
+
+export function DeleteEnvironment(arg1) {
+  return window['go']['main']['App']['DeleteEnvironment'](arg1);
 }
 
 export function DeleteManagedVolume(arg1, arg2) {
@@ -66,6 +74,10 @@ export function DiscardStagedChanges(arg1) {
   return window['go']['main']['App']['DiscardStagedChanges'](arg1);
 }
 
+export function DuplicateEnvironment(arg1, arg2) {
+  return window['go']['main']['App']['DuplicateEnvironment'](arg1, arg2);
+}
+
 export function ExportConfig(arg1, arg2) {
   return window['go']['main']['App']['ExportConfig'](arg1, arg2);
 }
@@ -90,12 +102,20 @@ export function GetBuildLog(arg1) {
   return window['go']['main']['App']['GetBuildLog'](arg1);
 }
 
+export function GetDefaultEnvironment(arg1) {
+  return window['go']['main']['App']['GetDefaultEnvironment'](arg1);
+}
+
 export function GetDeployments(arg1) {
   return window['go']['main']['App']['GetDeployments'](arg1);
 }
 
 export function GetEnvVars(arg1) {
   return window['go']['main']['App']['GetEnvVars'](arg1);
+}
+
+export function GetEnvironmentConnections(arg1) {
+  return window['go']['main']['App']['GetEnvironmentConnections'](arg1);
 }
 
 export function GetGitHookStatus(arg1, arg2) {
@@ -122,10 +142,6 @@ export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
 
-export function GetProjectConnections(arg1) {
-  return window['go']['main']['App']['GetProjectConnections'](arg1);
-}
-
 export function GetServiceMetrics(arg1) {
   return window['go']['main']['App']['GetServiceMetrics'](arg1);
 }
@@ -142,8 +158,8 @@ export function ImportConfigAsProject(arg1, arg2) {
   return window['go']['main']['App']['ImportConfigAsProject'](arg1, arg2);
 }
 
-export function ImportConfigIntoProject(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['ImportConfigIntoProject'](arg1, arg2, arg3, arg4);
+export function ImportConfigIntoProject(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ImportConfigIntoProject'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ImportConfigPreview(arg1) {
@@ -168,6 +184,10 @@ export function ListAppSecretUsages(arg1) {
 
 export function ListAppSecrets() {
   return window['go']['main']['App']['ListAppSecrets']();
+}
+
+export function ListEnvironments(arg1) {
+  return window['go']['main']['App']['ListEnvironments'](arg1);
 }
 
 export function ListGitBranches(arg1, arg2) {
@@ -244,6 +264,10 @@ export function ReapplyTemplate(arg1) {
 
 export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
+}
+
+export function RenameEnvironment(arg1, arg2) {
+  return window['go']['main']['App']['RenameEnvironment'](arg1, arg2);
 }
 
 export function RestartService(arg1) {

@@ -60,7 +60,11 @@ CMD ["sleep", "3600"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc1", ProjectID: project.ID, Label: "web"}); err != nil {
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "web"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetNodeSetting("svc1", "dockerfile", "Dockerfile"); err != nil {

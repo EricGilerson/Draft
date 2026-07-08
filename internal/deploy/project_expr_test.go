@@ -14,7 +14,7 @@ func TestResolveProjectExprAtDeploy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestResolveProjectExprPreservesOnExport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"})
+	node, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "api"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestResolveProjectExprPreservesOnExport(t *testing.T) {
 	}
 
 	raw := "{{project.LOG_LEVEL}}"
-	got, err := e.resolveValueForExport(node.ID, project.ID, raw, map[string]bool{node.ID: true})
+	got, err := e.resolveValueForExport(node.ID, project.ID, node.EnvironmentID, raw, map[string]bool{node.ID: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +89,11 @@ func TestListProjectEnvVarUsages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, Label: "api"}); err != nil {
+	envID := defaultEnvID(t, s, project.ID)
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: envID, Label: "api"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker", ProjectID: project.ID, Label: "worker"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker", ProjectID: project.ID, EnvironmentID: envID, Label: "worker"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetProjectEnvVar(project.ID, "JWT_SECRET", "abc", store.EnvScopeRuntime, false); err != nil {

@@ -74,16 +74,20 @@ func (e *Engine) ImportConfigAsProject(path, projectName string) (*ImportResult,
 	if err != nil {
 		return nil, fmt.Errorf("create project: %w", err)
 	}
+	env, err := e.store.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get default environment: %w", err)
+	}
 
 	raw, _ := os.ReadFile(path)
-	nodes, r := e.stampSpecsAsNodes(project.ID, specs, adapter.Format(), string(raw), 0, 0)
+	nodes, r := e.stampSpecsAsNodes(project.ID, env.ID, specs, adapter.Format(), string(raw), 0, 0)
 	report.Merge(r)
 	return &ImportResult{ProjectID: project.ID, Nodes: nodes, Report: report}, nil
 }
 
 // ImportConfigIntoProject stamps the config's services as nodes into an
-// existing project, laid out around the given canvas anchor.
-func (e *Engine) ImportConfigIntoProject(projectID uint, path string, x, y float64) (*ImportResult, error) {
+// existing project's environment, laid out around the given canvas anchor.
+func (e *Engine) ImportConfigIntoProject(projectID, environmentID uint, path string, x, y float64) (*ImportResult, error) {
 	adapter, specs, report, err := parseConfigFile(path)
 	if err != nil {
 		return nil, err
@@ -92,7 +96,7 @@ func (e *Engine) ImportConfigIntoProject(projectID uint, path string, x, y float
 		return nil, fmt.Errorf("project not found: %w", err)
 	}
 	raw, _ := os.ReadFile(path)
-	nodes, r := e.stampSpecsAsNodes(projectID, specs, adapter.Format(), string(raw), x, y)
+	nodes, r := e.stampSpecsAsNodes(projectID, environmentID, specs, adapter.Format(), string(raw), x, y)
 	report.Merge(r)
 	return &ImportResult{ProjectID: projectID, Nodes: nodes, Report: report}, nil
 }
@@ -101,7 +105,7 @@ func (e *Engine) ImportConfigIntoProject(projectID uint, path string, x, y float
 // anchored at (ox, oy), and stamps each. Duplicate labels are de-duplicated
 // with a numeric suffix (and a note). Best-effort: a per-service failure is
 // reported and skipped rather than aborting the whole import.
-func (e *Engine) stampSpecsAsNodes(projectID uint, specs []cloudconfig.ServiceSpec, format, rawDoc string, ox, oy float64) ([]store.CanvasNode, cloudconfig.Report) {
+func (e *Engine) stampSpecsAsNodes(projectID, environmentID uint, specs []cloudconfig.ServiceSpec, format, rawDoc string, ox, oy float64) ([]store.CanvasNode, cloudconfig.Report) {
 	var report cloudconfig.Report
 	var nodes []store.CanvasNode
 	const cols = 3
@@ -111,17 +115,18 @@ func (e *Engine) stampSpecsAsNodes(projectID uint, specs []cloudconfig.ServiceSp
 		x := ox + 120 + float64(col)*260
 		y := oy + 140 + float64(row)*180
 
-		label := e.uniqueLabel(projectID, spec.Name)
+		label := e.uniqueLabel(environmentID, spec.Name)
 		if label != spec.Name {
 			report.Add(cloudconfig.KindInfo, "renamed", spec.Name,
 				fmt.Sprintf("Service %q already existed; imported as %q.", spec.Name, label))
 		}
 		node, err := e.store.CreateNode(&store.CanvasNode{
-			ID:        genNodeID(),
-			Label:     label,
-			ProjectID: projectID,
-			X:         x,
-			Y:         y,
+			ID:            genNodeID(),
+			Label:         label,
+			ProjectID:     projectID,
+			EnvironmentID: environmentID,
+			X:             x,
+			Y:             y,
 		})
 		if err != nil {
 			report.Add(cloudconfig.KindManual, "create_failed", spec.Name,
@@ -193,14 +198,14 @@ func (e *Engine) stampSpecOntoNode(nodeID string, projectID uint, spec cloudconf
 }
 
 // uniqueLabel returns spec name, or a numeric-suffixed variant if a node with
-// that normalized label already exists in the project.
-func (e *Engine) uniqueLabel(projectID uint, name string) string {
-	if _, err := e.store.GetNodeByLabel(projectID, name); err != nil {
+// that normalized label already exists in the environment.
+func (e *Engine) uniqueLabel(environmentID uint, name string) string {
+	if _, err := e.store.GetNodeByLabel(environmentID, name); err != nil {
 		return name
 	}
 	for i := 2; i < 100; i++ {
 		candidate := fmt.Sprintf("%s-%d", name, i)
-		if _, err := e.store.GetNodeByLabel(projectID, candidate); err != nil {
+		if _, err := e.store.GetNodeByLabel(environmentID, candidate); err != nil {
 			return candidate
 		}
 	}

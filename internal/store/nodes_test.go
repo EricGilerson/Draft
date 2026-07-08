@@ -8,7 +8,7 @@ import (
 func TestCreateNodeGeneratesUID(t *testing.T) {
 	s := openTemp(t)
 
-	node, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"})
+	node, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestCreateNodeGeneratesUID(t *testing.T) {
 func TestCreateNodePreservesExplicitUID(t *testing.T) {
 	s := openTemp(t)
 
-	node, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api", UID: "abcd"})
+	node, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api", UID: "abcd"})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestCreateNodePreservesExplicitUID(t *testing.T) {
 func TestEnsureNodeUIDIsStableAcrossCalls(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestEnsureNodeUIDIsStableAcrossCalls(t *testing.T) {
 func TestEnsureNodeUIDBackfillsLegacyRows(t *testing.T) {
 	s := openTemp(t)
 
-	if err := s.DB.Create(&CanvasNode{ID: "legacy", ProjectID: 1, Label: "worker", UID: ""}).Error; err != nil {
+	if err := s.DB.Create(&CanvasNode{ID: "legacy", ProjectID: 1, EnvironmentID: 1, Label: "worker", UID: ""}).Error; err != nil {
 		t.Fatalf("seed legacy node: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestEnsureNodeUIDBackfillsLegacyRows(t *testing.T) {
 func TestCreateNodeRetriesOnUIDCollision(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api", UID: "aaaa"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api", UID: "aaaa"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 
@@ -112,7 +112,7 @@ func TestCreateNodeRetriesOnUIDCollision(t *testing.T) {
 		return "bbbb"
 	}
 
-	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "worker"})
+	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 1, Label: "worker"})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
@@ -124,10 +124,10 @@ func TestCreateNodeRetriesOnUIDCollision(t *testing.T) {
 	}
 }
 
-func TestCreateNodeUIDCollisionCheckIsScopedPerProject(t *testing.T) {
+func TestCreateNodeUIDCollisionCheckIsScopedPerEnvironment(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api", UID: "aaaa"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api", UID: "aaaa"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 
@@ -139,9 +139,9 @@ func TestCreateNodeUIDCollisionCheckIsScopedPerProject(t *testing.T) {
 		return "aaaa"
 	}
 
-	// Different project: "aaaa" is free there, so it should be accepted
-	// without retrying, even though it's taken in project 1.
-	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 2, Label: "api"})
+	// Different environment: "aaaa" is free there, so it should be accepted
+	// without retrying, even though it's taken in environment 1.
+	node, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 2, Label: "api"})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestCreateNodeUIDCollisionCheckIsScopedPerProject(t *testing.T) {
 		t.Errorf("UID = %q, want %q", node.UID, "aaaa")
 	}
 	if calls != 1 {
-		t.Errorf("expected generateUID called once (no retry needed cross-project), got %d", calls)
+		t.Errorf("expected generateUID called once (no retry needed cross-environment), got %d", calls)
 	}
 }
 
@@ -161,13 +161,13 @@ func TestEnsureNodeUIDUnknownNode(t *testing.T) {
 	}
 }
 
-func TestCreateNodeRejectsDuplicateLabelInSameProject(t *testing.T) {
+func TestCreateNodeRejectsDuplicateLabelInSameEnvironment(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
-	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 1, Label: "api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
 		t.Errorf("got %v, want ErrDuplicateNodeLabel", err)
 	}
 }
@@ -175,35 +175,35 @@ func TestCreateNodeRejectsDuplicateLabelInSameProject(t *testing.T) {
 func TestCreateNodeRejectsDuplicateLabelAfterSanitization(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "My Api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "My Api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 	// Different raw string, but sanitizes to the same Docker service name
 	// ("my-api") — must still be rejected, since that's the actual
 	// collision that matters downstream (network alias, hostname).
-	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "my_api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 1, Label: "my_api"}); !errors.Is(err, ErrDuplicateNodeLabel) {
 		t.Errorf("got %v, want ErrDuplicateNodeLabel", err)
 	}
 }
 
-func TestCreateNodeAllowsSameLabelInDifferentProjects(t *testing.T) {
+func TestCreateNodeAllowsSameLabelInDifferentEnvironments(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
-	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 2, Label: "api"}); err != nil {
-		t.Errorf("expected same label to be allowed in a different project, got: %v", err)
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 2, Label: "api"}); err != nil {
+		t.Errorf("expected same label to be allowed in a different environment, got: %v", err)
 	}
 }
 
 func TestUpdateNodeRejectsDuplicateLabel(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
-	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, Label: "worker"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: 1, EnvironmentID: 1, Label: "worker"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 
@@ -224,7 +224,7 @@ func TestUpdateNodeRejectsDuplicateLabel(t *testing.T) {
 func TestUpdateNodeAllowsUnchangedLabelOnPositionMove(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 
@@ -246,7 +246,7 @@ func TestUpdateNodeAllowsUnchangedLabelOnPositionMove(t *testing.T) {
 func TestUpdateNodeRejectsEmptyLabel(t *testing.T) {
 	s := openTemp(t)
 
-	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, Label: "api"}); err != nil {
+	if _, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: 1, EnvironmentID: 1, Label: "api"}); err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 	if err := s.UpdateNode("n1", 0, 0, "   "); !errors.Is(err, ErrInvalidNode) {

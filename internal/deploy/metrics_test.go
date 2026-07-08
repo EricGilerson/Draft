@@ -45,7 +45,7 @@ func TestGetServiceMetricsEmptyStateSerializesArrays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	if _, err := s.CreateNode(&store.CanvasNode{ID: "node-1", ProjectID: project.ID, Label: "web"}); err != nil {
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "node-1", ProjectID: project.ID, EnvironmentID: defaultEnvID(t, s, project.ID), Label: "web"}); err != nil {
 		t.Fatalf("create node: %v", err)
 	}
 

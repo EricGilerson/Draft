@@ -75,15 +75,21 @@ func primaryFileName(format string) string {
 	}
 }
 
-// ExportProjectConfig serializes every node in a project. Compose yields a
-// single multi-service file; the single-service cloud formats yield one file
-// per service (filenames are namespaced by service).
+// ExportProjectConfig serializes every node in a project's default (main)
+// environment — the one deployable stack a docker-compose/cloud-config export
+// is meant to represent, not a merged dump across every environment. Compose
+// yields a single multi-service file; the single-service cloud formats yield
+// one file per service (filenames are namespaced by service).
 func (e *Engine) ExportProjectConfig(projectID uint, format string) (*ExportResult, error) {
 	adapter, err := cloudconfig.ByFormat(format)
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := e.store.ListNodes(projectID)
+	env, err := e.store.GetDefaultEnvironment(projectID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := e.store.ListNodesByEnvironment(env.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -27,7 +27,11 @@ func TestPromoteStagedToApplied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: p.ID, Label: "db", X: 0, Y: 0})
+	envID, err := s.GetDefaultEnvironment(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CreateNode(&CanvasNode{ID: "n1", ProjectID: p.ID, EnvironmentID: envID.ID, Label: "db", X: 0, Y: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +73,11 @@ func TestEffectiveEnvVarsWithStagedDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: p.ID, Label: "app", X: 0, Y: 0})
+	envID, err := s.GetDefaultEnvironment(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CreateNode(&CanvasNode{ID: "n2", ProjectID: p.ID, EnvironmentID: envID.ID, Label: "app", X: 0, Y: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
