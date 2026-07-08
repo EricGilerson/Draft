@@ -303,18 +303,18 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 		mustNotLit  []string // keys whose value must NOT be the old "draft" literal
 	}{
 		{
-			name:       "PostgreSQL",
-			mustHave:   []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_HOST_AUTH_METHOD", "PGDATA", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"POSTGRES_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			name:        "PostgreSQL",
+			mustHave:    []string{"POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_HOST_AUTH_METHOD", "PGDATA", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:    []string{"POSTGRES_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
 			mustLiteral: map[string]string{"POSTGRES_USER": "postgres", "POSTGRES_DB": "postgres"},
-			mustNotLit: []string{"POSTGRES_PASSWORD"},
+			mustNotLit:  []string{"POSTGRES_PASSWORD"},
 		},
 		{
-			name:       "MySQL",
-			mustHave:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_ROOT_HOST", "MYSQL_LOG_CONSOLE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			name:        "MySQL",
+			mustHave:    []string{"MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_ROOT_HOST", "MYSQL_LOG_CONSOLE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:    []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
 			mustLiteral: map[string]string{"MYSQL_DATABASE": "appdb", "MYSQL_USER": "mysql"},
-			mustNotLit: []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD"},
+			mustNotLit:  []string{"MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD"},
 		},
 		{
 			name:       "Redis",
@@ -323,11 +323,11 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 			mustNotLit: []string{"REDIS_PASSWORD"},
 		},
 		{
-			name:       "MongoDB",
-			mustHave:   []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
-			mustExpr:   []string{"MONGO_INITDB_ROOT_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			name:        "MongoDB",
+			mustHave:    []string{"MONGO_INITDB_ROOT_USERNAME", "MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_DATABASE", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
+			mustExpr:    []string{"MONGO_INITDB_ROOT_PASSWORD", "DATABASE_URL", "PUBLIC_DATABASE_URL"},
 			mustLiteral: map[string]string{"MONGO_INITDB_ROOT_USERNAME": "root", "MONGO_INITDB_DATABASE": "appdb"},
-			mustNotLit: []string{"MONGO_INITDB_ROOT_PASSWORD"},
+			mustNotLit:  []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		},
 	}
 	for _, c := range cases {
@@ -518,6 +518,13 @@ func TestCloneTemplateCarriesSchema(t *testing.T) {
 	}
 }
 
+// statelessDatastores are image-mode "datastore" built-ins with no on-disk
+// data directory by design (pure in-memory caches), so they're exempt from
+// the "must ship a default volume" rule below.
+var statelessDatastores = map[string]bool{
+	"Memcached": true,
+}
+
 // TestBuiltinDBTemplatesCarryVolumes asserts each datastore built-in ships a
 // Draft-managed named volume for its data directory, so a freshly created
 // database persists across redeploys. Build-mode built-ins have no volumes.
@@ -533,7 +540,7 @@ func TestBuiltinDBTemplatesCarryVolumes(t *testing.T) {
 			t.Errorf("built-in %q has invalid Volumes: %v", tpl.Name, err)
 			continue
 		}
-		if tpl.Mode == ModeImage && tpl.Category == "datastore" {
+		if tpl.Mode == ModeImage && tpl.Category == "datastore" && !statelessDatastores[tpl.Name] {
 			if len(vols) == 0 {
 				t.Errorf("datastore built-in %q should ship at least one default volume", tpl.Name)
 				continue

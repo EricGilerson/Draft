@@ -37,9 +37,10 @@ const CATEGORY_LABELS: Record<string, string> = {
     datastore: 'Datastore',
     language: 'Language',
     image: 'Image',
+    tooling: 'Tooling',
 };
 
-const CATEGORY_ORDER = ['web', 'datastore', 'language', 'image'];
+const CATEGORY_ORDER = ['web', 'datastore', 'language', 'tooling', 'image'];
 
 type Step = 'template' | 'identity' | 'source' | 'volumes' | 'review';
 

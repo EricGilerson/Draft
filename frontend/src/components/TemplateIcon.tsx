@@ -1,18 +1,23 @@
-import {Box} from 'lucide-react';
-import type {IconType} from '@icons-pack/react-simple-icons';
+import type React from 'react';
+import {Box, Mail, MemoryStick} from 'lucide-react';
 import {
     SiNextdotjs, SiNodedotjs, SiFastapi, SiFlask, SiVite, SiReact,
     SiPostgresql, SiRedis, SiMysql, SiMongodb, SiMariadb, SiSqlite,
     SiDocker, SiPython, SiTypescript, SiRust, SiGo, SiNginx,
     SiDjango, SiExpress, SiGunicorn, SiPnpm, SiYarn, SiBun, SiHtml5,
-    SiRabbitmq, SiElixir,
+    SiRabbitmq, SiElixir, SiMinio, SiMeilisearch, SiClickhouse, SiAdminer,
 } from '@icons-pack/react-simple-icons';
 
-// A curated subset of simple-icons brand slugs exposed in the template editor's
-// icon picker. Each entry maps the stored slug (the value persisted on a
-// ServiceTemplate) to the React component and a human label. Unknown slugs
-// stored on a template fall back to a generic Box icon at render time.
-const ICON_MAP: Record<string, {label: string; Comp: IconType}> = {
+// Shared shape for both simple-icons brand components and the lucide
+// fallbacks used where no brand icon exists (e.g. Mailpit, Memcached).
+type IconComponent = React.ComponentType<{size?: number | string; color?: string; className?: string}>;
+
+// A curated subset of simple-icons brand slugs (plus a few lucide fallbacks)
+// exposed in the template editor's icon picker. Each entry maps the stored
+// slug (the value persisted on a ServiceTemplate) to the React component and
+// a human label. Unknown slugs stored on a template fall back to a generic
+// Box icon at render time.
+const ICON_MAP: Record<string, {label: string; Comp: IconComponent}> = {
     nextdotjs: {label: 'Next.js', Comp: SiNextdotjs},
     nodedotjs: {label: 'Node.js', Comp: SiNodedotjs},
     fastapi: {label: 'FastAPI', Comp: SiFastapi},
@@ -40,6 +45,13 @@ const ICON_MAP: Record<string, {label: string; Comp: IconType}> = {
     yarn: {label: 'Yarn', Comp: SiYarn},
     bun: {label: 'Bun', Comp: SiBun},
     html5: {label: 'HTML5', Comp: SiHtml5},
+    minio: {label: 'MinIO', Comp: SiMinio},
+    meilisearch: {label: 'Meilisearch', Comp: SiMeilisearch},
+    clickhouse: {label: 'ClickHouse', Comp: SiClickhouse},
+    adminer: {label: 'Adminer', Comp: SiAdminer},
+    // No simple-icons brand mark exists for these; lucide generics stand in.
+    mailpit: {label: 'Mailpit', Comp: Mail},
+    memcached: {label: 'Memcached', Comp: MemoryStick},
 };
 
 export const TEMPLATE_ICON_OPTIONS = Object.entries(ICON_MAP).map(([slug, {label}]) => ({

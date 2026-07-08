@@ -100,10 +100,24 @@ var (
 // would lose all data. Targets match each official image's documented data
 // directory so the entrypoint writes into the mounted volume.
 var (
-	postgresVolumes = `[{"type":"volume","containerPath":"/var/lib/postgresql/data"}]`
-	mysqlVolumes    = `[{"type":"volume","containerPath":"/var/lib/mysql"}]`
-	mongoVolumes    = `[{"type":"volume","containerPath":"/data/db"},{"type":"volume","containerPath":"/data/configdb"}]`
-	redisVolumes    = `[{"type":"volume","containerPath":"/data"}]`
+	postgresVolumes    = `[{"type":"volume","containerPath":"/var/lib/postgresql/data"}]`
+	mysqlVolumes       = `[{"type":"volume","containerPath":"/var/lib/mysql"}]`
+	mongoVolumes       = `[{"type":"volume","containerPath":"/data/db"},{"type":"volume","containerPath":"/data/configdb"}]`
+	redisVolumes       = `[{"type":"volume","containerPath":"/data"}]`
+	minioVolumes       = `[{"type":"volume","containerPath":"/data"}]`
+	rabbitmqVolumes    = `[{"type":"volume","containerPath":"/var/lib/rabbitmq"}]`
+	meilisearchVolumes = `[{"type":"volume","containerPath":"/meili_data"}]`
+	clickhouseVolumes  = `[{"type":"volume","containerPath":"/var/lib/clickhouse"}]`
+)
+
+var (
+	minioImageTags       = `["latest"]`
+	rabbitmqImageTags    = `["3-management-alpine","3-management","3.13-management-alpine","latest"]`
+	meilisearchImageTags = `["v1.10","v1.9","latest"]`
+	memcachedImageTags   = `["1.6-alpine","1.6","latest"]`
+	clickhouseImageTags  = `["24-alpine","24","23-alpine","latest"]`
+	mailpitImageTags     = `["latest"]`
+	adminerImageTags     = `["latest","4-standalone","4"]`
 )
 
 var builtinTemplates = []ServiceTemplate{
@@ -302,6 +316,106 @@ CMD ["nginx", "-g", "daemon off;"]
 		// username is the conventional `root` (independent of the project), and
 		// MONGO_INITDB_DATABASE seeds an `appdb` for the app to use.
 		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"root","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"appdb","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"}]`,
+	},
+	{
+		Name:        "MinIO",
+		Description: "S3-compatible object storage with a web console. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "minio",
+		Color:       "#C72E49",
+		Mode:        "image",
+		Image:       "minio/minio:latest",
+		Port:        9001,
+		Schema:      imageTemplateSchema,
+		ImageTags:   minioImageTags,
+		Volumes:     minioVolumes,
+		// MinIO's entrypoint needs explicit args: the data dir and the console
+		// bind address. service_port routes the console (9001, browser-facing);
+		// the S3 API stays at the image's fixed 9000 and is reached by sibling
+		// containers directly over the Docker network, same as any other
+		// container-to-container port that Draft doesn't need to proxy to the host.
+		CmdOverride: `server /data --console-address ":9001"`,
+		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"}]`,
+	},
+	{
+		Name:        "RabbitMQ",
+		Description: "Message broker with the management UI. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "rabbitmq",
+		Color:       "#FF6600",
+		Mode:        "image",
+		Image:       "rabbitmq:3-management-alpine",
+		Port:        15672,
+		Schema:      imageTemplateSchema,
+		ImageTags:   rabbitmqImageTags,
+		Volumes:     rabbitmqVolumes,
+		// service_port routes the management UI (15672); AMQP stays at the
+		// image's fixed 5672 and is reached by sibling containers directly.
+		EnvVars: `[{"key":"RABBITMQ_DEFAULT_USER","value":"rabbitmq","scope":"runtime"},{"key":"RABBITMQ_DEFAULT_PASS","value":"{{draft.password}}","scope":"runtime"},{"key":"AMQP_URL","value":"amqp://rabbitmq:{{draft.password}}@{{draft.internal_hostname}}:5672/","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Meilisearch",
+		Description: "Lightweight search engine with a built-in dashboard. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "meilisearch",
+		Color:       "#FF5CAA",
+		Mode:        "image",
+		Image:       "getmeili/meilisearch:v1.10",
+		Port:        7700,
+		Schema:      imageTemplateSchema,
+		ImageTags:   meilisearchImageTags,
+		Volumes:     meilisearchVolumes,
+		EnvVars:     `[{"key":"MEILI_MASTER_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"MEILI_ENV","value":"development","scope":"runtime"},{"key":"MEILI_URL","value":"http://{{draft.internal_hostname}}:7700","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Memcached",
+		Description: "In-memory cache with no persistence or built-in auth. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "memcached",
+		Mode:        "image",
+		Image:       "memcached:1.6-alpine",
+		Port:        11211,
+		Schema:      imageTemplateSchema,
+		ImageTags:   memcachedImageTags,
+		EnvVars:     `[{"key":"MEMCACHED_URL","value":"{{draft.internal_hostname}}:11211","scope":"runtime"}]`,
+	},
+	{
+		Name:        "ClickHouse",
+		Description: "Columnar analytics database with an HTTP query API and Play UI. Runs from the official image.",
+		Category:    "datastore",
+		Icon:        "clickhouse",
+		Color:       "#FFCC01",
+		Mode:        "image",
+		Image:       "clickhouse/clickhouse-server:24-alpine",
+		Port:        8123,
+		Schema:      imageTemplateSchema,
+		ImageTags:   clickhouseImageTags,
+		Volumes:     clickhouseVolumes,
+		// ClickHouse's HTTP interface (8123) serves both the query API and the
+		// built-in Play UI at /play, so a single routed port covers both uses.
+		EnvVars: `[{"key":"CLICKHOUSE_USER","value":"default","scope":"runtime"},{"key":"CLICKHOUSE_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"CLICKHOUSE_DB","value":"appdb","scope":"runtime"},{"key":"DATABASE_URL","value":"http://default:{{draft.password}}@{{draft.internal_hostname}}:8123/appdb","scope":"runtime"}]`,
+	},
+	{
+		Name:        "Mailpit",
+		Description: "Local SMTP catcher with a web UI to inspect outgoing mail. Point any service's mailer at this node's internal hostname on port 1025. Runs from the official image.",
+		Category:    "tooling",
+		Icon:        "mailpit",
+		Mode:        "image",
+		Image:       "axllent/mailpit:latest",
+		Port:        8025,
+		Schema:      imageTemplateSchema,
+		ImageTags:   mailpitImageTags,
+	},
+	{
+		Name:        "Adminer",
+		Description: "Single-page database admin UI for Postgres/MySQL. After deploying, log in with a sibling service's internal hostname and credentials.",
+		Category:    "tooling",
+		Icon:        "adminer",
+		Mode:        "image",
+		Image:       "adminer:latest",
+		Port:        8080,
+		Schema:      imageTemplateSchema,
+		ImageTags:   adminerImageTags,
 	},
 	{
 		Name:        "Prebuilt Image",
