@@ -29,7 +29,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
 import ServiceNode, {type ServiceNodeVolume} from './ServiceNode';
-import EnvReferenceEdge from './EnvReferenceEdge';
+import EnvReferenceEdge, {type EnvReferenceConn} from './EnvReferenceEdge';
 import NodeDetailPanel from './NodeDetailPanel';
 import VolumeDetailPanel from './VolumeDetailPanel';
 import ResizablePanel from './ResizablePanel';
@@ -365,21 +365,44 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     // edited.
     useEffect(() => {
         const nodeIds = new Set(serviceNodes.map((n) => n.id));
+        const labelById = new Map(serviceNodes.map((n) => [n.id, n.data.label]));
         GetProjectConnections(project.id)
             .then((conns) => {
-                const flowEdges: Edge[] = (conns || [])
-                    .filter((c) => nodeIds.has(c.sourceNodeId) && nodeIds.has(c.targetNodeId))
-                    .map((c) => ({
-                    id: `${c.sourceNodeId}:${c.sourceKey}->${c.targetNodeId}`,
-                    source: c.sourceNodeId,
-                    target: c.targetNodeId,
-                    type: 'envReference',
-                    label: c.sourceKey,
-                    selectable: false,
-                    focusable: false,
-                    reconnectable: false,
-                    style: {stroke: 'var(--text-faint)', strokeDasharray: '4 3'},
-                }));
+                // Group same-pair connections into a single edge — a pair can have
+                // several vars referencing each other (or references in both
+                // directions), and drawing one overlapping edge per var meant only
+                // the topmost label was ever visible. The edge now shows a badge
+                // (var name, or a count when there's more than one) that opens a
+                // popover listing every reference between the two services.
+                const pairs = new Map<string, EnvReferenceConn[]>();
+                for (const c of conns || []) {
+                    if (!nodeIds.has(c.sourceNodeId) || !nodeIds.has(c.targetNodeId)) continue;
+                    const key = [c.sourceNodeId, c.targetNodeId].sort().join('|');
+                    const list = pairs.get(key) ?? [];
+                    list.push({
+                        sourceNodeId: c.sourceNodeId,
+                        sourceLabel: labelById.get(c.sourceNodeId) ?? c.sourceNodeId,
+                        sourceKey: c.sourceKey,
+                        targetNodeId: c.targetNodeId,
+                        targetLabel: labelById.get(c.targetNodeId) ?? c.targetNodeId,
+                        targetAttr: c.targetAttr,
+                    });
+                    pairs.set(key, list);
+                }
+                const flowEdges: Edge[] = Array.from(pairs.entries()).map(([key, connections]) => {
+                    const [a, b] = key.split('|');
+                    return {
+                        id: `conn:${key}`,
+                        source: a,
+                        target: b,
+                        type: 'envReference',
+                        selectable: false,
+                        focusable: false,
+                        reconnectable: false,
+                        data: {connections},
+                        style: {stroke: 'var(--text-faint)', strokeDasharray: '4 3'},
+                    };
+                });
                 setConnectionEdges(flowEdges);
             })
             .catch(() => {});
