@@ -5,6 +5,7 @@ import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import TemplateIcon from '../components/TemplateIcon';
 import TemplateEditorDialog from '../components/TemplateEditorDialog';
+import {useAppDialog} from '../components/AppDialogProvider';
 import './TemplatesView.css';
 
 type EditorState =
@@ -40,6 +41,7 @@ export default function TemplatesView() {
     const [error, setError] = useState('');
     const [query, setQuery] = useState('');
     const [editor, setEditor] = useState<EditorState>({mode: 'closed'});
+    const {confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
         setLoading(true);
@@ -67,8 +69,14 @@ export default function TemplatesView() {
     const builtinGroups = useMemo(() => groupByCategory(filtered.filter((t) => t.builtin)), [filtered]);
     const userGroups = useMemo(() => groupByCategory(filtered.filter((t) => !t.builtin)), [filtered]);
 
-    const handleDelete = (template: store.ServiceTemplate) => {
-        if (!confirm(`Delete template “${template.name}”? This cannot be undone.`)) return;
+    const handleDelete = async (template: store.ServiceTemplate) => {
+        if (!await confirm({
+            title: 'Delete template?',
+            message: `Delete template "${template.name}"?`,
+            detail: 'This cannot be undone.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })) return;
         DeleteServiceTemplate(template.id)
             .then(refresh)
             .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Failed to delete template'));
@@ -107,7 +115,7 @@ export default function TemplatesView() {
                 {!isBuiltin && (
                     <button
                         className="btn btn-ghost template-card-delete"
-                        onClick={() => handleDelete(template)}
+                        onClick={() => { void handleDelete(template); }}
                         title="Delete template"
                     >
                         <Trash2 size={13}/>

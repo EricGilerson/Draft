@@ -6,6 +6,7 @@ import {
     UpdateProject, DeleteProject,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
+import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import ScopedValueUsages from './ScopedValueUsages';
 import './VariablesTab.css';
@@ -40,6 +41,7 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
+    const {confirm} = useAppDialog();
 
     const loadVars = () => {
         ListProjectEnvVars(project.id)
@@ -68,7 +70,13 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     };
 
     const removeVar = async (key: string) => {
-        if (!window.confirm(`Remove ${key}? Services referencing {{project.${key}}} will fail until updated.`)) return;
+        if (!await confirm({
+            title: 'Remove project value?',
+            message: `Remove ${key}?`,
+            detail: `Services referencing {{project.${key}}} will fail until updated.`,
+            confirmLabel: 'Remove',
+            danger: true,
+        })) return;
         setVarError(null);
         try {
             await DeleteProjectEnvVar(project.id, key);

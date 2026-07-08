@@ -6,6 +6,7 @@ import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
 import ActivityTicker from './components/ActivityTicker';
+import {AppDialogProvider} from './components/AppDialogProvider';
 import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import ImportConfigDialog from './components/ImportConfigDialog';
@@ -186,16 +187,17 @@ function App() {
 
     return (
         <BuildLogProvider>
-        <div className="app-shell">
-            <Sidebar active={view} onSelect={handleSelectView}/>
-            <div className="app-main">
-                <header className="topbar">
-                    <ActivityTicker/>
-                    <DockerIndicator/>
-                </header>
-                <main className="app-content">
-                    <div className="app-content-glow"/>
-                    <div className="app-content-scroll">
+            <AppDialogProvider>
+                <div className="app-shell">
+                    <Sidebar active={view} onSelect={handleSelectView}/>
+                    <div className="app-main">
+                        <header className="topbar">
+                            <ActivityTicker/>
+                            <DockerIndicator/>
+                        </header>
+                        <main className="app-content">
+                            <div className="app-content-glow"/>
+                            <div className="app-content-scroll">
                         {selectedProject ? (
                             <>
                                 <EnvironmentSwitcher
@@ -263,44 +265,45 @@ function App() {
                         ) : (
                             <SettingsView/>
                         )}
+                            </div>
+                        </main>
                     </div>
-                </main>
-            </div>
 
-            {dialogOpen && (
-                <CreateProjectDialog
-                    onClose={() => setDialogOpen(false)}
-                    onCreated={handleProjectCreated}
-                />
-            )}
+                    {dialogOpen && (
+                        <CreateProjectDialog
+                            onClose={() => setDialogOpen(false)}
+                            onCreated={handleProjectCreated}
+                        />
+                    )}
 
-            {importOpen && (
-                <ImportConfigDialog
-                    mode="project"
-                    onClose={() => setImportOpen(false)}
-                    onImported={(projectId) => {
-                        setImportOpen(false);
-                        refreshProjects().then(() => {
-                            const project = projectsRef.current.find((p) => p.id === projectId);
-                            if (project) {
-                                setSelectedProject(project);
-                                setView('projects');
-                            }
-                        });
-                    }}
-                />
-            )}
+                    {importOpen && (
+                        <ImportConfigDialog
+                            mode="project"
+                            onClose={() => setImportOpen(false)}
+                            onImported={(projectId) => {
+                                setImportOpen(false);
+                                refreshProjects().then(() => {
+                                    const project = projectsRef.current.find((p) => p.id === projectId);
+                                    if (project) {
+                                        setSelectedProject(project);
+                                        setView('projects');
+                                    }
+                                });
+                            }}
+                        />
+                    )}
 
-            {settingsProject && (
-                <ProjectSettingsDialog
-                    project={settingsProject}
-                    onClose={() => setSettingsProject(null)}
-                    onProjectUpdated={handleProjectUpdated}
-                    onProjectDeleted={handleProjectDeleted}
-                    onOpenSecrets={openSecretsTab}
-                />
-            )}
-        </div>
+                    {settingsProject && (
+                        <ProjectSettingsDialog
+                            project={settingsProject}
+                            onClose={() => setSettingsProject(null)}
+                            onProjectUpdated={handleProjectUpdated}
+                            onProjectDeleted={handleProjectDeleted}
+                            onOpenSecrets={openSecretsTab}
+                        />
+                    )}
+                </div>
+            </AppDialogProvider>
         </BuildLogProvider>
     );
 }

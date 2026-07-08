@@ -2,6 +2,7 @@ import {AlertTriangle, Loader2} from 'lucide-react';
 import {useCallback, useState} from 'react';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import {isImmediateSetting} from '../lib/settingStaging';
+import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import './ServiceDraftBar.css';
 
@@ -28,6 +29,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
     const [confirmErrors, setConfirmErrors] = useState<string[]>([]);
     const [pendingDeploy, setPendingDeploy] = useState(false);
     const [error, setError] = useState('');
+    const {confirm} = useAppDialog();
 
     const runStage = useCallback(async (deployAfter: boolean) => {
         setError('');
@@ -119,8 +121,15 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                             type="button"
                             className="btn btn-ghost btn-sm"
                             disabled={staging}
-                            onClick={() => {
-                                if (window.confirm('Discard all staged changes? Applied settings stay unchanged until you redeploy.')) {
+                            onClick={async () => {
+                                if (await confirm({
+                                    title: 'Discard staged changes?',
+                                    message: 'Discard all staged changes?',
+                                    detail: 'Applied settings stay unchanged until you redeploy.',
+                                    confirmLabel: 'Discard',
+                                    cancelLabel: 'Keep',
+                                    danger: true,
+                                })) {
                                     void discardStaged();
                                 }
                             }}

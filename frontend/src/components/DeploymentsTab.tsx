@@ -2,6 +2,7 @@ import {ChevronDown, ChevronRight, AlertCircle, RotateCw} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetDeployments, GetBuildLog, RollbackDeployment, RollbackEligibility} from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
+import {useAppDialog} from './AppDialogProvider';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 
@@ -14,6 +15,7 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     const [rollbackError, setRollbackError] = useState<string | null>(null);
     const buildLogRef = useRef<HTMLDivElement>(null);
     const {lines: liveBuildLines, deploying, version} = useBuildLog(nodeId);
+    const {confirm} = useAppDialog();
 
     const refreshEligibility = () => {
         RollbackEligibility(nodeId)
@@ -56,10 +58,15 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
         setBuildLog(log);
     };
 
-    const handleRollback = (dep: store.Deployment) => {
+    const handleRollback = async (dep: store.Deployment) => {
         const elig = eligibility[dep.id];
         if (elig && !elig.eligible) return;
-        if (!window.confirm(`Roll back to deployment #${dep.sequence ?? dep.id}? A new deployment will run this image and replace the current one.`)) return;
+        if (!await confirm({
+            title: 'Redeploy this version?',
+            message: `Roll back to deployment #${dep.sequence ?? dep.id}?`,
+            detail: 'A new deployment will run this image and replace the current one.',
+            confirmLabel: 'Redeploy',
+        })) return;
         setRollingBack(dep.id);
         setRollbackError(null);
         RollbackDeployment(dep.id)
@@ -118,7 +125,7 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                                 </span>
                                 <button
                                     className="btn btn-ghost deploy-entry-rollback"
-                                    onClick={(e) => { e.stopPropagation(); handleRollback(dep); }}
+                                    onClick={(e) => { e.stopPropagation(); void handleRollback(dep); }}
                                     disabled={!canRollback || rollingBack === dep.id}
                                     title={rollbackTitle}
                                 >

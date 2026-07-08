@@ -11,6 +11,7 @@ import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import {committedEnvByKey, effectiveEnvVarList} from '../lib/envStaging';
 import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
 import {computeReferenceIssues} from '../lib/referenceIssues';
+import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import './VariablesTab.css';
 
@@ -221,6 +222,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
     const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
+    const {alert, confirm} = useAppDialog();
 
     const committedEnv = useMemo(
         () => committedEnvByKey(appliedEnvVars, stagedEnvChanges),
@@ -441,11 +443,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         replaceRange(fieldId, start, end, token);
     };
 
-    const add = () => {
+    const add = async () => {
         if (!newKey.trim()) return;
         const key = newKey.trim();
         if (vars.some((v) => v.key === key)) {
-            window.alert(`Variable ${key} already exists on this service.`);
+            await alert({
+                title: 'Variable already exists',
+                message: `Variable ${key} already exists on this service.`,
+            });
             return;
         }
         setEnvDraftUpsert({key, value: newValue, scope: 'runtime'});
@@ -455,8 +460,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         setSyncError('');
     };
 
-    const removeVar = (key: string) => {
-        if (!window.confirm(`Delete ${key}? It will be removed on the next deploy.`)) return;
+    const removeVar = async (key: string) => {
+        if (!await confirm({
+            title: 'Delete variable?',
+            message: `Delete ${key}?`,
+            detail: 'It will be removed on the next deploy.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })) return;
         setEnvDraftDelete(key, true);
     };
 

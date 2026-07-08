@@ -5,6 +5,7 @@ import {
     DeployService,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
+import {useAppDialog} from '../components/AppDialogProvider';
 import PageHeader from '../components/PageHeader';
 import Dialog from '../components/Dialog';
 import ScopedValueUsages from '../components/ScopedValueUsages';
@@ -20,6 +21,7 @@ export default function SecretsView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [editor, setEditor] = useState<EditorMode>({kind: 'closed'});
+    const {confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
         setLoading(true);
@@ -31,6 +33,21 @@ export default function SecretsView() {
     }, []);
 
     useEffect(() => { refresh(); }, [refresh]);
+
+    const handleDeleteApp = async (key: string) => {
+        if (!await confirm({
+            title: 'Delete app secret?',
+            message: `Delete app secret ${key}?`,
+            confirmLabel: 'Delete',
+            danger: true,
+        })) return;
+        try {
+            await DeleteAppSecret(key);
+            refresh();
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Delete failed');
+        }
+    };
 
     return (
         <div className="secrets-view">
@@ -67,7 +84,7 @@ export default function SecretsView() {
                                         <button type="button" className="btn btn-ghost" onClick={() => setEditor({kind: 'app-edit', secret: s})} title="Edit">
                                             <Pencil size={14}/>
                                         </button>
-                                        <button type="button" className="btn btn-ghost secrets-delete" onClick={() => handleDeleteApp(s.key, refresh, setError)} title="Delete">
+                                        <button type="button" className="btn btn-ghost secrets-delete" onClick={() => { void handleDeleteApp(s.key); }} title="Delete">
                                             <Trash2 size={14}/>
                                         </button>
                                     </div>
@@ -87,16 +104,6 @@ export default function SecretsView() {
             )}
         </div>
     );
-}
-
-async function handleDeleteApp(key: string, refresh: () => void, setError: (m: string) => void) {
-    if (!window.confirm(`Delete app secret ${key}?`)) return;
-    try {
-        await DeleteAppSecret(key);
-        refresh();
-    } catch (e: any) {
-        setError(typeof e === 'string' ? e : e?.message || 'Delete failed');
-    }
 }
 
 function SecretEditorDialog({mode, onClose, onSaved}: {

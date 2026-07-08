@@ -62,6 +62,26 @@
     padding: 18px;
 }
 
+.dialog-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dialog-message,
+.dialog-detail {
+    margin: 0;
+}
+
+.dialog-message {
+    color: var(--text);
+}
+
+.dialog-detail {
+    color: var(--text-muted);
+    white-space: pre-line;
+}
+
 .dialog-footer {
     display: flex;
     justify-content: flex-end;

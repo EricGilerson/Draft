@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react';
 import {Plus, Copy} from 'lucide-react';
 import {CreateEnvironment, DeleteEnvironment, DuplicateEnvironment, ListEnvironments} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
+import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import './EnvironmentSwitcher.css';
 
@@ -20,6 +21,7 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
     const [name, setName] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+    const {confirm} = useAppDialog();
 
     const refresh = () => {
         ListEnvironments(projectId).then((envs) => setEnvironments(envs ?? [])).catch(() => setEnvironments([]));
@@ -60,9 +62,15 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
             });
     };
 
-    const removeEnvironment = (env: store.Environment) => {
+    const removeEnvironment = async (env: store.Environment) => {
         if (env.isDefault) return;
-        if (!window.confirm(`Delete environment "${env.name}"? This stops and removes its services.`)) return;
+        if (!await confirm({
+            title: 'Delete environment?',
+            message: `Delete environment "${env.name}"?`,
+            detail: 'This stops and removes its services.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })) return;
         DeleteEnvironment(env.id).then(() => {
             refresh();
             if (selectedEnvironmentId === env.id) {
@@ -89,7 +97,7 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
                                 className="environment-switcher-tab-remove"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    removeEnvironment(env);
+                                    void removeEnvironment(env);
                                 }}
                             >
                                 ×

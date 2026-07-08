@@ -4,9 +4,10 @@ import {
     DeleteManagedVolume,
     ListManagedVolumes,
 } from '../../wailsjs/go/main/App';
-import {deploy} from '../../wailsjs/go/models';
-import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
-import ServiceDraftBar from './ServiceDraftBar';
+import {deploy} from '../../wailsjs/go/models';
+import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {useAppDialog} from './AppDialogProvider';
+import ServiceDraftBar from './ServiceDraftBar';
 import VolumeEditor, {parseVolumeEntries, serializeVolumeEntries, type VolumeEntry} from './VolumeEditor';
 import './NodeDetailPanel.css';
 
@@ -35,9 +36,10 @@ function VolumeDetailPanelBody({
         updateDraftSetting,
         loading: configLoading,
         isSessionDirty,
-    } = useServiceConfigEditor();
-    const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
-    const [managedVolumes, setManagedVolumes] = useState<deploy.ManagedVolume[]>([]);
+    } = useServiceConfigEditor();
+    const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
+    const [managedVolumes, setManagedVolumes] = useState<deploy.ManagedVolume[]>([]);
+    const {alert, confirm} = useAppDialog();
 
     const refreshManagedVolumes = useCallback(() => {
         ListManagedVolumes(projectId, parentNodeId)
@@ -78,17 +80,26 @@ function VolumeDetailPanelBody({
         }
     }, [updateDraftSetting, volumeIndex, refreshManagedVolumes, onVolumesChanged, onClose]);
 
-    const deleteDockerVolume = useCallback(async (name: string) => {
-        if (!window.confirm(`Delete Docker volume "${name}"? This permanently removes stored data.`)) {
-            return;
-        }
-        try {
-            await DeleteManagedVolume(name, false);
-            refreshManagedVolumes();
-        } catch (e) {
-            window.alert(String(e));
-        }
-    }, [refreshManagedVolumes]);
+    const deleteDockerVolume = useCallback(async (name: string) => {
+        if (!await confirm({
+            title: 'Delete Docker volume?',
+            message: `Delete Docker volume "${name}"?`,
+            detail: 'This permanently removes stored data.',
+            confirmLabel: 'Delete',
+            danger: true,
+        })) {
+            return;
+        }
+        try {
+            await DeleteManagedVolume(name, false);
+            refreshManagedVolumes();
+        } catch (e) {
+            await alert({
+                title: 'Volume delete failed',
+                message: String(e),
+            });
+        }
+    }, [alert, confirm, refreshManagedVolumes]);
 
     if (!entry) {
         return (
@@ -164,4 +175,4 @@ export default function VolumeDetailPanel(props: VolumeDetailPanelProps) {
         </ServiceConfigEditorProvider>
     );
 }
-
+

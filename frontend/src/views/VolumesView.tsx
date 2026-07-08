@@ -11,6 +11,7 @@ import {
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {DeleteManagedVolume, ListVolumesOverview} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
+import {useAppDialog} from '../components/AppDialogProvider';
 import PageHeader from '../components/PageHeader';
 import {formatBytes} from '../components/VolumeEditor';
 import './VolumesView.css';
@@ -79,6 +80,7 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [sortKey, setSortKey] = useState<SortKey>('size');
     const [selected, setSelected] = useState<Set<string>>(new Set());
+    const {alert, confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
         setLoading(true);
@@ -169,30 +171,51 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
     };
 
     const handleDelete = useCallback(async (v: deploy.VolumeOverview) => {
-        if (!confirm(`Delete volume "${v.name}"? This permanently removes its data (${formatBytes(v.size)}).`)) {
+        if (!await confirm({
+            title: 'Delete volume?',
+            message: `Delete volume "${v.name}"?`,
+            detail: `This permanently removes its data (${formatBytes(v.size)}).`,
+            confirmLabel: 'Delete',
+            danger: true,
+        })) {
             return;
         }
         try {
             await DeleteManagedVolume(v.name, false);
         } catch (e) {
             // Most commonly the volume is still attached to a container.
-            if (!confirm(`Couldn't delete "${v.name}":\n${String(e)}\n\nForce delete? This stops and removes the container currently using it${v.nodeLabel ? ` (service "${v.nodeLabel}")` : ''}, then deletes the volume and its data.`)) {
+            if (!await confirm({
+                title: `Couldn't delete "${v.name}"`,
+                message: 'Force delete this volume?',
+                detail: `${String(e)}\n\nThis stops and removes the container currently using it${v.nodeLabel ? ` (service "${v.nodeLabel}")` : ''}, then deletes the volume and its data.`,
+                confirmLabel: 'Force delete',
+                danger: true,
+            })) {
                 return;
             }
             try {
                 await DeleteManagedVolume(v.name, true);
             } catch (e2) {
-                alert(String(e2));
+                await alert({
+                    title: 'Volume delete failed',
+                    message: String(e2),
+                });
                 return;
             }
         }
         refresh();
-    }, [refresh]);
+    }, [alert, confirm, refresh]);
 
     const bulkDelete = useCallback(async (targets: deploy.VolumeOverview[], noun: string) => {
         if (targets.length === 0) return;
         const totalBytes = targets.reduce((sum, v) => sum + (v.size || 0), 0);
-        if (!confirm(`Delete ${targets.length} ${noun} volume${targets.length > 1 ? 's' : ''} (${formatBytes(totalBytes)} reclaimable)? This permanently removes their data.`)) {
+        if (!await confirm({
+            title: 'Delete selected volumes?',
+            message: `Delete ${targets.length} ${noun} volume${targets.length > 1 ? 's' : ''}?`,
+            detail: `${formatBytes(totalBytes)} reclaimable. This permanently removes their data.`,
+            confirmLabel: 'Delete',
+            danger: true,
+        })) {
             return;
         }
         const failures: string[] = [];
@@ -206,9 +229,12 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
         }
         refresh();
         if (failures.length) {
-            alert(`Some volumes could not be deleted:\n\n${failures.join('\n')}`);
+            await alert({
+                title: 'Some volumes could not be deleted',
+                message: failures.join('\n'),
+            });
         }
-    }, [refresh]);
+    }, [alert, confirm, refresh]);
 
     const orphanRows = useMemo(() => volumes.filter((v) => v.orphaned), [volumes]);
     const selectedRows = useMemo(() => volumes.filter((v) => selected.has(v.name)), [volumes, selected]);

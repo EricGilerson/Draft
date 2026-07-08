@@ -11,6 +11,7 @@ import MetricsTab from './MetricsTab';
 import SettingsTab from './SettingsTab';
 import ShellTab from './ShellTab';
 import ServiceDraftBar from './ServiceDraftBar';
+import {useAppDialog} from './AppDialogProvider';
 import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import './NodeDetailPanel.css';
 
@@ -60,6 +61,7 @@ function NodeDetailPanelBody({
     const [reapplyError, setReapplyError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
     const {isSessionDirty, discardSessionDraft} = useServiceConfigEditor();
+    const {confirm} = useAppDialog();
 
     useEffect(() => {
         setEditValue(nodeLabel);
@@ -74,9 +76,14 @@ function NodeDetailPanelBody({
             .catch(() => setTemplateId(0));
     }, [nodeId]);
 
-    const handleReapply = () => {
+    const handleReapply = async () => {
         if (!templateId) return;
-        if (!window.confirm('Re-apply the template? Template-derived settings, generated env vars, and the Dockerfile will be reset to the template\u2019s current defaults. Env vars you added or edited manually are kept.')) return;
+        if (!await confirm({
+            title: 'Re-apply template?',
+            message: 'Template-derived settings, generated env vars, and the Dockerfile will be reset to the template’s current defaults.',
+            detail: 'Env vars you added or edited manually are kept.',
+            confirmLabel: 'Re-apply',
+        })) return;
         setReapplying(true);
         setReapplyError(null);
         ReapplyTemplate(nodeId)
@@ -116,10 +123,16 @@ function NodeDetailPanelBody({
             });
     };
 
-    const switchTab = (tabId: string) => {
+    const switchTab = async (tabId: string) => {
         if (tabId === activeTab) return;
         if (isSessionDirty) {
-            const ok = window.confirm('You have unsaved edits. Discard them and switch tabs?');
+            const ok = await confirm({
+                title: 'Discard unsaved edits?',
+                message: 'You have unsaved edits. Discard them and switch tabs?',
+                confirmLabel: 'Discard',
+                cancelLabel: 'Stay',
+                danger: true,
+            });
             if (!ok) return;
             discardSessionDraft();
         }
@@ -169,7 +182,7 @@ function NodeDetailPanelBody({
                     </button>
                     <button
                         className="btn btn-ghost node-detail-reapply"
-                        onClick={handleReapply}
+                        onClick={() => { void handleReapply(); }}
                         disabled={!templateId || reapplying}
                         title={templateId ? 'Re-apply this service\u2019s template defaults' : 'No template linked to this service'}
                     >
@@ -189,7 +202,7 @@ function NodeDetailPanelBody({
                     <button
                         key={tab.id}
                         className={`node-detail-tab ${activeTab === tab.id ? 'node-detail-tab--active' : ''}`}
-                        onClick={() => switchTab(tab.id)}
+                        onClick={() => { void switchTab(tab.id); }}
                     >
                         {tab.label}
                     </button>
