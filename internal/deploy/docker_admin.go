@@ -138,14 +138,14 @@ func (e *Engine) RemoveContainer(ctx context.Context, id string, force bool) err
 // Managed is a best-effort guess based on Draft's deterministic build-tag
 // pattern (see draftBuildTagPattern) since pulled images carry no label.
 type ImageSummary struct {
-	ID          string   `json:"id"`
-	RepoTags    []string `json:"repoTags"`
-	Size        int64    `json:"size"`
-	SharedSize  int64    `json:"sharedSize"`
-	Containers  int64    `json:"containers"`
-	Created     int64    `json:"created"`
-	Dangling    bool     `json:"dangling"`
-	Managed     bool     `json:"managed"`
+	ID         string   `json:"id"`
+	RepoTags   []string `json:"repoTags"`
+	Size       int64    `json:"size"`
+	SharedSize int64    `json:"sharedSize"`
+	Containers int64    `json:"containers"`
+	Created    int64    `json:"created"`
+	Dangling   bool     `json:"dangling"`
+	Managed    bool     `json:"managed"`
 }
 
 // ListImages returns every image on the daemon, including dangling
@@ -235,6 +235,17 @@ func removeImageAndConfirm(ctx context.Context, cli *client.Client, id string, f
 			}
 			lastErr = nil
 			continue // dependents are gone now; retry this image immediately
+		}
+		if rmErr != nil && !force &&
+			(errdefs.IsConflict(rmErr) || strings.Contains(rmErr.Error(), "being used by")) {
+			// Removing by image ID can require a forced retry even when the user
+			// did not explicitly request force: multi-tag images report a
+			// repository-reference conflict, and stopped-container references can
+			// block a normal remove. The Docker tab already treats confirmation as
+			// permission to remove the whole image, not just one tag.
+			force = true
+			lastErr = rmErr
+			continue
 		}
 		if rmErr != nil &&
 			!errdefs.IsNotFound(rmErr) &&

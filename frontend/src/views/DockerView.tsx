@@ -42,6 +42,10 @@ type ConfirmState = {
     onConfirm: () => void;
 } | null;
 
+function visibleRepoTags(tags: string[] | undefined | null): string[] {
+    return (tags ?? []).filter((tag) => tag && tag !== '<none>:<none>');
+}
+
 function formatAge(input: string | number): string {
     const then = typeof input === 'number' ? input * 1000 : new Date(input).getTime();
     if (!Number.isFinite(then) || then <= 0) return '—';
@@ -238,14 +242,22 @@ export default function DockerView() {
     };
 
     const handleRemoveImage = (i: deploy.ImageSummary) => {
-        const label = i.repoTags?.[0] || shortId(i.id);
+        const tags = visibleRepoTags(i.repoTags);
+        const label = tags[0] || shortId(i.id);
+        const details: string[] = [];
+        if (tags.length > 1) {
+            details.push(`This image ID also has ${tags.length - 1} other tag${tags.length === 2 ? '' : 's'}: ${tags.join(', ')}. Removing it deletes every tag on that image ID.`);
+        }
+        if (i.containers > 0) {
+            details.push(`It is used by ${i.containers} container(s).`);
+        }
         askConfirm(
             `Remove image "${label}"?`,
             () => {
                 setConfirmState(null);
                 runAction(() => RemoveDockerImage(i.id, i.containers > 0));
             },
-            i.containers > 0 ? `It is used by ${i.containers} container(s).` : undefined,
+            details.length > 0 ? details.join(' ') : undefined,
         );
     };
 
@@ -641,41 +653,49 @@ export default function DockerView() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredImages.map((i) => (
-                                        <tr key={i.id}>
-                                            <td className="docker-col-check">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedImages.has(i.id)}
-                                                    onChange={() => setSelectedImages((prev) => toggleSet(prev, i.id))}
-                                                />
-                                            </td>
-                                            <td>
-                                                {i.repoTags && i.repoTags.length > 0 ? (
-                                                    <span className="docker-name">{i.repoTags[0]}</span>
-                                                ) : (
-                                                    <span className="docker-badge docker-badge--external">dangling</span>
-                                                )}
-                                            </td>
-                                            <td><code className="docker-mono">{shortId(i.id)}</code></td>
-                                            <td className="docker-col-num">{formatBytes(i.size)}</td>
-                                            <td className="docker-col-num">{formatBytes(i.sharedSize)}</td>
-                                            <td className="docker-col-num">{i.containers}</td>
-                                            <td>{formatAge(i.created)}</td>
-                                            <td>
-                                                {i.managed ? (
-                                                    <span className="docker-badge docker-badge--managed">Draft build</span>
-                                                ) : (
-                                                    <span className="docker-badge docker-badge--external">External</span>
-                                                )}
-                                            </td>
-                                            <td className="docker-col-actions">
-                                                <button className="btn btn-ghost docker-icon-btn docker-icon-btn--danger" title="Remove" disabled={busy} onClick={() => handleRemoveImage(i)}>
-                                                    <Trash2 size={14}/>
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredImages.map((i) => {
+                                        const tags = visibleRepoTags(i.repoTags);
+                                        return (
+                                            <tr key={i.id}>
+                                                <td className="docker-col-check">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedImages.has(i.id)}
+                                                        onChange={() => setSelectedImages((prev) => toggleSet(prev, i.id))}
+                                                    />
+                                                </td>
+                                                <td>
+                                                    {tags.length > 0 ? (
+                                                        <div className="docker-image-tags" title={tags.join('\n')}>
+                                                            <span className="docker-name">{tags[0]}</span>
+                                                            {tags.length > 1 && (
+                                                                <span className="docker-tag-more">+{tags.length - 1} more</span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="docker-badge docker-badge--external">dangling</span>
+                                                    )}
+                                                </td>
+                                                <td><code className="docker-mono">{shortId(i.id)}</code></td>
+                                                <td className="docker-col-num">{formatBytes(i.size)}</td>
+                                                <td className="docker-col-num">{formatBytes(i.sharedSize)}</td>
+                                                <td className="docker-col-num">{i.containers}</td>
+                                                <td>{formatAge(i.created)}</td>
+                                                <td>
+                                                    {i.managed ? (
+                                                        <span className="docker-badge docker-badge--managed">Draft build</span>
+                                                    ) : (
+                                                        <span className="docker-badge docker-badge--external">External</span>
+                                                    )}
+                                                </td>
+                                                <td className="docker-col-actions">
+                                                    <button className="btn btn-ghost docker-icon-btn docker-icon-btn--danger" title="Remove" disabled={busy} onClick={() => handleRemoveImage(i)}>
+                                                        <Trash2 size={14}/>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

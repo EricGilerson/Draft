@@ -869,6 +869,45 @@ func TestIntegrationStopCleansImage(t *testing.T) {
 	})
 }
 
+func TestIntegrationRemoveImageEscalatesForceForMultiTagImage(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, _, _, _ := setupIntegration(t)
+
+	tagBase := fmt.Sprintf("draft-test-remove-image-%d", time.Now().UnixNano())
+	tagA := tagBase + ":a"
+	tagB := tagBase + ":b"
+	buildTestImage(t, cli, tagA, "FROM scratch\nLABEL draft.test.remove_image=1\n")
+	t.Cleanup(func() {
+		removeImage(cli, tagA)
+		removeImage(cli, tagB)
+	})
+
+	if err := cli.ImageTag(context.Background(), tagA, tagB); err != nil {
+		t.Fatalf("tag second ref: %v", err)
+	}
+
+	inspect, _, err := cli.ImageInspectWithRaw(context.Background(), tagA)
+	if err != nil {
+		t.Fatalf("inspect built image: %v", err)
+	}
+
+	if err := e.RemoveImage(context.Background(), inspect.ID, false); err != nil {
+		t.Fatalf("RemoveImage should force-remove multi-tag image IDs: %v", err)
+	}
+
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), inspect.ID); err == nil {
+		t.Fatalf("expected image ID %s to be gone after removal", inspect.ID)
+	}
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), tagA); err == nil {
+		t.Fatalf("expected first tag %s to be gone after removal", tagA)
+	}
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), tagB); err == nil {
+		t.Fatalf("expected second tag %s to be gone after removal", tagB)
+	}
+}
+
 // TestIntegrationCrashCleansImage verifies that when a container exits on its
 // own, the watcher removes the container and image.
 func TestIntegrationCrashCleansImage(t *testing.T) {
