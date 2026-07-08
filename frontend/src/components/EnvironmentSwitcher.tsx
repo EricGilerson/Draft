@@ -1,10 +1,13 @@
 import {useEffect, useState} from 'react';
-import {Plus, Copy} from 'lucide-react';
+import {Plus} from 'lucide-react';
 import {CreateEnvironment, DeleteEnvironment, DuplicateEnvironment, ListEnvironments} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import './EnvironmentSwitcher.css';
+
+/** Sentinel for "start empty" in the source dropdown. */
+const SOURCE_BLANK = '';
 
 type EnvironmentSwitcherProps = {
     projectId: number;
@@ -13,12 +16,17 @@ type EnvironmentSwitcherProps = {
     onDuplicating?: (duplicating: boolean) => void;
 };
 
-type PromptMode = {kind: 'new'} | {kind: 'duplicate'; sourceId: number; sourceName: string};
-
-export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, onSelect, onDuplicating}: EnvironmentSwitcherProps) {
+export default function EnvironmentSwitcher({
+    projectId,
+    selectedEnvironmentId,
+    onSelect,
+    onDuplicating,
+}: EnvironmentSwitcherProps) {
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
-    const [prompt, setPrompt] = useState<PromptMode | null>(null);
+    const [dialogOpen, setDialogOpen] = useState(false);
     const [name, setName] = useState('');
+    /** Empty string = blank env; otherwise the source environment id. */
+    const [sourceId, setSourceId] = useState(SOURCE_BLANK);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const {confirm} = useAppDialog();
@@ -32,25 +40,39 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
 
-    const closePrompt = () => {
-        setPrompt(null);
+    const openNewDialog = () => {
         setName('');
+        setError('');
+        setSubmitting(false);
+        // Prefill source with the environment the user is currently viewing.
+        setSourceId(
+            selectedEnvironmentId != null ? String(selectedEnvironmentId) : SOURCE_BLANK,
+        );
+        setDialogOpen(true);
+    };
+
+    const closeDialog = () => {
+        setDialogOpen(false);
+        setName('');
+        setSourceId(SOURCE_BLANK);
         setError('');
         setSubmitting(false);
     };
 
-    const submitPrompt = () => {
-        if (!prompt || name.trim() === '' || submitting) return;
+    const submit = () => {
+        if (name.trim() === '' || submitting) return;
         setSubmitting(true);
         setError('');
-        const request =
-            prompt.kind === 'new'
-                ? CreateEnvironment(projectId, name.trim())
-                : DuplicateEnvironment(prompt.sourceId, name.trim());
-        if (prompt.kind === 'duplicate') onDuplicating?.(true);
+
+        const isDuplicate = sourceId !== SOURCE_BLANK;
+        const request = isDuplicate
+            ? DuplicateEnvironment(Number(sourceId), name.trim())
+            : CreateEnvironment(projectId, name.trim());
+
+        if (isDuplicate) onDuplicating?.(true);
         request
             .then((env) => {
-                closePrompt();
+                closeDialog();
                 onDuplicating?.(false);
                 refresh();
                 onSelect(env.id);
@@ -80,8 +102,6 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
         });
     };
 
-    const selected = environments.find((e) => e.id === selectedEnvironmentId);
-
     return (
         <>
             <nav className="environment-switcher-tabs">
@@ -107,35 +127,30 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
                 ))}
                 <button
                     className="environment-switcher-action"
-                    onClick={() => setPrompt({kind: 'new'})}
+                    onClick={openNewDialog}
                     title="New environment"
                 >
                     <Plus size={13}/> New
                 </button>
-                {selected && (
-                    <button
-                        className="environment-switcher-action"
-                        onClick={() => setPrompt({kind: 'duplicate', sourceId: selected.id, sourceName: selected.name})}
-                        title="Duplicate environment"
-                    >
-                        <Copy size={13}/> Duplicate
-                    </button>
-                )}
             </nav>
 
-            {prompt && (
+            {dialogOpen && (
                 <Dialog
-                    title={prompt.kind === 'new' ? 'New environment' : `Duplicate "${prompt.sourceName}"`}
-                    onClose={closePrompt}
+                    title="New environment"
+                    onClose={closeDialog}
                     footer={
                         <>
-                            <button className="btn btn-ghost" onClick={closePrompt}>Cancel</button>
+                            <button className="btn btn-ghost" onClick={closeDialog}>Cancel</button>
                             <button
                                 className="btn btn-primary"
                                 disabled={name.trim() === '' || submitting}
-                                onClick={submitPrompt}
+                                onClick={submit}
                             >
-                                {submitting ? 'Working…' : prompt.kind === 'new' ? 'Create' : 'Duplicate'}
+                                {submitting
+                                    ? 'Working…'
+                                    : sourceId !== SOURCE_BLANK
+                                        ? 'Duplicate'
+                                        : 'Create'}
                             </button>
                         </>
                     }
@@ -149,9 +164,29 @@ export default function EnvironmentSwitcher({projectId, selectedEnvironmentId, o
                             placeholder="staging"
                             autoFocus
                             onKeyDown={(e) => {
-                                if (e.key === 'Enter') submitPrompt();
+                                if (e.key === 'Enter') submit();
                             }}
                         />
+                    </div>
+                    <div className="form-field">
+                        <label className="form-label">Based on</label>
+                        <select
+                            className="input settings-select environment-source-select"
+                            value={sourceId}
+                            onChange={(e) => setSourceId(e.target.value)}
+                        >
+                            <option value={SOURCE_BLANK}>Empty environment</option>
+                            {environments.map((env) => (
+                                <option key={env.id} value={String(env.id)}>
+                                    {env.name}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="environment-source-hint">
+                            {sourceId === SOURCE_BLANK
+                                ? 'Start with no services. You can add them after creating.'
+                                : 'Clone services, settings, and env vars from the selected environment. Deployments and volumes start fresh.'}
+                        </p>
                     </div>
                     {error && <p className="form-error">{error}</p>}
                 </Dialog>

@@ -72,3 +72,14 @@
     background: var(--surface-hover);
     color: var(--text);
 }
+
+.environment-source-select {
+    width: 100%;
+}
+
+.environment-source-hint {
+    margin: 6px 0 0;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--text-faint);
+}
