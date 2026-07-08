@@ -143,18 +143,18 @@ export default function RoutesView({projects, onRevealNode}: RoutesViewProps) {
                             onChange={(e) => setSearch(e.target.value)}
                         />
                     </div>
-                    <select className="input routes-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
+                    <select className="input select-styled routes-select" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
                         <option value="all">All projects</option>
                         {projectOptions.map(([id, label]) => (
                             <option key={id} value={id}>{label}</option>
                         ))}
                     </select>
-                    <select className="input routes-select" value={protocolFilter} onChange={(e) => setProtocolFilter(e.target.value as ProtocolFilter)}>
+                    <select className="input select-styled routes-select" value={protocolFilter} onChange={(e) => setProtocolFilter(e.target.value as ProtocolFilter)}>
                         <option value="all">All protocols</option>
                         <option value="http">HTTP</option>
                         <option value="tcp">TCP</option>
                     </select>
-                    <select className="input routes-select" value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as ScopeFilter)}>
+                    <select className="input select-styled routes-select" value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value as ScopeFilter)}>
                         <option value="all">All scopes</option>
                         <option value="public">Public</option>
                         <option value="internal">Internal</option>

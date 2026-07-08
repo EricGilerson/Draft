@@ -283,10 +283,12 @@ func (e *Engine) ListManagedVolumes(ctx context.Context, projectID *uint, nodeID
 	}
 
 	usageByName := map[string]int64{}
+	refCountByName := map[string]int{}
 	if du, err := cli.DiskUsage(ctx, types.DiskUsageOptions{}); err == nil {
 		for _, v := range du.Volumes {
 			if v.UsageData != nil {
 				usageByName[v.Name] = v.UsageData.Size
+				refCountByName[v.Name] = int(v.UsageData.RefCount)
 			}
 		}
 	}
@@ -303,6 +305,7 @@ func (e *Engine) ListManagedVolumes(ctx context.Context, projectID *uint, nodeID
 			Driver:     v.Driver,
 			CreatedAt:  v.CreatedAt,
 			Size:       usageByName[v.Name],
+			RefCount:   refCountByName[v.Name],
 		}
 		if v.UsageData != nil {
 			mv.RefCount = int(v.UsageData.RefCount)
