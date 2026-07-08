@@ -227,6 +227,19 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         [appliedEnvVars, stagedEnvChanges],
     );
 
+    // PreviewEnvVars resolves the APPLIED (stored) vars only — not staged or
+    // in-session draft edits. So a preview is only current when the displayed
+    // value still matches the applied value; once the row is edited or staged,
+    // the backend preview is stale and must not be shown (it would surface the
+    // old applied value's error even after the fix is typed in).
+    const appliedEnvByKey = useMemo(() => {
+        const m: Record<string, string> = {};
+        for (const v of appliedEnvVars) {
+            m[v.key] = v.value;
+        }
+        return m;
+    }, [appliedEnvVars]);
+
     const vars = useMemo(
         () => effectiveEnvVarList(nodeId, appliedEnvVars, stagedEnvChanges, envDraft),
         [nodeId, appliedEnvVars, stagedEnvChanges, envDraft],
@@ -952,17 +965,25 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                     </div>
                                 </div>
                             ))}
-                            {previews[v.key]?.error && varIssues.length === 0 && (
-                                <div className="var-preview var-preview--error">{previews[v.key].error}</div>
-                            )}
-                            {!previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value && (
-                                <div className="var-preview">
-                                    resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
-                                    <button className="var-preview-toggle" onClick={() => togglePreview(v.key)} title={previewVisible[v.key] ? 'Hide resolved value' : 'Show resolved value'}>
-                                        {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
-                                    </button>
-                                </div>
-                            )}
+                            {(() => {
+                                const previewCurrent = appliedEnvByKey[v.key] === v.value;
+                                if (previewCurrent && previews[v.key]?.error && varIssues.length === 0) {
+                                    return (
+                                        <div className="var-preview var-preview--error">{previews[v.key].error}</div>
+                                    );
+                                }
+                                if (previewCurrent && !previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value) {
+                                    return (
+                                        <div className="var-preview">
+                                            resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
+                                            <button className="var-preview-toggle" onClick={() => togglePreview(v.key)} title={previewVisible[v.key] ? 'Hide resolved value' : 'Show resolved value'}>
+                                                {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
+                                            </button>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
                             {autocomplete?.key === v.key && (
                                 <VarAutocomplete
                                     autocomplete={autocomplete}
