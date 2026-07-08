@@ -145,7 +145,10 @@ func (a cloudRunAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report,
 		}
 		for _, e := range spec.Env {
 			if e.Secret {
-				c.Env = append(c.Env, knEnv{Name: e.Key, ValueFrom: &knValueFrom{SecretKeyRef: &knSecretKeyRef{Name: strings.ToLower(strings.ReplaceAll(e.Key, "_", "-")), Key: "latest"}}})
+				secretName := strings.ToLower(strings.ReplaceAll(e.Key, "_", "-"))
+				c.Env = append(c.Env, knEnv{Name: e.Key, ValueFrom: &knValueFrom{SecretKeyRef: &knSecretKeyRef{Name: secretName, Key: "latest"}}})
+				rep.Add(KindManual, "secret_ref", e.Key,
+					fmt.Sprintf("%s is exported as a Secret Manager reference (%s); create that secret in Secret Manager and grant the service's runtime identity access before deploying.", e.Key, secretName))
 				continue
 			}
 			c.Env = append(c.Env, knEnv{Name: e.Key, Value: e.Value})
@@ -171,6 +174,10 @@ func (a cloudRunAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report,
 		}
 
 		svc.Spec.Template.Spec.Containers = []knContainer{c}
+		rep.Add(KindIgnored, "deploy_target", "",
+			"Project and region are not encoded in service.yaml; set them via `gcloud run services replace service.yaml --project=PROJECT_ID --region=REGION` (or the equivalent Terraform/gcloud target).")
+		rep.Add(KindIgnored, "service_account", "",
+			"No service account is set, so Cloud Run will use the default compute service account. Set spec.template.spec.serviceAccountName if the service needs specific IAM permissions.")
 		data, err := yaml.Marshal(svc)
 		if err != nil {
 			return nil, rep, err

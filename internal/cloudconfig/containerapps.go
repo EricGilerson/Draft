@@ -147,6 +147,8 @@ func (a containerAppsAdapter) Export(specs []ServiceSpec) (map[string][]byte, Re
 				secretName := strings.ToLower(strings.ReplaceAll(e.Key, "_", "-"))
 				cont.Env = append(cont.Env, acaEnv{Name: e.Key, SecretRef: secretName})
 				app.Properties.Configuration.Secrets = append(app.Properties.Configuration.Secrets, acaSecret{Name: secretName, Value: ""})
+				rep.Add(KindManual, "secret_ref", e.Key,
+					fmt.Sprintf("%s references secret %q with an empty value; set the actual value (or a Key Vault reference) before deploying.", e.Key, secretName))
 				continue
 			}
 			cont.Env = append(cont.Env, acaEnv{Name: e.Key, Value: e.Value})
@@ -171,6 +173,11 @@ func (a containerAppsAdapter) Export(specs []ServiceSpec) (map[string][]byte, Re
 		if len(spec.Ports) > 0 {
 			app.Properties.Configuration.Ingress = &acaIngress{External: true, TargetPort: spec.Ports[0].Container}
 		}
+		rep.Add(KindManual, "location_placeholder", "", "location is a placeholder (\"eastus\"); set it to your target region.")
+		rep.Add(KindIgnored, "deploy_target", "",
+			"Resource group, subscription, and the Container Apps managed environment are not encoded here; set them via `az containerapp create --resource-group RG --environment ENV_NAME` (or the equivalent Bicep/Terraform target).")
+		rep.Add(KindIgnored, "identity", "",
+			"No managed identity is set. Add properties.identity if the service needs to authenticate to other Azure resources (e.g. to resolve Key Vault secret references).")
 
 		data, err := yaml.Marshal(app)
 		if err != nil {

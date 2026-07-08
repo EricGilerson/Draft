@@ -147,7 +147,10 @@ func (a ecsAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report, erro
 		c := ecsContainer{Name: spec.Name, Image: image, Essential: true, Command: spec.Command, EntryPoint: spec.Entrypoint, User: spec.User, WorkingDirectory: spec.WorkingDir}
 		for _, e := range spec.Env {
 			if e.Secret {
-				c.Secrets = append(c.Secrets, ecsSecret{Name: e.Key, ValueFrom: "arn:aws:ssm:REGION:ACCOUNT:parameter/" + e.Key})
+				arn := "arn:aws:ssm:REGION:ACCOUNT:parameter/" + e.Key
+				c.Secrets = append(c.Secrets, ecsSecret{Name: e.Key, ValueFrom: arn})
+				rep.Add(KindManual, "secret_ref", e.Key,
+					fmt.Sprintf("%s is exported as a placeholder SSM parameter ARN (%s); create the parameter (or Secrets Manager entry) and update valueFrom before deploying.", e.Key, arn))
 				continue
 			}
 			c.Environment = append(c.Environment, ecsKV{Name: e.Key, Value: e.Value})
@@ -180,7 +183,32 @@ func (a ecsAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report, erro
 			}
 		}
 
-		td := ecsTaskDef{Family: spec.Name, ContainerDefinitions: []ecsContainer{c}}
+		td := ecsTaskDef{
+			Family:                  spec.Name,
+			ContainerDefinitions:    []ecsContainer{c},
+			NetworkMode:             "awsvpc",
+			RequiresCompatibilities: []string{"FARGATE"},
+			ExecutionRoleArn:        "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+		}
+		// Fargate requires task-level cpu/memory (a container can't rely on the
+		// task defaults the way it can under EC2 launch type). Mirror the
+		// container-level values since Draft models one container per task.
+		if c.CPU > 0 {
+			td.CPU = strconv.Itoa(c.CPU)
+		}
+		if c.Memory > 0 {
+			td.Memory = strconv.Itoa(c.Memory)
+		}
+		rep.Add(KindManual, "fargate_assumed", "",
+			"Exported for Fargate (networkMode: awsvpc, requiresCompatibilities: FARGATE). If you run this task on EC2 launch type instead, remove those fields and executionRoleArn/task-level cpu+memory are optional there.")
+		rep.Add(KindManual, "execution_role", "",
+			"executionRoleArn is a placeholder (arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole); replace it with your actual task execution role.")
+		if td.CPU != "" || td.Memory != "" {
+			rep.Add(KindManual, "fargate_cpu_memory", "",
+				fmt.Sprintf("Task-level cpu=%q/memory=%q were copied from the container; Fargate only accepts specific cpu/memory combinations, so verify these are a valid pair.", td.CPU, td.Memory))
+		}
+		rep.Add(KindIgnored, "cluster_network", "",
+			"Cluster, VPC subnets, security groups, and load balancer target group are not part of a task definition; configure them when creating/updating the ECS service.")
 		var volSet []ecsVolume
 		for _, v := range spec.Volumes {
 			volSet = append(volSet, ecsVolume{Name: volumeName(v)})
@@ -203,11 +231,15 @@ func (a ecsAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report, erro
 // --- ECS shapes ------------------------------------------------------------
 
 type ecsTaskDef struct {
-	Family               string         `json:"family"`
-	CPU                  string         `json:"cpu,omitempty"`
-	Memory               string         `json:"memory,omitempty"`
-	ContainerDefinitions []ecsContainer `json:"containerDefinitions"`
-	Volumes              []ecsVolume    `json:"volumes,omitempty"`
+	Family                  string         `json:"family"`
+	CPU                     string         `json:"cpu,omitempty"`
+	Memory                  string         `json:"memory,omitempty"`
+	NetworkMode             string         `json:"networkMode,omitempty"`
+	RequiresCompatibilities []string       `json:"requiresCompatibilities,omitempty"`
+	ExecutionRoleArn        string         `json:"executionRoleArn,omitempty"`
+	TaskRoleArn             string         `json:"taskRoleArn,omitempty"`
+	ContainerDefinitions    []ecsContainer `json:"containerDefinitions"`
+	Volumes                 []ecsVolume    `json:"volumes,omitempty"`
 }
 type ecsContainer struct {
 	Name                   string            `json:"name"`
