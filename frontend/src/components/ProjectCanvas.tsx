@@ -12,7 +12,7 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {Maximize2, Minus, Plus, PlusCircle, Settings} from 'lucide-react';
+import {FileUp, Maximize2, Minus, Plus, PlusCircle, Settings} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
@@ -36,6 +36,7 @@ import NodeDetailPanel from './NodeDetailPanel';
 import VolumeDetailPanel from './VolumeDetailPanel';
 import ResizablePanel from './ResizablePanel';
 import CreateServiceDialog from './CreateServiceDialog';
+import ImportConfigDialog from './ImportConfigDialog';
 import {parseVolumeEntries, type VolumeEntry} from './VolumeEditor';
 import {
     CanvasSelectionContext,
@@ -138,6 +139,7 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
     const [volumePendingByNode, setVolumePendingByNode] = useState<Record<string, boolean>>({});
     const [managedVolumesByNode, setManagedVolumesByNode] = useState<Record<string, deploy.ManagedVolume[]>>({});
     const [showCreate, setShowCreate] = useState(false);
+    const [showImport, setShowImport] = useState(false);
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
@@ -562,6 +564,34 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
         setSelectedNodeId(node.id);
     };
 
+    const handleImported = (imported: store.CanvasNode[]) => {
+        if (!imported || imported.length === 0) {
+            setShowImport(false);
+            return;
+        }
+        const flowNodes: Node<ServiceNodeData>[] = imported.map((node) => ({
+            id: node.id,
+            type: 'service',
+            position: {x: node.x, y: node.y},
+            data: {
+                label: node.label,
+                // Image-mode imports auto-deploy on the backend; SSE will correct
+                // the badge either way, so start optimistic.
+                status: 'starting',
+                templateId: node.templateId || undefined,
+                volumeCount: 0,
+            },
+        }));
+        setServiceNodes((prev) => {
+            const next = [...prev, ...flowNodes];
+            refreshVolumeMounts(next.map((n) => n.id));
+            return next;
+        });
+        onServicesChanged?.();
+        setShowImport(false);
+        setSelectedNodeId(imported[imported.length - 1].id);
+    };
+
     const renameNode = useCallback((nodeId: string, newLabel: string) => {
         const node = serviceNodes.find((n) => n.id === nodeId);
         return UpdateNode(nodeId, node?.position.x ?? 0, node?.position.y ?? 0, newLabel).then(() => {
@@ -657,6 +687,9 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                             <Settings size={15}/> Project settings
                         </button>
                     )}
+                    <button className="btn btn-ghost canvas-settings-btn" onClick={() => setShowImport(true)} title="Import services from a cloud config file">
+                        <FileUp size={15}/> Import config
+                    </button>
                     <button className="btn btn-primary canvas-add-btn" onClick={openCreate}>
                         <PlusCircle size={15}/> Add Service
                     </button>
@@ -724,6 +757,16 @@ export default function ProjectCanvas({project, onServicesChanged, initialVolume
                     position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
                     onClose={() => setShowCreate(false)}
                     onCreated={handleCreated}
+                />
+            )}
+
+            {showImport && (
+                <ImportConfigDialog
+                    mode="canvas"
+                    projectId={project.id}
+                    position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
+                    onClose={() => setShowImport(false)}
+                    onImported={handleImported}
                 />
             )}
         </div>

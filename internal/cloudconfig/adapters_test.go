@@ -254,3 +254,29 @@ func hasNote(rep Report, code string) bool {
 	}
 	return false
 }
+
+func TestCloudRunOverlayPreservesControlPlane(t *testing.T) {
+	a := &cloudRunAdapter{}
+	specs, _, _ := a.Import([]byte(sampleCloudRun))
+	spec := specs[0]
+	// Simulate a local edit: change an env value.
+	for i := range spec.Env {
+		if spec.Env[i].Key == "LOG_LEVEL" {
+			spec.Env[i].Value = "debug"
+		}
+	}
+	out, _, err := a.Overlay([]byte(sampleCloudRun), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if !strings.Contains(s, "containerConcurrency: 80") {
+		t.Errorf("overlay dropped containerConcurrency:\n%s", s)
+	}
+	if !strings.Contains(s, "autoscaling.knative.dev/maxScale") {
+		t.Errorf("overlay dropped autoscaling annotation:\n%s", s)
+	}
+	if !strings.Contains(s, "debug") {
+		t.Errorf("overlay did not apply the env edit:\n%s", s)
+	}
+}

@@ -111,6 +111,18 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	runtimeValues["DRAFT_PROJECT_NAME"] = in.ProjectName
 	runtimeValues["DRAFT_ENVIRONMENT"] = environment
 
+	// Target-engine profile: inject the platform-conventional runtime vars the
+	// target cloud would provide (e.g. PORT/K_SERVICE for Cloud Run) so a service
+	// imported from or headed to that platform behaves the same locally. An
+	// explicit user value for the same key wins (we only fill gaps).
+	if settings, err := e.loadEffectiveSettings(in.NodeID); err == nil {
+		for k, v := range targetProfileEnv(settings["target_engine"], in) {
+			if _, exists := runtimeValues[k]; !exists {
+				runtimeValues[k] = v
+			}
+		}
+	}
+
 	keys := make([]string, 0, len(runtimeValues))
 	for key := range runtimeValues {
 		keys = append(keys, key)

@@ -36,12 +36,43 @@ func (e *Engine) ExportConfig(nodeID, format string) (*ExportResult, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Round-trip: if this node was imported from the same format, overlay the
+	// current contract onto the original document so control-plane blocks Draft
+	// does not model (autoscaling, IAM, ingress) survive the export.
+	settings, _ := e.store.EffectiveNodeSettings(nodeID)
+	if ov, ok := adapter.(cloudconfig.Overlayer); ok &&
+		settings["source_config_format"] == format && settings["source_config"] != "" {
+		out, r2, oerr := ov.Overlay([]byte(settings["source_config"]), spec)
+		if oerr == nil {
+			rep.Merge(r2)
+			rep.Add(cloudconfig.KindInfo, "round_trip", "",
+				"Exported by overlaying your changes onto the original config; unmapped platform settings were preserved.")
+			return &ExportResult{Format: format, Files: []ExportedFile{{Name: primaryFileName(format), Content: string(out)}}, Report: rep}, nil
+		}
+	}
+
 	files, r2, err := adapter.Export([]cloudconfig.ServiceSpec{spec})
 	if err != nil {
 		return nil, err
 	}
 	rep.Merge(r2)
 	return &ExportResult{Format: format, Files: toExportedFiles(files), Report: rep}, nil
+}
+
+// primaryFileName is the conventional single-service filename per format, used
+// for the overlay round-trip path.
+func primaryFileName(format string) string {
+	switch format {
+	case "cloudrun":
+		return "service.yaml"
+	case "ecs":
+		return "taskdef.json"
+	case "containerapps":
+		return "containerapp.yaml"
+	default:
+		return "docker-compose.yml"
+	}
 }
 
 // ExportProjectConfig serializes every node in a project. Compose yields a

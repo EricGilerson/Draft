@@ -354,7 +354,7 @@ func specHealthToECS(h *HealthSpec) *ecsHealthCheck {
 	if h.Kind == HealthHTTP {
 		cmd = []string{"CMD-SHELL", fmt.Sprintf("curl -f http://127.0.0.1:%d%s || exit 1", h.Port, h.Path)}
 	} else if len(cmd) > 0 {
-		cmd = append([]string{"CMD-SHELL", strings.Join(cmd, " ")})
+		cmd = []string{"CMD-SHELL", strings.Join(cmd, " ")}
 	}
 	hc := &ecsHealthCheck{Command: cmd, Retries: h.Retries}
 	hc.Interval = secondsFromDuration(h.Interval)

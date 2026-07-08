@@ -8,6 +8,7 @@ import DockerIndicator from './components/DockerIndicator';
 import ActivityTicker from './components/ActivityTicker';
 import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
+import ImportConfigDialog from './components/ImportConfigDialog';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog';
 import EmptyState from './components/EmptyState';
 import {decorateProjects} from './lib/dashboardData';
@@ -30,6 +31,7 @@ function App() {
     const [servicesByProject, setServicesByProject] = useState<Record<number, main.ProjectService[]>>({});
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [importOpen, setImportOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
@@ -192,6 +194,7 @@ function App() {
                                 loading={loading}
                                 projects={summaries}
                                 onCreateProject={() => setDialogOpen(true)}
+                                onImportProject={() => setImportOpen(true)}
                                 onOpenProject={openProject}
                                 onOpenProjectSettings={openProjectSettings}
                             />
@@ -224,6 +227,23 @@ function App() {
                 <CreateProjectDialog
                     onClose={() => setDialogOpen(false)}
                     onCreated={handleProjectCreated}
+                />
+            )}
+
+            {importOpen && (
+                <ImportConfigDialog
+                    mode="project"
+                    onClose={() => setImportOpen(false)}
+                    onImported={(projectId) => {
+                        setImportOpen(false);
+                        refreshProjects().then(() => {
+                            const project = projectsRef.current.find((p) => p.id === projectId);
+                            if (project) {
+                                setSelectedProject(project);
+                                setView('projects');
+                            }
+                        });
+                    }}
                 />
             )}
 

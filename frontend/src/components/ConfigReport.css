@@ -1,0 +1,78 @@
+.config-report {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.config-report-empty {
+    color: var(--text-secondary, #8a8f98);
+    font-size: 13px;
+    margin: 0;
+}
+
+.config-note-group {
+    border: 1px solid var(--border, #2a2d34);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface-2, #1a1c20);
+}
+
+.config-note-group-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border, #2a2d34);
+}
+
+.config-note-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.config-note-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.config-note-list li {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text-secondary, #b6bac2);
+}
+
+.config-note-field {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.07);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.config-note-manual .config-note-group-header {
+    color: #f5b544;
+}
+.config-note-transformed .config-note-group-header {
+    color: #56a3f5;
+}
+.config-note-ignored .config-note-group-header {
+    color: #9aa0aa;
+}
+.config-note-info .config-note-group-header {
+    color: #7d8590;
+}

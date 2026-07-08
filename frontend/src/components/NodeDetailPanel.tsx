@@ -1,6 +1,7 @@
-import {X, Box, RefreshCw} from 'lucide-react';
+import {X, Box, RefreshCw, Upload} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetNode, ReapplyTemplate} from '../../wailsjs/go/main/App';
+import ExportConfigDialog from './ExportConfigDialog';
 import {store} from '../../wailsjs/go/models';
 import OverviewTab from './OverviewTab';
 import DeploymentsTab from './DeploymentsTab';
@@ -55,6 +56,7 @@ function NodeDetailPanelBody({
     const [renameError, setRenameError] = useState<string | null>(null);
     const [templateId, setTemplateId] = useState<number>(0);
     const [reapplying, setReapplying] = useState(false);
+    const [showExport, setShowExport] = useState(false);
     const [reapplyError, setReapplyError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
     const {isSessionDirty, discardSessionDraft} = useServiceConfigEditor();
@@ -159,6 +161,14 @@ function NodeDetailPanelBody({
                 <div className="node-detail-header-actions">
                     <button
                         className="btn btn-ghost node-detail-reapply"
+                        onClick={() => setShowExport(true)}
+                        title="Export this service to a cloud config format"
+                    >
+                        <Upload size={13}/>
+                        Export
+                    </button>
+                    <button
+                        className="btn btn-ghost node-detail-reapply"
                         onClick={handleReapply}
                         disabled={!templateId || reapplying}
                         title={templateId ? 'Re-apply this service\u2019s template defaults' : 'No template linked to this service'}
@@ -205,6 +215,9 @@ function NodeDetailPanelBody({
                 )}
             </div>
             <ServiceDraftBar onStaged={onServicesChanged} onDeploy={onServicesChanged} />
+            {showExport && (
+                <ExportConfigDialog nodeId={nodeId} label={nodeLabel} onClose={() => setShowExport(false)}/>
+            )}
         </div>
     );
 }

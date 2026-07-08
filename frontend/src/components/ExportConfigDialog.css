@@ -1,0 +1,83 @@
+.export-config {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 520px;
+    max-width: 640px;
+}
+
+.export-config-formats {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.export-config-format {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border, #2a2d34);
+    background: transparent;
+    color: var(--text-secondary, #8a8f98);
+    cursor: pointer;
+}
+.export-config-format.active {
+    border-color: #56a3f5;
+    color: #56a3f5;
+    background: rgba(86, 163, 245, 0.1);
+}
+
+.export-config-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.export-config-tab {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 5px;
+    border: 1px solid var(--border, #2a2d34);
+    background: transparent;
+    color: var(--text-secondary, #8a8f98);
+    cursor: pointer;
+}
+.export-config-tab.active {
+    color: var(--text, #e6e8eb);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.export-config-code {
+    margin: 0;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--surface-2, #131518);
+    border: 1px solid var(--border, #2a2d34);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11.5px;
+    line-height: 1.5;
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre;
+}
+
+.export-config-loading,
+.export-config-saved {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-secondary, #8a8f98);
+    margin: 0;
+}
+.export-config-saved {
+    color: #7ac87a;
+}
+
+.export-config-report h4 {
+    margin: 0 0 8px 0;
+    font-size: 12.5px;
+    font-weight: 600;
+}
