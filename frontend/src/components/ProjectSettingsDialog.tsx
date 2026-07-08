@@ -25,8 +25,6 @@ type EditorMode =
     | {kind: 'add'}
     | {kind: 'edit'; entry: store.ProjectEnvVar};
 
-const SCOPES = ['runtime', 'build', 'both'];
-
 export default function ProjectSettingsDialog({project, onClose, onProjectUpdated, onProjectDeleted, onOpenSecrets}: ProjectSettingsDialogProps) {
     const [name, setName] = useState(project.name);
     const [description, setDescription] = useState(project.description || '');
@@ -148,7 +146,6 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                                 <div key={v.key} className="secrets-row">
                                     <div className="secrets-row-main">
                                         <span className="secrets-key">{v.key}</span>
-                                        <span className="secrets-scope">{v.scope || 'runtime'}</span>
                                     </div>
                                     <div className="secrets-row-actions">
                                         <button type="button" className="btn btn-ghost" onClick={() => setEditor({kind: 'edit', entry: v})} title="Edit">
@@ -205,7 +202,6 @@ function ProjectValueEditorDialog({projectId, mode, onClose, onSaved}: {
     const isAdd = mode.kind === 'add';
     const [key, setKey] = useState(mode.kind === 'edit' ? mode.entry.key : '');
     const [value, setValue] = useState(mode.kind === 'edit' ? mode.entry.value : '');
-    const [scope, setScope] = useState(mode.kind === 'edit' ? (mode.entry.scope || 'runtime') : 'runtime');
     const [revealed, setRevealed] = useState(false);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
@@ -232,7 +228,7 @@ function ProjectValueEditorDialog({projectId, mode, onClose, onSaved}: {
         setSaving(true);
         setError('');
         try {
-            await SetProjectEnvVar(projectId, trimmedKey, value, scope, false);
+            await SetProjectEnvVar(projectId, trimmedKey, value, '', false);
             onSaved();
             if (!isAdd) {
                 loadUsages();
@@ -288,13 +284,6 @@ function ProjectValueEditorDialog({projectId, mode, onClose, onSaved}: {
                             {revealed ? <EyeOff size={14}/> : <Eye size={14}/>}
                         </button>
                     </div>
-                </div>
-
-                <div className="form-field">
-                    <label className="form-label">Scope</label>
-                    <select className="input select-styled" value={scope} onChange={(e) => setScope(e.target.value)}>
-                        {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
                 </div>
 
                 <div className="secret-editor-actions">

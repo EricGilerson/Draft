@@ -1413,11 +1413,11 @@ export namespace store {
 	}
 	
 	export class EnvVarStageUpsert {
-	    Key: string;
-	    Value: string;
-	    Scope: string;
-	    Source: string;
-	    EnvFile: string;
+	    key: string;
+	    value: string;
+	    scope: string;
+	    source: string;
+	    envFile: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new EnvVarStageUpsert(source);
@@ -1425,11 +1425,11 @@ export namespace store {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.Key = source["Key"];
-	        this.Value = source["Value"];
-	        this.Scope = source["Scope"];
-	        this.Source = source["Source"];
-	        this.EnvFile = source["EnvFile"];
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.source = source["source"];
+	        this.envFile = source["envFile"];
 	    }
 	}
 	export class Project {

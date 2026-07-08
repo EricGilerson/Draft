@@ -80,3 +80,49 @@ export function envDraftHasChanges(
     const normalized = normalizeEnvDraft(draft, committed);
     return Object.keys(normalized.upserts).length > 0 || normalized.deleteKeys.length > 0;
 }
+
+// effectiveEnvVarList merges applied vars, staged rows, and the in-session draft
+// into the list the Variables tab should render and edit against.
+export function effectiveEnvVarList(
+    nodeId: string,
+    applied: store.EnvVar[],
+    stagedChanges: deploy.StagedEnvVarChange[],
+    draft: EnvDraftState,
+): store.EnvVar[] {
+    const byKey = new Map<string, store.EnvVar>();
+    for (const v of applied) {
+        byKey.set(v.key, v);
+    }
+    for (const ch of stagedChanges) {
+        if (ch.delete) {
+            byKey.delete(ch.key);
+            continue;
+        }
+        const existing = byKey.get(ch.key);
+        byKey.set(ch.key, store.EnvVar.createFrom({
+            nodeId,
+            key: ch.key,
+            value: ch.value,
+            scope: ch.scope || existing?.scope || 'runtime',
+            source: existing?.source || 'manual',
+            secret: existing?.secret,
+            envFile: existing?.envFile,
+        }));
+    }
+    for (const key of draft.deleteKeys) {
+        byKey.delete(key);
+    }
+    for (const upsert of Object.values(draft.upserts)) {
+        const existing = byKey.get(upsert.key);
+        byKey.set(upsert.key, store.EnvVar.createFrom({
+            nodeId,
+            key: upsert.key,
+            value: upsert.value,
+            scope: upsert.scope || existing?.scope || 'runtime',
+            source: existing?.source || 'manual',
+            secret: existing?.secret,
+            envFile: existing?.envFile,
+        }));
+    }
+    return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+}

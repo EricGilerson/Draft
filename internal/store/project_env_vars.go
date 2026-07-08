@@ -1,7 +1,6 @@
 package store
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -15,23 +14,14 @@ func (s *Store) ListProjectEnvVars(projectID uint) ([]ProjectEnvVar, error) {
 	return vars, nil
 }
 
-// SetProjectEnvVar upserts a single project-level env var. An empty value is
-// allowed (and meaningful). The key is trimmed; a blank key is rejected.
+// SetProjectEnvVar upserts a shared project value (key + value only). Scope is
+// determined by the service variable that references {{project.KEY}}.
 func (s *Store) SetProjectEnvVar(projectID uint, key, value, scope string, secret bool) error {
 	key = strings.TrimSpace(key)
 	if err := validateEnvKey(key); err != nil {
 		return err
 	}
-	scope = strings.TrimSpace(scope)
-	if scope == "" {
-		scope = EnvScopeRuntime
-	}
-	switch scope {
-	case EnvScopeRuntime, EnvScopeBuild, EnvScopeBoth:
-	default:
-		return fmt.Errorf("invalid env scope %q", scope)
-	}
-	v := ProjectEnvVar{ProjectID: projectID, Key: key, Value: value, Scope: scope, Secret: secret}
+	v := ProjectEnvVar{ProjectID: projectID, Key: key, Value: value, Scope: "", Secret: secret}
 	return s.DB.Save(&v).Error
 }
 

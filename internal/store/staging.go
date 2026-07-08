@@ -94,11 +94,11 @@ func (s *Store) ListStagedEnvVarChanges(nodeID string) ([]EnvVarStaged, error) {
 }
 
 type EnvVarStageUpsert struct {
-	Key     string
-	Value   string
-	Scope   string
-	Source  string
-	EnvFile string
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+	Scope   string `json:"scope"`
+	Source  string `json:"source"`
+	EnvFile string `json:"envFile"`
 }
 
 func (s *Store) StageEnvVarChanges(nodeID string, upserts []EnvVarStageUpsert, deleteKeys []string) error {

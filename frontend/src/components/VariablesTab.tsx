@@ -1,13 +1,14 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
 import {
-    GetEnvVars, SetEnvVar, SetNodeSetting, SelectFile,
+    SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
     InspectDockerfileBuildInfo, ListProjectEnvVars, ListAppSecrets,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {committedEnvByKey, effectiveEnvVarList} from '../lib/envStaging';
 import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
 import Dialog from './Dialog';
 import './VariablesTab.css';
@@ -117,58 +118,6 @@ function RuntimeVarsSection() {
     );
 }
 
-function ProjectVarsSection({vars, serviceKeys, loading}: {
-    vars: store.ProjectEnvVar[];
-    serviceKeys: Set<string>;
-    loading: boolean;
-}) {
-    const [expanded, setExpanded] = useState(true);
-
-    if (!loading && vars.length === 0) {
-        return null;
-    }
-
-    return (
-        <div className="project-vars-section">
-            <button className="runtime-vars-toggle" onClick={() => setExpanded(!expanded)}>
-                {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
-                <span>Project references{vars.length > 0 ? ` (${vars.length})` : ''}</span>
-            </button>
-            {expanded && (
-                <div className="project-vars-list">
-                    <p className="runtime-vars-hint">
-                        Reference shared project values using {`{{project.KEY}}`}. Use the Link button or type to insert a token.
-                    </p>
-                    {loading && <div className="variables-empty">Loading project variables…</div>}
-                    {!loading && vars.map((v) => {
-                        const definedLocally = serviceKeys.has(v.key);
-                        const token = `{{project.${v.key}}}`;
-                        return (
-                            <div key={v.key} className={`project-var-row ${definedLocally ? 'project-var-row--overridden' : ''}`}>
-                                <div className="var-key-cell">
-                                    <div className="var-key" title={v.key}>{v.key}</div>
-                                    <div className="var-source var-source--project">project var</div>
-                                </div>
-                                <div className="var-value-col">
-                                    <div className="var-value project-var-value">
-                                        <code className="project-var-token">{token}</code>
-                                        <span className="project-var-scope" title="Variable scope">{v.scope || 'runtime'}</span>
-                                        {definedLocally && (
-                                            <span className="project-var-override" title="This service also defines its own variable with the same key">
-                                                local key too
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-        </div>
-    );
-}
-
 function VarAutocomplete({autocomplete, linkTargets, appSecrets, projectVars, onSelectService, onSelectAttr, onSelectSecret, onSelectProject}: {
     autocomplete: AutocompleteState;
     linkTargets: deploy.ReferenceTarget[];
@@ -243,20 +192,19 @@ function VarAutocomplete({autocomplete, linkTargets, appSecrets, projectVars, on
 export default function VariablesTab({nodeId, projectId, projectPath}: VariablesTabProps) {
     const {
         appliedSettings,
+        appliedEnvVars,
         stagedEnvChanges,
+        envDraft,
         setEnvDraftUpsert,
         setEnvDraftDelete,
         isSessionDirty,
         hasStagedChanges,
         reload,
+        loading: configLoading,
     } = useServiceConfigEditor();
-    const [vars, setVars] = useState<store.EnvVar[]>([]);
-    const [originals, setOriginals] = useState<Record<string, string>>({});
-    const [edits, setEdits] = useState<Record<string, string>>({});
     const [visible, setVisible] = useState<Record<string, boolean>>({});
     const [newKey, setNewKey] = useState('');
     const [newValue, setNewValue] = useState('');
-    const [loading, setLoading] = useState(true);
     const [envFile, setEnvFile] = useState('');
     const [serviceRoot, setServiceRoot] = useState('');
     const [syncing, setSyncing] = useState(false);
@@ -271,50 +219,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
     const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
-    const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
-    const applyStagedEnv = useCallback((list: store.EnvVar[]) => {
-        let out = [...list];
-        for (const ch of stagedEnvChanges) {
-            if (ch.delete) {
-                out = out.filter((x) => x.key !== ch.key);
-                continue;
-            }
-            const existing = out.find((x) => x.key === ch.key);
-            if (existing) {
-                out = out.map((x) => x.key === ch.key
-                    ? store.EnvVar.createFrom({...x, value: ch.value, scope: ch.scope || x.scope})
-                    : x);
-            } else {
-                out.push(store.EnvVar.createFrom({
-                    nodeId,
-                    key: ch.key,
-                    value: ch.value,
-                    scope: ch.scope || 'runtime',
-                    source: 'manual',
-                }));
-            }
-        }
-        out.sort((a, b) => a.key.localeCompare(b.key));
-        return out;
-    }, [nodeId, stagedEnvChanges]);
+    const committedEnv = useMemo(
+        () => committedEnvByKey(appliedEnvVars, stagedEnvChanges),
+        [appliedEnvVars, stagedEnvChanges],
+    );
 
-    const load = async () => {
-        try {
-            const v = await GetEnvVars(nodeId);
-            const list = applyStagedEnv(v || []);
-            setVars(list);
-            const map: Record<string, string> = {};
-            list.forEach((x: store.EnvVar) => { map[x.key] = x.value; });
-            setOriginals(map);
-            setEdits({});
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const vars = useMemo(
+        () => effectiveEnvVarList(nodeId, appliedEnvVars, stagedEnvChanges, envDraft),
+        [nodeId, appliedEnvVars, stagedEnvChanges, envDraft],
+    );
 
     const loadPreviews = async () => {
         try {
@@ -353,8 +268,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setProjectVars(await ListProjectEnvVars(projectId) || []);
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoadingProjectVars(false);
         }
     };
 
@@ -367,7 +280,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     const refreshAll = async () => {
-        await load();
+        await reload();
         await loadProjectVars();
         await loadAppSecrets();
         await loadPreviews();
@@ -393,13 +306,20 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     useEffect(() => {
-        setLoadingProjectVars(true);
-        void load();
         void loadProjectVars();
         void loadAppSecrets();
         void loadPreviews();
         void loadLinkTargets();
+        void loadReferenceIssues();
     }, [nodeId, projectId]);
+
+    useEffect(() => {
+        if (!isSessionDirty) {
+            void loadPreviews();
+            void loadLinkTargets();
+            void loadReferenceIssues();
+        }
+    }, [stagedEnvChanges, isSessionDirty]);
 
     // The Dockerfile facts only change when the node or its Dockerfile/service
     // root settings change, so keep this off the hot per-keystroke path.
@@ -411,14 +331,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         () => computeBuildEnvWarnings(vars, buildInfo),
         [vars, buildInfo],
     );
-
-    const serviceVarKeys = useMemo(() => new Set(vars.map((v) => v.key)), [vars]);
-
-    useEffect(() => {
-        if (!isSessionDirty) {
-            void load();
-        }
-    }, [stagedEnvChanges, isSessionDirty]);
 
     useEffect(() => {
         void loadSettings();
@@ -455,33 +367,20 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         setPreviewVisible(prev => ({...prev, [key]: !prev[key]}));
     };
 
-    const stageEdit = (key: string, value: string) => {
-        const hasOriginal = Object.prototype.hasOwnProperty.call(originals, key);
-        const original = hasOriginal ? originals[key] : null;
+    const stageEdit = useCallback((key: string, value: string) => {
+        const committed = committedEnv[key];
         const variable = vars.find((x) => x.key === key);
-        setEdits(prev => {
-            const next = {...prev};
-            if (hasOriginal && value === original) {
-                delete next[key];
-            } else {
-                next[key] = value;
-            }
-            return next;
-        });
-        if (hasOriginal && value === original) {
+        const scope = variable?.scope || committed?.scope || 'runtime';
+        if (committed && value === committed.value && scope === committed.scope) {
             setEnvDraftDelete(key, false);
             return;
         }
-        setEnvDraftUpsert({
-            key,
-            value,
-            scope: variable?.scope || 'runtime',
-        });
-    };
+        setEnvDraftUpsert({key, value, scope});
+    }, [committedEnv, vars, setEnvDraftDelete, setEnvDraftUpsert]);
 
     // getFieldValue/setFieldValue abstract over the different kinds of text
     // fields that can hold a reference token: an existing variable's value
-    // (staged into `edits`, backed by `vars`), or one of the plain strings
+    // (staged via envDraft, rendered from `vars`), or one of the plain strings
     // that aren't a store.EnvVar yet (the +Add row's value, the linker's
     // "initial value"). This lets one autocomplete/insertion implementation
     // work across all of them.
@@ -500,7 +399,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             setLinker(l => l && {...l, newTargetValue: value});
             return;
         }
-        setVars(prev => prev.map(x => x.key === fieldId ? store.EnvVar.createFrom({...x, value}) : x));
         stageEdit(fieldId, value);
     };
 
@@ -538,13 +436,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
             return;
         }
         setEnvDraftUpsert({key, value: newValue, scope: 'runtime'});
-        setVars(prev => [...prev, store.EnvVar.createFrom({
-            nodeId,
-            key,
-            value: newValue,
-            scope: 'runtime',
-            source: 'manual',
-        })]);
         setNewKey('');
         setNewValue('');
         setSyncResult(null);
@@ -554,21 +445,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const removeVar = (key: string) => {
         if (!window.confirm(`Delete ${key}? It will be removed on the next deploy.`)) return;
         setEnvDraftDelete(key, true);
-        setVars(prev => prev.filter((v) => v.key !== key));
-        setEdits(prev => {
-            const next = {...prev};
-            delete next[key];
-            return next;
-        });
     };
 
     const toggleBuildArg = (variable: store.EnvVar) => {
         const isBuildArg = variable.scope === 'build' || variable.scope === 'both';
         const nextScope = isBuildArg ? 'runtime' : 'both';
         setEnvDraftUpsert({key: variable.key, value: variable.value, scope: nextScope});
-        setVars(prev => prev.map(v =>
-            v.key === variable.key ? store.EnvVar.createFrom({...v, scope: nextScope}) : v,
-        ));
     };
 
     // --- Linker: create a reference either into an existing variable's value
@@ -742,7 +624,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 result = await ExportEnvFile(nodeId);
             }
             setSyncResult(result);
-            await load();
+            await reload();
         } catch (e: any) {
             setSyncError(typeof e === 'string' ? e : e?.message || `${action} failed`);
         } finally {
@@ -762,7 +644,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
     const canLink = linkTargets.length > 0 || appSecrets.length > 0 || projectVars.length > 0;
 
-    if (loading) {
+    if (configLoading && appliedEnvVars.length === 0 && !isSessionDirty) {
         return <div className="variables-loading">Loading...</div>;
     }
 
@@ -1008,10 +890,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                         wrap="off"
                                         spellCheck={false}
                                         onChange={e => {
-                                            const nv = [...vars];
-                                            const idx = nv.findIndex(x => x.key === v.key);
-                                            nv[idx] = store.EnvVar.createFrom({...v, value: e.target.value});
-                                            setVars(nv);
                                             stageEdit(v.key, e.target.value);
                                             handleCaretActivity(v.key, e.target);
                                         }}
@@ -1103,8 +981,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     );
                 })}
             </div>
-
-            <ProjectVarsSection vars={projectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
 
             <RuntimeVarsSection />
 

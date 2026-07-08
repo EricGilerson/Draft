@@ -41,6 +41,7 @@ type ServiceConfigEditorContextValue = {
     appliedSettings: Record<string, string>;
     stagedSettings: Record<string, string>;
     stagedEnvChanges: deploy.StagedEnvVarChange[];
+    appliedEnvVars: store.EnvVar[];
     hasStagedChanges: boolean;
     activeDeploymentStatus: string;
     draftSettings: Record<string, string>;
@@ -225,8 +226,8 @@ export function ServiceConfigEditorProvider({
                 await StageEnvVarChanges(nodeId, upserts, normalizedEnvDraft.deleteKeys);
             }
             setDraftSettings({});
-            setEnvDraft(emptyEnvDraft());
             await reload();
+            setEnvDraft(emptyEnvDraft());
         } finally {
             setStaging(false);
         }
@@ -255,6 +256,7 @@ export function ServiceConfigEditorProvider({
         appliedSettings,
         stagedSettings,
         stagedEnvChanges,
+        appliedEnvVars,
         hasStagedChanges,
         activeDeploymentStatus,
         draftSettings,
@@ -281,6 +283,7 @@ export function ServiceConfigEditorProvider({
         appliedSettings,
         stagedSettings,
         stagedEnvChanges,
+        appliedEnvVars,
         hasStagedChanges,
         activeDeploymentStatus,
         draftSettings,
