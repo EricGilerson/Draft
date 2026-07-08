@@ -3,13 +3,14 @@ import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, Link2, 
 import {
     SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
-    PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
+    PreviewEnvVars, ListReferenceTargets,
     InspectDockerfileBuildInfo, ListProjectEnvVars, ListAppSecrets,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import {committedEnvByKey, effectiveEnvVarList} from '../lib/envStaging';
 import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
+import {computeReferenceIssues} from '../lib/referenceIssues';
 import Dialog from './Dialog';
 import './VariablesTab.css';
 
@@ -213,12 +214,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
-    const [referenceIssues, setReferenceIssues] = useState<deploy.ReferenceIssue[]>([]);
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
     const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
+    const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
     const committedEnv = useMemo(
@@ -242,14 +243,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const loadLinkTargets = async () => {
         try {
             setLinkTargets(await ListReferenceTargets(nodeId) || []);
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    const loadReferenceIssues = async () => {
-        try {
-            setReferenceIssues(await ListReferenceIssues(nodeId) || []);
         } catch (e) {
             console.error(e);
         }
@@ -285,7 +278,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         await loadAppSecrets();
         await loadPreviews();
         await loadLinkTargets();
-        await loadReferenceIssues();
         await loadBuildInfo();
     };
 
@@ -306,18 +298,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     useEffect(() => {
+        setLoadingProjectVars(true);
         void loadProjectVars();
         void loadAppSecrets();
         void loadPreviews();
         void loadLinkTargets();
-        void loadReferenceIssues();
     }, [nodeId, projectId]);
 
     useEffect(() => {
         if (!isSessionDirty) {
             void loadPreviews();
             void loadLinkTargets();
-            void loadReferenceIssues();
         }
     }, [stagedEnvChanges, isSessionDirty]);
 
@@ -330,6 +321,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const buildWarnings = useMemo(
         () => computeBuildEnvWarnings(vars, buildInfo),
         [vars, buildInfo],
+    );
+
+    // Recompute reference issues against the live in-session vars (which include
+    // unsaved draft edits) so fixing an invalid @{worker.X} token clears the
+    // warning immediately, before staging. The backend ListReferenceIssues only
+    // sees applied/stored vars, so it can't reflect edits in progress.
+    const referenceIssues = useMemo(
+        () => computeReferenceIssues(vars, linkTargets, appSecrets, projectVars),
+        [vars, linkTargets, appSecrets, projectVars],
     );
 
     useEffect(() => {
