@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -12,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 )
 
 // draftBuildTagPattern matches the deterministic tag Draft assigns to images it
@@ -183,14 +186,117 @@ func (e *Engine) ListImages(ctx context.Context) ([]ImageSummary, error) {
 	return out, nil
 }
 
+// RemoveImage removes an image and waits for it to actually disappear before
+// returning, following the same pattern as removeImageAndWait (engine.go):
+// ImageRemove can report success while the image still briefly appears in
+// ImageList/ImageInspect (observed with the containerd-backed image store),
+// so a single fire-and-forget call makes deletion look flaky from the UI —
+// "succeeded" but the row and the disk usage total don't change. Conflict-class
+// errors (image still referenced by a stopped container, or by another tag)
+// are retried with force rather than surfaced immediately, since force is the
+// whole point of a user-confirmed removal from the management tab.
 func (e *Engine) RemoveImage(ctx context.Context, id string, force bool) error {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return fmt.Errorf("connect to docker: %w", err)
 	}
 	defer cli.Close()
-	_, err = cli.ImageRemove(ctx, id, image.RemoveOptions{Force: force})
-	return err
+	return removeImageAndConfirm(ctx, cli, id, force, map[string]bool{})
+}
+
+// dependentChildImagesMsg is the exact daemon error text Docker uses when an
+// image can't be deleted because another image still lists it as a parent
+// layer (daemon/images/image_delete.go, checkImageDeleteConflict). Draft's own
+// iterative rebuilds produce this constantly: each redeploy retags a new
+// image, leaving the previous build's layers behind as an untagged parent
+// that the build *before that* may still depend on. Docker documents this as a
+// "hard" conflict — force never bypasses it, only removing the dependent
+// child first does — so retrying the same call for up to 5 seconds (the old
+// behavior) was guaranteed to fail every time and just made removal look
+// hung before finally surfacing the error.
+const dependentChildImagesMsg = "image has dependent child images"
+
+// removeImageAndConfirm is the shared "remove + poll until actually gone"
+// path used by both RemoveImage and PruneImages' Draft-only branch. visited
+// guards against pathological cycles while resolving a dependency chain.
+func removeImageAndConfirm(ctx context.Context, cli *client.Client, id string, force bool, visited map[string]bool) error {
+	if visited[id] {
+		return fmt.Errorf("image %s: circular parent/child dependency while resolving images to remove first", id)
+	}
+	visited[id] = true
+
+	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
+	for {
+		_, rmErr := cli.ImageRemove(ctx, id, image.RemoveOptions{Force: force})
+		if rmErr != nil && strings.Contains(rmErr.Error(), dependentChildImagesMsg) {
+			if depErr := removeDependentImages(ctx, cli, id, visited); depErr != nil {
+				return fmt.Errorf("can't remove %s: %w", shortImageID(id), depErr)
+			}
+			lastErr = nil
+			continue // dependents are gone now; retry this image immediately
+		}
+		if rmErr != nil &&
+			!errdefs.IsNotFound(rmErr) &&
+			!errdefs.IsConflict(rmErr) &&
+			!strings.Contains(rmErr.Error(), "being used by") {
+			return rmErr
+		}
+		lastErr = rmErr
+		if _, _, err := cli.ImageInspectWithRaw(ctx, id); err != nil {
+			if errdefs.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("image %s still exists after removal", id)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// removeDependentImages finds every image that lists parentID as its parent
+// layer. A dependent that is itself untagged and unused (0 containers) is
+// just more orphaned history from the same rebuild chain — Draft removes it
+// automatically so the caller's retry of parentID can then succeed. But a
+// dependent that is still tagged, or in use by a container (running or
+// stopped), means parentID isn't orphaned history at all — something real
+// still depends on it — so removal stops there and reports exactly what's
+// blocking it rather than forcing through a tag or a live container's image.
+// Uses All:true because a dependent blocking removal is often an untagged
+// intermediate layer, not a "head" image ImageList(All:false) would return.
+func removeDependentImages(ctx context.Context, cli *client.Client, parentID string, visited map[string]bool) error {
+	list, err := cli.ImageList(ctx, image.ListOptions{All: true})
+	if err != nil {
+		return fmt.Errorf("list images to resolve dependents of %s: %w", parentID, err)
+	}
+	for _, img := range list {
+		if img.ID == parentID || img.ParentID != parentID {
+			continue
+		}
+		if len(img.RepoTags) > 0 {
+			return fmt.Errorf("still needed by %s", img.RepoTags[0])
+		}
+		if img.Containers > 0 {
+			return fmt.Errorf("still needed by a container using image %s", shortImageID(img.ID))
+		}
+		if err := removeImageAndConfirm(ctx, cli, img.ID, false, visited); err != nil {
+			return fmt.Errorf("remove dependent image %s: %w", shortImageID(img.ID), err)
+		}
+	}
+	return nil
+}
+
+func shortImageID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 // NetworkSummary is a single Docker network as seen by the Docker management
@@ -401,7 +507,7 @@ func (e *Engine) PruneImages(ctx context.Context, draftOnly bool) (PruneReport, 
 			continue
 		}
 		before, _ := cli.DiskUsage(ctx, types.DiskUsageOptions{})
-		if _, err := cli.ImageRemove(ctx, img.ID, image.RemoveOptions{}); err != nil {
+		if err := removeImageAndConfirm(ctx, cli, img.ID, false, map[string]bool{}); err != nil {
 			continue
 		}
 		after, aerr := cli.DiskUsage(ctx, types.DiskUsageOptions{})
