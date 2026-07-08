@@ -187,8 +187,11 @@ func TestHookFiresViaGit(t *testing.T) {
 		t.Fatalf("hook did not run (no log): %v", err)
 	}
 	got := string(data)
+	// The hook script normalizes backslash-separated Windows paths to forward
+	// slashes before embedding them (see toHookPath) so cygwin/MSYS2 never
+	// misparses them; compare against that same normalized form.
 	if !strings.Contains(got, "--git-hook") ||
-		!strings.Contains(got, "--repo "+repo) ||
+		!strings.Contains(got, "--repo "+toHookPath(repo)) ||
 		!strings.Contains(got, "--event post-commit") {
 		t.Fatalf("hook invoked with unexpected args: %q", got)
 	}
