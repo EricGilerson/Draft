@@ -530,3 +530,71 @@
     color: var(--text-faint);
     font-size: 0.68rem;
 }
+
+.project-vars-section {
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+}
+
+.project-vars-list {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.project-var-row {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    align-items: start;
+    gap: 12px;
+    font-size: 0.76rem;
+}
+
+.project-var-row--overridden {
+    opacity: 0.72;
+}
+
+.var-source--project {
+    color: #7a9ec8;
+}
+
+.project-var-value {
+    align-items: center;
+}
+
+.project-var-value-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.project-var-scope {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 6px;
+    height: 27px;
+    line-height: 27px;
+    text-transform: lowercase;
+}
+
+.project-var-secret {
+    display: grid;
+    place-items: center;
+    width: 27px;
+    height: 27px;
+    flex: 0 0 27px;
+    color: var(--red);
+}
+
+.project-var-override {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--yellow, #d4a72c);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}

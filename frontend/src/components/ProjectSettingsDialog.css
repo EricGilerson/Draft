@@ -40,11 +40,28 @@
     overflow: auto;
 }
 
-.var-scope-select {
+/* Compact platform selects — inherit chevron/appearance from select.input.select-styled */
+.project-settings-var-add select.input.select-styled,
+.project-settings-vars .var-scope-select.input.select-styled {
     width: auto;
-    min-width: 80px;
-    padding: 4px 8px;
-    font-size: 0.75rem;
+    min-width: 88px;
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    background-color: var(--surface-2);
+    border-radius: 4px;
+    padding: 0 24px 0 8px;
+    box-shadow: none;
+}
+
+.project-settings-var-add select.input.select-styled {
+    height: 28px !important;
+    min-height: 28px !important;
+}
+
+.project-settings-vars .var-scope-select.input.select-styled {
+    height: 27px !important;
+    min-height: 27px !important;
 }
 
 .project-settings-danger {

@@ -4,7 +4,7 @@ import {
     GetEnvVars, SetEnvVar, SetEnvVarSecret, RotateEnvSecret, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets, ListReferenceIssues,
-    InspectDockerfileBuildInfo,
+    InspectDockerfileBuildInfo, ListProjectEnvVars,
 } from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
@@ -95,6 +95,78 @@ function RuntimeVarsSection() {
     );
 }
 
+function ProjectVarsSection({vars, serviceKeys, loading}: {
+    vars: store.ProjectEnvVar[];
+    serviceKeys: Set<string>;
+    loading: boolean;
+}) {
+    const [expanded, setExpanded] = useState(true);
+    const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+
+    if (!loading && vars.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className="project-vars-section">
+            <button className="runtime-vars-toggle" onClick={() => setExpanded(!expanded)}>
+                {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                <span>Shared project variables{vars.length > 0 ? ` (${vars.length})` : ''}</span>
+            </button>
+            {expanded && (
+                <div className="project-vars-list">
+                    <p className="runtime-vars-hint">
+                        These defaults are injected into every service at deploy time. A service variable with the same key overrides the project value. Edit them in Project settings.
+                    </p>
+                    {loading && <div className="variables-empty">Loading project variables…</div>}
+                    {!loading && vars.map((v) => {
+                        const overridden = serviceKeys.has(v.key);
+                        const isRevealed = !!revealed[v.key];
+                        return (
+                            <div key={v.key} className={`project-var-row ${overridden ? 'project-var-row--overridden' : ''}`}>
+                                <div className="var-key-cell">
+                                    <div className="var-key" title={v.key}>{v.key}</div>
+                                    <div className="var-source var-source--project">project</div>
+                                </div>
+                                <div className="var-value-col">
+                                    <div className="var-value project-var-value">
+                                        <input
+                                            className="var-value-mask project-var-value-input"
+                                            type={isRevealed ? 'text' : 'password'}
+                                            value={v.value}
+                                            disabled
+                                            readOnly
+                                        />
+                                        <button
+                                            type="button"
+                                            className="var-toggle"
+                                            onClick={() => setRevealed((r) => ({...r, [v.key]: !r[v.key]}))}
+                                            title={isRevealed ? 'Hide value' : 'Show value'}
+                                        >
+                                            {isRevealed ? <EyeOff size={14}/> : <Eye size={14}/>}
+                                        </button>
+                                        <span className="project-var-scope" title="Variable scope">{v.scope || 'runtime'}</span>
+                                        {v.secret && (
+                                            <span className="project-var-secret" title="Secret: excluded from .env export by default">
+                                                <KeyRound size={13}/>
+                                            </span>
+                                        )}
+                                        {overridden && (
+                                            <span className="project-var-override" title="This service defines its own variable with the same key, which wins at deploy time">
+                                                overridden
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 function VarAutocomplete({autocomplete, linkTargets, onSelectService, onSelectAttr}: {
     autocomplete: AutocompleteState;
     linkTargets: deploy.ReferenceTarget[];
@@ -164,6 +236,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
+    const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
+    const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
     const applyStagedEnv = useCallback((list: store.EnvVar[]) => {
@@ -240,8 +314,19 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         }
     };
 
+    const loadProjectVars = async () => {
+        try {
+            setProjectVars(await ListProjectEnvVars(projectId) || []);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoadingProjectVars(false);
+        }
+    };
+
     const refreshAll = async () => {
         await load();
+        await loadProjectVars();
         await loadPreviews();
         await loadLinkTargets();
         await loadReferenceIssues();
@@ -265,10 +350,12 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     useEffect(() => {
+        setLoadingProjectVars(true);
         void load();
+        void loadProjectVars();
         void loadPreviews();
         void loadLinkTargets();
-    }, [nodeId]);
+    }, [nodeId, projectId]);
 
     // The Dockerfile facts only change when the node or its Dockerfile/service
     // root settings change, so keep this off the hot per-keystroke path.
@@ -280,6 +367,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         () => computeBuildEnvWarnings(vars, buildInfo),
         [vars, buildInfo],
     );
+
+    const serviceVarKeys = useMemo(() => new Set(vars.map((v) => v.key)), [vars]);
 
     useEffect(() => {
         if (!isSessionDirty) {
@@ -904,6 +993,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                     );
                 })}
             </div>
+
+            <ProjectVarsSection vars={projectVars} serviceKeys={serviceVarKeys} loading={loadingProjectVars} />
 
             <RuntimeVarsSection />
 

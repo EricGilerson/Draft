@@ -66,15 +66,23 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		if err != nil {
 			return fmt.Errorf("%s: %w", v.Key, err)
 		}
-		runtimeValues[v.Key] = value
+		switch v.Scope {
+		case store.EnvScopeRuntime, store.EnvScopeBoth:
+			runtimeValues[v.Key] = value
+		case store.EnvScopeBuild:
+			// Build-only vars must not leak into the running container. A later
+			// node-level override can also demote a project "both" var to
+			// build-only, so clear any runtime value seeded earlier.
+			delete(runtimeValues, v.Key)
+		default:
+			runtimeValues[v.Key] = value
+		}
 		if v.Scope == store.EnvScopeBuild || v.Scope == store.EnvScopeBoth {
 			buildArgs[v.Key] = &value
-		} else {
+		} else if _, ok := buildArgs[v.Key]; ok {
 			// A node var that overrides a project build-arg must also clear the
 			// build arg unless the node var itself is build-scoped.
-			if _, ok := buildArgs[v.Key]; ok && v.Scope != store.EnvScopeBuild && v.Scope != store.EnvScopeBoth {
-				delete(buildArgs, v.Key)
-			}
+			delete(buildArgs, v.Key)
 		}
 		return nil
 	}

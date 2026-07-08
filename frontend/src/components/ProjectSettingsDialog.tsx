@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {AlertTriangle, KeyRound, Plus, RotateCw, Trash2} from 'lucide-react';
+import {AlertTriangle, Eye, EyeOff, KeyRound, Plus, RotateCw, Trash2} from 'lucide-react';
 import {
     ListProjectEnvVars, SetProjectEnvVar, DeleteProjectEnvVar,
     SetProjectEnvVarSecret, RotateProjectEnvSecret,
@@ -7,6 +7,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
+import './VariablesTab.css';
 import './ProjectSettingsDialog.css';
 
 type ProjectSettingsDialogProps = {
@@ -166,7 +167,7 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                     <div className="var-add project-settings-var-add">
                         <input placeholder="KEY" value={newKey} onChange={(e) => setNewKey(e.target.value)} />
                         <input placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
-                        <select value={newScope} onChange={(e) => setNewScope(e.target.value)}>
+                        <select className="input select-styled" value={newScope} onChange={(e) => setNewScope(e.target.value)}>
                             {SCOPES.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                         <button className="btn btn-primary" onClick={addVar} disabled={!newKey.trim()}>
@@ -189,11 +190,11 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                                             value={v.value}
                                             onChange={(e) => updateValue(v.key, e.target.value)}
                                         />
-                                        <button className="var-toggle" onClick={() => setRevealed((r) => ({...r, [v.key]: !r[v.key]}))} title={revealed[v.key] ? 'Hide' : 'Show'}>
-                                            {revealed[v.key] ? 'Hide' : 'Show'}
+                                        <button type="button" className="var-toggle" onClick={() => setRevealed((r) => ({...r, [v.key]: !r[v.key]}))} title={revealed[v.key] ? 'Hide value' : 'Show value'}>
+                                            {revealed[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
                                         </button>
                                         <select
-                                            className="var-scope-select"
+                                            className="input select-styled var-scope-select"
                                             value={v.scope || 'runtime'}
                                             onChange={(e) => updateScope(v.key, e.target.value)}
                                             title="Variable scope"

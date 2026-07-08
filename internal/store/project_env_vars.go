@@ -1,6 +1,9 @@
 package store
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // ListProjectEnvVars returns the project-level env vars for projectID, ordered
 // by key for stable display.
@@ -19,8 +22,14 @@ func (s *Store) SetProjectEnvVar(projectID uint, key, value, scope string, secre
 	if err := validateEnvKey(key); err != nil {
 		return err
 	}
+	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		scope = EnvScopeRuntime
+	}
+	switch scope {
+	case EnvScopeRuntime, EnvScopeBuild, EnvScopeBoth:
+	default:
+		return fmt.Errorf("invalid env scope %q", scope)
 	}
 	v := ProjectEnvVar{ProjectID: projectID, Key: key, Value: value, Scope: scope, Secret: secret}
 	return s.DB.Save(&v).Error
