@@ -72,6 +72,10 @@ type ServiceNodeData = {
     health?: string;
     hostPort?: number;
     publicUrl?: string;
+    /** Linked (virtualized) service badge: e.g. "Main" */
+    linkedFromEnv?: string;
+    /** Root node id when this canvas node is a linked alias. */
+    linkedRootNodeId?: string;
 };
 
 function volumeBasename(path: string): string {
@@ -234,10 +238,16 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 if (!entry) return n;
                 const h = entry[1];
                 if (!h) return n;
+                // GetNodeHealth mirrors root status for linked aliases, so this is
+                // the durable source of truth on load — not just live SSE.
+                const status = h.status
+                    ? serviceStatusFromDeployment(h.status)
+                    : n.data.status;
                 return {
                     ...n,
                     data: {
                         ...n.data,
+                        status,
                         health: h.dockerHealth || undefined,
                         hostPort: h.hostPort || undefined,
                         publicUrl: h.publicUrl || undefined,
@@ -333,22 +343,28 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 saved.map(async (n) => {
                     let status = 'stopped';
                     let deploymentId: number | undefined;
-                    try {
-                        const deps = await GetDeployments(n.id);
-                        const dep = deps?.[0];
-                        if (dep?.status) {
-                            status = serviceStatusFromDeployment(dep.status);
-                            deploymentId = dep.id;
-                        }
-                    } catch { /* no deployment history */ }
-                    const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
                     let linkedFromEnv: string | undefined;
+                    let linkedRootNodeId: string | undefined;
                     try {
                         const link = await GetLinkedServiceInfo(n.id);
                         if (link?.isLinked) {
                             linkedFromEnv = link.rootEnvName || link.rootLabel || 'linked';
+                            linkedRootNodeId = link.rootNodeId || undefined;
                         }
                     } catch { /* not linked */ }
+                    // Linked aliases have no local deployment row — status comes from
+                    // GetNodeHealth (root-mirrored) in refreshNodeHealth below.
+                    if (!linkedRootNodeId) {
+                        try {
+                            const deps = await GetDeployments(n.id);
+                            const dep = deps?.[0];
+                            if (dep?.status) {
+                                status = serviceStatusFromDeployment(dep.status);
+                                deploymentId = dep.id;
+                            }
+                        } catch { /* no deployment history */ }
+                    }
+                    const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
                     return {
                         id: n.id,
                         type: 'service' as const,
@@ -361,6 +377,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                             icon: tpl?.icon,
                             iconColor: tpl?.color,
                             linkedFromEnv,
+                            linkedRootNodeId,
                         },
                     };
                 }),
@@ -434,25 +451,35 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
             const deploymentId: number | undefined = event?.deploymentId;
             if (!nodeId || !deployStatus) return;
             const uiStatus = serviceStatusFromDeployment(deployStatus);
-            setServiceNodes((prev) =>
-                prev.map((n) =>
-                    n.id === nodeId
-                        ? {
-                            ...n,
-                            data: (() => {
-                                const currentId = typeof n.data?.deploymentId === 'number' ? n.data.deploymentId : undefined;
-                                if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
-                                    return n.data;
-                                }
-                                return {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId};
-                            })(),
-                        }
-                        : n,
-                ),
-            );
+            // Match the event node itself, plus any linked aliases whose root
+            // is this node (root status lives on Main; aliases sit on other envs).
+            const affectedIds: string[] = [];
+            setServiceNodes((prev) => {
+                const next = prev.map((n) => {
+                    const isSelf = n.id === nodeId;
+                    const isAliasOfRoot = n.data.linkedRootNodeId === nodeId;
+                    if (!isSelf && !isAliasOfRoot) return n;
+                    affectedIds.push(n.id);
+                    if (isAliasOfRoot && !isSelf) {
+                        // Aliases have no local deployment id; only mirror status.
+                        return {...n, data: {...n.data, status: uiStatus}};
+                    }
+                    const currentId = typeof n.data?.deploymentId === 'number' ? n.data.deploymentId : undefined;
+                    if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
+                        return n;
+                    }
+                    return {
+                        ...n,
+                        data: {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId},
+                    };
+                });
+                return next;
+            });
             // Refresh health/URL once the container is up or on its way up.
             if (deployStatus === 'running' || deployStatus === 'starting' || deployStatus === 'stopped' || deployStatus === 'failed') {
-                refreshNodeHealth([nodeId]);
+                // Always include the event node; aliases get health from root via API.
+                const ids = affectedIds.length > 0 ? affectedIds : [nodeId];
+                refreshNodeHealth(ids);
             }
         });
         return unsubscribe;
