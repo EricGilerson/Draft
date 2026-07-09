@@ -352,6 +352,30 @@ func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) (
 	return out, nil
 }
 
+// ReconcileServiceLinkNetworks re-applies multi-network attachments for every
+// root that has at least one linker. Safe to call on daemon startup after
+// Docker reconcile so shared services remain reachable after a restart.
+func (e *Engine) ReconcileServiceLinkNetworks(ctx context.Context) error {
+	// Collect distinct root IDs from service_link settings across all projects.
+	var settings []store.NodeSetting
+	if err := e.store.DB.Where("key = ? AND value <> ''", SettingServiceLink).Find(&settings).Error; err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	var firstErr error
+	for _, row := range settings {
+		link := ParseServiceLink(row.Value)
+		if link == nil || seen[link.RootNodeID] {
+			continue
+		}
+		seen[link.RootNodeID] = true
+		if err := e.EnsureServiceLinkNetworks(ctx, link.RootNodeID); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 // EnsureServiceLinkNetworks multi-attaches the root container onto every linker
 // environment network with aliases matching each alias node's identity.
 func (e *Engine) EnsureServiceLinkNetworks(ctx context.Context, rootNodeID string) error {

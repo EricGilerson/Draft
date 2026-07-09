@@ -115,6 +115,11 @@ func (s *Server) Run(ctx context.Context) error {
 		if err := s.engine.Reconcile(reconcileCtx); err != nil {
 			log.Printf("[draft-daemon] reconcile: %v", err)
 		}
+		// Re-multi-attach shared (linked) roots onto linker env networks after
+		// restart so Staging consumers keep resolving shared Main services.
+		if err := s.engine.ReconcileServiceLinkNetworks(reconcileCtx); err != nil {
+			log.Printf("[draft-daemon] service-link network reconcile: %v", err)
+		}
 		cancel()
 	}
 
