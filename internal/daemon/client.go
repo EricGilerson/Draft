@@ -134,10 +134,74 @@ func (c *Client) DeleteEnvironment(ctx context.Context, environmentID uint) erro
 	return c.postJSON(ctx, "/environment/delete", map[string]uint{"environmentId": environmentID}, nil)
 }
 
-func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string) (*store.Environment, error) {
+func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice) (*store.Environment, error) {
 	var out store.Environment
-	body := map[string]any{"sourceEnvironmentId": sourceEnvironmentID, "newName": newName}
+	body := map[string]any{
+		"sourceEnvironmentId": sourceEnvironmentID,
+		"newName":             newName,
+		"choices":             choices,
+	}
 	if err := c.postJSON(ctx, "/environment/duplicate", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) PreviewEnvironmentDuplicate(ctx context.Context, sourceEnvironmentID uint) ([]deploy.StatefulServiceSummary, error) {
+	var out []deploy.StatefulServiceSummary
+	body := map[string]any{"sourceEnvironmentId": sourceEnvironmentID}
+	if err := c.postJSON(ctx, "/environment/duplicate-preview", body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetLinkedServiceInfo(ctx context.Context, nodeID string) (*deploy.LinkedServiceInfo, error) {
+	var out deploy.LinkedServiceInfo
+	if err := c.postJSON(ctx, "/service/link-info", map[string]string{"nodeId": nodeID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) PromoteLinkedService(ctx context.Context, nodeID, seed string, consistency deploy.CloneConsistency) error {
+	return c.postJSON(ctx, "/service/promote", map[string]any{
+		"nodeId": nodeID, "seed": seed, "consistency": consistency,
+	}, nil)
+}
+
+func (c *Client) UnlinkService(ctx context.Context, nodeID, become string) error {
+	return c.postJSON(ctx, "/service/unlink", map[string]any{
+		"nodeId": nodeID, "become": become,
+	}, nil)
+}
+
+func (c *Client) ListShareableRoots(ctx context.Context, projectID, excludeEnvironmentID uint) ([]deploy.RootServiceSummary, error) {
+	var out []deploy.RootServiceSummary
+	if err := c.postJSON(ctx, "/service/shareable-roots", map[string]any{
+		"projectId": projectID, "excludeEnvironmentId": excludeEnvironmentID,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) PreviewCloneVolume(ctx context.Context, targetNodeID, sourceNodeID, containerPath string) (*deploy.CloneVolumePreview, error) {
+	var out deploy.CloneVolumePreview
+	if err := c.postJSON(ctx, "/volume/clone-preview", map[string]any{
+		"targetNodeId": targetNodeID, "sourceNodeId": sourceNodeID, "containerPath": containerPath,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID, containerPath string, consistency deploy.CloneConsistency) (*deploy.CloneVolumeResult, error) {
+	var out deploy.CloneVolumeResult
+	if err := c.postJSON(ctx, "/volume/clone", map[string]any{
+		"targetNodeId": targetNodeID, "sourceNodeId": sourceNodeID,
+		"containerPath": containerPath, "consistency": consistency,
+	}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

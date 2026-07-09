@@ -240,6 +240,48 @@ export namespace container {
 
 export namespace deploy {
 	
+	export class CloneVolumePreview {
+	    sourceVolume: string;
+	    targetVolume: string;
+	    sourceSize: number;
+	    targetSize: number;
+	    sourceRunning: boolean;
+	    targetRunning: boolean;
+	    willOrphanVolume: boolean;
+	    containerPath: string;
+	    warning: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneVolumePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceVolume = source["sourceVolume"];
+	        this.targetVolume = source["targetVolume"];
+	        this.sourceSize = source["sourceSize"];
+	        this.targetSize = source["targetSize"];
+	        this.sourceRunning = source["sourceRunning"];
+	        this.targetRunning = source["targetRunning"];
+	        this.willOrphanVolume = source["willOrphanVolume"];
+	        this.containerPath = source["containerPath"];
+	        this.warning = source["warning"];
+	    }
+	}
+	export class CloneVolumeResult {
+	    newVolumeName: string;
+	    orphanedVolumeName?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneVolumeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.newVolumeName = source["newVolumeName"];
+	        this.orphanedVolumeName = source["orphanedVolumeName"];
+	    }
+	}
 	export class Connection {
 	    sourceNodeId: string;
 	    sourceKey: string;
@@ -401,6 +443,7 @@ export namespace deploy {
 	    isRunning: boolean;
 	    managedVolumeCount: number;
 	    dependents: ReferenceDependent[];
+	    activeAliases?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new DeleteServicePreview(source);
@@ -412,6 +455,7 @@ export namespace deploy {
 	        this.isRunning = source["isRunning"];
 	        this.managedVolumeCount = source["managedVolumeCount"];
 	        this.dependents = this.convertValues(source["dependents"], ReferenceDependent);
+	        this.activeAliases = source["activeAliases"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -719,6 +763,26 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class LinkedServiceInfo {
+	    isLinked: boolean;
+	    rootNodeId?: string;
+	    rootLabel?: string;
+	    rootEnvironmentId?: number;
+	    rootEnvName?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LinkedServiceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.isLinked = source["isLinked"];
+	        this.rootNodeId = source["rootNodeId"];
+	        this.rootLabel = source["rootLabel"];
+	        this.rootEnvironmentId = source["rootEnvironmentId"];
+	        this.rootEnvName = source["rootEnvName"];
+	    }
+	}
 	export class ManagedVolume {
 	    name: string;
 	    labels: Record<string, string>;
@@ -1010,6 +1074,28 @@ export namespace deploy {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class RootServiceSummary {
+	    nodeId: string;
+	    label: string;
+	    environmentId: number;
+	    envName: string;
+	    envSlug: string;
+	    templateId: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RootServiceSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.environmentId = source["environmentId"];
+	        this.envName = source["envName"];
+	        this.envSlug = source["envSlug"];
+	        this.templateId = source["templateId"];
+	    }
+	}
 	export class RunCommandResult {
 	    exitCode: number;
 	    output: string;
@@ -1087,6 +1173,22 @@ export namespace deploy {
 	        this.isRunning = source["isRunning"];
 	        this.overridden = source["overridden"];
 	        this.receivesViaInjection = source["receivesViaInjection"];
+	    }
+	}
+	export class ServiceDataChoice {
+	    sourceNodeId: string;
+	    mode: string;
+	    consistency?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceDataChoice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.mode = source["mode"];
+	        this.consistency = source["consistency"];
 	    }
 	}
 	export class ServiceMetrics {
@@ -1215,6 +1317,28 @@ export namespace deploy {
 		}
 	}
 	
+	export class StatefulServiceSummary {
+	    nodeId: string;
+	    label: string;
+	    templateId: number;
+	    volumes: string[];
+	    warningKind: string;
+	    warning: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StatefulServiceSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.templateId = source["templateId"];
+	        this.volumes = source["volumes"];
+	        this.warningKind = source["warningKind"];
+	        this.warning = source["warning"];
+	    }
+	}
 	export class VolumeOverview {
 	    name: string;
 	    labels: Record<string, string>;

@@ -17,6 +17,12 @@ func (e *Engine) DeleteEnvironment(ctx context.Context, environmentID uint) erro
 	if err != nil {
 		return err
 	}
+	// Block if any node in this env is a root still linked from elsewhere.
+	for _, n := range nodes {
+		if err := e.guardRootDelete(n.ID); err != nil {
+			return err
+		}
+	}
 	for _, n := range nodes {
 		if err := e.DeleteService(ctx, n.ID); err != nil {
 			// Keep going: a single service failing to tear down shouldn't block

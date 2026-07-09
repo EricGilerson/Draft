@@ -160,6 +160,13 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/reapply-template", s.handleReapplyTemplate)
 	mux.HandleFunc("/environment/delete", s.handleDeleteEnvironment)
 	mux.HandleFunc("/environment/duplicate", s.handleDuplicateEnvironment)
+	mux.HandleFunc("/environment/duplicate-preview", s.handlePreviewEnvironmentDuplicate)
+	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
+	mux.HandleFunc("/service/promote", s.handlePromoteLinkedService)
+	mux.HandleFunc("/service/unlink", s.handleUnlinkService)
+	mux.HandleFunc("/service/shareable-roots", s.handleListShareableRoots)
+	mux.HandleFunc("/volume/clone-preview", s.handlePreviewCloneVolume)
+	mux.HandleFunc("/volume/clone", s.handleCloneVolumeData)
 	mux.HandleFunc("/rollback", s.handleRollback)
 	mux.HandleFunc("/deployments/rollback-eligible", s.handleRollbackEligible)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
@@ -306,18 +313,129 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceEnvironmentID uint   `json:"sourceEnvironmentId"`
-		NewName             string `json:"newName"`
+		SourceEnvironmentID uint                       `json:"sourceEnvironmentId"`
+		NewName             string                     `json:"newName"`
+		Choices             []deploy.ServiceDataChoice `json:"choices"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	env, err := s.engine.DuplicateEnvironment(req.SourceEnvironmentID, req.NewName)
+	env, err := s.engine.DuplicateEnvironmentWithChoices(r.Context(), req.SourceEnvironmentID, req.NewName, req.Choices)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, env)
+}
+
+func (s *Server) handlePreviewEnvironmentDuplicate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourceEnvironmentID uint `json:"sourceEnvironmentId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewEnvironmentDuplicate(req.SourceEnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if out == nil {
+		out = []deploy.StatefulServiceSummary{}
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleGetLinkedServiceInfo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.GetLinkedServiceInfo(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handlePromoteLinkedService(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID       string                  `json:"nodeId"`
+		Seed         string                  `json:"seed"`
+		Consistency  deploy.CloneConsistency `json:"consistency"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.engine.PromoteLinkedService(r.Context(), req.NodeID, req.Seed, req.Consistency))
+}
+
+func (s *Server) handleUnlinkService(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+		Become string `json:"become"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.engine.UnlinkService(r.Context(), req.NodeID, req.Become))
+}
+
+func (s *Server) handleListShareableRoots(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID             uint `json:"projectId"`
+		ExcludeEnvironmentID  uint `json:"excludeEnvironmentId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ListShareableRoots(req.ProjectID, req.ExcludeEnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if out == nil {
+		out = []deploy.RootServiceSummary{}
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handlePreviewCloneVolume(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TargetNodeID  string `json:"targetNodeId"`
+		SourceNodeID  string `json:"sourceNodeId"`
+		ContainerPath string `json:"containerPath"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewCloneVolume(r.Context(), req.TargetNodeID, req.SourceNodeID, req.ContainerPath)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleCloneVolumeData(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TargetNodeID  string                  `json:"targetNodeId"`
+		SourceNodeID  string                  `json:"sourceNodeId"`
+		ContainerPath string                  `json:"containerPath"`
+		Consistency   deploy.CloneConsistency `json:"consistency"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.CloneVolumeData(r.Context(), req.TargetNodeID, req.SourceNodeID, req.ContainerPath, req.Consistency)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handleConfigImportPreview(w http.ResponseWriter, r *http.Request) {

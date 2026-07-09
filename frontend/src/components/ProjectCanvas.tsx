@@ -19,6 +19,7 @@ import {
     DeleteNode,
     GetDeployments,
     GetEnvironmentConnections,
+    GetLinkedServiceInfo,
     GetNodeConfigStatus,
     GetNodeHealth,
     ListManagedVolumes,
@@ -341,6 +342,13 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                         }
                     } catch { /* no deployment history */ }
                     const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
+                    let linkedFromEnv: string | undefined;
+                    try {
+                        const link = await GetLinkedServiceInfo(n.id);
+                        if (link?.isLinked) {
+                            linkedFromEnv = link.rootEnvName || link.rootLabel || 'linked';
+                        }
+                    } catch { /* not linked */ }
                     return {
                         id: n.id,
                         type: 'service' as const,
@@ -352,6 +360,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                             templateId: n.templateId || undefined,
                             icon: tpl?.icon,
                             iconColor: tpl?.color,
+                            linkedFromEnv,
                         },
                     };
                 }),

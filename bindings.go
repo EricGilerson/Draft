@@ -133,10 +133,10 @@ func (a *App) DeleteEnvironment(environmentID uint) error {
 }
 
 // DuplicateEnvironment clones every node (settings + env vars, fresh UIDs) in
-// sourceEnvironmentID into a brand new environment named newName. Deployment
-// history, routes, port leases, and Docker volumes are not copied — they
-// start fresh on first deploy.
-func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string) (*store.Environment, error) {
+// sourceEnvironmentID into a brand new environment named newName. choices
+// control per-stateful-service data mode (fresh / share / clone); nil or empty
+// means all fresh. Deployment history, routes, and port leases are not copied.
+func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice) (*store.Environment, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -144,7 +144,92 @@ func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string) (*s
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName)
+	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices)
+}
+
+// PreviewEnvironmentDuplicate lists stateful services for the new-env data wizard.
+func (a *App) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]deploy.StatefulServiceSummary, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewEnvironmentDuplicate(a.ctx, sourceEnvironmentID)
+}
+
+// GetLinkedServiceInfo returns whether a node is a virtualized link and its root.
+func (a *App) GetLinkedServiceInfo(nodeID string) (*deploy.LinkedServiceInfo, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetLinkedServiceInfo(a.ctx, nodeID)
+}
+
+// PromoteLinkedService turns a linked alias into a real local service.
+// seed is "empty" or "clone"; consistency is "consistent" or "quick" when cloning.
+func (a *App) PromoteLinkedService(nodeID, seed, consistency string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.PromoteLinkedService(a.ctx, nodeID, seed, deploy.CloneConsistency(consistency))
+}
+
+// UnlinkService removes a service link. become is "fresh" or "delete".
+func (a *App) UnlinkService(nodeID, become string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.UnlinkService(a.ctx, nodeID, become)
+}
+
+// ListShareableRoots returns root services that can be share/clone sources.
+func (a *App) ListShareableRoots(projectID, excludeEnvironmentID uint) ([]deploy.RootServiceSummary, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListShareableRoots(a.ctx, projectID, excludeEnvironmentID)
+}
+
+// PreviewCloneVolume describes a late volume clone before confirmation.
+func (a *App) PreviewCloneVolume(targetNodeID, sourceNodeID, containerPath string) (*deploy.CloneVolumePreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewCloneVolume(a.ctx, targetNodeID, sourceNodeID, containerPath)
+}
+
+// CloneVolumeData copies a root volume into the target service (safe staging promote).
+func (a *App) CloneVolumeData(targetNodeID, sourceNodeID, containerPath, consistency string) (*deploy.CloneVolumeResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.CloneVolumeData(a.ctx, targetNodeID, sourceNodeID, containerPath, deploy.CloneConsistency(consistency))
 }
 
 // CreateNodeFromTemplate stamps a new service node out of a template via the

@@ -208,6 +208,12 @@ func (e *Engine) startContainerAndRegister(
 		return
 	}
 
+	// Multi-attach this root onto any linker environment networks so shared
+	// services remain reachable from other envs' VPC-like bridges.
+	if err := e.EnsureServiceLinkNetworks(ctx, nodeID); err != nil {
+		e.emitBuildLog(nodeID, "    warning: shared-network attach: "+err.Error())
+	}
+
 	inspect, err := cli.ContainerInspect(ctx, createResp.ID)
 	if err != nil {
 		e.failDeployment(dep, nodeID, "container inspect failed: "+err.Error())

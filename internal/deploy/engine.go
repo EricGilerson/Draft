@@ -116,6 +116,12 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
+	// Linked (virtualized) services do not run a local container.
+	if link := ParseServiceLink(settings[SettingServiceLink]); link != nil {
+		e.ensureLinkedDeploy(ctx, nodeID, link)
+		return
+	}
+
 	dockerfilePath := settings["dockerfile"]
 	portStr := settings["service_port"]
 	imageRef := strings.TrimSpace(settings["image"])
@@ -1360,6 +1366,10 @@ func (e *Engine) stopPrevious(ctx context.Context, cli *client.Client, nodeID st
 }
 
 func (e *Engine) Stop(ctx context.Context, nodeID string) error {
+	if link, _ := e.GetServiceLink(nodeID); link != nil {
+		return fmt.Errorf("this service is linked to another environment — stop the root service instead")
+	}
+
 	e.mu.Lock()
 	if cancel, ok := e.active[nodeID]; ok {
 		cancel()
@@ -1414,6 +1424,10 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 }
 
 func (e *Engine) Restart(ctx context.Context, nodeID string) error {
+	if link, _ := e.GetServiceLink(nodeID); link != nil {
+		return fmt.Errorf("this service is linked to another environment — restart the root service instead")
+	}
+
 	dep, err := e.store.ActiveDeployment(nodeID)
 	if err != nil {
 		return err

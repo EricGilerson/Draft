@@ -26,6 +26,9 @@ type DeleteServicePreview struct {
 	IsRunning          bool                 `json:"isRunning"`
 	ManagedVolumeCount int                  `json:"managedVolumeCount"`
 	Dependents         []ReferenceDependent `json:"dependents"`
+	// ActiveAliases lists labels of linked services in other environments that
+	// still point at this root. Non-empty means delete will be blocked.
+	ActiveAliases []string `json:"activeAliases,omitempty"`
 }
 
 // PreviewDeleteServiceFromStore builds a delete preview from SQLite only. It
@@ -52,12 +55,26 @@ func PreviewDeleteServiceFromStore(s *store.Store, nodeID string) (*DeleteServic
 	if settings != nil {
 		managedCount = countConfiguredManagedVolumes(settings["volume_mounts"])
 	}
-	return &DeleteServicePreview{
+	preview := &DeleteServicePreview{
 		Label:              node.Label,
 		IsRunning:          active != nil,
 		ManagedVolumeCount: managedCount,
 		Dependents:         dependents,
-	}, nil
+	}
+	// Note active linkers when this is a root (store-only scan).
+	nodes, err := s.ListNodes(node.ProjectID)
+	if err == nil {
+		for _, n := range nodes {
+			if n.ID == nodeID {
+				continue
+			}
+			st, _ := s.GetNodeSettings(n.ID)
+			if link := ParseServiceLink(st[SettingServiceLink]); link != nil && link.RootNodeID == nodeID {
+				preview.ActiveAliases = append(preview.ActiveAliases, n.Label)
+			}
+		}
+	}
+	return preview, nil
 }
 
 // PreviewDeleteService returns the label, runtime state, managed-volume count,
@@ -83,20 +100,38 @@ func (e *Engine) PreviewDeleteService(ctx context.Context, nodeID string) (*Dele
 	if err != nil {
 		return nil, err
 	}
-	return &DeleteServicePreview{
+	preview := &DeleteServicePreview{
 		Label:              node.Label,
 		IsRunning:          active != nil,
 		ManagedVolumeCount: len(vols),
 		Dependents:         dependents,
-	}, nil
+	}
+	if linkers, err := e.ListLinkers(nodeID); err == nil {
+		for _, l := range linkers {
+			preview.ActiveAliases = append(preview.ActiveAliases, l.Label)
+		}
+	}
+	return preview, nil
 }
 
 // DeleteService stops containers, removes routes and store rows for nodeID, and
 // leaves other services' reference tokens untouched. Draft-managed Docker
 // volumes are kept so orphaned data can be surfaced later.
+//
+// Roots that still have linked aliases in other environments cannot be deleted
+// until those aliases are unlinked or promoted. Deleting an alias disconnects
+// its shared network attachment first.
 func (e *Engine) DeleteService(ctx context.Context, nodeID string) error {
 	if _, err := e.store.GetNode(nodeID); err != nil {
 		return err
+	}
+	if err := e.guardRootDelete(nodeID); err != nil {
+		return err
+	}
+
+	// If this node is an alias, drop multi-network attach before removing rows.
+	if link, _ := e.GetServiceLink(nodeID); link != nil {
+		_ = e.DisconnectServiceLinkNetwork(ctx, nodeID)
 	}
 
 	e.mu.Lock()

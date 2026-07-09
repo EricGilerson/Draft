@@ -4,11 +4,13 @@ import {BrowserOpenURL} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
     GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
+    GetLinkedServiceInfo, PromoteLinkedService, UnlinkService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
 import {networking, store, deploy} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
+import {useAppDialog} from './AppDialogProvider';
 
 type OverviewTabProps = {
     nodeId: string;
@@ -21,6 +23,8 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
+    const [linkInfo, setLinkInfo] = useState<deploy.LinkedServiceInfo | null>(null);
+    const {confirm} = useAppDialog();
     const buildLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {lines: buildLines, deploying, version, pendingAction, setPendingAction, uploadProgress} = useBuildLog(nodeId);
@@ -43,6 +47,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setHasStagedChanges(!!status?.hasStagedChanges);
         });
         GetLocalDomainStatus().then(setLocalDomain).catch(() => setLocalDomain(null));
+        GetLinkedServiceInfo(nodeId).then(setLinkInfo).catch(() => setLinkInfo(null));
     }, [nodeId]);
 
     useEffect(() => {
@@ -77,8 +82,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     };
 
     // Build-mode services need a Dockerfile + port; image-mode services need an
-    // image + port. Either path is deployable.
-    const canDeploy = !!settings.service_port && (!!settings.dockerfile || !!settings.image);
+    // image + port. Either path is deployable. Linked aliases use ensure-link deploy.
+    const isLinked = !!linkInfo?.isLinked;
+    const canDeploy = isLinked || (!!settings.service_port && (!!settings.dockerfile || !!settings.image));
 
     const handleDeploy = async () => {
         setError('');
@@ -89,6 +95,41 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         } catch (e: any) {
             setPendingAction(null);
             setError(typeof e === 'string' ? e : e?.message || 'Deploy failed');
+        }
+    };
+
+    const handlePromote = async (seed: 'empty' | 'clone') => {
+        if (!await confirm({
+            title: 'Promote to local service?',
+            message: seed === 'clone'
+                ? 'Create local volumes and copy data from the root service.'
+                : 'Create empty local volumes. You can deploy this service independently afterward.',
+            confirmLabel: 'Promote',
+        })) return;
+        setError('');
+        try {
+            await PromoteLinkedService(nodeId, seed, 'consistent');
+            const info = await GetLinkedServiceInfo(nodeId);
+            setLinkInfo(info);
+            onServicesChanged?.();
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Promote failed');
+        }
+    };
+
+    const handleUnlink = async () => {
+        if (!await confirm({
+            title: 'Unlink service?',
+            message: 'Stop using the shared root. This node becomes a local service with empty volumes.',
+            confirmLabel: 'Unlink',
+            danger: true,
+        })) return;
+        try {
+            await UnlinkService(nodeId, 'fresh');
+            setLinkInfo(await GetLinkedServiceInfo(nodeId));
+            onServicesChanged?.();
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Unlink failed');
         }
     };
 
@@ -190,8 +231,33 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 </div>
             )}
 
+            {isLinked && (
+                <div className="overview-staged-banner">
+                    Linked to <strong>{linkInfo?.rootEnvName || 'another environment'}</strong>
+                    {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}. No local container —
+                    health and runtime follow the root. Deploy re-attaches networks only.
+                </div>
+            )}
+
             <div className="overview-actions">
-                {!isActive && !deploying && (
+                {isLinked && (
+                    <>
+                        <button className="btn btn-ghost" onClick={handleDeploy} disabled={!!pendingAction} title="Re-attach root to this environment network">
+                            {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
+                            Sync link
+                        </button>
+                        <button className="btn btn-primary" onClick={() => void handlePromote('empty')} disabled={!!pendingAction}>
+                            Promote (empty)
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => void handlePromote('clone')} disabled={!!pendingAction}>
+                            Promote + clone data
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => void handleUnlink()} disabled={!!pendingAction}>
+                            Unlink
+                        </button>
+                    </>
+                )}
+                {!isLinked && !isActive && !deploying && (
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
@@ -208,7 +274,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         {pendingAction === 'stopping' ? 'Cancelling…' : 'Cancel Build'}
                     </button>
                 )}
-                {isActive && !deploying && (
+                {!isLinked && isActive && !deploying && (
                     <>
                         <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
                             {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
@@ -226,7 +292,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 )}
             </div>
 
-            {isRunning && (
+            {!isLinked && isRunning && (
                 <div className="overview-runbar">
                     <Terminal size={13} className="overview-runbar-icon"/>
                     <input

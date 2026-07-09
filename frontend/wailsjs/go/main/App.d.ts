@@ -12,6 +12,8 @@ export function CheckDocker():Promise<dockerwatch.DaemonStatus>;
 
 export function CloneServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
 
+export function CloneVolumeData(arg1:string,arg2:string,arg3:string,arg4:string):Promise<deploy.CloneVolumeResult>;
+
 export function CreateEnvironment(arg1:number,arg2:string):Promise<store.Environment>;
 
 export function CreateNode(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:number):Promise<store.CanvasNode>;
@@ -44,7 +46,7 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
-export function DuplicateEnvironment(arg1:number,arg2:string):Promise<store.Environment>;
+export function DuplicateEnvironment(arg1:number,arg2:string,arg3:Array<deploy.ServiceDataChoice>):Promise<store.Environment>;
 
 export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;
 
@@ -69,6 +71,8 @@ export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;
 export function GetEnvironmentConnections(arg1:number):Promise<Array<deploy.Connection>>;
 
 export function GetGitHookStatus(arg1:string,arg2:number):Promise<main.GitHookStatus>;
+
+export function GetLinkedServiceInfo(arg1:string):Promise<deploy.LinkedServiceInfo>;
 
 export function GetLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
@@ -136,15 +140,23 @@ export function ListRoutes(arg1:any):Promise<Array<main.RouteRow>>;
 
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
+export function ListShareableRoots(arg1:number,arg2:number):Promise<Array<deploy.RootServiceSummary>>;
+
 export function ListVolumesOverview():Promise<Array<deploy.VolumeOverview>>;
 
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
+
+export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<deploy.CloneVolumePreview>;
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
+export function PreviewEnvironmentDuplicate(arg1:number):Promise<Array<deploy.StatefulServiceSummary>>;
+
 export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
+
+export function PromoteLinkedService(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function PruneDocker(arg1:string,arg2:boolean):Promise<deploy.PruneReport>;
 
@@ -211,6 +223,8 @@ export function StopLogStream(arg1:string):Promise<void>;
 export function StopService(arg1:string):Promise<void>;
 
 export function SuggestEnvFile(arg1:string,arg2:number):Promise<string>;
+
+export function UnlinkService(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Promise<void>;
 

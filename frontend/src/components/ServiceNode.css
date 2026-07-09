@@ -234,3 +234,18 @@
     cursor: help;
     z-index: 2;
 }
+
+.service-node-linked-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    color: var(--accent-text);
+    background: rgba(140, 150, 144, 0.14);
+    border: 1px solid var(--accent-border);
+}

@@ -83,3 +83,52 @@
     line-height: 1.45;
     color: var(--text-faint);
 }
+
+.environment-data-list {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.environment-data-row {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.environment-data-row-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.environment-data-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+}
+
+.environment-data-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.environment-data-warning {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    background: rgba(180, 120, 40, 0.12);
+    border: 1px solid rgba(180, 120, 40, 0.35);
+    color: var(--text);
+    font-size: 0.72rem;
+    line-height: 1.4;
+}

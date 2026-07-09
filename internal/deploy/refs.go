@@ -179,6 +179,8 @@ func (e *Engine) resolveNodeAttr(selfNodeID string, projectID, environmentID uin
 	}
 
 	if isGeneratedAttr(attrName) {
+		// Generated address attrs stay on the alias so DNS names match the
+		// multi-attached aliases on the linker environment network.
 		addr, err := e.computeNodeAddress(node)
 		if err != nil {
 			return "", fmt.Errorf("resolving %q on %q: %w", attrName, label, err)
@@ -187,20 +189,33 @@ func (e *Engine) resolveNodeAttr(selfNodeID string, projectID, environmentID uin
 		return value, nil
 	}
 
-	if visited[node.ID] {
+	// Non-generated env vars (passwords, etc.) follow one hop to the root when
+	// this node is a linked service, so credentials stay consistent.
+	resolveNode := node
+	resolveEnvID := environmentID
+	if settings, err := e.store.GetNodeSettings(node.ID); err == nil {
+		if link := ParseServiceLink(settings[SettingServiceLink]); link != nil {
+			if root, err := e.store.GetNode(link.RootNodeID); err == nil {
+				resolveNode = root
+				resolveEnvID = root.EnvironmentID
+			}
+		}
+	}
+
+	if visited[resolveNode.ID] {
 		return "", fmt.Errorf("circular variable reference involving %q", label)
 	}
 
-	v, err := e.store.GetEnvVar(node.ID, attrName)
+	v, err := e.store.GetEnvVar(resolveNode.ID, attrName)
 	if err != nil {
 		return "", fmt.Errorf("%q has no variable named %q", label, attrName)
 	}
 
-	visited[node.ID] = true
-	defer delete(visited, node.ID)
+	visited[resolveNode.ID] = true
+	defer delete(visited, resolveNode.ID)
 	// The referenced node owns this value, so its draft expressions resolve
 	// against the referenced node's identity, not the caller's.
-	return e.resolveValue(node.ID, projectID, environmentID, v.Value, visited)
+	return e.resolveValue(resolveNode.ID, projectID, resolveEnvID, v.Value, visited)
 }
 
 func isGeneratedAttr(attrName string) bool {

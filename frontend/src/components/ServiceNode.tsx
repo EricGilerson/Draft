@@ -26,6 +26,8 @@ type ServiceNodeData = {
     health?: string;
     hostPort?: number;
     publicUrl?: string;
+    /** Linked (virtualized) service badge: e.g. "Main" */
+    linkedFromEnv?: string;
 };
 
 function healthClass(health?: string): string {
@@ -114,7 +116,14 @@ export default function ServiceNode({id, data}: NodeProps) {
                     )}
                 </div>
                 <div className="service-node-info">
-                    <span className="service-node-name">{label}</span>
+                    <span className="service-node-name">
+                        {label}
+                        {d.linkedFromEnv && (
+                            <span className="service-node-linked-badge" title={`Linked to ${d.linkedFromEnv}`}>
+                                Linked · {d.linkedFromEnv}
+                            </span>
+                        )}
+                    </span>
                     <span className="service-node-status-row">
                         {chipClass && (
                             <span

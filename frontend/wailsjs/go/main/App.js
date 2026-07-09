@@ -10,6 +10,10 @@ export function CloneServiceTemplate(arg1) {
   return window['go']['main']['App']['CloneServiceTemplate'](arg1);
 }
 
+export function CloneVolumeData(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CloneVolumeData'](arg1, arg2, arg3, arg4);
+}
+
 export function CreateEnvironment(arg1, arg2) {
   return window['go']['main']['App']['CreateEnvironment'](arg1, arg2);
 }
@@ -74,8 +78,8 @@ export function DiscardStagedChanges(arg1) {
   return window['go']['main']['App']['DiscardStagedChanges'](arg1);
 }
 
-export function DuplicateEnvironment(arg1, arg2) {
-  return window['go']['main']['App']['DuplicateEnvironment'](arg1, arg2);
+export function DuplicateEnvironment(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DuplicateEnvironment'](arg1, arg2, arg3);
 }
 
 export function ExportConfig(arg1, arg2) {
@@ -124,6 +128,10 @@ export function GetEnvironmentConnections(arg1) {
 
 export function GetGitHookStatus(arg1, arg2) {
   return window['go']['main']['App']['GetGitHookStatus'](arg1, arg2);
+}
+
+export function GetLinkedServiceInfo(arg1) {
+  return window['go']['main']['App']['GetLinkedServiceInfo'](arg1);
 }
 
 export function GetLocalDomainStatus() {
@@ -258,12 +266,20 @@ export function ListServiceTemplates() {
   return window['go']['main']['App']['ListServiceTemplates']();
 }
 
+export function ListShareableRoots(arg1, arg2) {
+  return window['go']['main']['App']['ListShareableRoots'](arg1, arg2);
+}
+
 export function ListVolumesOverview() {
   return window['go']['main']['App']['ListVolumesOverview']();
 }
 
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+}
+
+export function PreviewCloneVolume(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PreviewCloneVolume'](arg1, arg2, arg3);
 }
 
 export function PreviewDeleteService(arg1) {
@@ -274,8 +290,16 @@ export function PreviewEnvVars(arg1) {
   return window['go']['main']['App']['PreviewEnvVars'](arg1);
 }
 
+export function PreviewEnvironmentDuplicate(arg1) {
+  return window['go']['main']['App']['PreviewEnvironmentDuplicate'](arg1);
+}
+
 export function PreviewStagedChanges(arg1, arg2) {
   return window['go']['main']['App']['PreviewStagedChanges'](arg1, arg2);
+}
+
+export function PromoteLinkedService(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PromoteLinkedService'](arg1, arg2, arg3);
 }
 
 export function PruneDocker(arg1, arg2) {
@@ -408,6 +432,10 @@ export function StopService(arg1) {
 
 export function SuggestEnvFile(arg1, arg2) {
   return window['go']['main']['App']['SuggestEnvFile'](arg1, arg2);
+}
+
+export function UnlinkService(arg1, arg2) {
+  return window['go']['main']['App']['UnlinkService'](arg1, arg2);
 }
 
 export function UpdateNode(arg1, arg2, arg3, arg4) {

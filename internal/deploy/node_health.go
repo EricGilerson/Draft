@@ -32,11 +32,19 @@ type NodeHealth struct {
 func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, error) {
 	out := NodeHealth{NodeID: nodeID, Status: "stopped"}
 
-	deployments, err := e.store.ListDeployments(nodeID)
+	settings, _ := e.store.GetNodeSettings(nodeID)
+	// Linked services mirror the root container's health; hostnames stay local to the alias.
+	healthNodeID := nodeID
+	isLinked := false
+	if link := ParseServiceLink(settings[SettingServiceLink]); link != nil {
+		healthNodeID = link.RootNodeID
+		isLinked = true
+	}
+
+	deployments, err := e.store.ListDeployments(healthNodeID)
 	if err != nil {
 		return out, err
 	}
-	settings, _ := e.store.GetNodeSettings(nodeID)
 	portStr := strings.TrimSpace(settings["service_port"])
 
 	var active *store.Deployment
@@ -55,10 +63,22 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 
 	out.Status = active.Status
 	out.HostPort = active.HostPort
-	out.Hostname = active.Hostname
-	out.InternalURL = networking.InternalURL(active.Hostname, portStr)
-	if e.router != nil {
-		out.PublicURL = networking.PublicURL(active.Hostname, e.router.LocalDomainStatus().ProxyPort)
+	if isLinked {
+		if node, err := e.store.GetNode(nodeID); err == nil {
+			if addr, err := e.computeNodeAddress(node); err == nil {
+				out.Hostname = addr.InternalHostname
+				out.InternalURL = networking.InternalURL(addr.InternalHostname, portStr)
+				if e.router != nil {
+					out.PublicURL = networking.PublicURL(addr.InternalHostname, e.router.LocalDomainStatus().ProxyPort)
+				}
+			}
+		}
+	} else {
+		out.Hostname = active.Hostname
+		out.InternalURL = networking.InternalURL(active.Hostname, portStr)
+		if e.router != nil {
+			out.PublicURL = networking.PublicURL(active.Hostname, e.router.LocalDomainStatus().ProxyPort)
+		}
 	}
 
 	if active.ContainerID == "" || (active.Status != "running" && active.Status != "starting") {

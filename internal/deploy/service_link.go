@@ -1,0 +1,645 @@
+package deploy
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"Draft/internal/store"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
+)
+
+// SettingServiceLink is the node_settings key for a virtualized (shared) service.
+// Value is JSON ServiceLink. Empty/missing means the node is a normal root.
+const SettingServiceLink = "service_link"
+
+// ServiceLink points an alias node at a root service in another (or same) env.
+// Chains are forbidden: rootNodeId must itself have no service_link.
+type ServiceLink struct {
+	RootNodeID        string `json:"rootNodeId"`
+	RootEnvironmentID uint   `json:"rootEnvironmentId"`
+}
+
+// ServiceDataMode is how a stateful service is handled when duplicating an env.
+type ServiceDataMode string
+
+const (
+	ServiceDataFresh ServiceDataMode = "fresh"
+	ServiceDataShare ServiceDataMode = "share"
+	ServiceDataClone ServiceDataMode = "clone"
+)
+
+// CloneConsistency controls whether the source is stopped during a volume copy.
+type CloneConsistency string
+
+const (
+	CloneConsistent CloneConsistency = "consistent"
+	CloneQuick      CloneConsistency = "quick"
+)
+
+// ServiceDataChoice is one row in the duplicate-environment wizard.
+type ServiceDataChoice struct {
+	SourceNodeID string           `json:"sourceNodeId"`
+	Mode         ServiceDataMode  `json:"mode"`
+	Consistency  CloneConsistency `json:"consistency,omitempty"`
+}
+
+// StatefulServiceSummary describes a source service that can be shared or cloned.
+type StatefulServiceSummary struct {
+	NodeID      string   `json:"nodeId"`
+	Label       string   `json:"label"`
+	TemplateID  uint     `json:"templateId"`
+	Volumes     []string `json:"volumes"` // container paths
+	WarningKind string   `json:"warningKind"`
+	Warning     string   `json:"warning"`
+}
+
+// RootServiceSummary is a shareable/cloneable root in a project.
+type RootServiceSummary struct {
+	NodeID        string `json:"nodeId"`
+	Label         string `json:"label"`
+	EnvironmentID uint   `json:"environmentId"`
+	EnvName       string `json:"envName"`
+	EnvSlug       string `json:"envSlug"`
+	TemplateID    uint   `json:"templateId"`
+}
+
+// LinkedServiceInfo is returned for UI (badge, overview).
+type LinkedServiceInfo struct {
+	IsLinked          bool   `json:"isLinked"`
+	RootNodeID        string `json:"rootNodeId,omitempty"`
+	RootLabel         string `json:"rootLabel,omitempty"`
+	RootEnvironmentID uint   `json:"rootEnvironmentId,omitempty"`
+	RootEnvName       string `json:"rootEnvName,omitempty"`
+}
+
+// ParseServiceLink decodes the service_link setting. Empty/malformed → nil.
+func ParseServiceLink(raw string) *ServiceLink {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var link ServiceLink
+	if json.Unmarshal([]byte(raw), &link) != nil {
+		return nil
+	}
+	if strings.TrimSpace(link.RootNodeID) == "" {
+		return nil
+	}
+	return &link
+}
+
+// GetServiceLink returns the parsed link for a node, or nil if it is a root.
+func (e *Engine) GetServiceLink(nodeID string) (*ServiceLink, error) {
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return ParseServiceLink(settings[SettingServiceLink]), nil
+}
+
+// IsLinkedService reports whether nodeID is an alias of another service.
+func (e *Engine) IsLinkedService(nodeID string) (bool, error) {
+	link, err := e.GetServiceLink(nodeID)
+	if err != nil {
+		return false, err
+	}
+	return link != nil, nil
+}
+
+// GetLinkedServiceInfo returns UI-facing link metadata for a node.
+func (e *Engine) GetLinkedServiceInfo(nodeID string) (*LinkedServiceInfo, error) {
+	link, err := e.GetServiceLink(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	if link == nil {
+		return &LinkedServiceInfo{IsLinked: false}, nil
+	}
+	info := &LinkedServiceInfo{
+		IsLinked:          true,
+		RootNodeID:        link.RootNodeID,
+		RootEnvironmentID: link.RootEnvironmentID,
+	}
+	if root, err := e.store.GetNode(link.RootNodeID); err == nil {
+		info.RootLabel = root.Label
+	}
+	if env, err := e.store.GetEnvironment(link.RootEnvironmentID); err == nil {
+		info.RootEnvName = env.Name
+	}
+	return info, nil
+}
+
+// ListLinkers returns every alias node that points at rootNodeID.
+func (e *Engine) ListLinkers(rootNodeID string) ([]store.CanvasNode, error) {
+	// service_link is in node_settings; scan project nodes is fine at local scale.
+	root, err := e.store.GetNode(rootNodeID)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := e.store.ListNodes(root.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.CanvasNode
+	for _, n := range nodes {
+		if n.ID == rootNodeID {
+			continue
+		}
+		settings, err := e.store.GetNodeSettings(n.ID)
+		if err != nil {
+			return nil, err
+		}
+		link := ParseServiceLink(settings[SettingServiceLink])
+		if link != nil && link.RootNodeID == rootNodeID {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+// validateLinkTarget ensures rootNodeID is a real root (not itself linked).
+func (e *Engine) validateLinkTarget(rootNodeID string) (*store.CanvasNode, error) {
+	root, err := e.store.GetNode(rootNodeID)
+	if err != nil {
+		return nil, fmt.Errorf("root service not found: %w", err)
+	}
+	settings, err := e.store.GetNodeSettings(rootNodeID)
+	if err != nil {
+		return nil, err
+	}
+	if ParseServiceLink(settings[SettingServiceLink]) != nil {
+		return nil, fmt.Errorf("cannot link to %q: it is already a linked service (no chain linking)", root.Label)
+	}
+	return root, nil
+}
+
+// SetServiceLink writes a validated service_link on aliasNodeID and clears local
+// volume_mounts (aliases do not own volumes). Does not touch Docker networks;
+// call EnsureServiceLinkNetworks after the root is running.
+func (e *Engine) SetServiceLink(aliasNodeID, rootNodeID string) error {
+	if aliasNodeID == rootNodeID {
+		return fmt.Errorf("a service cannot link to itself")
+	}
+	alias, err := e.store.GetNode(aliasNodeID)
+	if err != nil {
+		return fmt.Errorf("alias service not found: %w", err)
+	}
+	root, err := e.validateLinkTarget(rootNodeID)
+	if err != nil {
+		return err
+	}
+	if alias.ProjectID != root.ProjectID {
+		return fmt.Errorf("can only share services within the same project")
+	}
+	// Alias must not already be a root that other aliases depend on.
+	linkers, err := e.ListLinkers(aliasNodeID)
+	if err != nil {
+		return err
+	}
+	if len(linkers) > 0 {
+		return fmt.Errorf("cannot convert %q to a link: other environments still link to it", alias.Label)
+	}
+
+	payload, err := json.Marshal(ServiceLink{
+		RootNodeID:        root.ID,
+		RootEnvironmentID: root.EnvironmentID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := e.store.SetNodeSetting(aliasNodeID, SettingServiceLink, string(payload)); err != nil {
+		return err
+	}
+	// Aliases do not deploy local volumes.
+	_ = e.store.SetNodeSetting(aliasNodeID, "volume_mounts", "[]")
+	return nil
+}
+
+// ClearServiceLink removes the link, making the node a normal deployable root.
+// volume_mounts is left for the caller (promote) to restore.
+func (e *Engine) ClearServiceLink(nodeID string) error {
+	return e.store.SetNodeSetting(nodeID, SettingServiceLink, "")
+}
+
+// shareWarningForNode returns a runtime-coupling warning for Share mode.
+func shareWarningForNode(s *store.Store, node *store.CanvasNode, settings map[string]string) (kind, msg string) {
+	name := strings.ToLower(node.Label)
+	image := strings.ToLower(settings["image"])
+	if node.TemplateID > 0 {
+		if tpl, err := s.GetTemplate(node.TemplateID); err == nil && tpl != nil {
+			name = strings.ToLower(tpl.Name + " " + name)
+			image = strings.ToLower(tpl.Image + " " + image)
+		}
+	}
+	blob := name + " " + image
+	switch {
+	case strings.Contains(blob, "rabbit"):
+		return "rabbitmq", "Queues and consumers are shared. Jobs from one environment may be handled by another, and message traffic will mix."
+	case strings.Contains(blob, "redis"):
+		return "redis", "Keys and pub/sub channels are shared across environments; expect collisions unless you namespace carefully."
+	case strings.Contains(blob, "minio") || strings.Contains(blob, "s3"):
+		return "minio", "Object keys live in one store; environments can overwrite each other's objects unless you use separate buckets or prefixes."
+	case strings.Contains(blob, "postgres") || strings.Contains(blob, "mysql") || strings.Contains(blob, "mongo") || strings.Contains(blob, "clickhouse"):
+		return "database", "All linked environments will share this database. Schema and data changes affect every linked environment."
+	case strings.Contains(blob, "meilisearch"):
+		return "search", "Search indexes are shared; reindexing or deletes from one environment affect the others."
+	default:
+		return "generic", "Linked environments share this running service and its runtime state."
+	}
+}
+
+// managedVolumePaths returns container paths for type=volume mounts.
+func managedVolumePaths(settings map[string]string) []string {
+	var paths []string
+	for _, spec := range ParseVolumeSpecs(settings["volume_mounts"]) {
+		t := spec.Type
+		if t == "" {
+			t = VolumeTypeBind
+		}
+		if t != VolumeTypeVolume {
+			continue
+		}
+		if p := strings.TrimSpace(spec.ContainerPath); p != "" {
+			paths = append(paths, p)
+		}
+	}
+	return paths
+}
+
+// PreviewEnvironmentDuplicate lists stateful services the wizard should show.
+func (e *Engine) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]StatefulServiceSummary, error) {
+	if _, err := e.store.GetEnvironment(sourceEnvironmentID); err != nil {
+		return nil, fmt.Errorf("source environment not found: %w", err)
+	}
+	nodes, err := e.store.ListNodesByEnvironment(sourceEnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	var out []StatefulServiceSummary
+	for _, n := range nodes {
+		settings, err := e.store.GetNodeSettings(n.ID)
+		if err != nil {
+			return nil, err
+		}
+		// Skip existing aliases in the source — they are not roots.
+		if ParseServiceLink(settings[SettingServiceLink]) != nil {
+			continue
+		}
+		paths := managedVolumePaths(settings)
+		if len(paths) == 0 {
+			continue
+		}
+		kind, msg := shareWarningForNode(e.store, &n, settings)
+		out = append(out, StatefulServiceSummary{
+			NodeID:      n.ID,
+			Label:       n.Label,
+			TemplateID:  n.TemplateID,
+			Volumes:     paths,
+			WarningKind: kind,
+			Warning:     msg,
+		})
+	}
+	return out, nil
+}
+
+// ListShareableRoots returns root services in projectID that can be share/clone sources.
+// excludeEnvironmentID, when non-zero, omits that environment's nodes (typical: current env).
+func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) ([]RootServiceSummary, error) {
+	nodes, err := e.store.ListNodes(projectID)
+	if err != nil {
+		return nil, err
+	}
+	envs, err := e.store.ListEnvironments(projectID)
+	if err != nil {
+		return nil, err
+	}
+	envByID := map[uint]store.Environment{}
+	for _, env := range envs {
+		envByID[env.ID] = env
+	}
+	var out []RootServiceSummary
+	for _, n := range nodes {
+		if excludeEnvironmentID != 0 && n.EnvironmentID == excludeEnvironmentID {
+			continue
+		}
+		settings, err := e.store.GetNodeSettings(n.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ParseServiceLink(settings[SettingServiceLink]) != nil {
+			continue
+		}
+		if len(managedVolumePaths(settings)) == 0 {
+			continue
+		}
+		env := envByID[n.EnvironmentID]
+		out = append(out, RootServiceSummary{
+			NodeID:        n.ID,
+			Label:         n.Label,
+			EnvironmentID: n.EnvironmentID,
+			EnvName:       env.Name,
+			EnvSlug:       env.Slug,
+			TemplateID:    n.TemplateID,
+		})
+	}
+	return out, nil
+}
+
+// EnsureServiceLinkNetworks multi-attaches the root container onto every linker
+// environment network with aliases matching each alias node's identity.
+func (e *Engine) EnsureServiceLinkNetworks(ctx context.Context, rootNodeID string) error {
+	root, err := e.store.GetNode(rootNodeID)
+	if err != nil {
+		return err
+	}
+	linkers, err := e.ListLinkers(rootNodeID)
+	if err != nil {
+		return err
+	}
+	if len(linkers) == 0 {
+		return nil
+	}
+	dep, err := e.store.ActiveDeployment(rootNodeID)
+	if err != nil {
+		return err
+	}
+	if dep == nil || dep.ContainerID == "" {
+		return nil // root not running yet; attach on next deploy
+	}
+	project, err := e.store.GetProject(root.ProjectID)
+	if err != nil {
+		return err
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return fmt.Errorf("connect to docker: %w", err)
+	}
+	defer cli.Close()
+
+	for _, alias := range linkers {
+		if err := e.attachRootToAliasNetwork(ctx, cli, dep.ContainerID, project, &alias); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *Engine) attachRootToAliasNetwork(
+	ctx context.Context,
+	cli *client.Client,
+	rootContainerID string,
+	project *store.Project,
+	alias *store.CanvasNode,
+) error {
+	env, err := e.store.GetEnvironment(alias.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	netName := draftNetworkName(project.ID, project.Name, env.Slug)
+	if err := ensureDraftNetwork(ctx, cli, netName, project.ID, project.Name, env.Slug); err != nil {
+		return err
+	}
+	addr, err := e.computeNodeAddress(alias)
+	if err != nil {
+		return err
+	}
+	aliases := internalNetworkAliases(addr.ServiceName, addr.InternalHostname)
+
+	// Disconnect first so alias list can be refreshed on redeploy.
+	_ = cli.NetworkDisconnect(ctx, netName, rootContainerID, true)
+
+	err = cli.NetworkConnect(ctx, netName, rootContainerID, &network.EndpointSettings{
+		Aliases: aliases,
+	})
+	if err != nil {
+		// Already connected with same config is fine in some daemon versions.
+		if !strings.Contains(err.Error(), "already exists") {
+			return fmt.Errorf("attach root to network %s: %w", netName, err)
+		}
+	}
+	return nil
+}
+
+// DisconnectServiceLinkNetwork removes the root container from the alias env network.
+func (e *Engine) DisconnectServiceLinkNetwork(ctx context.Context, aliasNodeID string) error {
+	link, err := e.GetServiceLink(aliasNodeID)
+	if err != nil || link == nil {
+		return err
+	}
+	alias, err := e.store.GetNode(aliasNodeID)
+	if err != nil {
+		return err
+	}
+	rootDep, err := e.store.ActiveDeployment(link.RootNodeID)
+	if err != nil || rootDep == nil || rootDep.ContainerID == "" {
+		return err
+	}
+	project, err := e.store.GetProject(alias.ProjectID)
+	if err != nil {
+		return err
+	}
+	env, err := e.store.GetEnvironment(alias.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+	netName := draftNetworkName(project.ID, project.Name, env.Slug)
+	if err := cli.NetworkDisconnect(ctx, netName, rootDep.ContainerID, true); err != nil && !errdefs.IsNotFound(err) {
+		// Container may already be gone.
+		if !strings.Contains(err.Error(), "is not connected") {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureLinkedDeploy "deploys" an alias by ensuring the root is multi-attached.
+func (e *Engine) ensureLinkedDeploy(ctx context.Context, nodeID string, link *ServiceLink) {
+	e.emitBuildLog(nodeID, "==> Linked service — no local container")
+	root, err := e.store.GetNode(link.RootNodeID)
+	if err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "linked root not found: " + err.Error()})
+		return
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Root: %s (node %s)", root.Label, root.ID))
+	if err := e.EnsureServiceLinkNetworks(ctx, link.RootNodeID); err != nil {
+		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "network attach failed: " + err.Error()})
+		return
+	}
+	// Mirror root status for the alias UI.
+	dep, _ := e.store.ActiveDeployment(link.RootNodeID)
+	status := "stopped"
+	if dep != nil {
+		status = dep.Status
+	}
+	e.emitStatus(nodeID, StatusEvent{Status: status})
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Root status: %s", status))
+}
+
+// PromoteLinkedService turns an alias into a real deployable service.
+// seed: "empty" | "clone". consistency applies when seed is clone.
+func (e *Engine) PromoteLinkedService(ctx context.Context, aliasNodeID, seed string, consistency CloneConsistency) error {
+	link, err := e.GetServiceLink(aliasNodeID)
+	if err != nil {
+		return err
+	}
+	if link == nil {
+		return fmt.Errorf("service is not linked")
+	}
+	alias, err := e.store.GetNode(aliasNodeID)
+	if err != nil {
+		return err
+	}
+	root, err := e.store.GetNode(link.RootNodeID)
+	if err != nil {
+		return fmt.Errorf("root service not found: %w", err)
+	}
+	rootSettings, err := e.store.GetNodeSettings(root.ID)
+	if err != nil {
+		return err
+	}
+
+	// Disconnect from root network before becoming independent.
+	_ = e.DisconnectServiceLinkNetwork(ctx, aliasNodeID)
+
+	if err := e.ClearServiceLink(aliasNodeID); err != nil {
+		return err
+	}
+
+	// Restore volume mounts from root paths as auto-named local volumes.
+	paths := managedVolumePaths(rootSettings)
+	if len(paths) == 0 {
+		// Fall back to whatever root had in volume_mounts raw parse including binds? only volumes.
+		_ = e.store.SetNodeSetting(aliasNodeID, "volume_mounts", "[]")
+	} else {
+		specs := make([]VolumeSpec, 0, len(paths))
+		for _, p := range paths {
+			specs = append(specs, VolumeSpec{Type: VolumeTypeVolume, ContainerPath: p})
+		}
+		raw, err := json.Marshal(specs)
+		if err != nil {
+			return err
+		}
+		if err := e.store.SetNodeSetting(aliasNodeID, "volume_mounts", string(raw)); err != nil {
+			return err
+		}
+	}
+
+	if seed == "clone" && len(paths) > 0 {
+		if consistency == "" {
+			consistency = CloneConsistent
+		}
+		for _, p := range paths {
+			if _, err := e.CloneVolumeData(ctx, aliasNodeID, root.ID, p, consistency); err != nil {
+				return fmt.Errorf("clone volume %s: %w", p, err)
+			}
+		}
+	}
+
+	_ = alias // silence if unused in future
+	return nil
+}
+
+// UnlinkService removes a link. become "fresh" keeps the node as empty root;
+// "delete" removes the alias node entirely.
+func (e *Engine) UnlinkService(ctx context.Context, aliasNodeID, become string) error {
+	link, err := e.GetServiceLink(aliasNodeID)
+	if err != nil {
+		return err
+	}
+	if link == nil {
+		return fmt.Errorf("service is not linked")
+	}
+	_ = e.DisconnectServiceLinkNetwork(ctx, aliasNodeID)
+	if become == "delete" {
+		return e.DeleteService(ctx, aliasNodeID)
+	}
+	// fresh: clear link, empty volumes
+	if err := e.ClearServiceLink(aliasNodeID); err != nil {
+		return err
+	}
+	return e.store.SetNodeSetting(aliasNodeID, "volume_mounts", "[]")
+}
+
+// errRootHasLinkers is returned when deleting a root that still has aliases.
+type errRootHasLinkers struct {
+	RootLabel string
+	Linkers   []string
+}
+
+func (e errRootHasLinkers) Error() string {
+	return fmt.Sprintf("cannot delete %q: linked from %s — unlink or promote those services first",
+		e.RootLabel, strings.Join(e.Linkers, ", "))
+}
+
+// guardRootDelete returns an error if nodeID is a root with active linkers.
+func (e *Engine) guardRootDelete(nodeID string) error {
+	linkers, err := e.ListLinkers(nodeID)
+	if err != nil {
+		return err
+	}
+	if len(linkers) == 0 {
+		return nil
+	}
+	node, _ := e.store.GetNode(nodeID)
+	label := nodeID
+	if node != nil {
+		label = node.Label
+	}
+	names := make([]string, 0, len(linkers))
+	for _, l := range linkers {
+		envName := ""
+		if env, err := e.store.GetEnvironment(l.EnvironmentID); err == nil {
+			envName = env.Name + "/"
+		}
+		names = append(names, envName+l.Label)
+	}
+	return errRootHasLinkers{RootLabel: label, Linkers: names}
+}
+
+// stopNodeContainers stops and removes containers for a node without full Stop
+// image cleanup — used before volume clone.
+func (e *Engine) stopNodeContainers(ctx context.Context, nodeID string) error {
+	e.mu.Lock()
+	if cancel, ok := e.active[nodeID]; ok {
+		cancel()
+		delete(e.active, nodeID)
+	}
+	e.mu.Unlock()
+
+	dep, err := e.store.ActiveDeployment(nodeID)
+	if err != nil {
+		return err
+	}
+	if dep == nil || dep.ContainerID == "" {
+		return nil
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return err
+	}
+	defer cli.Close()
+	settings, _ := e.store.GetNodeSettings(nodeID)
+	timeout := stopTimeoutForSettings(settings)
+	_ = cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
+	_ = removeContainerAndWait(ctx, cli, dep.ContainerID)
+	now := time.Now()
+	markDeploymentStopped(dep, now)
+	_ = e.store.UpdateDeployment(dep)
+	if dep.Hostname != "" && e.router != nil {
+		_ = e.router.Unregister(dep.Hostname)
+	}
+	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
+	return nil
+}
