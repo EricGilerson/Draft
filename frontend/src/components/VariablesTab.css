@@ -123,14 +123,43 @@
 .var-preview {
     font-family: var(--mono);
     font-size: 0.66rem;
+    line-height: 1.4;
     color: var(--text-faint);
     padding: 2px 8px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* Scroll the resolved value only. Reserve a track under the glyphs so
+   overlay/native scrollbars cannot cover the text. */
+.var-preview-text {
+    min-width: 0;
+    flex: 1 1 auto;
     white-space: nowrap;
     overflow-x: auto;
+    overflow-y: hidden;
+    /* Content line + dedicated scrollbar lane */
+    line-height: 1.4;
+    padding-bottom: 12px;
     scrollbar-width: thin;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    scrollbar-color: color-mix(in srgb, var(--text-faint) 55%, transparent) transparent;
+}
+
+/* WebKit: non-overlay track that lives in the padding lane */
+.var-preview-text::-webkit-scrollbar {
+    height: 8px;
+}
+
+.var-preview-text::-webkit-scrollbar-track {
+    background: transparent;
+    margin-block: 2px 0;
+}
+
+.var-preview-text::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-faint) 55%, transparent);
+    border-radius: 4px;
 }
 
 .var-preview-toggle {
@@ -139,6 +168,8 @@
     background: none;
     border: none;
     padding: 0;
+    /* Align with the text line, not the scrollbar lane */
+    height: calc(0.66rem * 1.4);
     color: var(--text-faint);
     cursor: pointer;
     flex-shrink: 0;

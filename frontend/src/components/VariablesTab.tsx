@@ -956,7 +956,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             </div>
                             {varIssues.map((issue) => (
                                 <div key={`${issue.token}:${issue.reason}`} className="var-preview var-preview--error">
-                                    {issue.token}: {issue.reason}
+                                    <span className="var-preview-text">{issue.token}: {issue.reason}</span>
                                 </div>
                             ))}
                             {varBuildWarnings.map((w) => (
@@ -980,13 +980,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                 const previewCurrent = appliedEnvByKey[v.key] === v.value;
                                 if (previewCurrent && previews[v.key]?.error && varIssues.length === 0) {
                                     return (
-                                        <div className="var-preview var-preview--error">{previews[v.key].error}</div>
+                                        <div className="var-preview var-preview--error">
+                                            <span className="var-preview-text">{previews[v.key].error}</span>
+                                        </div>
                                     );
                                 }
                                 if (previewCurrent && !previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value) {
                                     return (
                                         <div className="var-preview">
-                                            resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
+                                            <span className="var-preview-text">
+                                                resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
+                                            </span>
                                             <button className="var-preview-toggle" onClick={() => togglePreview(v.key)} title={previewVisible[v.key] ? 'Hide resolved value' : 'Show resolved value'}>
                                                 {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
                                             </button>
