@@ -663,11 +663,15 @@ func (e *Engine) stopNodeContainers(ctx context.Context, nodeID string) error {
 	defer cli.Close()
 	settings, _ := e.store.GetNodeSettings(nodeID)
 	timeout := stopTimeoutForSettings(settings)
-	_ = cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
-	_ = removeContainerAndWait(ctx, cli, dep.ContainerID)
 	now := time.Now()
 	markDeploymentStopped(dep, now)
-	_ = e.store.UpdateDeployment(dep)
+	if err := e.store.UpdateDeployment(dep); err != nil {
+		return err
+	}
+	_ = cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &timeout})
+	if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
+		return err
+	}
 	if dep.Hostname != "" && e.router != nil {
 		_ = e.router.Unregister(dep.Hostname)
 	}

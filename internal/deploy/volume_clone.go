@@ -180,7 +180,7 @@ func (e *Engine) cloneEndpoints(targetNodeID, sourceNodeID string) (
 // CloneVolumeData copies source's volume at containerPath into the target node
 // using the safe staging + promote pattern for late re-seed, or create-into-new
 // when the target has no prior volume at that path.
-func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID, containerPath string, consistency CloneConsistency) (*CloneVolumeResult, error) {
+func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID, containerPath string, consistency CloneConsistency) (_ *CloneVolumeResult, retErr error) {
 	if !tryLockClone(targetNodeID) {
 		return nil, fmt.Errorf("a volume clone is already in progress for this service")
 	}
@@ -209,16 +209,29 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 		return nil, fmt.Errorf("stop target: %w", err)
 	}
 
-	var restartedSource bool
+	var restartSource bool
 	if consistency == CloneConsistent {
 		if dep, _ := e.store.ActiveDeployment(sourceNodeID); dep != nil && dep.ContainerID != "" &&
 			(dep.Status == "running" || dep.Status == "starting") {
 			if err := e.stopNodeContainers(ctx, sourceNodeID); err != nil {
 				return nil, fmt.Errorf("stop source for consistent clone: %w", err)
 			}
-			restartedSource = true
+			restartSource = true
 		}
 	}
+	defer func() {
+		if !restartSource {
+			return
+		}
+		e.emitBuildLog(sourceNodeID, "==> Restarting source service after consistent clone...")
+		if err := e.Deploy(context.Background(), sourceNodeID); err != nil {
+			if retErr != nil {
+				retErr = fmt.Errorf("%w; restart source after consistent clone: %v", retErr, err)
+			} else {
+				retErr = fmt.Errorf("restart source after consistent clone: %w", err)
+			}
+		}
+	}()
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -240,18 +253,18 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 		envSlug = env.Slug
 	}
 
-	stagingName := fmt.Sprintf("draft-clone-%s-%s", sanitize(targetNodeID), shortHash(containerPath+targetNodeID)[:8])
+	stagingName := fmt.Sprintf("draft-clone-%s-%s", sanitize(targetNodeID), shortHash(containerPath + targetNodeID)[:8])
 	// Create staging with ownership labels for the target (will become the live volume).
 	if _, err := cli.VolumeCreate(ctx, volume.CreateOptions{
 		Name:   stagingName,
 		Driver: "local",
 		Labels: map[string]string{
-			"draft.managed":      "true",
-			"draft.project":      fmt.Sprintf("%d", target.ProjectID),
-			"draft.projectName":  project.Name,
-			"draft.node":         target.ID,
-			"draft.environment":  envSlug,
-			"draft.target":       containerPath,
+			"draft.managed":       "true",
+			"draft.project":       fmt.Sprintf("%d", target.ProjectID),
+			"draft.projectName":   project.Name,
+			"draft.node":          target.ID,
+			"draft.environment":   envSlug,
+			"draft.target":        containerPath,
 			"draft.clone_staging": "true",
 		},
 	}); err != nil {
@@ -287,11 +300,6 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 
 	// Clear clone_staging marker is best-effort (Docker volumes can't update labels);
 	// the mount source is the source of truth.
-
-	if restartedSource {
-		// Best-effort redeploy source so consistent mode doesn't leave it stopped.
-		_ = e.Deploy(ctx, sourceNodeID)
-	}
 
 	e.emitBuildLog(targetNodeID, fmt.Sprintf("    Volume ready: %s", stagingName))
 	if orphaned != "" {

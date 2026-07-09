@@ -411,6 +411,117 @@ func TestIntegrationVolumeCloneFailureLeavesTargetIntact(t *testing.T) {
 	}
 }
 
+func TestIntegrationVolumeCloneConsistentRestartsSourceWithoutFalseFailure(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, p, mainEnvID := setupMultiEnvIntegration(t)
+	ctx := context.Background()
+
+	projectDir := p.Path
+	for _, dir := range []string{"clone-src", "clone-tgt"} {
+		root := filepath.Join(projectDir, dir)
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeDockerfile(t, root, `FROM alpine:3.20
+RUN apk add --no-cache python3 && mkdir -p /www && echo ok > /www/index.html
+CMD ["python3", "-m", "http.server", "8080", "--directory", "/www"]
+`)
+	}
+
+	src, err := s.CreateNode(&store.CanvasNode{ID: "src-live", ProjectID: p.ID, EnvironmentID: mainEnvID, Label: "src-live"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tgt, err := s.CreateNode(&store.CanvasNode{ID: "tgt-live", ProjectID: p.ID, EnvironmentID: mainEnvID, Label: "tgt-live"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		nodeID string
+		root   string
+	}{
+		{src.ID, "clone-src"},
+		{tgt.ID, "clone-tgt"},
+	} {
+		_ = s.SetNodeSetting(item.nodeID, "service_root", item.root)
+		_ = s.SetNodeSetting(item.nodeID, "dockerfile", "Dockerfile")
+		_ = s.SetNodeSetting(item.nodeID, "service_port", "8080")
+		_ = s.SetNodeSetting(item.nodeID, "volume_mounts", `[{"type":"volume","containerPath":"/data"}]`)
+	}
+
+	if err := e.Deploy(ctx, src.ID); err != nil {
+		t.Fatalf("deploy source: %v", err)
+	}
+	if waitForStatus(col, src.ID, "running", 90*time.Second) == nil {
+		t.Fatal("source did not reach running")
+	}
+	if err := e.Deploy(ctx, tgt.ID); err != nil {
+		t.Fatalf("deploy target: %v", err)
+	}
+	if waitForStatus(col, tgt.ID, "running", 90*time.Second) == nil {
+		t.Fatal("target did not reach running")
+	}
+
+	srcDep, err := s.ActiveDeployment(src.ID)
+	if err != nil || srcDep == nil {
+		t.Fatalf("source active deployment missing: %v", err)
+	}
+
+	srcSettings, _ := s.GetNodeSettings(src.ID)
+	tgtSettings, _ := s.GetNodeSettings(tgt.ID)
+	srcVol, err := e.resolveVolumeNameForPath(src, srcSettings, "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tgtVol, err := e.resolveVolumeNameForPath(tgt, tgtSettings, "/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileToVolume(ctx, cli, srcVol, "marker.txt", "consistent-clone"); err != nil {
+		t.Fatalf("seed source: %v", err)
+	}
+	if err := writeFileToVolume(ctx, cli, tgtVol, "marker.txt", "old-target"); err != nil {
+		t.Fatalf("seed target: %v", err)
+	}
+
+	result, err := e.CloneVolumeData(ctx, tgt.ID, src.ID, "/data", CloneConsistent)
+	if err != nil {
+		t.Fatalf("CloneVolumeData consistent: %v", err)
+	}
+	if result == nil || result.NewVolumeName == "" {
+		t.Fatal("expected new volume from consistent clone")
+	}
+
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		dep, err := s.ActiveDeployment(src.ID)
+		if err == nil && dep != nil && dep.ID != srcDep.ID && dep.Status == "running" {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	dep, err := s.ActiveDeployment(src.ID)
+	if err != nil || dep == nil || dep.ID == srcDep.ID || dep.Status != "running" {
+		t.Fatalf("source was not restarted after consistent clone: dep=%+v err=%v", dep, err)
+	}
+
+	if got, err := readFileFromVolume(ctx, cli, result.NewVolumeName, "marker.txt"); err != nil {
+		t.Fatalf("read cloned volume: %v", err)
+	} else if !strings.Contains(got, "consistent-clone") {
+		t.Fatalf("cloned volume content = %q", got)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+	if ev := col.findStatus(src.ID, "failed"); ev != nil {
+		t.Fatalf("source emitted false failed status during consistent clone: %+v", ev.Data)
+	}
+	if ev := col.findStatus(tgt.ID, "failed"); ev != nil {
+		t.Fatalf("target emitted false failed status during consistent clone: %+v", ev.Data)
+	}
+}
+
 // TestIntegrationReconcileServiceLinkNetworksReattaches verifies startup-style
 // reconcile re-connects a root after a forced disconnect.
 func TestIntegrationReconcileServiceLinkNetworksReattaches(t *testing.T) {
@@ -540,4 +651,3 @@ func readFileFromVolume(ctx context.Context, cli *client.Client, volName, filena
 	// Docker multiplexes stdout; strip header if present or just search content.
 	return string(buf[:n]), nil
 }
-
