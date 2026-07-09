@@ -78,12 +78,24 @@
     color: var(--green);
 }
 
+.service-node--failed .service-node-status,
 .service-node--error .service-node-status {
     color: var(--red);
 }
 
+.service-node--building .service-node-status,
 .service-node--starting .service-node-status {
     color: var(--yellow);
+}
+
+.service-node--built .service-node-status {
+    color: var(--draft-teal);
+}
+
+.service-node--pending .service-node-status,
+.service-node--interrupted .service-node-status,
+.service-node--stopped .service-node-status {
+    color: var(--text-muted);
 }
 
 .service-node-volumes {

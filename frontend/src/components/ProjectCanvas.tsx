@@ -123,17 +123,21 @@ function CanvasControls() {
     );
 }
 
+/** Map deployment status → canvas node pill status. Preserve real lifecycle
+ *  states so the pill shows "building" during builds, not "starting". */
 function serviceStatusFromDeployment(status: string): string {
     switch (status) {
         case 'running':
-            return 'running';
-        case 'failed':
-            return 'error';
         case 'building':
         case 'built':
         case 'starting':
         case 'pending':
-            return 'starting';
+        case 'stopped':
+        case 'failed':
+        case 'interrupted':
+            return status;
+        case 'error':
+            return 'failed';
         default:
             return 'stopped';
     }

@@ -78,14 +78,15 @@ func projectServiceFromNode(node store.CanvasNode, settings map[string]string, d
 	return svc
 }
 
+// ServiceStatusFromDeployment maps a deployment lifecycle status onto the
+// status string shown on project cards and canvas node pills. Real lifecycle
+// states are preserved so callers can distinguish building from starting.
 func ServiceStatusFromDeployment(status string) string {
 	switch status {
-	case "running":
-		return "running"
-	case "failed":
-		return "error"
-	case "building", "built", "starting", "pending":
-		return "starting"
+	case "running", "building", "built", "starting", "pending", "stopped", "failed", "interrupted":
+		return status
+	case "error":
+		return "failed"
 	default:
 		return "stopped"
 	}

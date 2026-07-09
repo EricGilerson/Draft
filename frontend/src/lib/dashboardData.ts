@@ -1,7 +1,17 @@
 import {main, store} from '../../wailsjs/go/models';
 
 export type ServiceType = 'web' | 'database' | 'cache' | 'worker';
-export type ServiceStatus = 'running' | 'stopped' | 'error' | 'starting';
+/** Deployment lifecycle statuses shown on service pills and canvas nodes. */
+export type ServiceStatus =
+    | 'running'
+    | 'stopped'
+    | 'error'
+    | 'failed'
+    | 'starting'
+    | 'building'
+    | 'built'
+    | 'pending'
+    | 'interrupted';
 export type ProjectStatus = 'active' | 'partial' | 'stopped';
 
 export type ServicePreview = {
@@ -50,7 +60,12 @@ export const STATUS_COLORS: Record<ServiceStatus, string> = {
     running: '#68bd78',
     stopped: '#5c5749',
     error: '#ef6f68',
+    failed: '#ef6f68',
     starting: '#d8b75c',
+    building: '#d8b75c',
+    built: '#5eb8b0',
+    pending: '#5c5749',
+    interrupted: '#5c5749',
 };
 
 const SANDBOX_BRANCHES = [
@@ -68,8 +83,24 @@ function coerceServiceType(type: string): ServiceType {
 }
 
 function coerceServiceStatus(status: string): ServiceStatus {
-    if (status === 'running' || status === 'starting' || status === 'error') return status;
-    return 'stopped';
+    switch (status) {
+        case 'running':
+        case 'stopped':
+        case 'error':
+        case 'failed':
+        case 'starting':
+        case 'building':
+        case 'built':
+        case 'pending':
+        case 'interrupted':
+            return status;
+        default:
+            return 'stopped';
+    }
+}
+
+function isLiveStatus(status: ServiceStatus): boolean {
+    return status === 'running' || status === 'starting' || status === 'building' || status === 'built' || status === 'pending';
 }
 
 function asDate(value: any): Date | null {
@@ -106,7 +137,8 @@ function servicePreview(service: main.ProjectService): ServicePreview {
 function summarizeStatus(services: ServicePreview[]): ProjectStatus {
     if (services.length === 0) return 'stopped';
     const running = services.filter((service) => service.status === 'running').length;
-    if (running === 0) return 'stopped';
+    const live = services.filter((service) => isLiveStatus(service.status)).length;
+    if (live === 0) return 'stopped';
     if (running === services.length) return 'active';
     return 'partial';
 }

@@ -83,12 +83,16 @@ func TestListProjectServicesUsesRealCanvasNodes(t *testing.T) {
 
 func TestServiceStatusFromDeployment(t *testing.T) {
 	tests := map[string]string{
-		"running":  "running",
-		"failed":   "error",
-		"building": "starting",
-		"built":    "starting",
-		"starting": "starting",
-		"stopped":  "stopped",
+		"running":     "running",
+		"failed":      "failed",
+		"error":       "failed",
+		"building":    "building",
+		"built":       "built",
+		"starting":    "starting",
+		"pending":     "pending",
+		"interrupted": "interrupted",
+		"stopped":     "stopped",
+		"unknown":     "stopped",
 	}
 	for input, want := range tests {
 		if got := ServiceStatusFromDeployment(input); got != want {
