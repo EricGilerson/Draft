@@ -133,6 +133,12 @@ func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
 	if settings["service_port"] != "5432" {
 		t.Errorf("service_port = %q, want 5432", settings["service_port"])
 	}
+	if settings["route_protocol"] != "tcp" {
+		t.Errorf("route_protocol = %q, want tcp (pure wire datastore default)", settings["route_protocol"])
+	}
+	if settings["host_port"] != "5432" {
+		t.Errorf("host_port = %q, want 5432 (preferred stable TCP bind)", settings["host_port"])
+	}
 	if settings["dockerfile"] != "" {
 		t.Errorf("image template should not stamp dockerfile, got %q", settings["dockerfile"])
 	}
@@ -153,6 +159,78 @@ func TestStampFromImageTemplateHidesServiceRootAndStampsImage(t *testing.T) {
 	}
 	if strings.Contains(byKey["DATABASE_URL"].Value, "{{draft.") {
 		t.Errorf("DATABASE_URL not resolved: %q", byKey["DATABASE_URL"].Value)
+	}
+	if !strings.HasPrefix(byKey["DATABASE_URL"].Value, "postgres://") {
+		t.Errorf("DATABASE_URL should be postgres scheme, got %q", byKey["DATABASE_URL"].Value)
+	}
+	if !strings.HasPrefix(byKey["PUBLIC_DATABASE_URL"].Value, "postgres://") {
+		t.Errorf("PUBLIC_DATABASE_URL should be postgres scheme, got %q", byKey["PUBLIC_DATABASE_URL"].Value)
+	}
+	if !strings.Contains(byKey["PUBLIC_DATABASE_URL"].Value, ".draft.resolv.sh:5432") {
+		t.Errorf("PUBLIC_DATABASE_URL should use public hostname:5432, got %q", byKey["PUBLIC_DATABASE_URL"].Value)
+	}
+}
+
+func TestStampWireTemplatesDefaultToTCP(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+
+	want := map[string]string{
+		"PostgreSQL": "5432",
+		"Redis":      "6379",
+		"MySQL":      "3306",
+		"MongoDB":    "27017",
+		"Memcached":  "11211",
+	}
+	i := 0
+	for name, port := range want {
+		i++
+		tpl := findBuiltin(t, s, name)
+		id := "wire-" + name
+		if _, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+			ID:            id,
+			Label:         name,
+			ProjectID:     p.ID,
+			EnvironmentID: defaultEnvID(t, s, p.ID),
+			TemplateID:    tpl.ID,
+			X:             float64(i * 10),
+		}); err != nil {
+			t.Fatalf("%s: CreateNodeFromTemplate: %v", name, err)
+		}
+		settings, _ := s.GetNodeSettings(id)
+		if settings["route_protocol"] != "tcp" {
+			t.Errorf("%s: route_protocol = %q, want tcp", name, settings["route_protocol"])
+		}
+		if settings["host_port"] != port {
+			t.Errorf("%s: host_port = %q, want %s", name, settings["host_port"], port)
+		}
+	}
+}
+
+func TestStampHTTPDatastoresStayHTTP(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+
+	for _, name := range []string{"Meilisearch", "MinIO", "RabbitMQ", "ClickHouse", "Adminer", "Mailpit"} {
+		tpl := findBuiltin(t, s, name)
+		id := "http-" + name
+		if _, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+			ID:            id,
+			Label:         name,
+			ProjectID:     p.ID,
+			EnvironmentID: defaultEnvID(t, s, p.ID),
+			TemplateID:    tpl.ID,
+		}); err != nil {
+			t.Fatalf("%s: CreateNodeFromTemplate: %v", name, err)
+		}
+		settings, _ := s.GetNodeSettings(id)
+		if settings["route_protocol"] == "tcp" {
+			t.Errorf("%s: should remain HTTP-routed (UI/API primary), got route_protocol=tcp", name)
+		}
 	}
 }
 

@@ -232,23 +232,30 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const status = health?.status || deployment?.status || 'stopped';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
+    const routeProtocol = (health?.routeProtocol || settings.route_protocol || 'http').toLowerCase();
+    const isTCP = routeProtocol === 'tcp';
     const publicURL = isLinked
-        ? (health?.publicUrl || bestPublicURLFromHostname(health?.hostname, localDomain)
-            || bestPublicDeploymentURL(deployment, localDomain))
-        : bestPublicDeploymentURL(deployment, localDomain);
+        ? (health?.publicUrl || bestPublicEndpoint(health?.hostname, deployment, localDomain, routeProtocol)
+            || bestPublicDeploymentURL(deployment, localDomain, routeProtocol))
+        : (health?.publicUrl || bestPublicDeploymentURL(deployment, localDomain, routeProtocol));
     const hostPort = health?.hostPort || deployment?.hostPort || 0;
-    const localURL = hostPort > 0 ? `http://127.0.0.1:${hostPort}` : '';
+    // TCP: scheme-less loopback endpoint (wire clients). HTTP: browser-openable URL.
+    const localURL = hostPort > 0
+        ? (isTCP ? `127.0.0.1:${hostPort}` : `http://127.0.0.1:${hostPort}`)
+        : '';
     const displayHostname = health?.hostname || deployment?.hostname || '';
 
     const handleOpenDeployment = () => {
-        if (!publicURL) return;
-        BrowserOpenURL(publicURL);
+        if (!publicURL || isTCP) return;
+        BrowserOpenURL(publicURL.startsWith('http') ? publicURL : `http://${publicURL}`);
     };
 
     const handleOpenLocal = () => {
-        if (!localURL) return;
-        BrowserOpenURL(localURL);
+        if (!localURL || isTCP) return;
+        BrowserOpenURL(localURL.startsWith('http') ? localURL : `http://${localURL}`);
     };
+
+    const displayEndpoint = (url: string) => url.replace(/^https?:\/\//, '');
 
     const handleRunCommand = () => {
         const trimmed = runCmd.trim();
@@ -278,15 +285,24 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             <div className="overview-status-row">
                 <StatusBadge status={status} />
                 {publicURL && isRunning && (
-                    <button
-                        type="button"
-                        className="overview-hostname"
-                        title={publicURL}
-                        onClick={handleOpenDeployment}
-                    >
-                        <ExternalLink size={11} />
-                        {publicURL.replace('http://', '')}
-                    </button>
+                    isTCP ? (
+                        <span
+                            className="overview-hostname"
+                            title={`TCP endpoint (not HTTP). Connect with a protocol client: ${publicURL}`}
+                        >
+                            {displayEndpoint(publicURL)}
+                        </span>
+                    ) : (
+                        <button
+                            type="button"
+                            className="overview-hostname"
+                            title={publicURL}
+                            onClick={handleOpenDeployment}
+                        >
+                            <ExternalLink size={11} />
+                            {displayEndpoint(publicURL)}
+                        </button>
+                    )
                 )}
             </div>
 
@@ -498,8 +514,8 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     )}
                     {publicURL && (
                         <div className="overview-detail-row">
-                            <span className="overview-detail-label">Public URL</span>
-                            <span className="overview-detail-value mono">{publicURL.replace('http://', '')}</span>
+                            <span className="overview-detail-label">{isTCP ? 'Public Endpoint' : 'Public URL'}</span>
+                            <span className="overview-detail-value mono">{displayEndpoint(publicURL)}</span>
                         </div>
                     )}
                     {localDomain?.mode && (
@@ -510,20 +526,34 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     )}
                     {localURL && (
                         <div className="overview-detail-row">
-                            <span className="overview-detail-label">Local URL</span>
-                            <button
-                                type="button"
-                                className="overview-detail-value mono overview-detail-link"
-                                title="Direct loopback address. Works without internet — use this for apps running on your machine (e.g. a desktop client)."
-                                onClick={handleOpenLocal}
-                            >
-                                {localURL.replace('http://', '')}
-                            </button>
+                            <span className="overview-detail-label">{isTCP ? 'Local Endpoint' : 'Local URL'}</span>
+                            {isTCP ? (
+                                <span
+                                    className="overview-detail-value mono"
+                                    title="TCP host port. Use with postgres://, redis://, etc. — not a browser URL."
+                                >
+                                    {displayEndpoint(localURL)}
+                                </span>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="overview-detail-value mono overview-detail-link"
+                                    title="Direct loopback address. Works without internet — use this for apps running on your machine (e.g. a desktop client)."
+                                    onClick={handleOpenLocal}
+                                >
+                                    {displayEndpoint(localURL)}
+                                </button>
+                            )}
                         </div>
                     )}
-                    {localDomain?.hostsError && (
+                    {localDomain?.hostsError && !isTCP && (
                         <div className="overview-domain-note">
                             Internal Draft names are not host-resolved. Public access uses the configured Draft public hostname with the proxy port.
+                        </div>
+                    )}
+                    {isTCP && (
+                        <div className="overview-domain-note">
+                            TCP service: connect via hostname:port (or a protocol DSN). Traffic is not HTTP-proxied.
                         </div>
                     )}
                 </div>
@@ -535,10 +565,31 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 function bestPublicDeploymentURL(
     deployment: store.Deployment | null,
     localDomain: networking.LocalDomainStatus | null,
+    protocol: string = 'http',
 ): string {
     if (!deployment) return '';
-    return bestPublicURLFromHostname(deployment.hostname, localDomain)
-        || (deployment.hostPort > 0 ? `http://127.0.0.1:${deployment.hostPort}` : '');
+    return bestPublicEndpoint(deployment.hostname, deployment, localDomain, protocol);
+}
+
+function bestPublicEndpoint(
+    hostname: string | undefined,
+    deployment: store.Deployment | null,
+    localDomain: networking.LocalDomainStatus | null,
+    protocol: string,
+): string {
+    const hostPort = deployment?.hostPort || 0;
+    if (protocol === 'tcp') {
+        const publicHostname = hostnameWithSuffix(
+            hostname || deployment?.hostname || '',
+            localDomain?.publicSuffix || localDomain?.loopbackSuffix || '',
+        );
+        if (publicHostname && hostPort > 0) {
+            return `${publicHostname}:${hostPort}`;
+        }
+        return hostPort > 0 ? `127.0.0.1:${hostPort}` : '';
+    }
+    return bestPublicURLFromHostname(hostname || deployment?.hostname, localDomain)
+        || (hostPort > 0 ? `http://127.0.0.1:${hostPort}` : '');
 }
 
 function bestPublicURLFromHostname(

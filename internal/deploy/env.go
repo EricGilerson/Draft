@@ -87,12 +87,19 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	}
 	runtimeValues["DRAFT_SERVICE_PORT"] = in.ServicePort
 	runtimeValues["DRAFT_INTERNAL_HOSTNAME"] = in.InternalHostname
-	runtimeValues["DRAFT_INTERNAL_URL"] = in.InternalURL
 	runtimeValues["DRAFT_PUBLIC_HOSTNAME"] = in.PublicHostname
-	runtimeValues["DRAFT_PUBLIC_URL"] = in.PublicURL
 	runtimeValues["DRAFT_SERVICE_NAME"] = in.ServiceName
 	runtimeValues["DRAFT_PROJECT_NAME"] = in.ProjectName
 	runtimeValues["DRAFT_ENVIRONMENT"] = environment
+	// HTTP URL inject is only meaningful for HTTP-routed services. TCP wire
+	// services (Postgres, Redis, …) use protocol-specific DSNs; injecting
+	// http://… would be actively misleading for consumers and @{refs}.
+	if in.InternalURL != "" {
+		runtimeValues["DRAFT_INTERNAL_URL"] = in.InternalURL
+	}
+	if in.PublicURL != "" {
+		runtimeValues["DRAFT_PUBLIC_URL"] = in.PublicURL
+	}
 
 	// Target-engine profile: inject the platform-conventional runtime vars the
 	// target cloud would provide (e.g. PORT/K_SERVICE for Cloud Run) so a service

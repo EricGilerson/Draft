@@ -156,10 +156,13 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		metrics.Status = active.Status
 		metrics.HostPort = active.HostPort
 		metrics.Hostname = active.Hostname
-		metrics.InternalURL = networking.InternalURL(active.Hostname, strings.TrimSpace(settings["service_port"]))
+		protocol := strings.TrimSpace(settings["route_protocol"])
+		proxyPort := 0
 		if e.router != nil {
-			metrics.PublicURL = networking.PublicURL(active.Hostname, e.router.LocalDomainStatus().ProxyPort)
+			proxyPort = e.router.LocalDomainStatus().ProxyPort
 		}
+		metrics.InternalURL = networking.ServiceInternalURL(active.Hostname, strings.TrimSpace(settings["service_port"]), protocol)
+		metrics.PublicURL = networking.ServicePublicURL(active.Hostname, proxyPort, active.HostPort, protocol)
 		metrics.UptimeMs = uptimeMillis(active)
 		metrics.ExitCode = active.ExitCode
 		metrics.OOMKilled = active.OOMKilled

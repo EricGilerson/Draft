@@ -1882,6 +1882,18 @@ func (e *Engine) restoreRoute(dep *store.Deployment) {
 	if e.router == nil || dep.Hostname == "" || dep.HostPort == 0 {
 		return
 	}
+	// TCP services are not HTTP-proxied; restoring them as HTTP would put a
+	// wire protocol (Postgres, Redis, …) behind the reverse proxy.
+	if settings, err := e.store.GetNodeSettings(dep.NodeID); err == nil {
+		if networking.IsTCPProtocol(settings["route_protocol"]) {
+			return
+		}
+	}
+	if route, err := e.store.GetRoute(dep.Hostname); err == nil && route != nil {
+		if networking.IsTCPProtocol(route.Protocol) {
+			return
+		}
+	}
 	_ = e.router.RestoreHTTPRoute(dep.Hostname, dep.ProjectID, dep.NodeID, "127.0.0.1", dep.HostPort)
 }
 

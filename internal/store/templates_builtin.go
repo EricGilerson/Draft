@@ -26,6 +26,16 @@ var buildTemplateSchema = mustEncodeSchema(TemplateSchema{
 	},
 })
 
+// tcpWireDefaults stamps pure wire-protocol datastores onto TCP routing with a
+// preferred host port matching the container service port. That makes
+// postgres://…@*.draft.resolv.sh:5432 (etc.) work when the preferred port is free.
+func tcpWireDefaults(hostPort string) string {
+	return MustEncodeDefaultSettings(map[string]string{
+		"route_protocol": "tcp",
+		"host_port":      hostPort,
+	})
+}
+
 // imageTemplateSchema is the schema for the image-mode datastore built-ins:
 // service root and Dockerfile are irrelevant, the source/build Settings
 // sections are hidden, and the wizard skips the source step. Volumes are
@@ -492,17 +502,18 @@ CMD ["nginx", "-g", "daemon off;"]
 `,
 	},
 	{
-		Name:        "PostgreSQL",
-		Description: "Relational database. Runs from the official image.",
-		Category:    "datastore",
-		Icon:        "postgresql",
-		Color:       "#4169E1",
-		Mode:        "image",
-		Image:       "postgres:16-alpine",
-		Port:        5432,
-		Schema:      imageTemplateSchema,
-		ImageTags:   postgresImageTags,
-		Volumes:     postgresVolumes,
+		Name:            "PostgreSQL",
+		Description:     "Relational database. Runs from the official image.",
+		Category:        "datastore",
+		Icon:            "postgresql",
+		Color:           "#4169E1",
+		Mode:            "image",
+		Image:           "postgres:16-alpine",
+		Port:            5432,
+		Schema:          imageTemplateSchema,
+		ImageTags:       postgresImageTags,
+		Volumes:         postgresVolumes,
+		DefaultSettings: tcpWireDefaults("5432"),
 		// DB user/name use the official image's standard defaults (postgres/postgres)
 		// rather than being derived from the project, so credentials read the way a
 		// freshly-installed Postgres would. The password stays per-node derived so
@@ -510,17 +521,18 @@ CMD ["nginx", "-g", "daemon off;"]
 		EnvVars: `[{"key":"POSTGRES_USER","value":"postgres","scope":"runtime"},{"key":"POSTGRES_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"POSTGRES_DB","value":"postgres","scope":"runtime"},{"key":"POSTGRES_HOST_AUTH_METHOD","value":"scram-sha-256","scope":"runtime"},{"key":"PGDATA","value":"/var/lib/postgresql/data","scope":"runtime"},{"key":"DATABASE_URL","value":"postgres://postgres:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/postgres","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"postgres://postgres:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/postgres","scope":"runtime"}]`,
 	},
 	{
-		Name:        "Redis",
-		Description: "In-memory key/value store. Runs from the official image.",
-		Category:    "datastore",
-		Icon:        "redis",
-		Color:       "#FF4438",
-		Mode:        "image",
-		Image:       "redis:7-alpine",
-		Port:        6379,
-		Schema:      imageTemplateSchema,
-		ImageTags:   redisImageTags,
-		Volumes:     redisVolumes,
+		Name:            "Redis",
+		Description:     "In-memory key/value store. Runs from the official image.",
+		Category:        "datastore",
+		Icon:            "redis",
+		Color:           "#FF4438",
+		Mode:            "image",
+		Image:           "redis:7-alpine",
+		Port:            6379,
+		Schema:          imageTemplateSchema,
+		ImageTags:       redisImageTags,
+		Volumes:         redisVolumes,
+		DefaultSettings: tcpWireDefaults("6379"),
 		// The official redis image reads no env var for auth, so REDIS_PASSWORD
 		// alone is a no-op. CmdOverride enforces it via --requirepass; Draft
 		// expands {{draft.*}} in CmdOverride at stamp time.
@@ -528,34 +540,36 @@ CMD ["nginx", "-g", "daemon off;"]
 		EnvVars:     `[{"key":"REDIS_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"REDIS_URL","value":"redis://:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/0","scope":"runtime"},{"key":"PUBLIC_REDIS_URL","value":"redis://:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/0","scope":"runtime"}]`,
 	},
 	{
-		Name:        "MySQL",
-		Description: "Relational database. Runs from the official image.",
-		Category:    "datastore",
-		Icon:        "mysql",
-		Color:       "#4479A1",
-		Mode:        "image",
-		Image:       "mysql:8",
-		Port:        3306,
-		Schema:      imageTemplateSchema,
-		ImageTags:   mysqlImageTags,
-		Volumes:     mysqlVolumes,
+		Name:            "MySQL",
+		Description:     "Relational database. Runs from the official image.",
+		Category:        "datastore",
+		Icon:            "mysql",
+		Color:           "#4479A1",
+		Mode:            "image",
+		Image:           "mysql:8",
+		Port:            3306,
+		Schema:          imageTemplateSchema,
+		ImageTags:       mysqlImageTags,
+		Volumes:         mysqlVolumes,
+		DefaultSettings: tcpWireDefaults("3306"),
 		// Standard defaults: root is the admin (password derived per node), and
 		// an `mysql` app user is created with access to the `appdb` database. Both
 		// are fixed conventions independent of the project name.
 		EnvVars: `[{"key":"MYSQL_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_DATABASE","value":"appdb","scope":"runtime"},{"key":"MYSQL_USER","value":"mysql","scope":"runtime"},{"key":"MYSQL_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MYSQL_ROOT_HOST","value":"%","scope":"runtime"},{"key":"MYSQL_LOG_CONSOLE","value":"true","scope":"runtime"},{"key":"DATABASE_URL","value":"mysql://mysql:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mysql://mysql:{{draft.password}}@{{draft.public_hostname}}:{{draft.service_port}}/appdb","scope":"runtime"}]`,
 	},
 	{
-		Name:        "MongoDB",
-		Description: "Document database. Runs from the official image.",
-		Category:    "datastore",
-		Icon:        "mongodb",
-		Color:       "#47A248",
-		Mode:        "image",
-		Image:       "mongo:7",
-		Port:        27017,
-		Schema:      imageTemplateSchema,
-		ImageTags:   mongoImageTags,
-		Volumes:     mongoVolumes,
+		Name:            "MongoDB",
+		Description:     "Document database. Runs from the official image.",
+		Category:        "datastore",
+		Icon:            "mongodb",
+		Color:           "#47A248",
+		Mode:            "image",
+		Image:           "mongo:7",
+		Port:            27017,
+		Schema:          imageTemplateSchema,
+		ImageTags:       mongoImageTags,
+		Volumes:         mongoVolumes,
+		DefaultSettings: tcpWireDefaults("27017"),
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
 		// no CmdOverride is needed (unlike Redis). The connection URL uses
@@ -615,16 +629,17 @@ CMD ["nginx", "-g", "daemon off;"]
 		EnvVars:     `[{"key":"MEILI_MASTER_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"MEILI_ENV","value":"development","scope":"runtime"},{"key":"MEILI_URL","value":"http://{{draft.internal_hostname}}:7700","scope":"runtime"}]`,
 	},
 	{
-		Name:        "Memcached",
-		Description: "In-memory cache with no persistence or built-in auth. Runs from the official image.",
-		Category:    "datastore",
-		Icon:        "memcached",
-		Mode:        "image",
-		Image:       "memcached:1.6-alpine",
-		Port:        11211,
-		Schema:      imageTemplateSchema,
-		ImageTags:   memcachedImageTags,
-		EnvVars:     `[{"key":"MEMCACHED_URL","value":"{{draft.internal_hostname}}:11211","scope":"runtime"}]`,
+		Name:            "Memcached",
+		Description:     "In-memory cache with no persistence or built-in auth. Runs from the official image.",
+		Category:        "datastore",
+		Icon:            "memcached",
+		Mode:            "image",
+		Image:           "memcached:1.6-alpine",
+		Port:            11211,
+		Schema:          imageTemplateSchema,
+		ImageTags:       memcachedImageTags,
+		DefaultSettings: tcpWireDefaults("11211"),
+		EnvVars:         `[{"key":"MEMCACHED_URL","value":"{{draft.internal_hostname}}:11211","scope":"runtime"}]`,
 	},
 	{
 		Name:        "ClickHouse",

@@ -198,6 +198,7 @@ func (s *Store) SeedBuiltins() error {
 		existing.Schema = t.Schema
 		existing.ImageTags = t.ImageTags
 		existing.Volumes = t.Volumes
+		existing.DefaultSettings = t.DefaultSettings
 		existing.Builtin = true
 			if err := s.DB.Save(&existing).Error; err != nil {
 				return err

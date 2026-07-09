@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"strings"
 	"testing"
 
 	"Draft/internal/store"
@@ -128,6 +129,110 @@ func TestResolveDeploymentEnvRejectsReservedDraftKeys(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected reserved key error")
+	}
+}
+
+func TestResolveDeploymentEnvTCPUsesSchemelessEndpoints(t *testing.T) {
+	// TCP nodes inject scheme-less host:port for DRAFT_*_URL (never http://).
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	resolved, err := e.resolveDeploymentEnv(deploymentEnvInput{
+		NodeID:           "db1",
+		ServiceName:      "db",
+		ProjectName:      "app",
+		Environment:      "default",
+		ServicePort:      "5432",
+		InternalHostname: "db.app.default.abcd.draft.local",
+		InternalURL:      "db.app.default.abcd.draft.local:5432",
+		PublicHostname:   "db.app.default.abcd.draft.resolv.sh",
+		PublicURL:        "db.app.default.abcd.draft.resolv.sh:5432",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := map[string]string{}
+	for _, item := range resolved.RuntimeEnv {
+		key, value, ok := splitEnv(item)
+		if !ok {
+			t.Fatalf("bad env item %q", item)
+		}
+		runtime[key] = value
+	}
+	if runtime["DRAFT_INTERNAL_URL"] != "db.app.default.abcd.draft.local:5432" {
+		t.Fatalf("DRAFT_INTERNAL_URL = %q", runtime["DRAFT_INTERNAL_URL"])
+	}
+	if runtime["DRAFT_PUBLIC_URL"] != "db.app.default.abcd.draft.resolv.sh:5432" {
+		t.Fatalf("DRAFT_PUBLIC_URL = %q", runtime["DRAFT_PUBLIC_URL"])
+	}
+	if strings.HasPrefix(runtime["DRAFT_PUBLIC_URL"], "http") {
+		t.Fatal("TCP DRAFT_PUBLIC_URL must not use http scheme")
+	}
+}
+
+func TestComputeNodeAddressTCPUsesSchemelessEndpoints(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	p, err := s.CreateProject("addr-proj", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.CreateNode(&store.CanvasNode{
+		ID:            "tcp-node",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		Label:         "db",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetNodeSetting(node.ID, "service_port", "5432")
+	_ = s.SetNodeSetting(node.ID, "route_protocol", "tcp")
+	_ = s.SetNodeSetting(node.ID, "host_port", "5432")
+
+	addr, err := e.computeNodeAddress(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(addr.InternalURL, "http") {
+		t.Errorf("InternalURL must not be http for TCP, got %q", addr.InternalURL)
+	}
+	if !strings.HasSuffix(addr.InternalURL, ":5432") {
+		t.Errorf("InternalURL = %q, want …:5432", addr.InternalURL)
+	}
+	if !strings.HasSuffix(addr.PublicURL, ".draft.resolv.sh:5432") {
+		t.Errorf("PublicURL = %q, want …resolv.sh:5432", addr.PublicURL)
+	}
+	if strings.HasPrefix(addr.PublicURL, "http") {
+		t.Errorf("PublicURL must not be http for TCP, got %q", addr.PublicURL)
+	}
+}
+
+func TestComputeNodeAddressHTTPKeepsURLs(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	p, err := s.CreateProject("http-proj", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.CreateNode(&store.CanvasNode{
+		ID:            "http-node",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		Label:         "web",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetNodeSetting(node.ID, "service_port", "3000")
+	// default route_protocol is http
+
+	addr, err := e.computeNodeAddress(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(addr.InternalURL, "http://") {
+		t.Errorf("InternalURL = %q, want http://…", addr.InternalURL)
 	}
 }
 

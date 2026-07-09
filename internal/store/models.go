@@ -210,10 +210,14 @@ type ServiceTemplate struct {
 	// Schema is a JSON-encoded TemplateSchema that drives the create-service
 	// wizard (which steps/fields apply) and the Settings tab (which sections to
 	// hide). Empty means "use the default for Mode"; see template_schema.go.
-	Schema      string    `gorm:"type:text" json:"schema"`
-	Builtin     bool      `gorm:"not null;default:false" json:"builtin"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	Schema string `gorm:"type:text" json:"schema"`
+	// DefaultSettings is a JSON object of node_settings stamped onto new nodes
+	// (e.g. {"route_protocol":"tcp","host_port":"5432"} for pure wire datastores).
+	// Wizard overrides and later Settings edits win over these defaults.
+	DefaultSettings string    `gorm:"type:text" json:"defaultSettings"`
+	Builtin         bool      `gorm:"not null;default:false" json:"builtin"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 type EnvVarConflict struct {

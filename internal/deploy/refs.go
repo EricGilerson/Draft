@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"Draft/internal/networking"
@@ -81,11 +82,24 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 		environment = env.Slug
 	}
 	portStr := settings["service_port"]
+	protocol := strings.TrimSpace(settings["route_protocol"])
 
 	hostname := networking.Hostname(serviceName, projectName, environment, uid)
 	publicHostname := networking.PublicHostname(hostname)
+	// HTTP: reverse-proxy public URL. TCP: scheme-less host:port (preferred
+	// host_port when set, else service_port) so @{refs} and inject never invent
+	// http:// for wire protocols.
+	internalURL := networking.ServiceInternalURL(hostname, portStr, protocol)
 	publicURL := ""
-	if e.router != nil {
+	if networking.IsTCPProtocol(protocol) {
+		pubPort := portStr
+		if hp := strings.TrimSpace(settings["host_port"]); hp != "" && hp != "0" {
+			pubPort = hp
+		}
+		if n, err := strconv.Atoi(pubPort); err == nil && n > 0 {
+			publicURL = networking.PublicTCPEndpoint(hostname, n)
+		}
+	} else if e.router != nil {
 		publicURL = networking.PublicURL(hostname, e.router.LocalDomainStatus().ProxyPort)
 	}
 
@@ -95,7 +109,7 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 		Environment:      environment,
 		ServicePort:      portStr,
 		InternalHostname: hostname,
-		InternalURL:      networking.InternalURL(hostname, portStr),
+		InternalURL:      internalURL,
 		PublicHostname:   publicHostname,
 		PublicURL:        publicURL,
 	}, nil

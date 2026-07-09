@@ -47,9 +47,9 @@ const FIELD_LINKER_NEW_VALUE = '__linker_new_value__';
 const DRAFT_RUNTIME_VARS = [
     {key: 'DRAFT_SERVICE_PORT', description: 'The port this service listens on inside the container'},
     {key: 'DRAFT_INTERNAL_HOSTNAME', description: 'The canonical Draft hostname for service-to-service traffic'},
-    {key: 'DRAFT_INTERNAL_URL', description: 'The internal service URL using the service port'},
+    {key: 'DRAFT_INTERNAL_URL', description: 'Internal access URL (http://… for HTTP; host:port for TCP)'},
     {key: 'DRAFT_PUBLIC_HOSTNAME', description: 'The public Draft hostname'},
-    {key: 'DRAFT_PUBLIC_URL', description: 'The public URL using the Draft proxy port'},
+    {key: 'DRAFT_PUBLIC_URL', description: 'Public access (http://…:proxy for HTTP; host:port for TCP — never the proxy for wire protocols)'},
     {key: 'DRAFT_SERVICE_NAME', description: 'The sanitized service/node label'},
     {key: 'DRAFT_PROJECT_NAME', description: 'The sanitized project name'},
     {key: 'DRAFT_ENVIRONMENT', description: 'The environment name (defaults to "default")'},

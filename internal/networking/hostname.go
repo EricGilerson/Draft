@@ -85,6 +85,52 @@ func PublicURL(hostname string, proxyPort int) string {
 	return fmt.Sprintf("http://%s:%d", PublicHostname(hostname), proxyPort)
 }
 
+// IsTCPProtocol reports whether the route protocol is TCP (stable host port,
+// not the HTTP reverse proxy). Empty or unknown values are treated as HTTP.
+func IsTCPProtocol(protocol string) bool {
+	return strings.EqualFold(strings.TrimSpace(protocol), "tcp")
+}
+
+// PublicTCPEndpoint is the host-facing address for a TCP service: the public
+// Draft hostname and the leased host port. No URL scheme — wire clients use
+// their own (postgres://, redis://, …) with this host:port pair. DNS for
+// *.draft.resolv.sh resolves to loopback.
+func PublicTCPEndpoint(hostname string, hostPort int) string {
+	if hostname == "" || hostPort <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", PublicHostname(hostname), hostPort)
+}
+
+// InternalTCPEndpoint is the container-network address for a TCP service
+// (internal hostname + container port), without an HTTP scheme.
+func InternalTCPEndpoint(hostname, port string) string {
+	if hostname == "" || port == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s", hostname, port)
+}
+
+// ServicePublicURL returns the best public access string for a service.
+// HTTP: http://{publicHostname}:{proxyPort}
+// TCP:  {publicHostname}:{hostPort}  (no scheme)
+func ServicePublicURL(hostname string, proxyPort, hostPort int, protocol string) string {
+	if IsTCPProtocol(protocol) {
+		return PublicTCPEndpoint(hostname, hostPort)
+	}
+	return PublicURL(hostname, proxyPort)
+}
+
+// ServiceInternalURL returns the best internal access string for a service.
+// HTTP: http://{hostname}:{port}
+// TCP:  {hostname}:{port} with no scheme (wire clients / @{refs}; never http://)
+func ServiceInternalURL(hostname, port, protocol string) string {
+	if IsTCPProtocol(protocol) {
+		return InternalTCPEndpoint(hostname, port)
+	}
+	return InternalURL(hostname, port)
+}
+
 // ParsedHostname holds the decoded parts of a Draft hostname.
 type ParsedHostname struct {
 	Service     string

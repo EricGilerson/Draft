@@ -177,6 +177,29 @@ func (e *Engine) stampTemplateOntoNode(
 		}
 	}
 
+	// Template default settings (e.g. route_protocol=tcp for pure wire
+	// datastores). Applied before wizard overrides so the create dialog can
+	// still win; empty DefaultSettings is a no-op.
+	if defaults, err := store.ParseDefaultSettings(tpl.DefaultSettings); err != nil {
+		return fmt.Errorf("template default settings are invalid: %w", err)
+	} else {
+		for key, value := range defaults {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			// Wizard overrides applied later in this function take precedence.
+			if overrides != nil {
+				if _, ok := overrides[key]; ok {
+					continue
+				}
+			}
+			if err := e.store.SetNodeSetting(nodeID, key, value); err != nil {
+				return fmt.Errorf("stamp default setting %q: %w", key, err)
+			}
+		}
+	}
+
 	// cmd/entrypoint/workingdir, resolving {{draft.*}} now that UID +
 	// service_port are set. Best-effort; an empty template value is a no-op.
 	if err := e.stampResolvedSetting(nodeID, "cmd_override", tpl.CmdOverride, result); err != nil {

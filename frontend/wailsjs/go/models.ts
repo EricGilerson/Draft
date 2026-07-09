@@ -950,6 +950,7 @@ export namespace deploy {
 	    hostname: string;
 	    internalUrl: string;
 	    publicUrl: string;
+	    routeProtocol: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new NodeHealth(source);
@@ -964,6 +965,7 @@ export namespace deploy {
 	        this.hostname = source["hostname"];
 	        this.internalUrl = source["internalUrl"];
 	        this.publicUrl = source["publicUrl"];
+	        this.routeProtocol = source["routeProtocol"];
 	    }
 	}
 	export class PruneReport {
@@ -2247,6 +2249,7 @@ export namespace store {
 	    labels: string;
 	    volumes: string;
 	    schema: string;
+	    defaultSettings: string;
 	    builtin: boolean;
 	    // Go type: time
 	    createdAt: any;
@@ -2277,6 +2280,7 @@ export namespace store {
 	        this.labels = source["labels"];
 	        this.volumes = source["volumes"];
 	        this.schema = source["schema"];
+	        this.defaultSettings = source["defaultSettings"];
 	        this.builtin = source["builtin"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
