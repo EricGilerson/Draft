@@ -19,6 +19,47 @@ func TestParseDefaultSettings(t *testing.T) {
 	}
 }
 
+func TestCreateTemplatePersistsDefaultSettings(t *testing.T) {
+	s, err := Open(MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	created, err := s.CreateTemplate(&ServiceTemplate{
+		Name:            "My TCP DB",
+		Mode:            "image",
+		Image:           "postgres:16-alpine",
+		Port:            5432,
+		DefaultSettings: `{"route_protocol":"tcp","host_port":"5432"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTemplate(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ParseDefaultSettings(got.DefaultSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m["route_protocol"] != "tcp" || m["host_port"] != "5432" {
+		t.Fatalf("persisted defaults = %+v", m)
+	}
+
+	got.DefaultSettings = `{"route_protocol":"http"}`
+	if err := s.UpdateTemplate(got); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := s.GetTemplate(created.ID)
+	// http is stored as-is from API; UI may omit it
+	m2, _ := ParseDefaultSettings(again.DefaultSettings)
+	if m2["route_protocol"] != "http" {
+		t.Fatalf("after update = %+v", m2)
+	}
+}
+
 func TestBuiltinTCPWireDefaults(t *testing.T) {
 	s, err := Open(MemoryDSN())
 	if err != nil {

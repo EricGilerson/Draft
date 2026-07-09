@@ -7,6 +7,10 @@ import {store} from '../../wailsjs/go/models';
 import Dialog from './Dialog';
 import TemplateIcon, {TEMPLATE_ICON_OPTIONS} from './TemplateIcon';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
+import {
+    parseDefaultSettings,
+    serializeDefaultSettings,
+} from '../utils/templateDefaults';
 import './TemplateEditorDialog.css';
 
 type Mode = 'create' | 'edit' | 'view';
@@ -92,9 +96,9 @@ const DRAFT_TOKENS: {token: string; hint: string}[] = [
     {token: '{{draft.password}}', hint: 'Per-node derived password'},
     {token: '{{draft.uuid}}', hint: 'Random one-time uuid'},
     {token: '{{draft.internal_hostname}}', hint: 'Docker-network hostname'},
-    {token: '{{draft.internal_url}}', hint: 'Internal http URL'},
-    {token: '{{draft.public_hostname}}', hint: 'Host-side hostname'},
-    {token: '{{draft.public_url}}', hint: 'Public http URL'},
+    {token: '{{draft.internal_url}}', hint: 'Internal URL (http://… or host:port for TCP)'},
+    {token: '{{draft.public_hostname}}', hint: 'Host-side hostname (*.draft.resolv.sh)'},
+    {token: '{{draft.public_url}}', hint: 'Public access (http proxy URL or host:port for TCP)'},
     {token: '{{draft.service_port}}', hint: 'Configured container port'},
     {token: '{{draft.service}}', hint: 'Sanitized service label'},
     {token: '{{draft.project}}', hint: 'Sanitized project name'},
@@ -118,8 +122,21 @@ function blankTemplate(): store.ServiceTemplate {
         workingDir: '',
         envVars: '[]',
         labels: '{}',
+        volumes: '[]',
+        schema: '',
+        defaultSettings: '',
         builtin: false,
     });
+}
+
+/** Keys edited by dedicated controls — kept out of the free-form KV list. */
+const MANAGED_DEFAULT_KEYS = new Set(['route_protocol', 'host_port']);
+
+function extraDefaultEntries(defaults: Record<string, string>): {key: string; value: string}[] {
+    return Object.entries(defaults)
+        .filter(([k]) => !MANAGED_DEFAULT_KEYS.has(k))
+        .map(([key, value]) => ({key, value}))
+        .sort((a, b) => a.key.localeCompare(b.key));
 }
 
 function parseEnvVars(raw?: string): EnvEntry[] {
@@ -154,6 +171,10 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
     const [envEntries, setEnvEntries] = useState<EnvEntry[]>(() => parseEnvVars(template?.envVars));
     const [labelEntries, setLabelEntries] = useState<LabelEntry[]>(() => parseLabels(template?.labels));
     const [volumeEntries, setVolumeEntries] = useState<VolumeEntry[]>(() => parseVolumeEntries(template?.volumes));
+    const [defaults, setDefaults] = useState<Record<string, string>>(() => parseDefaultSettings(template?.defaultSettings));
+    const [extraDefaults, setExtraDefaults] = useState<{key: string; value: string}[]>(() =>
+        extraDefaultEntries(parseDefaultSettings(template?.defaultSettings)),
+    );
     const [iconQuery, setIconQuery] = useState('');
     const [error, setError] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -161,14 +182,27 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
     const [schema, setSchema] = useState<TemplateSchema>(() => parseSchema(template?.schema));
 
     const readOnly = currentMode === 'view';
+    const routeProtocol = defaults.route_protocol === 'tcp' ? 'tcp' : 'http';
 
     useEffect(() => {
         setDraft(template ? new store.ServiceTemplate(template) : blankTemplate());
         setEnvEntries(parseEnvVars(template?.envVars));
         setLabelEntries(parseLabels(template?.labels));
         setVolumeEntries(parseVolumeEntries(template?.volumes));
+        const d = parseDefaultSettings(template?.defaultSettings);
+        setDefaults(d);
+        setExtraDefaults(extraDefaultEntries(d));
         setSchema(parseSchema(template?.schema));
     }, [template]);
+
+    const setDefault = (key: string, value: string) => {
+        setDefaults((prev) => {
+            const next = {...prev};
+            if (!value) delete next[key];
+            else next[key] = value;
+            return next;
+        });
+    };
 
     const updateSchema = (next: TemplateSchema) => {
         setSchema(next);
@@ -204,12 +238,26 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
         const env = envEntries.filter((e) => e.key.trim());
         const labels: Record<string, string> = {};
         labelEntries.forEach((l) => { if (l.key.trim()) labels[l.key.trim()] = l.value; });
+        // Merge managed defaults with free-form extras (extras never override managed keys).
+        const merged: Record<string, string> = {...defaults};
+        for (const e of extraDefaults) {
+            const k = e.key.trim();
+            if (!k || MANAGED_DEFAULT_KEYS.has(k)) continue;
+            if (e.value.trim() === '') continue;
+            merged[k] = e.value;
+        }
+        // HTTP is the implicit default — omit route_protocol unless TCP.
+        if (merged.route_protocol !== 'tcp') {
+            delete merged.route_protocol;
+            delete merged.host_port;
+        }
         return new store.ServiceTemplate({
             ...draft,
             name: draft.name.trim(),
             envVars: JSON.stringify(env),
             labels: JSON.stringify(labels),
             volumes: serializeVolumeEntries(volumeEntries),
+            defaultSettings: serializeDefaultSettings(merged),
         });
     };
 
@@ -258,6 +306,10 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                 setEnvEntries(parseEnvVars(cloned.envVars));
                 setLabelEntries(parseLabels(cloned.labels));
                 setVolumeEntries(parseVolumeEntries(cloned.volumes));
+                const d = parseDefaultSettings(cloned.defaultSettings);
+                setDefaults(d);
+                setExtraDefaults(extraDefaultEntries(d));
+                setSchema(parseSchema(cloned.schema));
             })
             .catch((e) => { setSubmitting(false); setError(typeof e === 'string' ? e : e?.message || 'Failed to clone template'); });
     };
@@ -465,6 +517,135 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                         placeholder="e.g. /app"
                         disabled={readOnly}
                     />
+                </div>
+
+                <div className="form-field">
+                    <label className="form-label">Default node settings</label>
+                    <span className="settings-hint">
+                        Stamped onto every service created from this template. Use <strong>TCP</strong> for
+                        wire protocols (Postgres, Redis, MySQL, …) so clients get a stable host port and
+                        <code>….draft.resolv.sh:&lt;port&gt;</code> — not the HTTP reverse proxy.
+                        HTTP is correct for browsers and HTTP APIs.
+                    </span>
+
+                    <div className="template-editor-row">
+                        <div className="form-field">
+                            <label className="form-label">Route protocol</label>
+                            <select
+                                className="input"
+                                value={routeProtocol}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    if (v === 'tcp') {
+                                        setDefaults((prev) => ({
+                                            ...prev,
+                                            route_protocol: 'tcp',
+                                            // Prefer template port as host bind when switching to TCP.
+                                            host_port: prev.host_port || (draft.port ? String(draft.port) : ''),
+                                        }));
+                                    } else {
+                                        setDefaults((prev) => {
+                                            const next = {...prev};
+                                            delete next.route_protocol;
+                                            delete next.host_port;
+                                            return next;
+                                        });
+                                    }
+                                }}
+                                disabled={readOnly}
+                            >
+                                <option value="http">HTTP (proxied)</option>
+                                <option value="tcp">TCP (stable host port)</option>
+                            </select>
+                        </div>
+                        {routeProtocol === 'tcp' && (
+                            <div className="form-field">
+                                <label className="form-label">Preferred host port</label>
+                                <span className="settings-hint">
+                                    Host bind to prefer (e.g. 5432). Leave empty for auto-assign when free
+                                    ports matter more than a stable number.
+                                </span>
+                                <input
+                                    className="input"
+                                    type="number"
+                                    min={0}
+                                    max={65535}
+                                    value={defaults.host_port || ''}
+                                    onChange={(e) => setDefault('host_port', e.target.value)}
+                                    placeholder={draft.port ? String(draft.port) : '0 (auto)'}
+                                    disabled={readOnly}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {(extraDefaults.length > 0 || !readOnly) && (
+                        <>
+                            <label className="form-label" style={{marginTop: 10}}>
+                                Additional defaults <span className="form-optional">optional</span>
+                            </label>
+                            <span className="settings-hint">
+                                Any other <code>node_settings</code> keys (e.g. <code>restart_policy</code>).
+                                Route protocol and host port are managed above.
+                            </span>
+                            {extraDefaults.map((entry, i) => (
+                                <div key={i} className="settings-kv-row">
+                                    <input
+                                        className="input settings-kv-input"
+                                        value={entry.key}
+                                        onChange={(e) => {
+                                            const next = [...extraDefaults];
+                                            next[i] = {...entry, key: e.target.value};
+                                            setExtraDefaults(next);
+                                        }}
+                                        placeholder="setting key"
+                                        disabled={readOnly}
+                                    />
+                                    <input
+                                        className="input settings-kv-input"
+                                        value={entry.value}
+                                        onChange={(e) => {
+                                            const next = [...extraDefaults];
+                                            next[i] = {...entry, value: e.target.value};
+                                            setExtraDefaults(next);
+                                        }}
+                                        placeholder="value"
+                                        disabled={readOnly}
+                                    />
+                                    {!readOnly && (
+                                        <button
+                                            className="btn btn-ghost settings-kv-remove"
+                                            onClick={() => setExtraDefaults(extraDefaults.filter((_, j) => j !== i))}
+                                            title="Remove"
+                                        >
+                                            <Trash2 size={12}/>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            {!readOnly && (
+                                <button
+                                    className="btn btn-ghost settings-add-btn"
+                                    onClick={() => setExtraDefaults([...extraDefaults, {key: '', value: ''}])}
+                                >
+                                    <Plus size={12}/> Add setting
+                                </button>
+                            )}
+                        </>
+                    )}
+
+                    {readOnly && routeProtocol === 'tcp' && (
+                        <p className="template-editor-defaults-summary">
+                            New services from this template bind TCP
+                            {defaults.host_port ? ` on preferred host port ${defaults.host_port}` : ''}.
+                            Public access is <code>hostname.draft.resolv.sh:port</code>, not the HTTP proxy.
+                        </p>
+                    )}
+                    {readOnly && routeProtocol === 'http' && (
+                        <p className="template-editor-defaults-summary">
+                            New services use HTTP routing through Draft&apos;s reverse proxy.
+                        </p>
+                    )}
                 </div>
 
                 <div className="form-field">

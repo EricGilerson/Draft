@@ -6,6 +6,7 @@ import PageHeader from '../components/PageHeader';
 import TemplateIcon from '../components/TemplateIcon';
 import TemplateEditorDialog from '../components/TemplateEditorDialog';
 import {useAppDialog} from '../components/AppDialogProvider';
+import {templateRouteProtocol, parseDefaultSettings} from '../utils/templateDefaults';
 import './TemplatesView.css';
 
 type EditorState =
@@ -93,6 +94,12 @@ export default function TemplatesView() {
         const portLabel = template.mode === 'image' && template.image
             ? template.image
             : `:${template.port || '—'}`;
+        const route = templateRouteProtocol(template.defaultSettings);
+        const defaults = parseDefaultSettings(template.defaultSettings);
+        const hostPort = defaults.host_port;
+        const routeTitle = route === 'tcp'
+            ? `TCP routing${hostPort ? ` · preferred host port ${hostPort}` : ''}`
+            : 'HTTP routing (Draft reverse proxy)';
         return (
             <article key={template.id} className="template-card" data-builtin={isBuiltin || undefined}>
                 <button
@@ -109,6 +116,13 @@ export default function TemplatesView() {
                             {portLabel}
                             <span className="template-card-sep">·</span>
                             {template.mode === 'image' ? 'image' : 'build'}
+                            <span className="template-card-sep">·</span>
+                            <span
+                                className={`template-card-route template-card-route--${route}`}
+                                title={routeTitle}
+                            >
+                                {route === 'tcp' ? (hostPort ? `TCP :${hostPort}` : 'TCP') : 'HTTP'}
+                            </span>
                         </span>
                     </div>
                 </button>

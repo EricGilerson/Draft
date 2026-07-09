@@ -73,6 +73,9 @@ func (s *Store) CreateTemplate(t *ServiceTemplate) (*ServiceTemplate, error) {
 	if t.Volumes, err = NormalizeTemplateVolumes(t.Volumes); err != nil {
 		return nil, err
 	}
+	if t.DefaultSettings, err = NormalizeDefaultSettings(t.DefaultSettings); err != nil {
+		return nil, err
+	}
 	if err := s.DB.Create(t).Error; err != nil {
 		return nil, err
 	}
@@ -110,6 +113,9 @@ func (s *Store) UpdateTemplate(t *ServiceTemplate) error {
 		return err
 	}
 	if t.Volumes, err = NormalizeTemplateVolumes(t.Volumes); err != nil {
+		return err
+	}
+	if t.DefaultSettings, err = NormalizeDefaultSettings(t.DefaultSettings); err != nil {
 		return err
 	}
 	return s.DB.Save(t).Error

@@ -35,6 +35,16 @@ func EncodeDefaultSettings(m map[string]string) string {
 	return string(b)
 }
 
+// NormalizeDefaultSettings validates and re-encodes a template DefaultSettings
+// JSON object. Empty input stays empty. Rejects non-object JSON.
+func NormalizeDefaultSettings(raw string) (string, error) {
+	m, err := ParseDefaultSettings(raw)
+	if err != nil {
+		return "", err
+	}
+	return EncodeDefaultSettings(m), nil
+}
+
 // MustEncodeDefaultSettings panics on marshal failure (for package-level literals).
 func MustEncodeDefaultSettings(m map[string]string) string {
 	if len(m) == 0 {

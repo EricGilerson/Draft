@@ -24,6 +24,22 @@
     border-radius: 4px;
 }
 
+.template-editor-defaults-summary {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    font-size: 0.76rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+    background: var(--canvas-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+}
+
+.template-editor-defaults-summary code {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+}
+
 .template-editor-row {
     display: grid;
     grid-template-columns: 1fr 1fr;

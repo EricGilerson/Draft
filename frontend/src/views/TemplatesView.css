@@ -193,6 +193,19 @@
     color: rgba(170, 160, 140, 0.35);
 }
 
+.template-card-route {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.template-card-route--tcp {
+    color: var(--accent, #6ea8fe);
+}
+
+.template-card-route--http {
+    color: var(--text-faint);
+}
+
 .template-card-delete {
     flex-shrink: 0;
     align-self: stretch;
