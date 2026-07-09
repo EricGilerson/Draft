@@ -3,21 +3,30 @@ import {useCallback, useEffect, useRef, useState, type ReactNode} from 'react';
 import {GetServiceMetrics} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import StatusBadge from './StatusBadge';
+import {useLinkedServiceTarget} from '../lib/linkedService';
 import './MetricsTab.css';
 
 export default function MetricsTab({nodeId}: {nodeId: string}) {
     const [metrics, setMetrics] = useState<deploy.ServiceMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
 
     useEffect(() => {
+        setMetrics(null);
+        setLoading(true);
+        setError('');
+    }, [nodeId, targetNodeId]);
+
+    useEffect(() => {
+        if (linkLoading) return;
         let cancelled = false;
         let intervalId: number | null = null;
 
         const load = async (initial = false) => {
             if (initial) setLoading(true);
             try {
-                const next = await GetServiceMetrics(nodeId);
+                const next = await GetServiceMetrics(targetNodeId);
                 if (cancelled) return;
                 setMetrics(next);
                 setError('');
@@ -35,7 +44,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
             cancelled = true;
             if (intervalId !== null) window.clearInterval(intervalId);
         };
-    }, [nodeId]);
+    }, [targetNodeId, linkLoading]);
 
     if (loading && !metrics) {
         return <div className="metrics-tab metrics-tab--empty">Loading metrics…</div>;
@@ -88,6 +97,16 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
                     </div>
                 )}
             </div>
+
+            {isLinked && (
+                <div className="metrics-callout">
+                    <AlertCircle size={14} />
+                    <span>
+                        Showing runtime metrics from the shared root service in {linkInfo?.rootEnvName || 'another environment'}
+                        {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}.
+                    </span>
+                </div>
+            )}
 
             {error && (
                 <div className="metrics-callout metrics-callout--error">

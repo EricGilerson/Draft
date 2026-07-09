@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {useBuildLog} from './BuildLogProvider';
 import {acquireLogStream, releaseLogStream} from '../lib/logStreamManager';
+import {useLinkedServiceTarget} from '../lib/linkedService';
 
 function getErrorMessage(error: unknown) {
     return typeof error === 'string' ? error : (error as {message?: string})?.message || 'Could not start log stream';
@@ -20,6 +21,7 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
     const logRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {deploying} = useBuildLog(nodeId);
+    const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
 
     useEffect(() => {
         setLines([]);
@@ -27,9 +29,15 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
         setStreaming(false);
         setConnecting(false);
         autoScroll.current = true;
-    }, [nodeId]);
+    }, [nodeId, targetNodeId]);
 
     useEffect(() => {
+        if (linkLoading) {
+            setConnecting(true);
+            setStreaming(false);
+            setError('');
+            return;
+        }
         let cancelled = false;
         let retryTimer: number | null = null;
 
@@ -43,13 +51,13 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
             setConnecting(true);
             setError('');
             try {
-                await acquireLogStream(nodeId);
+                await acquireLogStream(targetNodeId);
                 if (cancelled) return;
                 setStreaming(true);
                 setConnecting(false);
                 setError('');
             } catch (e: any) {
-                releaseLogStream(nodeId);
+                releaseLogStream(targetNodeId);
                 if (cancelled) return;
                 const msg = getErrorMessage(e);
                 if (msg.includes('no active container')) {
@@ -71,7 +79,7 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
 
         void start();
 
-        const eventName = 'container:log:' + nodeId;
+        const eventName = 'container:log:' + targetNodeId;
         const unsubscribe = EventsOn(eventName, (ev: any) => {
             setLines(prev => {
                 const next = [...prev, {line: ev.line, stream: ev.stream}];
@@ -85,11 +93,11 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
                 window.clearTimeout(retryTimer);
             }
             unsubscribe();
-            releaseLogStream(nodeId);
+            releaseLogStream(targetNodeId);
             setStreaming(false);
             setConnecting(false);
         };
-    }, [nodeId, deploying]);
+    }, [targetNodeId, deploying, linkLoading]);
 
     useEffect(() => {
         if (autoScroll.current && logRef.current) {
@@ -115,6 +123,12 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
                     </button>
                 )}
             </div>
+            {isLinked && (
+                <div className="overview-staged-banner">
+                    Showing logs from the shared root service in <strong>{linkInfo?.rootEnvName || 'another environment'}</strong>
+                    {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}.
+                </div>
+            )}
             <div className="log-viewer log-viewer--full" ref={logRef} onScroll={handleScroll}>
                 {lines.length === 0 && !error && (
                     <span className="deploy-empty">

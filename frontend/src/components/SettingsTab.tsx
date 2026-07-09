@@ -1,17 +1,18 @@
-import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw} from 'lucide-react';
+import {FolderOpen, FileSearch, Plus, Trash2, GitBranch, RefreshCw, ArrowUpRight} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     SelectFile, ParseDockerfileExpose,
     IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
     SetNodeSetting,
-    GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume,
+    GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume, GetNodeConfigStatus,
     PreviewDeleteService, DeleteNode,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import {getSettingStagingState} from '../lib/settingStaging';
+import {useLinkedServiceTarget} from '../lib/linkedService';
 import SettingStagingNote from './SettingStagingNote';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
@@ -49,6 +50,7 @@ type SettingsTabProps = {
     serviceLabel: string;
     onServicesChanged?: () => void;
     onServiceDeleted?: () => void;
+    onOpenRootService?: (projectId: number, rootNodeId: string, rootEnvironmentId: number) => void;
 };
 
 type LabelEntry = {
@@ -56,7 +58,7 @@ type LabelEntry = {
     value: string;
 };
 
-export default function SettingsTab({nodeId, projectId, projectPath, serviceLabel, onServicesChanged, onServiceDeleted}: SettingsTabProps) {
+export default function SettingsTab({nodeId, projectId, projectPath, serviceLabel, onServicesChanged, onServiceDeleted, onOpenRootService}: SettingsTabProps) {
     const {
         appliedSettings,
         stagedSettings,
@@ -69,6 +71,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         isSessionDirty,
         reload,
     } = useServiceConfigEditor();
+    const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
+    const readOnly = isLinked;
+    const [linkedHasStagedChanges, setLinkedHasStagedChanges] = useState(false);
 
     const stagingNoteFor = useCallback((key: string) => (
         <SettingStagingNote {...getSettingStagingState(key, appliedSettings, stagedSettings, draftSettings)} />
@@ -145,24 +150,24 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const refreshBranches = useCallback(() => {
         setBranchesLoading(true);
         setBranchError('');
-        ListGitBranches(nodeId, projectId)
+        ListGitBranches(targetNodeId, projectId)
             .then((list) => setBranches(list || []))
             .catch((e) => setBranchError(typeof e === 'string' ? e : e?.message || 'Failed to list branches'))
             .finally(() => setBranchesLoading(false));
-    }, [nodeId, projectId]);
+    }, [targetNodeId, projectId]);
 
     const refreshHookStatus = useCallback(() => {
-        GetGitHookStatus(nodeId, projectId).then(setHookStatus).catch(() => setHookStatus(null));
-    }, [nodeId, projectId]);
+        GetGitHookStatus(targetNodeId, projectId).then(setHookStatus).catch(() => setHookStatus(null));
+    }, [targetNodeId, projectId]);
 
     const refreshManagedVolumes = useCallback(() => {
-        ListManagedVolumes(projectId, nodeId)
+        ListManagedVolumes(projectId, targetNodeId)
             .then((list) => setManagedVolumes(list ?? []))
             .catch(() => setManagedVolumes([]));
-    }, [projectId, nodeId]);
+    }, [projectId, targetNodeId]);
 
     useEffect(() => {
-        IsGitRepo(nodeId, projectId).then((ok) => {
+        IsGitRepo(targetNodeId, projectId).then((ok) => {
             setIsGitRepo(ok);
             if (ok) {
                 refreshBranches();
@@ -172,7 +177,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 setHookStatus(null);
             }
         }).catch(() => setIsGitRepo(false));
-    }, [nodeId, projectId, rootPath, refreshBranches, refreshHookStatus]);
+    }, [targetNodeId, projectId, rootPath, refreshBranches, refreshHookStatus]);
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
@@ -247,24 +252,49 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     }, [projectId, refreshManagedVolumes]);
 
     useEffect(() => {
-        if (configLoading || isSessionDirty) return;
+        if (readOnly || configLoading || isSessionDirty) return;
         applySettingsSnapshot(committedSettings);
-    }, [committedSettings, configLoading, isSessionDirty, applySettingsSnapshot]);
+    }, [readOnly, committedSettings, configLoading, isSessionDirty, applySettingsSnapshot]);
 
     useEffect(() => {
-        if (configLoading) return;
+        if (readOnly || configLoading) return;
         setGitBranch(appliedSettings.git_branch || '');
         setDeployTrigger((appliedSettings.deploy_trigger as DeployTrigger) || 'manual');
         setRedeployOnPull(appliedSettings.redeploy_on_pull === 'true');
         setGitStream(appliedSettings.git_stream !== 'false');
-    }, [appliedSettings, configLoading]);
+    }, [readOnly, appliedSettings, configLoading]);
 
     useEffect(() => {
-        GetServiceRoot(nodeId, projectId).then((path) => {
+        if (linkLoading || !readOnly) {
+            setLinkedHasStagedChanges(false);
+            return;
+        }
+        let cancelled = false;
+        GetNodeConfigStatus(targetNodeId).then((status) => {
+            if (cancelled) return;
+            const applied = status?.appliedSettings || {};
+            const staged = status?.stagedSettings || {};
+            const effective = {...applied, ...staged};
+            applySettingsSnapshot(effective);
+            setGitBranch(effective.git_branch || '');
+            setDeployTrigger((effective.deploy_trigger as DeployTrigger) || 'manual');
+            setRedeployOnPull(effective.redeploy_on_pull === 'true');
+            setGitStream(effective.git_stream !== 'false');
+            setLinkedHasStagedChanges(!!status?.hasStagedChanges);
+        }).catch(() => {
+            if (!cancelled) setLinkedHasStagedChanges(false);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [linkLoading, readOnly, targetNodeId, applySettingsSnapshot]);
+
+    useEffect(() => {
+        GetServiceRoot(targetNodeId, projectId).then((path) => {
             setRootPath(path || '');
             setInputValue(path || '');
         });
-        GetNode(nodeId)
+        GetNode(targetNodeId)
             .then((node) => {
                 if (node?.templateId) {
                     return GetServiceTemplate(node.templateId).then(setTemplate).catch(() => setTemplate(null));
@@ -273,7 +303,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 return Promise.resolve();
             })
             .catch(() => setTemplate(null));
-    }, [nodeId, projectId]);
+    }, [targetNodeId, projectId]);
 
     const commitImage = useCallback((value?: string) => {
         const trimmed = (value ?? imageInput).trim();
@@ -490,13 +520,47 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const imageModeVolumes = isImageMode && volumesSection;
     const buildModeVolumes = !isImageMode && volumesSection;
 
+    if (linkLoading) {
+        return (
+            <div className="settings-tab">
+                <div className="settings-section">
+                    <h3 className="settings-section-title">Settings</h3>
+                    <span className="settings-hint">Loading shared root settings…</span>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="settings-tab">
-            {hasStagedChanges && (
+            {(readOnly ? linkedHasStagedChanges : hasStagedChanges) && (
                 <div className="settings-staged-banner">
-                    Staged settings will apply on the next deploy.
+                    {readOnly ? 'The root service has staged settings. This view includes them.' : 'Staged settings will apply on the next deploy.'}
                 </div>
             )}
+            {readOnly && (
+                <div className="settings-section settings-locked-section">
+                    <h3 className="settings-section-title">Shared Root</h3>
+                    <div className="settings-locked-callout">
+                        <p className="settings-locked-title">This linked service is view-only here.</p>
+                        <p className="settings-hint">
+                            You are viewing the root service&apos;s settings from{' '}
+                            <span className="settings-mono">{linkInfo?.rootEnvName || 'another environment'}</span>
+                            {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}. Update the root service to change how {serviceLabel} runs here.
+                        </p>
+                        {!!linkInfo?.rootNodeId && !!linkInfo?.rootEnvironmentId && onOpenRootService && (
+                            <button
+                                className="btn btn-primary settings-locked-action"
+                                onClick={() => onOpenRootService(projectId, linkInfo.rootNodeId || '', linkInfo.rootEnvironmentId || 0)}
+                            >
+                                <ArrowUpRight size={14} />
+                                Go to root service
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
+            <fieldset className="settings-fieldset" disabled={readOnly}>
             {/* ── Source ── */}
             {!sectionHidden('source') && (
             <div className="settings-section">
@@ -1014,6 +1078,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             </div>
             )}
 
+            </fieldset>
+            {!readOnly && (
             <div className="settings-section settings-section--danger">
                 <h3 className="settings-section-title">Delete Service</h3>
                 <p className="settings-hint">
@@ -1024,8 +1090,9 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                     <Trash2 size={14} /> Delete service…
                 </button>
             </div>
+            )}
 
-            {showDeleteDialog && (
+            {!readOnly && showDeleteDialog && (
                 <Dialog
                     title={`Delete “${serviceLabel}”?`}
                     onClose={() => !deleting && setShowDeleteDialog(false)}

@@ -5,6 +5,7 @@ import {Play, Square} from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import {DaemonConnection, RunCommand} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
+import {useLinkedServiceTarget} from '../lib/linkedService';
 import './ShellTab.css';
 
 type ShellTabProps = {
@@ -27,6 +28,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
     const shellRef = useRef<string>(shell);
     const [status, setStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
     const [error, setError] = useState<string | null>(null);
+    const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
 
     // One-shot "Run" bar state: run a command (e.g. `npm run migrate`) in the
     // running container without leaving the tab. Output is captured (not TTY'd)
@@ -45,6 +47,11 @@ export default function ShellTab({nodeId}: ShellTabProps) {
     // owns its own xterm instance so a reconnect always starts from a clean
     // terminal rather than a half-written one.
     useEffect(() => {
+        if (linkLoading) {
+            setStatus('connecting');
+            setError(null);
+            return;
+        }
         let cancelled = false;
         let term: XTerm | null = null;
         let fit: FitAddon | null = null;
@@ -86,7 +93,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             }
 
             if (cancelled) return;
-            const url = `ws://${addr}/exec/attach?nodeId=${encodeURIComponent(nodeId)}&shell=${encodeURIComponent(shellRef.current)}&token=${encodeURIComponent(token)}`;
+            const url = `ws://${addr}/exec/attach?nodeId=${encodeURIComponent(targetNodeId)}&shell=${encodeURIComponent(shellRef.current)}&token=${encodeURIComponent(token)}`;
             const ws = new WebSocket(url);
             ws.binaryType = 'arraybuffer';
             wsRef.current = ws;
@@ -146,7 +153,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             fitRef.current = null;
             wsRef.current = null;
         };
-    }, [nodeId, shell]);
+    }, [targetNodeId, shell, linkLoading]);
 
     function sendResize(term: XTerm, ws: WebSocket) {
         if (ws.readyState !== WebSocket.OPEN) return;
@@ -173,7 +180,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
         setRunExit(null);
         setShowOutput(true);
         runHistoryRef.current = [trimmed, ...runHistoryRef.current].slice(0, 20);
-        RunCommand(nodeId, argv, workDir.trim())
+        RunCommand(targetNodeId, argv, workDir.trim())
             .then((res: deploy.RunCommandResult) => {
                 setRunning(false);
                 setRunOutput(res.output || '');
@@ -190,13 +197,19 @@ export default function ShellTab({nodeId}: ShellTabProps) {
 
     return (
         <div className="shell-tab">
+            {isLinked && (
+                <div className="shell-linked-banner">
+                    Shell access is attached to the shared root service in <strong>{linkInfo?.rootEnvName || 'another environment'}</strong>
+                    {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}.
+                </div>
+            )}
             <div className="shell-tab-toolbar">
                 <label className="shell-shell-label">Shell</label>
-                <select className="input shell-shell-select" value={shell} onChange={(e) => setShell(e.target.value)}>
+                <select className="input select-styled shell-shell-select" value={shell} onChange={(e) => setShell(e.target.value)}>
                     {SHELLS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <span className={`shell-status shell-status--${status}`}>{status}</span>
-                <button className="btn btn-ghost shell-reconnect" onClick={reconnect} title="Reconnect the shell">
+                <button className="btn btn-ghost shell-reconnect" onClick={reconnect} title="Reconnect the shell" disabled={linkLoading}>
                     Reconnect
                 </button>
             </div>

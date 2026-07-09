@@ -637,6 +637,45 @@
     gap: 24px;
 }
 
+.settings-fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.settings-fieldset:disabled {
+    opacity: 1;
+}
+
+.settings-locked-section {
+    gap: 12px;
+}
+
+.settings-locked-callout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid rgba(212, 184, 132, 0.24);
+    border-radius: var(--radius-lg);
+    background: rgba(212, 184, 132, 0.05);
+}
+
+.settings-locked-title {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.settings-locked-action {
+    width: fit-content;
+}
+
 .settings-section {
     display: flex;
     flex-direction: column;

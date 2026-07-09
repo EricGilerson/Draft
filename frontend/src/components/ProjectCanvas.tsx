@@ -55,6 +55,7 @@ type ProjectCanvasProps = {
      * it (a focus should fire once, not on every re-render). */
     onVolumeFocusApplied?: () => void;
     onOpenProjectSettings?: () => void;
+    onOpenLinkedRootService?: (projectId: number, rootNodeId: string, rootEnvironmentId: number) => void;
     /** When set, select this node's detail panel once its node has loaded. Used
      * by the Routes tab's "open on canvas" action. Cleared via onNodeFocusApplied. */
     initialSelectedNodeId?: string | null;
@@ -148,7 +149,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, onOpenLinkedRootService, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -707,6 +708,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                         onRename={renameNode}
                         onServicesChanged={notifyServicesChanged}
                         onServiceDeleted={handleServiceDeleted}
+                        onOpenRootService={onOpenLinkedRootService}
                     />
                 </ResizablePanel>
             )}

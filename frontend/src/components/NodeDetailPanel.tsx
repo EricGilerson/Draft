@@ -39,6 +39,7 @@ type NodeDetailPanelProps = {
     onRename: (nodeId: string, newLabel: string) => Promise<void>;
     onServicesChanged?: () => void;
     onServiceDeleted?: (nodeId: string) => void;
+    onOpenRootService?: (projectId: number, rootNodeId: string, rootEnvironmentId: number) => void;
 };
 
 function NodeDetailPanelBody({
@@ -50,6 +51,7 @@ function NodeDetailPanelBody({
     onRename,
     onServicesChanged,
     onServiceDeleted,
+    onOpenRootService,
 }: NodeDetailPanelProps) {
     const [activeTab, setActiveTab] = useState('overview');
     const [editing, setEditing] = useState(false);
@@ -224,6 +226,7 @@ function NodeDetailPanelBody({
                         serviceLabel={nodeLabel}
                         onServicesChanged={onServicesChanged}
                         onServiceDeleted={() => onServiceDeleted?.(nodeId)}
+                        onOpenRootService={onOpenRootService}
                     />
                 )}
             </div>

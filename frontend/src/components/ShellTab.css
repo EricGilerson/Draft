@@ -5,6 +5,16 @@
     min-height: 0;
 }
 
+.shell-linked-banner {
+    margin: 0 0 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed rgba(212, 184, 132, 0.35);
+    background: rgba(212, 184, 132, 0.06);
+    color: rgba(212, 184, 132, 0.92);
+    font-size: 0.78rem;
+}
+
 .shell-tab-toolbar {
     display: flex;
     align-items: center;

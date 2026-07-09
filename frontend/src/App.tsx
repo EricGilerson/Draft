@@ -27,7 +27,7 @@ import RoutesView from './views/RoutesView';
 import {main, store} from '../wailsjs/go/models';
 
 type VolumeFocus = {nodeId: string; target: string};
-type NodeFocus = {projectId: number; nodeId: string};
+type NodeFocus = {projectId: number; nodeId: string; environmentId?: number | null};
 
 function App() {
     const [view, setView] = useState<NavId>('overview');
@@ -43,6 +43,7 @@ function App() {
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
+    const requestedEnvironmentRef = useRef<{projectId: number; environmentId: number} | null>(null);
 
     const refreshProjectServices = useCallback(async (items: store.Project[]) => {
         if (items.length === 0) {
@@ -91,6 +92,11 @@ function App() {
             setSelectedEnvironmentId(null);
             return;
         }
+        const requested = requestedEnvironmentRef.current;
+        if (requested?.projectId === selectedProject.id) {
+            setSelectedEnvironmentId(requested.environmentId);
+            return;
+        }
         let cancelled = false;
         GetDefaultEnvironment(selectedProject.id)
             .then((env) => {
@@ -135,6 +141,7 @@ function App() {
     };
 
     const openProject = (project: store.Project) => {
+        requestedEnvironmentRef.current = null;
         setSelectedProject(project);
         setView('projects');
     };
@@ -142,6 +149,7 @@ function App() {
     const revealVolume = (projectId: number, nodeId: string, target: string) => {
         const project = projectsRef.current.find((p) => p.id === projectId);
         if (!project) return;
+        requestedEnvironmentRef.current = null;
         setSelectedProject(project);
         setPendingVolumeFocus({nodeId, target});
         setView('projects');
@@ -151,11 +159,13 @@ function App() {
         setSettingsProject(project);
     };
 
-    const revealNode = (projectId: number, nodeId: string) => {
+    const revealNode = (projectId: number, nodeId: string, environmentId?: number) => {
         const project = projectsRef.current.find((p) => p.id === projectId);
         if (!project) return;
+        requestedEnvironmentRef.current = environmentId ? {projectId, environmentId} : null;
         setSelectedProject(project);
-        setPendingNodeFocus({projectId, nodeId});
+        if (environmentId) setSelectedEnvironmentId(environmentId);
+        setPendingNodeFocus({projectId, nodeId, environmentId: environmentId ?? null});
         setView('projects');
     };
 
@@ -215,6 +225,7 @@ function App() {
                                             initialVolumeFocus={pendingVolumeFocus}
                                             onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
                                             onOpenProjectSettings={() => openProjectSettings(selectedProject)}
+                                            onOpenLinkedRootService={revealNode}
                                             initialSelectedNodeId={
                                                 pendingNodeFocus && pendingNodeFocus.projectId === selectedProject.id
                                                     ? pendingNodeFocus.nodeId
