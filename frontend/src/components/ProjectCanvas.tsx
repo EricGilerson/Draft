@@ -258,6 +258,39 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
         );
     }, [setServiceNodes]);
 
+    const refreshLinkedServiceState = useCallback(async (nodeIds: string[]) => {
+        if (nodeIds.length === 0) return;
+        const results = await Promise.all(
+            nodeIds.map(async (id) => {
+                try {
+                    const link = await GetLinkedServiceInfo(id);
+                    return [id, {
+                        linkedFromEnv: link?.isLinked ? (link.rootEnvName || link.rootLabel || 'linked') : undefined,
+                        linkedRootNodeId: link?.isLinked ? (link.rootNodeId || undefined) : undefined,
+                    }] as const;
+                } catch {
+                    return [id, {linkedFromEnv: undefined, linkedRootNodeId: undefined}] as const;
+                }
+            }),
+        );
+        const byId = new Map(results);
+        setServiceNodes((prev) =>
+            prev.map((n) => {
+                const next = byId.get(n.id);
+                if (!next) return n;
+                return {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        linkedFromEnv: next.linkedFromEnv,
+                        linkedRootNodeId: next.linkedRootNodeId,
+                        deploymentId: next.linkedRootNodeId ? undefined : n.data.deploymentId,
+                    },
+                };
+            }),
+        );
+    }, [setServiceNodes]);
+
     const refreshReferenceIssueNodes = useCallback(() => {
         ListNodesWithReferenceIssues(environmentId)
             .then((ids) => {
@@ -517,10 +550,13 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     }, [refreshVolumeMounts, serviceNodes, onServicesChanged]);
 
     const notifyServicesChanged = useCallback(() => {
-        refreshVolumeMounts(serviceNodes.map((n) => n.id));
+        const nodeIds = serviceNodes.map((n) => n.id);
+        void refreshLinkedServiceState(nodeIds);
+        void refreshNodeHealth(nodeIds);
+        refreshVolumeMounts(nodeIds);
         refreshReferenceIssueNodes();
         onServicesChanged?.();
-    }, [refreshVolumeMounts, refreshReferenceIssueNodes, serviceNodes, onServicesChanged]);
+    }, [refreshLinkedServiceState, refreshNodeHealth, refreshVolumeMounts, refreshReferenceIssueNodes, serviceNodes, onServicesChanged]);
 
     const openCreate = () => {
         setShowCreate(true);
