@@ -189,8 +189,10 @@ func (e *Engine) resolveNodeAttr(selfNodeID string, projectID, environmentID uin
 		return value, nil
 	}
 
-	// Non-generated env vars (passwords, etc.) follow one hop to the root when
-	// this node is a linked service, so credentials stay consistent.
+	// Non-generated env vars (passwords, connection strings, etc.) follow one
+	// hop to the root when this node is a linked service, so credentials stay
+	// consistent with the running container.
+	aliasNode := node
 	resolveNode := node
 	resolveEnvID := environmentID
 	if settings, err := e.store.GetNodeSettings(node.ID); err == nil {
@@ -215,7 +217,81 @@ func (e *Engine) resolveNodeAttr(selfNodeID string, projectID, environmentID uin
 	defer delete(visited, resolveNode.ID)
 	// The referenced node owns this value, so its draft expressions resolve
 	// against the referenced node's identity, not the caller's.
-	return e.resolveValue(resolveNode.ID, projectID, resolveEnvID, v.Value, visited)
+	value, err := e.resolveValue(resolveNode.ID, projectID, resolveEnvID, v.Value, visited)
+	if err != nil {
+		return "", err
+	}
+	// Root-stamped connection strings embed the root's internal hostname.
+	// Consumers in the linker env need the alias hostname (Docker multi-attach
+	// DNS). Swap known root address strings for the alias's — not URL parsing.
+	if resolveNode.ID != aliasNode.ID {
+		value = e.rewriteRootAddressesToAlias(value, resolveNode, aliasNode)
+	}
+	return value, nil
+}
+
+// rewriteRootAddressesToAlias replaces concrete root address strings in value
+// with the corresponding alias (linker-env) addresses. Longer strings first so
+// full URLs rewrite before bare hostnames. No-ops when either address is missing
+// or when root and alias already share the same strings.
+func (e *Engine) rewriteRootAddressesToAlias(value string, root, alias *store.CanvasNode) string {
+	if value == "" || root == nil || alias == nil || root.ID == alias.ID {
+		return value
+	}
+	rootAddr, err := e.computeNodeAddress(root)
+	if err != nil {
+		return value
+	}
+	aliasAddr, err := e.computeNodeAddress(alias)
+	if err != nil {
+		return value
+	}
+	return rewriteAddressStrings(value, rootAddr, aliasAddr)
+}
+
+// rewriteAddressStrings performs literal root→alias substitutions ordered by
+// old-string length (longest first) so nested forms rewrite cleanly.
+func rewriteAddressStrings(value string, root, alias NodeAddress) string {
+	type pair struct{ old, new string }
+	candidates := []pair{
+		{root.PublicURL, alias.PublicURL},
+		{root.InternalURL, alias.InternalURL},
+		{root.PublicHostname, alias.PublicHostname},
+		{root.InternalHostname, alias.InternalHostname},
+	}
+	var pairs []pair
+	for _, p := range candidates {
+		if p.old == "" || p.new == "" || p.old == p.new {
+			continue
+		}
+		pairs = append(pairs, p)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		return len(pairs[i].old) > len(pairs[j].old)
+	})
+	for _, p := range pairs {
+		value = strings.ReplaceAll(value, p.old, p.new)
+	}
+	return value
+}
+
+// rewriteValueIfLinked rewrites root address strings to this node's alias
+// addresses when nodeID is a linked service. Used for preview/export of the
+// alias's own env rows (copied values still embed the root hostname).
+func (e *Engine) rewriteValueIfLinked(nodeID, value string) string {
+	link, err := e.GetServiceLink(nodeID)
+	if err != nil || link == nil {
+		return value
+	}
+	alias, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return value
+	}
+	root, err := e.store.GetNode(link.RootNodeID)
+	if err != nil {
+		return value
+	}
+	return e.rewriteRootAddressesToAlias(value, root, alias)
 }
 
 func isGeneratedAttr(attrName string) bool {
@@ -229,6 +305,8 @@ func isGeneratedAttr(attrName string) bool {
 
 // ResolveEnvVars returns nodeID's env vars with service reference tokens
 // expanded for .env export. {{secret.*}} and {{project.*}} tokens are preserved literally.
+// Linked aliases rewrite root hostnames to the alias DNS names used on the
+// linker environment network.
 func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
@@ -244,7 +322,7 @@ func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", v.Key, err)
 		}
-		v.Value = value
+		v.Value = e.rewriteValueIfLinked(nodeID, value)
 		resolved[i] = v
 	}
 	return resolved, nil
@@ -259,6 +337,8 @@ type EnvPreview struct {
 
 // PreviewEnvVars resolves nodeID's env vars per key, tolerating errors so one
 // broken reference doesn't hide every other variable's preview.
+// Linked aliases rewrite root hostnames to alias DNS names so previews match
+// what consumers resolve over the multi-attached network.
 func (e *Engine) PreviewEnvVars(nodeID string) (map[string]EnvPreview, error) {
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
@@ -275,7 +355,7 @@ func (e *Engine) PreviewEnvVars(nodeID string) (map[string]EnvPreview, error) {
 			out[v.Key] = EnvPreview{Error: err.Error()}
 			continue
 		}
-		out[v.Key] = EnvPreview{Value: value}
+		out[v.Key] = EnvPreview{Value: e.rewriteValueIfLinked(nodeID, value)}
 	}
 	return out, nil
 }

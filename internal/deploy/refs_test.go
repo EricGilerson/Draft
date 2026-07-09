@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -345,6 +346,145 @@ func TestReferenceResolutionIsScopedPerEnvironment(t *testing.T) {
 	}
 	if strings.Contains(stagingResolved["DATABASE_URL"].Value, mainDB.UID) {
 		t.Errorf("staging api's DATABASE_URL leaked main db's UID: %q", stagingResolved["DATABASE_URL"].Value)
+	}
+}
+
+func TestRewriteAddressStringsLongestFirst(t *testing.T) {
+	root := NodeAddress{
+		InternalHostname: "db.myapp.main.aaaa.draft.local",
+		InternalURL:      "http://db.myapp.main.aaaa.draft.local:5432",
+		PublicHostname:   "db.myapp.main.aaaa.draft.resolv.sh",
+		PublicURL:        "http://db.myapp.main.aaaa.draft.resolv.sh:8080",
+	}
+	alias := NodeAddress{
+		InternalHostname: "db.myapp.staging.bbbb.draft.local",
+		InternalURL:      "http://db.myapp.staging.bbbb.draft.local:5432",
+		PublicHostname:   "db.myapp.staging.bbbb.draft.resolv.sh",
+		PublicURL:        "http://db.myapp.staging.bbbb.draft.resolv.sh:8080",
+	}
+	in := "postgres://u:p@db.myapp.main.aaaa.draft.local:5432/app also " + root.InternalURL
+	got := rewriteAddressStrings(in, root, alias)
+	if strings.Contains(got, "main.aaaa") {
+		t.Fatalf("root hostname left in place: %q", got)
+	}
+	if !strings.Contains(got, "db.myapp.staging.bbbb.draft.local") {
+		t.Fatalf("alias hostname missing: %q", got)
+	}
+	if !strings.Contains(got, alias.InternalURL) {
+		t.Fatalf("alias internal URL missing: %q", got)
+	}
+}
+
+func TestLinkedServiceDATABASE_URLRewritesHostname(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	mainEnv := defaultEnvID(t, s, p.ID)
+
+	root, err := s.CreateNode(&store.CanvasNode{
+		ID: "root-db", ProjectID: p.ID, EnvironmentID: mainEnv, Label: "db",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeSetting(root.ID, "service_port", "5432"); err != nil {
+		t.Fatal(err)
+	}
+	rootAddr, err := e.computeNodeAddress(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const password = "shared-secret"
+	rootURL := fmt.Sprintf("postgres://postgres:%s@%s:5432/postgres", password, rootAddr.InternalHostname)
+	if err := s.SetEnvVar(root.ID, "POSTGRES_PASSWORD", password); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(root.ID, "DATABASE_URL", rootURL); err != nil {
+		t.Fatal(err)
+	}
+
+	staging, err := s.CreateEnvironment(p.ID, "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, err := s.CreateNode(&store.CanvasNode{
+		ID: "alias-db", ProjectID: p.ID, EnvironmentID: staging.ID, Label: "db",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetNodeSetting(alias.ID, "service_port", "5432"); err != nil {
+		t.Fatal(err)
+	}
+	// Alias may still hold a copied root-stamped URL (share/duplicate path).
+	if err := s.SetEnvVar(alias.ID, "DATABASE_URL", rootURL); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.SetServiceLink(alias.ID, root.ID); err != nil {
+		t.Fatal(err)
+	}
+	aliasAddr, err := e.computeNodeAddress(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Staging consumer references the linked service's DATABASE_URL blob.
+	worker, err := s.CreateNode(&store.CanvasNode{
+		ID: "worker", ProjectID: p.ID, EnvironmentID: staging.ID, Label: "worker",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(worker.ID, "DATABASE_URL", "@{db.DATABASE_URL}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnvVar(worker.ID, "DB_PASSWORD", "@{db.POSTGRES_PASSWORD}"); err != nil {
+		t.Fatal(err)
+	}
+
+	deployEnv, err := e.resolveDeploymentEnv(deploymentEnvInput{
+		NodeID:        worker.ID,
+		ProjectID:     p.ID,
+		EnvironmentID: staging.ID,
+		ServiceName:   "worker",
+		ProjectName:   p.Name,
+		ServicePort:   "80",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, item := range deployEnv.RuntimeEnv {
+		if k, v, ok := splitEnv(item); ok {
+			got[k] = v
+		}
+	}
+	if got["DB_PASSWORD"] != password {
+		t.Errorf("password = %q, want %q", got["DB_PASSWORD"], password)
+	}
+	dbURL := got["DATABASE_URL"]
+	if !strings.Contains(dbURL, password) {
+		t.Errorf("DATABASE_URL should keep root password: %q", dbURL)
+	}
+	if strings.Contains(dbURL, rootAddr.InternalHostname) {
+		t.Errorf("DATABASE_URL still has root hostname: %q", dbURL)
+	}
+	if !strings.Contains(dbURL, aliasAddr.InternalHostname) {
+		t.Errorf("DATABASE_URL missing alias hostname %q: %q", aliasAddr.InternalHostname, dbURL)
+	}
+
+	// Alias Variables preview should also show alias DNS, not root.
+	preview, err := e.PreviewEnvVars(alias.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev := preview["DATABASE_URL"].Value
+	if strings.Contains(prev, rootAddr.InternalHostname) {
+		t.Errorf("alias preview still has root hostname: %q", prev)
+	}
+	if !strings.Contains(prev, aliasAddr.InternalHostname) {
+		t.Errorf("alias preview missing alias hostname: %q", prev)
 	}
 }
 
