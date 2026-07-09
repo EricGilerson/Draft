@@ -330,9 +330,25 @@ func (e *Engine) ResolveEnvVars(nodeID string) ([]store.EnvVar, error) {
 
 // EnvPreview is a single variable's resolved value, or the error that
 // resolution hit, for read-only display (e.g. the Variables tab).
+// Kind is set only when Value differs from the stored string:
+//   - "resolve": tokens/expressions expanded (and any linked rewrite applied after)
+//   - "linked": plain stored value rewritten for a linked alias's DNS only
 type EnvPreview struct {
 	Value string `json:"value"`
 	Error string `json:"error,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+}
+
+// previewKind classifies why final differs from stored using the intermediate
+// resolve step — no token parsing required.
+func previewKind(stored, resolved, final string) string {
+	if final == stored {
+		return ""
+	}
+	if resolved != stored {
+		return "resolve"
+	}
+	return "linked"
 }
 
 // PreviewEnvVars resolves nodeID's env vars per key, tolerating errors so one
@@ -350,12 +366,13 @@ func (e *Engine) PreviewEnvVars(nodeID string) (map[string]EnvPreview, error) {
 	}
 	out := make(map[string]EnvPreview, len(vars))
 	for _, v := range vars {
-		value, err := e.resolveValue(node.ID, node.ProjectID, node.EnvironmentID, v.Value, map[string]bool{nodeID: true})
+		resolved, err := e.resolveValue(node.ID, node.ProjectID, node.EnvironmentID, v.Value, map[string]bool{nodeID: true})
 		if err != nil {
 			out[v.Key] = EnvPreview{Error: err.Error()}
 			continue
 		}
-		out[v.Key] = EnvPreview{Value: e.rewriteValueIfLinked(nodeID, value)}
+		final := e.rewriteValueIfLinked(nodeID, resolved)
+		out[v.Key] = EnvPreview{Value: final, Kind: previewKind(v.Value, resolved, final)}
 	}
 	return out, nil
 }

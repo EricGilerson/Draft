@@ -479,12 +479,31 @@ func TestLinkedServiceDATABASE_URLRewritesHostname(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prev := preview["DATABASE_URL"].Value
-	if strings.Contains(prev, rootAddr.InternalHostname) {
-		t.Errorf("alias preview still has root hostname: %q", prev)
+	prev := preview["DATABASE_URL"]
+	if strings.Contains(prev.Value, rootAddr.InternalHostname) {
+		t.Errorf("alias preview still has root hostname: %q", prev.Value)
 	}
-	if !strings.Contains(prev, aliasAddr.InternalHostname) {
-		t.Errorf("alias preview missing alias hostname: %q", prev)
+	if !strings.Contains(prev.Value, aliasAddr.InternalHostname) {
+		t.Errorf("alias preview missing alias hostname: %q", prev.Value)
+	}
+	if prev.Kind != "linked" {
+		t.Errorf("alias preview kind = %q, want linked", prev.Kind)
+	}
+}
+
+func TestPreviewKind(t *testing.T) {
+	cases := []struct {
+		stored, resolved, final, want string
+	}{
+		{"plain", "plain", "plain", ""},
+		{"@{db.X}", "expanded", "expanded", "resolve"},
+		{"@{db.URL}", "root-host", "alias-host", "resolve"},
+		{"root-host", "root-host", "alias-host", "linked"},
+	}
+	for _, tc := range cases {
+		if got := previewKind(tc.stored, tc.resolved, tc.final); got != tc.want {
+			t.Errorf("previewKind(%q,%q,%q)=%q want %q", tc.stored, tc.resolved, tc.final, got, tc.want)
+		}
 	}
 }
 

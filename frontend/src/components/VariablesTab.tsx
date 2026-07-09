@@ -19,9 +19,22 @@ import './VariablesTab.css';
 // emits a model class for types it sees as a direct return type or array
 // element, not as a map value (PreviewEnvVars returns Record<string, X>), so
 // EnvPreview keeps getting dropped from models.ts on every real `wails build`.
+// kind is set by the backend when value differs from stored: "resolve" | "linked".
 type EnvPreview = {
     value: string;
     error?: string;
+    kind?: string;
+};
+
+const PREVIEW_META: Record<string, {label: string; title: string}> = {
+    resolve: {
+        label: 'resolves to',
+        title: 'Expanded from references and expressions in the stored value',
+    },
+    linked: {
+        label: 'This environment',
+        title: "Shared credentials come from the linked root service; hostnames are rewritten to this environment's DNS for deploy and references",
+    },
 };
 
 const NEW_TARGET_KEY = '__new__';
@@ -978,26 +991,38 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             ))}
                             {(() => {
                                 const previewCurrent = appliedEnvByKey[v.key] === v.value;
-                                if (previewCurrent && previews[v.key]?.error && varIssues.length === 0) {
+                                const preview = previews[v.key];
+                                if (previewCurrent && preview?.error && varIssues.length === 0) {
                                     return (
                                         <div className="var-preview var-preview--error">
-                                            <span className="var-preview-text">{previews[v.key].error}</span>
+                                            <span className="var-preview-text">{preview.error}</span>
                                         </div>
                                     );
                                 }
-                                if (previewCurrent && !previews[v.key]?.error && previews[v.key] && previews[v.key].value !== v.value) {
-                                    return (
-                                        <div className="var-preview">
-                                            <span className="var-preview-text">
-                                                resolves to: {previewVisible[v.key] ? (previews[v.key].value || '(empty)') : '••••••••'}
-                                            </span>
-                                            <button className="var-preview-toggle" onClick={() => togglePreview(v.key)} title={previewVisible[v.key] ? 'Hide resolved value' : 'Show resolved value'}>
-                                                {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
-                                            </button>
-                                        </div>
-                                    );
-                                }
-                                return null;
+                                const meta = previewCurrent && preview && !preview.error
+                                    ? PREVIEW_META[preview.kind || '']
+                                    : undefined;
+                                if (!meta) return null;
+                                const shown = previewVisible[v.key] ? (preview.value || '(empty)') : '••••••••';
+                                return (
+                                    <div
+                                        className={`var-preview ${preview.kind === 'linked' ? 'var-preview--linked' : ''}`}
+                                        title={meta.title}
+                                    >
+                                        <span className="var-preview-text">
+                                            <span className="var-preview-kind">{meta.label}</span>
+                                            {': '}
+                                            {shown}
+                                        </span>
+                                        <button
+                                            className="var-preview-toggle"
+                                            onClick={() => togglePreview(v.key)}
+                                            title={previewVisible[v.key] ? 'Hide value' : 'Show value'}
+                                        >
+                                            {previewVisible[v.key] ? <EyeOff size={12}/> : <Eye size={12}/>}
+                                        </button>
+                                    </div>
+                                );
                             })()}
                             {autocomplete?.key === v.key && (
                                 <VarAutocomplete

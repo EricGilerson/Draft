@@ -194,6 +194,9 @@ func TestPreviewEnvVarsExpandsDraftExprThenRefs(t *testing.T) {
 	if got.Error != "" {
 		t.Fatalf("resolution error: %s", got.Error)
 	}
+	if got.Kind != "resolve" {
+		t.Fatalf("kind = %q, want resolve", got.Kind)
+	}
 	if !strings.HasPrefix(got.Value, "postgres://acme_default_postgres:") {
 		t.Fatalf("expected resolved db URL with derived user, got %q", got.Value)
 	}

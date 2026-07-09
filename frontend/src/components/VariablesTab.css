@@ -132,6 +132,17 @@
     min-width: 0;
 }
 
+/* Linked-service address rewrite (not token expansion). Same layout as
+   resolve previews; kind label carries the meaning. */
+.var-preview--linked .var-preview-kind {
+    color: var(--text-secondary, var(--text-faint));
+}
+
+.var-preview-kind {
+    font-family: inherit;
+    font-weight: 500;
+}
+
 /* Scroll the resolved value only. Reserve a track under the glyphs so
    overlay/native scrollbars cannot cover the text. */
 .var-preview-text {
