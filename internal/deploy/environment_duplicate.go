@@ -77,7 +77,12 @@ func (e *Engine) duplicateNodesInto(ctx context.Context, sourceNodes []store.Can
 		paths        []string
 		consistency  CloneConsistency
 	}
+	type pendingRestamp struct {
+		newNodeID    string
+		sourceNodeID string
+	}
 	var clones []pendingClone
+	var restamps []pendingRestamp
 	newNodeIDs := make([]string, 0, len(sourceNodes))
 
 	for _, src := range sourceNodes {
@@ -160,6 +165,7 @@ func (e *Engine) duplicateNodesInto(ctx context.Context, sourceNodes []store.Can
 					consistency:  choice.Consistency,
 				})
 			}
+			restamps = append(restamps, pendingRestamp{newNodeID: newNode.ID, sourceNodeID: src.ID})
 		default: // fresh
 			// Clear any accidental service_link copy; keep volume_mounts as
 			// auto-named (strip explicit sources so new env gets its own volumes).
@@ -183,6 +189,7 @@ func (e *Engine) duplicateNodesInto(ctx context.Context, sourceNodes []store.Can
 				raw, _ := json.Marshal(specs)
 				_ = e.store.SetNodeSetting(newNode.ID, "volume_mounts", string(raw))
 			}
+			restamps = append(restamps, pendingRestamp{newNodeID: newNode.ID, sourceNodeID: src.ID})
 		}
 	}
 
@@ -193,7 +200,15 @@ func (e *Engine) duplicateNodesInto(ctx context.Context, sourceNodes []store.Can
 		}
 	}
 
-	// Third pass: volume clones (need Docker + resolved settings).
+	// Third pass: refresh concrete template-owned generated values copied from
+	// the source node so independent services get their own credentials/URLs.
+	for _, item := range restamps {
+		if err := e.restampTemplateOwnedGeneratedValues(item.newNodeID, item.sourceNodeID); err != nil {
+			return err
+		}
+	}
+
+	// Fourth pass: volume clones (need Docker + resolved settings).
 	for _, c := range clones {
 		for _, path := range c.paths {
 			if _, err := e.CloneVolumeData(ctx, c.newNodeID, c.sourceNodeID, path, c.consistency); err != nil {
@@ -202,7 +217,8 @@ func (e *Engine) duplicateNodesInto(ctx context.Context, sourceNodes []store.Can
 		}
 	}
 
-	// Attach shared roots to the new environment network when roots are running.
+	// Final pass: attach shared roots to the new environment network when roots
+	// are running.
 	for _, nodeID := range newNodeIDs {
 		link, err := e.GetServiceLink(nodeID)
 		if err != nil || link == nil {

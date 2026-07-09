@@ -32,9 +32,9 @@ type CreateNodeFromTemplateRequest struct {
 // so the wizard can surface them without blocking creation. DeployStarted is
 // true when an image-mode stamp kicked off a background deploy (pull + run).
 type CreateNodeFromTemplateResult struct {
-	Node           store.CanvasNode `json:"node"`
-	Warnings       []string         `json:"warnings"`
-	DeployStarted  bool             `json:"deployStarted"`
+	Node          store.CanvasNode `json:"node"`
+	Warnings      []string         `json:"warnings"`
+	DeployStarted bool             `json:"deployStarted"`
 }
 
 // templateEnvEntry is the JSON shape of a ServiceTemplate.EnvVars row.
@@ -359,6 +359,119 @@ func (e *Engine) ReapplyTemplate(nodeID string) (*CreateNodeFromTemplateResult, 
 		return nil, err
 	}
 	return result, nil
+}
+
+// restampTemplateOwnedGeneratedValues refreshes template-owned generated values
+// after a service stops being a shared alias or after a copied service becomes
+// its own independent node. Only generated env vars are rewritten outright;
+// template-derived settings are refreshed conservatively only when the copied
+// value still exactly matches the source node's template-derived value.
+func (e *Engine) restampTemplateOwnedGeneratedValues(nodeID, sourceNodeID string) error {
+	if e.store == nil {
+		return fmt.Errorf("store is not available")
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	sourceNodeID = strings.TrimSpace(sourceNodeID)
+	if nodeID == "" || sourceNodeID == "" {
+		return nil
+	}
+
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+	if node.TemplateID == 0 {
+		return nil
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return fmt.Errorf("template not found: %w", err)
+	}
+	if _, err := e.store.EnsureNodeUID(nodeID); err != nil {
+		return fmt.Errorf("failed to assign node uid: %w", err)
+	}
+
+	existingVars, err := e.store.ListEnvVars(nodeID)
+	if err != nil {
+		return err
+	}
+	varByKey := make(map[string]store.EnvVar, len(existingVars))
+	for _, ev := range existingVars {
+		varByKey[ev.Key] = ev
+	}
+	entries, err := parseTemplateEnvVars(tpl.EnvVars)
+	if err != nil {
+		return fmt.Errorf("template env vars are invalid: %w", err)
+	}
+	for _, entry := range entries {
+		key := strings.TrimSpace(entry.Key)
+		if key == "" {
+			continue
+		}
+		existing, ok := varByKey[key]
+		if !ok || existing.Source != store.EnvSourceGenerated {
+			continue
+		}
+		resolved, err := e.ResolveNodeTemplateExprs(nodeID, entry.Value)
+		if err != nil {
+			return fmt.Errorf("resolve env %q: %w", key, err)
+		}
+		scope := entry.Scope
+		if scope == "" {
+			scope = store.EnvScopeRuntime
+		}
+		if err := e.store.UpsertEnvVar(store.EnvVar{
+			NodeID:  nodeID,
+			Key:     key,
+			Value:   resolved,
+			Scope:   scope,
+			Source:  store.EnvSourceGenerated,
+			Secret:  existing.Secret,
+			EnvFile: existing.EnvFile,
+		}); err != nil {
+			return fmt.Errorf("seed env %q: %w", key, err)
+		}
+	}
+
+	sourceSettings, err := e.store.GetNodeSettings(sourceNodeID)
+	if err != nil {
+		return err
+	}
+	targetSettings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return err
+	}
+	for key, raw := range map[string]string{
+		"cmd_override":        tpl.CmdOverride,
+		"entrypoint_override": tpl.Entrypoint,
+		"working_dir":         tpl.WorkingDir,
+	} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !strings.Contains(raw, "{{draft.") {
+			continue
+		}
+		current := strings.TrimSpace(targetSettings[key])
+		sourceCurrent := strings.TrimSpace(sourceSettings[key])
+		if current == "" || current != sourceCurrent {
+			continue
+		}
+		sourceResolved, err := e.ResolveNodeTemplateExprs(sourceNodeID, raw)
+		if err != nil {
+			return fmt.Errorf("resolve source setting %q: %w", key, err)
+		}
+		if sourceCurrent != sourceResolved {
+			continue
+		}
+		targetResolved, err := e.ResolveNodeTemplateExprs(nodeID, raw)
+		if err != nil {
+			return fmt.Errorf("resolve setting %q: %w", key, err)
+		}
+		if err := e.store.SetNodeSetting(nodeID, key, targetResolved); err != nil {
+			return fmt.Errorf("stamp setting %q: %w", key, err)
+		}
+	}
+
+	return nil
 }
 
 // imageModeDeployable reports whether stamped settings are enough for the

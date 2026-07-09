@@ -84,22 +84,30 @@ func TestDuplicateEnvironmentClonesNodesWithFreshUIDsAndRefs(t *testing.T) {
 		t.Errorf("expected fresh UID on duplicated db node, got %q (source %q)", newDB.UID, dbRes.Node.UID)
 	}
 
-	// Template-resolved values (e.g. the generated password) are already
-	// concrete data by the time they're stamped onto the source node, so
-	// duplication carries them over as-is — same as any other env var. What
-	// matters is that nothing is left as a stale, unresolved {{draft.*}}
-	// literal after the copy.
+	// Fresh independent copies must regenerate template-owned generated values
+	// so credentials and URLs belong to the duplicated node rather than the
+	// source one they were copied from.
 	newPassword := ""
+	newURL := ""
 	for _, v := range mustListEnvVars(t, s, newDB.ID) {
 		if v.Key == "POSTGRES_PASSWORD" {
 			newPassword = v.Value
+		}
+		if v.Key == "DATABASE_URL" {
+			newURL = v.Value
 		}
 		if strings.Contains(v.Value, "{{draft.") {
 			t.Errorf("duplicated env var %q still has unresolved draft expression: %q", v.Key, v.Value)
 		}
 	}
-	if newPassword != sourcePassword {
-		t.Errorf("expected duplicated POSTGRES_PASSWORD to be copied as-is, got %q, want %q", newPassword, sourcePassword)
+	if newPassword == "" {
+		t.Fatal("duplicated db missing POSTGRES_PASSWORD")
+	}
+	if newPassword == sourcePassword {
+		t.Errorf("expected duplicated POSTGRES_PASSWORD to regenerate, still %q", newPassword)
+	}
+	if !strings.Contains(newURL, newDB.UID) {
+		t.Errorf("expected duplicated DATABASE_URL to point at the duplicated db, got %q (uid %q)", newURL, newDB.UID)
 	}
 
 	// @{Label.ATTR} references must resolve within the new environment only

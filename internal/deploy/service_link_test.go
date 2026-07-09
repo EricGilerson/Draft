@@ -131,6 +131,7 @@ func TestPromoteLinkedServiceClearsLink(t *testing.T) {
 	alias, _ := s.CreateNode(&store.CanvasNode{
 		ID: "a1", ProjectID: p.ID, EnvironmentID: env, Label: "db-copy", TemplateID: tpl.ID,
 	})
+	copyNodeEnvVars(t, s, dbRes.Node.ID, alias.ID)
 	if err := e.SetServiceLink(alias.ID, dbRes.Node.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +139,8 @@ func TestPromoteLinkedServiceClearsLink(t *testing.T) {
 	st, _ := s.GetNodeSettings(dbRes.Node.ID)
 	_ = s.SetNodeSetting(alias.ID, "service_port", st["service_port"])
 	_ = s.SetNodeSetting(alias.ID, "image", st["image"])
+	sourcePassword := envValue(t, s, dbRes.Node.ID, "POSTGRES_PASSWORD")
+	sourceURL := envValue(t, s, dbRes.Node.ID, "DATABASE_URL")
 
 	if err := e.PromoteLinkedService(t.Context(), alias.ID, "empty", CloneConsistent); err != nil {
 		t.Fatalf("Promote: %v", err)
@@ -149,6 +152,74 @@ func TestPromoteLinkedServiceClearsLink(t *testing.T) {
 	settings, _ := s.GetNodeSettings(alias.ID)
 	if len(managedVolumePaths(settings)) == 0 {
 		t.Fatal("expected volume mounts restored on promote")
+	}
+	aliasNode, err := s.GetNode(alias.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(t, s, alias.ID, "POSTGRES_PASSWORD"); got == "" || got == sourcePassword {
+		t.Fatalf("expected promoted alias password to regenerate, got %q (source %q)", got, sourcePassword)
+	}
+	gotURL := envValue(t, s, alias.ID, "DATABASE_URL")
+	if gotURL == sourceURL {
+		t.Fatalf("expected promoted alias DATABASE_URL to regenerate, still %q", gotURL)
+	}
+	if !strings.Contains(gotURL, aliasNode.UID) {
+		t.Fatalf("expected promoted alias DATABASE_URL to point at alias hostname, got %q (uid %q)", gotURL, aliasNode.UID)
+	}
+}
+
+func TestUnlinkServiceRegeneratesGeneratedEnvVars(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	tpl := findBuiltin(t, s, "PostgreSQL")
+	env := defaultEnvID(t, s, p.ID)
+
+	dbRes, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+		ID: "db1", Label: "db", ProjectID: p.ID, EnvironmentID: env, TemplateID: tpl.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, _ := s.CreateNode(&store.CanvasNode{
+		ID: "a1", ProjectID: p.ID, EnvironmentID: env, Label: "db-copy", TemplateID: tpl.ID,
+	})
+	copyNodeEnvVars(t, s, dbRes.Node.ID, alias.ID)
+	if err := e.SetServiceLink(alias.ID, dbRes.Node.ID); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := s.GetNodeSettings(dbRes.Node.ID)
+	_ = s.SetNodeSetting(alias.ID, "service_port", st["service_port"])
+	_ = s.SetNodeSetting(alias.ID, "image", st["image"])
+	sourcePassword := envValue(t, s, dbRes.Node.ID, "POSTGRES_PASSWORD")
+	sourceURL := envValue(t, s, dbRes.Node.ID, "DATABASE_URL")
+
+	if err := e.UnlinkService(t.Context(), alias.ID, "fresh"); err != nil {
+		t.Fatalf("UnlinkService: %v", err)
+	}
+	link, _ := e.GetServiceLink(alias.ID)
+	if link != nil {
+		t.Fatal("expected link cleared")
+	}
+	settings, _ := s.GetNodeSettings(alias.ID)
+	if len(managedVolumePaths(settings)) != 0 {
+		t.Fatal("expected fresh unlink to clear local volumes")
+	}
+	aliasNode, err := s.GetNode(alias.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(t, s, alias.ID, "POSTGRES_PASSWORD"); got == "" || got == sourcePassword {
+		t.Fatalf("expected unlinked alias password to regenerate, got %q (source %q)", got, sourcePassword)
+	}
+	gotURL := envValue(t, s, alias.ID, "DATABASE_URL")
+	if gotURL == sourceURL {
+		t.Fatalf("expected unlinked alias DATABASE_URL to regenerate, still %q", gotURL)
+	}
+	if !strings.Contains(gotURL, aliasNode.UID) {
+		t.Fatalf("expected unlinked alias DATABASE_URL to point at alias hostname, got %q (uid %q)", gotURL, aliasNode.UID)
 	}
 }
 
@@ -177,4 +248,27 @@ func TestPreviewEnvironmentDuplicateListsStateful(t *testing.T) {
 	if preview[0].Warning == "" || preview[0].WarningKind == "" {
 		t.Fatal("expected warning for share")
 	}
+}
+
+func copyNodeEnvVars(t *testing.T, s *store.Store, sourceNodeID, targetNodeID string) {
+	t.Helper()
+	vars, err := s.ListEnvVars(sourceNodeID)
+	if err != nil {
+		t.Fatalf("ListEnvVars: %v", err)
+	}
+	for _, v := range vars {
+		v.NodeID = targetNodeID
+		if err := s.UpsertEnvVar(v); err != nil {
+			t.Fatalf("copy env var %q: %v", v.Key, err)
+		}
+	}
+}
+
+func envValue(t *testing.T, s *store.Store, nodeID, key string) string {
+	t.Helper()
+	v, err := s.GetEnvVar(nodeID, key)
+	if err != nil {
+		t.Fatalf("GetEnvVar(%s): %v", key, err)
+	}
+	return v.Value
 }

@@ -560,6 +560,10 @@ func (e *Engine) PromoteLinkedService(ctx context.Context, aliasNodeID, seed str
 		}
 	}
 
+	if err := e.restampTemplateOwnedGeneratedValues(aliasNodeID, root.ID); err != nil {
+		return err
+	}
+
 	if seed == "clone" && len(paths) > 0 {
 		if consistency == "" {
 			consistency = CloneConsistent
@@ -593,7 +597,10 @@ func (e *Engine) UnlinkService(ctx context.Context, aliasNodeID, become string) 
 	if err := e.ClearServiceLink(aliasNodeID); err != nil {
 		return err
 	}
-	return e.store.SetNodeSetting(aliasNodeID, "volume_mounts", "[]")
+	if err := e.store.SetNodeSetting(aliasNodeID, "volume_mounts", "[]"); err != nil {
+		return err
+	}
+	return e.restampTemplateOwnedGeneratedValues(aliasNodeID, link.RootNodeID)
 }
 
 // errRootHasLinkers is returned when deleting a root that still has aliases.
