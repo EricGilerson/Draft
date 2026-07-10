@@ -252,6 +252,7 @@ function App() {
                                     onDuplicating={setEnvironmentBusy}
                                     onEnvironmentsChanged={() => refreshProjectSummaries(projectsRef.current)}
                                     onStackActionDone={() => refreshProjectSummaries(projectsRef.current)}
+                                    onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
                                 />
                                 {selectedEnvironmentId && !environmentBusy && (
                                     <div className="project-workspace-canvas">

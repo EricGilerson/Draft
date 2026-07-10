@@ -167,6 +167,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/environment/duplicate", s.handleDuplicateEnvironment)
 	mux.HandleFunc("/environment/duplicate-preview", s.handlePreviewEnvironmentDuplicate)
 	mux.HandleFunc("/environment/stack", s.handleEnvironmentStack)
+	mux.HandleFunc("/sync/preview", s.handleSyncPreview)
+	mux.HandleFunc("/sync/apply", s.handleSyncApply)
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
 	mux.HandleFunc("/service/promote", s.handlePromoteLinkedService)
 	mux.HandleFunc("/service/unlink", s.handleUnlinkService)
@@ -331,6 +333,35 @@ func (s *Server) handleEnvironmentStack(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, result)
+}
+
+func (s *Server) handleSyncPreview(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SyncRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewSync(req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		deploy.SyncRequest
+		Mode string `json:"mode"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ApplySync(context.Background(), req.SyncRequest, req.Mode)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {

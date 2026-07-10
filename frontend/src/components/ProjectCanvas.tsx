@@ -740,6 +740,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                         nodeLabel={(selectedNode.data.label as string) || selectedNode.id}
                         projectId={project.id}
                         projectPath={project.path}
+                        environmentId={environmentId}
                         onClose={() => setSelectedNodeId(null)}
                         onRename={renameNode}
                         onServicesChanged={notifyServicesChanged}

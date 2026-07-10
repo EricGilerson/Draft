@@ -1,4 +1,4 @@
-import {X, Box, RefreshCw, Upload} from 'lucide-react';
+import {X, Box, GitCompare, RefreshCw, Upload} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetNode, ReapplyTemplate} from '../../wailsjs/go/main/App';
 import ExportConfigDialog from './ExportConfigDialog';
@@ -11,6 +11,7 @@ import MetricsTab from './MetricsTab';
 import SettingsTab from './SettingsTab';
 import ShellTab from './ShellTab';
 import ServiceDraftBar from './ServiceDraftBar';
+import SyncConfigDialog from './SyncConfigDialog';
 import {useAppDialog} from './AppDialogProvider';
 import {ServiceConfigEditorProvider, useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import './NodeDetailPanel.css';
@@ -35,6 +36,7 @@ type NodeDetailPanelProps = {
     nodeLabel: string;
     projectId: number;
     projectPath: string;
+    environmentId?: number;
     onClose: () => void;
     onRename: (nodeId: string, newLabel: string) => Promise<void>;
     onServicesChanged?: () => void;
@@ -47,6 +49,7 @@ function NodeDetailPanelBody({
     nodeLabel,
     projectId,
     projectPath,
+    environmentId,
     onClose,
     onRename,
     onServicesChanged,
@@ -58,11 +61,13 @@ function NodeDetailPanelBody({
     const [editValue, setEditValue] = useState(nodeLabel);
     const [renameError, setRenameError] = useState<string | null>(null);
     const [templateId, setTemplateId] = useState<number>(0);
+    const [nodeEnvironmentId, setNodeEnvironmentId] = useState<number | null>(environmentId ?? null);
     const [reapplying, setReapplying] = useState(false);
     const [showExport, setShowExport] = useState(false);
+    const [showSync, setShowSync] = useState(false);
     const [reapplyError, setReapplyError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
-    const {isSessionDirty, discardSessionDraft} = useServiceConfigEditor();
+    const {isSessionDirty, discardSessionDraft, reload} = useServiceConfigEditor();
     const {confirm} = useAppDialog();
 
     useEffect(() => {
@@ -74,7 +79,10 @@ function NodeDetailPanelBody({
         setTemplateId(0);
         setReapplyError(null);
         GetNode(nodeId)
-            .then((n: store.CanvasNode) => setTemplateId(n.templateId || 0))
+            .then((n: store.CanvasNode) => {
+                setTemplateId(n.templateId || 0);
+                if (n.environmentId) setNodeEnvironmentId(n.environmentId);
+            })
             .catch(() => setTemplateId(0));
     }, [nodeId]);
 
@@ -176,6 +184,15 @@ function NodeDetailPanelBody({
                 <div className="node-detail-header-actions">
                     <button
                         className="btn btn-ghost node-detail-reapply"
+                        onClick={() => setShowSync(true)}
+                        disabled={!nodeEnvironmentId}
+                        title="Sync settings/env from another environment into this service"
+                    >
+                        <GitCompare size={13}/>
+                        Sync
+                    </button>
+                    <button
+                        className="btn btn-ghost node-detail-reapply"
                         onClick={() => setShowExport(true)}
                         title="Export this service to a cloud config format"
                     >
@@ -197,6 +214,19 @@ function NodeDetailPanelBody({
                 </div>
             </div>
             {renameError && <p className="form-error node-detail-rename-error">{renameError}</p>}
+            {showSync && nodeEnvironmentId != null && (
+                <SyncConfigDialog
+                    projectId={projectId}
+                    targetEnvironmentId={nodeEnvironmentId}
+                    targetNodeId={nodeId}
+                    targetNodeLabel={nodeLabel}
+                    onClose={() => setShowSync(false)}
+                    onApplied={() => {
+                        void reload();
+                        onServicesChanged?.();
+                    }}
+                />
+            )}
             {reapplyError && <p className="form-error node-detail-rename-error">{reapplyError}</p>}
 
             <nav className="node-detail-tabs">

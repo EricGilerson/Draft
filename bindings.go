@@ -184,6 +184,31 @@ func (a *App) runEnvironmentStack(environmentID uint, action deploy.EnvironmentS
 	return c.RunEnvironmentStack(a.ctx, environmentID, string(action))
 }
 
+// PreviewSync returns a read-only settings/env diff between source and target.
+func (a *App) PreviewSync(req deploy.SyncRequest) (*deploy.SyncPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewSync(a.ctx, req)
+}
+
+// ApplySync stages (and optionally redeploys) config from source onto target.
+// mode is "stage" or "stageAndRedeploy".
+func (a *App) ApplySync(req deploy.SyncRequest, mode string) (*deploy.SyncApplyResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ApplySync(a.ctx, req, mode)
+}
+
 // DeleteEnvironment stops/removes the environment's containers and network,
 // then deletes it and everything scoped to it. Fails on the default or only
 // remaining environment in a project.

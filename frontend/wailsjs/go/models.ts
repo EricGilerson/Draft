@@ -1395,6 +1395,244 @@ export namespace deploy {
 	        this.warning = source["warning"];
 	    }
 	}
+	export class SyncApplyNodeResult {
+	    nodeId: string;
+	    label: string;
+	    staged: boolean;
+	    redeployed: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncApplyNodeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.staged = source["staged"];
+	        this.redeployed = source["redeployed"];
+	        this.error = source["error"];
+	    }
+	}
+	export class SyncApplyResult {
+	    mode: string;
+	    actionableCount: number;
+	    results: SyncApplyNodeResult[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncApplyResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.actionableCount = source["actionableCount"];
+	        this.results = this.convertValues(source["results"], SyncApplyNodeResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SyncEnvDiff {
+	    key: string;
+	    sourceValue: string;
+	    sourceScope: string;
+	    sourceSource: string;
+	    sourceSecret: boolean;
+	    targetValue: string;
+	    targetScope: string;
+	    targetSource: string;
+	    targetSecret: boolean;
+	    proposedValue?: string;
+	    proposedScope?: string;
+	    action: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncEnvDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.sourceValue = source["sourceValue"];
+	        this.sourceScope = source["sourceScope"];
+	        this.sourceSource = source["sourceSource"];
+	        this.sourceSecret = source["sourceSecret"];
+	        this.targetValue = source["targetValue"];
+	        this.targetScope = source["targetScope"];
+	        this.targetSource = source["targetSource"];
+	        this.targetSecret = source["targetSecret"];
+	        this.proposedValue = source["proposedValue"];
+	        this.proposedScope = source["proposedScope"];
+	        this.action = source["action"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class SyncSettingDiff {
+	    key: string;
+	    sourceValue: string;
+	    targetApplied: string;
+	    targetStaged?: string;
+	    targetEffective: string;
+	    action: string;
+	    reason?: string;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncSettingDiff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.sourceValue = source["sourceValue"];
+	        this.targetApplied = source["targetApplied"];
+	        this.targetStaged = source["targetStaged"];
+	        this.targetEffective = source["targetEffective"];
+	        this.action = source["action"];
+	        this.reason = source["reason"];
+	        this.warnings = source["warnings"];
+	    }
+	}
+	export class SyncServicePreview {
+	    label: string;
+	    sourceNodeId: string;
+	    targetNodeId: string;
+	    skipped: boolean;
+	    skipReason?: string;
+	    settings: SyncSettingDiff[];
+	    env: SyncEnvDiff[];
+	    warnings: SettingsWarning[];
+	    actionableCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncServicePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.targetNodeId = source["targetNodeId"];
+	        this.skipped = source["skipped"];
+	        this.skipReason = source["skipReason"];
+	        this.settings = this.convertValues(source["settings"], SyncSettingDiff);
+	        this.env = this.convertValues(source["env"], SyncEnvDiff);
+	        this.warnings = this.convertValues(source["warnings"], SettingsWarning);
+	        this.actionableCount = source["actionableCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SyncPreview {
+	    scope: string;
+	    sourceEnvironmentId: number;
+	    targetEnvironmentId: number;
+	    sourceEnvName: string;
+	    targetEnvName: string;
+	    includeSettings: boolean;
+	    includeEnv: boolean;
+	    services: SyncServicePreview[];
+	    unmatchedSource: string[];
+	    unmatchedTarget: string[];
+	    actionableCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.targetEnvironmentId = source["targetEnvironmentId"];
+	        this.sourceEnvName = source["sourceEnvName"];
+	        this.targetEnvName = source["targetEnvName"];
+	        this.includeSettings = source["includeSettings"];
+	        this.includeEnv = source["includeEnv"];
+	        this.services = this.convertValues(source["services"], SyncServicePreview);
+	        this.unmatchedSource = source["unmatchedSource"];
+	        this.unmatchedTarget = source["unmatchedTarget"];
+	        this.actionableCount = source["actionableCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SyncRequest {
+	    scope: string;
+	    sourceEnvironmentId: number;
+	    targetEnvironmentId: number;
+	    sourceNodeId?: string;
+	    targetNodeId?: string;
+	    includeSettings: boolean;
+	    includeEnv: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.targetEnvironmentId = source["targetEnvironmentId"];
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.targetNodeId = source["targetNodeId"];
+	        this.includeSettings = source["includeSettings"];
+	        this.includeEnv = source["includeEnv"];
+	    }
+	}
+	
+	
 	export class VolumeOverview {
 	    name: string;
 	    labels: Record<string, string>;

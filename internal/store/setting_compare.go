@@ -2,10 +2,15 @@ package store
 
 import "strings"
 
-// settingValuesEqual reports whether two stored setting values are equivalent
+// SettingValuesEqual reports whether two stored setting values are equivalent
 // for staging purposes. Boolean-like settings treat "", "false", and absent as off.
-func settingValuesEqual(a, b string) bool {
+func SettingValuesEqual(a, b string) bool {
 	return normalizeSettingValue(a) == normalizeSettingValue(b)
+}
+
+// settingValuesEqual is the historical unexported name used inside this package.
+func settingValuesEqual(a, b string) bool {
+	return SettingValuesEqual(a, b)
 }
 
 func normalizeSettingValue(value string) string {

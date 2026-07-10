@@ -7,9 +7,11 @@ type DialogProps = {
     children: ReactNode;
     footer?: ReactNode;
     onClose: () => void;
+    /** Wider layout for dense content (e.g. sync preview tables). */
+    wide?: boolean;
 };
 
-export default function Dialog({title, children, footer, onClose}: DialogProps) {
+export default function Dialog({title, children, footer, onClose, wide}: DialogProps) {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -20,7 +22,12 @@ export default function Dialog({title, children, footer, onClose}: DialogProps) 
 
     return (
         <div className="dialog-overlay" onClick={onClose}>
-            <div className="dialog" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div
+                className={'dialog' + (wide ? ' dialog--wide' : '')}
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+            >
                 <div className="dialog-header">
                     <h2 className="dialog-title">{title}</h2>
                     <button className="dialog-close" onClick={onClose} aria-label="Close">

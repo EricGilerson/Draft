@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
+import {GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
@@ -15,6 +15,7 @@ import {
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import SyncConfigDialog from './SyncConfigDialog';
 import './EnvironmentSwitcher.css';
 
 /** Sentinel for "start empty" in the source dropdown. */
@@ -34,6 +35,7 @@ type EnvironmentSwitcherProps = {
     onDuplicating?: (duplicating: boolean) => void;
     onEnvironmentsChanged?: () => void;
     onStackActionDone?: () => void;
+    onServicesChanged?: () => void;
 };
 
 export default function EnvironmentSwitcher({
@@ -43,9 +45,11 @@ export default function EnvironmentSwitcher({
     onDuplicating,
     onEnvironmentsChanged,
     onStackActionDone,
+    onServicesChanged,
 }: EnvironmentSwitcherProps) {
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [syncOpen, setSyncOpen] = useState(false);
     const [step, setStep] = useState<1 | 2>(1);
     const [name, setName] = useState('');
     /** Empty string = blank env; otherwise the source environment id. */
@@ -330,6 +334,9 @@ export default function EnvironmentSwitcher({
                                     )}
                                     {env.id === selectedEnvironmentId && (
                                         <>
+                                            <button type="button" onClick={() => { setMenuEnvId(null); setSyncOpen(true); }}>
+                                                Sync config…
+                                            </button>
                                             <button type="button" disabled={stackBusy} onClick={() => void runStack('start')}>
                                                 Start all
                                             </button>
@@ -365,6 +372,14 @@ export default function EnvironmentSwitcher({
 
                 {selectedEnv && (
                     <div className="environment-stack-toolbar">
+                        <button
+                            type="button"
+                            className="btn btn-ghost environment-stack-btn"
+                            onClick={() => setSyncOpen(true)}
+                            title="Sync settings and env vars from another environment"
+                        >
+                            <GitCompare size={13}/> Sync
+                        </button>
                         <button
                             type="button"
                             className="btn btn-ghost environment-stack-btn"
@@ -537,6 +552,18 @@ export default function EnvironmentSwitcher({
                         </div>
                     )}
                 </Dialog>
+            )}
+
+            {syncOpen && selectedEnvironmentId != null && (
+                <SyncConfigDialog
+                    projectId={projectId}
+                    targetEnvironmentId={selectedEnvironmentId}
+                    onClose={() => setSyncOpen(false)}
+                    onApplied={() => {
+                        onServicesChanged?.();
+                        onStackActionDone?.();
+                    }}
+                />
             )}
 
             {renameEnv && (

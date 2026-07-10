@@ -22,6 +22,10 @@
     overflow: hidden;
 }
 
+.dialog--wide {
+    max-width: 920px;
+}
+
 .dialog-header {
     display: flex;
     align-items: center;

@@ -146,6 +146,32 @@ func (c *Client) RunEnvironmentStack(ctx context.Context, environmentID uint, ac
 	return &out, nil
 }
 
+func (c *Client) PreviewSync(ctx context.Context, req deploy.SyncRequest) (*deploy.SyncPreview, error) {
+	var out deploy.SyncPreview
+	if err := c.postJSON(ctx, "/sync/preview", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ApplySync(ctx context.Context, req deploy.SyncRequest, mode string) (*deploy.SyncApplyResult, error) {
+	var out deploy.SyncApplyResult
+	body := map[string]any{
+		"scope":               req.Scope,
+		"sourceEnvironmentId": req.SourceEnvironmentID,
+		"targetEnvironmentId": req.TargetEnvironmentID,
+		"sourceNodeId":        req.SourceNodeID,
+		"targetNodeId":        req.TargetNodeID,
+		"includeSettings":     req.IncludeSettings,
+		"includeEnv":          req.IncludeEnv,
+		"mode":                mode,
+	}
+	if err := c.postJSON(ctx, "/sync/apply", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice) (*store.Environment, error) {
 	var out store.Environment
 	body := map[string]any{
