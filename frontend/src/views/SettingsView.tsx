@@ -1,4 +1,4 @@
-import {ChevronDown, RefreshCw} from 'lucide-react';
+import {RefreshCw} from 'lucide-react';
 import {useEffect, useState} from 'react';
 import {GetAppSettings, GetLocalDomainStatus, SetAppSettings} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
@@ -157,23 +157,20 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                 label="URL preference"
                                 description="Choose how Draft presents service URLs. Auto follows whether the local reverse proxy is available."
                             >
-                                <div className="settings-select-wrap">
-                                    <select
-                                        className="settings-select"
-                                        value={localDomainPreference}
-                                        disabled={saving}
-                                        onChange={(e) => {
-                                            const value = e.target.value;
-                                            setLocalDomainPreference(value);
-                                            void persist({localDomainPreference: value});
-                                        }}
-                                    >
-                                        <option value="auto">Auto</option>
-                                        <option value="public-hostname-port">Prefer public hostname</option>
-                                        <option value="localhost-port">Prefer localhost port</option>
-                                    </select>
-                                    <ChevronDown size={14} className="settings-select-icon" aria-hidden="true"/>
-                                </div>
+                                <select
+                                    className="input select-styled settings-url-preference-select"
+                                    value={localDomainPreference}
+                                    disabled={saving}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setLocalDomainPreference(value);
+                                        void persist({localDomainPreference: value});
+                                    }}
+                                >
+                                    <option value="auto">Auto</option>
+                                    <option value="public-hostname-port">Prefer public hostname</option>
+                                    <option value="localhost-port">Prefer localhost port</option>
+                                </select>
                             </SettingsRow>
                             <SettingsRow
                                 label="Effective mode"
