@@ -159,5 +159,13 @@ func (s *Store) DeleteEnvironment(id uint) error {
 			return err
 		}
 	}
+	if err := s.DeleteSandboxByEnvironment(id); err != nil {
+		return err
+	}
+	// Environment-scoped profiles cannot remain meaningful once their source is
+	// gone. Project-wide profiles (source_environment_id=0) are preserved.
+	if err := s.DB.Where("source_environment_id = ?", id).Delete(&SandboxProfile{}).Error; err != nil {
+		return err
+	}
 	return s.DB.Delete(&Environment{}, "id = ?", id).Error
 }

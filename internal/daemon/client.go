@@ -134,6 +134,34 @@ func (c *Client) DeleteEnvironment(ctx context.Context, environmentID uint) erro
 	return c.postJSON(ctx, "/environment/delete", map[string]uint{"environmentId": environmentID}, nil)
 }
 
+func (c *Client) PreviewSandbox(ctx context.Context, req deploy.SandboxCreateRequest) (*deploy.SandboxPreview, error) {
+	var out deploy.SandboxPreview
+	if err := c.postJSON(ctx, "/sandbox/preview", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) CreateSandbox(ctx context.Context, req deploy.SandboxCreateRequest) (*store.Sandbox, error) {
+	var out store.Sandbox
+	if err := c.postJSON(ctx, "/sandbox/create", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExtendSandbox(ctx context.Context, sandboxID uint, ttlHours int) (*store.Sandbox, error) {
+	var out store.Sandbox
+	if err := c.postJSON(ctx, "/sandbox/extend", map[string]any{"sandboxId": sandboxID, "ttlHours": ttlHours}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) DeleteSandbox(ctx context.Context, sandboxID uint) error {
+	return c.postJSON(ctx, "/sandbox/delete", map[string]uint{"sandboxId": sandboxID}, nil)
+}
+
 func (c *Client) RunEnvironmentStack(ctx context.Context, environmentID uint, action string) (*deploy.EnvironmentStackResult, error) {
 	var out deploy.EnvironmentStackResult
 	body := map[string]any{

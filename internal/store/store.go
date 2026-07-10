@@ -28,6 +28,11 @@ import (
 var registeredModels = []any{
 	&Project{},
 	&Environment{},
+	&SandboxProjectSettings{},
+	&SandboxProfile{},
+	&Sandbox{},
+	&SandboxLink{},
+	&SandboxRepositorySource{},
 	&CanvasNode{},
 	&Route{},
 	&PortLease{},

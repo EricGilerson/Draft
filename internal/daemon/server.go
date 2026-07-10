@@ -122,6 +122,10 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		cancel()
 	}
+	if err := s.engine.ReconcileSandboxLifecycle(ctx, time.Now().UTC()); err != nil {
+		log.Printf("[draft-daemon] sandbox lifecycle reconcile: %v", err)
+	}
+	go s.reconcileSandboxLifecycle(ctx)
 
 	// Catch commits/pushes to tracked branches that landed while the daemon was
 	// down — including the event whose git hook just launched this daemon.
@@ -167,6 +171,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/environment/duplicate", s.handleDuplicateEnvironment)
 	mux.HandleFunc("/environment/duplicate-preview", s.handlePreviewEnvironmentDuplicate)
 	mux.HandleFunc("/environment/stack", s.handleEnvironmentStack)
+	mux.HandleFunc("/sandbox/preview", s.handlePreviewSandbox)
+	mux.HandleFunc("/sandbox/create", s.handleCreateSandbox)
+	mux.HandleFunc("/sandbox/extend", s.handleExtendSandbox)
+	mux.HandleFunc("/sandbox/delete", s.handleDeleteSandbox)
 	mux.HandleFunc("/sync/preview", s.handleSyncPreview)
 	mux.HandleFunc("/sync/apply", s.handleSyncApply)
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
@@ -399,6 +407,58 @@ func (s *Server) handlePreviewEnvironmentDuplicate(w http.ResponseWriter, r *htt
 	writeJSON(w, out)
 }
 
+func (s *Server) handlePreviewSandbox(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SandboxCreateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewSandbox(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SandboxCreateRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.CreateSandbox(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleExtendSandbox(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+		TTLHours  int  `json:"ttlHours"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ExtendSandbox(req.SandboxID, req.TTLHours)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.engine.DeleteSandbox(r.Context(), req.SandboxID))
+}
+
 func (s *Server) handleGetLinkedServiceInfo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID string `json:"nodeId"`
@@ -416,9 +476,9 @@ func (s *Server) handleGetLinkedServiceInfo(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handlePromoteLinkedService(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NodeID       string                  `json:"nodeId"`
-		Seed         string                  `json:"seed"`
-		Consistency  deploy.CloneConsistency `json:"consistency"`
+		NodeID      string                  `json:"nodeId"`
+		Seed        string                  `json:"seed"`
+		Consistency deploy.CloneConsistency `json:"consistency"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -439,8 +499,8 @@ func (s *Server) handleUnlinkService(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListShareableRoots(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProjectID             uint `json:"projectId"`
-		ExcludeEnvironmentID  uint `json:"excludeEnvironmentId"`
+		ProjectID            uint `json:"projectId"`
+		ExcludeEnvironmentID uint `json:"excludeEnvironmentId"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -663,7 +723,7 @@ func (s *Server) handleStageNodeSettings(w http.ResponseWriter, r *http.Request)
 
 type stageEnvRequest struct {
 	NodeID     string                    `json:"nodeId"`
-	Upserts    []store.EnvVarStageUpsert   `json:"upserts"`
+	Upserts    []store.EnvVarStageUpsert `json:"upserts"`
 	DeleteKeys []string                  `json:"deleteKeys"`
 }
 

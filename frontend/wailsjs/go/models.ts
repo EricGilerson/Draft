@@ -1205,6 +1205,168 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class SandboxRepositoryRef {
+	    repoRoot: string;
+	    ref: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxRepositoryRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repoRoot = source["repoRoot"];
+	        this.ref = source["ref"];
+	    }
+	}
+	export class SandboxServiceRule {
+	    sourceNodeId: string;
+	    mode: string;
+	    dataMode?: string;
+	    consistency?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxServiceRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceNodeId = source["sourceNodeId"];
+	        this.mode = source["mode"];
+	        this.dataMode = source["dataMode"];
+	        this.consistency = source["consistency"];
+	    }
+	}
+	export class SandboxPlan {
+	    ttlHours?: number;
+	    warningHours?: number;
+	    graceHours?: number;
+	    suspendIdleHours?: number;
+	    services?: SandboxServiceRule[];
+	    repositories?: SandboxRepositoryRef[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ttlHours = source["ttlHours"];
+	        this.warningHours = source["warningHours"];
+	        this.graceHours = source["graceHours"];
+	        this.suspendIdleHours = source["suspendIdleHours"];
+	        this.services = this.convertValues(source["services"], SandboxServiceRule);
+	        this.repositories = this.convertValues(source["repositories"], SandboxRepositoryRef);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxCreateRequest {
+	    name: string;
+	    sourceEnvironmentId: number;
+	    profileId?: number;
+	    plan: SandboxPlan;
+	    links?: store.SandboxLink[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxCreateRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.profileId = source["profileId"];
+	        this.plan = this.convertValues(source["plan"], SandboxPlan);
+	        this.links = this.convertValues(source["links"], store.SandboxLink);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class SandboxPreview {
+	    projectId: number;
+	    sourceEnvironmentId: number;
+	    profileId?: number;
+	    plan: SandboxPlan;
+	    repositories: store.SandboxRepositorySource[];
+	    services: SandboxServiceRule[];
+	    // Go type: time
+	    expiresAt: any;
+	    // Go type: time
+	    warnAt: any;
+	    // Go type: time
+	    graceEndsAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.profileId = source["profileId"];
+	        this.plan = this.convertValues(source["plan"], SandboxPlan);
+	        this.repositories = this.convertValues(source["repositories"], store.SandboxRepositorySource);
+	        this.services = this.convertValues(source["services"], SandboxServiceRule);
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.warnAt = this.convertValues(source["warnAt"], null);
+	        this.graceEndsAt = this.convertValues(source["graceEndsAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class SecretUsage {
 	    projectId: number;
 	    projectName: string;
@@ -2611,6 +2773,242 @@ export namespace store {
 	        this.secret = source["secret"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Sandbox {
+	    id: number;
+	    projectId: number;
+	    environmentId: number;
+	    sourceEnvironmentId: number;
+	    profileId: number;
+	    name: string;
+	    status: string;
+	    planJson: string;
+	    // Go type: time
+	    expiresAt: any;
+	    // Go type: time
+	    warnAt: any;
+	    // Go type: time
+	    graceEndsAt: any;
+	    // Go type: time
+	    suspendedAt?: any;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Sandbox(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.profileId = source["profileId"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.planJson = source["planJson"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	        this.warnAt = this.convertValues(source["warnAt"], null);
+	        this.graceEndsAt = this.convertValues(source["graceEndsAt"], null);
+	        this.suspendedAt = this.convertValues(source["suspendedAt"], null);
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxLink {
+	    id: number;
+	    sandboxId: number;
+	    kind: string;
+	    value: string;
+	    label: string;
+	    // Go type: time
+	    createdAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxLink(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.sandboxId = source["sandboxId"];
+	        this.kind = source["kind"];
+	        this.value = source["value"];
+	        this.label = source["label"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxProfile {
+	    id: number;
+	    projectId: number;
+	    sourceEnvironmentId: number;
+	    name: string;
+	    description: string;
+	    planJson: string;
+	    isDefault: boolean;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.planJson = source["planJson"];
+	        this.isDefault = source["isDefault"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxProjectSettings {
+	    projectId: number;
+	    defaultTtlHours: number;
+	    warningHours: number;
+	    graceHours: number;
+	    suspendIdleHours: number;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    updatedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxProjectSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.defaultTtlHours = source["defaultTtlHours"];
+	        this.warningHours = source["warningHours"];
+	        this.graceHours = source["graceHours"];
+	        this.suspendIdleHours = source["suspendIdleHours"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxRepositorySource {
+	    id: number;
+	    sandboxId: number;
+	    repoRoot: string;
+	    ref: string;
+	    commitSha: string;
+	    // Go type: time
+	    createdAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxRepositorySource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.sandboxId = source["sandboxId"];
+	        this.repoRoot = source["repoRoot"];
+	        this.ref = source["ref"];
+	        this.commitSha = source["commitSha"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

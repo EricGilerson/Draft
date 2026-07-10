@@ -158,6 +158,27 @@ func (s *Store) DeleteProject(id uint) error {
 	if err := s.DeleteProjectEnvVars(id); err != nil {
 		return err
 	}
+	var sandboxIDs []uint
+	if err := s.DB.Model(&Sandbox{}).Where("project_id = ?", id).Pluck("id", &sandboxIDs).Error; err != nil {
+		return err
+	}
+	if len(sandboxIDs) > 0 {
+		if err := s.DB.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxLink{}).Error; err != nil {
+			return err
+		}
+		if err := s.DB.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxRepositorySource{}).Error; err != nil {
+			return err
+		}
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&Sandbox{}).Error; err != nil {
+		return err
+	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&SandboxProfile{}).Error; err != nil {
+		return err
+	}
+	if err := s.DB.Delete(&SandboxProjectSettings{}, "project_id = ?", id).Error; err != nil {
+		return err
+	}
 	if err := s.DB.Where("project_id = ?", id).Delete(&Environment{}).Error; err != nil {
 		return err
 	}

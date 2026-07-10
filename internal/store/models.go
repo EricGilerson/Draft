@@ -30,6 +30,77 @@ type Environment struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// SandboxProjectSettings contains the project-wide lifecycle defaults used
+// when a sandbox profile does not specify an explicit value. Values are in
+// hours so they can be surfaced without a duration-format conversion layer.
+type SandboxProjectSettings struct {
+	ProjectID        uint      `gorm:"primaryKey" json:"projectId"`
+	DefaultTTLHours  int       `gorm:"not null;default:168" json:"defaultTtlHours"`
+	WarningHours     int       `gorm:"not null;default:24" json:"warningHours"`
+	GraceHours       int       `gorm:"not null;default:72" json:"graceHours"`
+	SuspendIdleHours int       `gorm:"not null;default:0" json:"suspendIdleHours"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+// SandboxProfile is a reusable, JSON-backed creation plan. SourceEnvironmentID
+// is zero for a project-wide profile, or scopes the profile to a particular
+// source environment (for example stricter production-like defaults).
+type SandboxProfile struct {
+	ID                  uint      `gorm:"primaryKey" json:"id"`
+	ProjectID           uint      `gorm:"index;not null" json:"projectId"`
+	SourceEnvironmentID uint      `gorm:"index;not null;default:0" json:"sourceEnvironmentId"`
+	Name                string    `gorm:"not null" json:"name"`
+	Description         string    `json:"description"`
+	PlanJSON            string    `gorm:"not null;default:'{}'" json:"planJson"`
+	IsDefault           bool      `gorm:"not null;default:false" json:"isDefault"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+// Sandbox is the durable lifecycle record for one disposable environment.
+// PlanJSON is an immutable resolved plan captured at creation time; changing a
+// profile later never rewires a running sandbox.
+type Sandbox struct {
+	ID                  uint       `gorm:"primaryKey" json:"id"`
+	ProjectID           uint       `gorm:"index;not null" json:"projectId"`
+	EnvironmentID       uint       `gorm:"uniqueIndex;not null" json:"environmentId"`
+	SourceEnvironmentID uint       `gorm:"index;not null" json:"sourceEnvironmentId"`
+	ProfileID           uint       `gorm:"index" json:"profileId"`
+	Name                string     `gorm:"not null" json:"name"`
+	Status              string     `gorm:"not null;default:'active'" json:"status"`
+	PlanJSON            string     `gorm:"not null" json:"planJson"`
+	ExpiresAt           time.Time  `gorm:"index;not null" json:"expiresAt"`
+	WarnAt              time.Time  `gorm:"index;not null" json:"warnAt"`
+	GraceEndsAt         time.Time  `gorm:"index;not null" json:"graceEndsAt"`
+	SuspendedAt         *time.Time `json:"suspendedAt,omitempty"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt"`
+}
+
+// SandboxLink associates a sandbox with any number of external work items.
+// Kind is intentionally open-ended (pr, ticket, incident, tag, URL) so Draft
+// does not need provider-specific tables to preserve useful context.
+type SandboxLink struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	SandboxID uint      `gorm:"uniqueIndex:idx_sandbox_link;not null" json:"sandboxId"`
+	Kind      string    `gorm:"uniqueIndex:idx_sandbox_link;not null" json:"kind"`
+	Value     string    `gorm:"uniqueIndex:idx_sandbox_link;not null" json:"value"`
+	Label     string    `json:"label"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// SandboxRepositorySource records the resolved, per-repository source used by
+// a sandbox. This deliberately avoids a project-wide branch assumption.
+type SandboxRepositorySource struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	SandboxID uint      `gorm:"uniqueIndex:idx_sandbox_repo;not null" json:"sandboxId"`
+	RepoRoot  string    `gorm:"uniqueIndex:idx_sandbox_repo;not null" json:"repoRoot"`
+	Ref       string    `json:"ref"`
+	CommitSHA string    `json:"commitSha"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // CanvasNode is a single node on a project's visual canvas.
 type CanvasNode struct {
 	ID            string  `gorm:"primaryKey" json:"id"`

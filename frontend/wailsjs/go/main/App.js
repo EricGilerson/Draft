@@ -34,6 +34,10 @@ export function CreateProject(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateProject'](arg1, arg2, arg3);
 }
 
+export function CreateSandbox(arg1) {
+  return window['go']['main']['App']['CreateSandbox'](arg1);
+}
+
 export function CreateServiceTemplate(arg1) {
   return window['go']['main']['App']['CreateServiceTemplate'](arg1);
 }
@@ -70,6 +74,14 @@ export function DeleteProjectEnvVar(arg1, arg2) {
   return window['go']['main']['App']['DeleteProjectEnvVar'](arg1, arg2);
 }
 
+export function DeleteSandbox(arg1) {
+  return window['go']['main']['App']['DeleteSandbox'](arg1);
+}
+
+export function DeleteSandboxProfile(arg1) {
+  return window['go']['main']['App']['DeleteSandboxProfile'](arg1);
+}
+
 export function DeleteServiceTemplate(arg1) {
   return window['go']['main']['App']['DeleteServiceTemplate'](arg1);
 }
@@ -100,6 +112,10 @@ export function ExportEnvFile(arg1) {
 
 export function ExportProjectConfig(arg1, arg2) {
   return window['go']['main']['App']['ExportProjectConfig'](arg1, arg2);
+}
+
+export function ExtendSandbox(arg1, arg2) {
+  return window['go']['main']['App']['ExtendSandbox'](arg1, arg2);
 }
 
 export function GetActiveDeployment(arg1) {
@@ -160,6 +176,10 @@ export function GetNodeHealth(arg1) {
 
 export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
+}
+
+export function GetSandboxProjectSettings(arg1) {
+  return window['go']['main']['App']['GetSandboxProjectSettings'](arg1);
 }
 
 export function GetServiceMetrics(arg1) {
@@ -274,6 +294,14 @@ export function ListRoutes(arg1) {
   return window['go']['main']['App']['ListRoutes'](arg1);
 }
 
+export function ListSandboxProfiles(arg1) {
+  return window['go']['main']['App']['ListSandboxProfiles'](arg1);
+}
+
+export function ListSandboxes(arg1) {
+  return window['go']['main']['App']['ListSandboxes'](arg1);
+}
+
 export function ListServiceTemplates() {
   return window['go']['main']['App']['ListServiceTemplates']();
 }
@@ -304,6 +332,10 @@ export function PreviewEnvVars(arg1) {
 
 export function PreviewEnvironmentDuplicate(arg1) {
   return window['go']['main']['App']['PreviewEnvironmentDuplicate'](arg1);
+}
+
+export function PreviewSandbox(arg1) {
+  return window['go']['main']['App']['PreviewSandbox'](arg1);
 }
 
 export function PreviewStagedChanges(arg1, arg2) {
@@ -372,6 +404,14 @@ export function RollbackEligibility(arg1) {
 
 export function RunCommand(arg1, arg2, arg3) {
   return window['go']['main']['App']['RunCommand'](arg1, arg2, arg3);
+}
+
+export function SaveSandboxProfile(arg1) {
+  return window['go']['main']['App']['SaveSandboxProfile'](arg1);
+}
+
+export function SaveSandboxProjectSettings(arg1) {
+  return window['go']['main']['App']['SaveSandboxProjectSettings'](arg1);
 }
 
 export function SelectFile(arg1, arg2) {

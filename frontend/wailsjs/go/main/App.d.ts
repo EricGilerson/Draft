@@ -24,6 +24,8 @@ export function CreateNodeFromTemplate(arg1:deploy.CreateNodeFromTemplateRequest
 
 export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store.Project>;
 
+export function CreateSandbox(arg1:deploy.SandboxCreateRequest):Promise<store.Sandbox>;
+
 export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.ServiceTemplate>;
 
 export function DaemonConnection():Promise<main.DaemonConnectionInfo>;
@@ -42,6 +44,10 @@ export function DeleteProject(arg1:number):Promise<void>;
 
 export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
 
+export function DeleteSandbox(arg1:number):Promise<void>;
+
+export function DeleteSandboxProfile(arg1:number):Promise<void>;
+
 export function DeleteServiceTemplate(arg1:number):Promise<void>;
 
 export function DeployService(arg1:string):Promise<void>;
@@ -57,6 +63,8 @@ export function ExportConfigToPath(arg1:string,arg2:string,arg3:string):Promise<
 export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function ExportProjectConfig(arg1:number,arg2:string):Promise<deploy.ExportResult>;
+
+export function ExtendSandbox(arg1:number,arg2:number):Promise<store.Sandbox>;
 
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
@@ -87,6 +95,8 @@ export function GetNodeConfigStatus(arg1:string):Promise<deploy.NodeConfigStatus
 export function GetNodeHealth(arg1:string):Promise<deploy.NodeHealth>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
+
+export function GetSandboxProjectSettings(arg1:number):Promise<store.SandboxProjectSettings>;
 
 export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
@@ -144,6 +154,10 @@ export function ListReferenceTargets(arg1:string):Promise<Array<deploy.Reference
 
 export function ListRoutes(arg1:any):Promise<Array<main.RouteRow>>;
 
+export function ListSandboxProfiles(arg1:number):Promise<Array<store.SandboxProfile>>;
+
+export function ListSandboxes(arg1:number):Promise<Array<store.Sandbox>>;
+
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
 export function ListShareableRoots(arg1:number,arg2:number):Promise<Array<deploy.RootServiceSummary>>;
@@ -159,6 +173,8 @@ export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePr
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
 export function PreviewEnvironmentDuplicate(arg1:number):Promise<Array<deploy.StatefulServiceSummary>>;
+
+export function PreviewSandbox(arg1:deploy.SandboxCreateRequest):Promise<deploy.SandboxPreview>;
 
 export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
 
@@ -193,6 +209,10 @@ export function RollbackDeployment(arg1:number):Promise<void>;
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
 
 export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
+
+export function SaveSandboxProfile(arg1:store.SandboxProfile):Promise<store.SandboxProfile>;
+
+export function SaveSandboxProjectSettings(arg1:store.SandboxProjectSettings):Promise<store.SandboxProjectSettings>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
 

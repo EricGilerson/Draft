@@ -65,8 +65,8 @@ type ProjectServicesSummary struct {
 
 // AppSettings is the persisted app preferences surface.
 type AppSettings struct {
-	CompactSidebar         bool   `json:"compactSidebar"`
-	LocalDomainPreference  string `json:"localDomainPreference"`
+	CompactSidebar        bool   `json:"compactSidebar"`
+	LocalDomainPreference string `json:"localDomainPreference"`
 }
 
 func samePath(a, b string) bool {
@@ -248,6 +248,97 @@ func (a *App) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]deploy.St
 		return nil, errNoStore
 	}
 	return c.PreviewEnvironmentDuplicate(a.ctx, sourceEnvironmentID)
+}
+
+// Sandbox configuration is stored at project scope; a profile can optionally
+// be scoped to a particular source environment.
+func (a *App) GetSandboxProjectSettings(projectID uint) (*store.SandboxProjectSettings, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.GetSandboxProjectSettings(projectID)
+}
+
+func (a *App) SaveSandboxProjectSettings(settings store.SandboxProjectSettings) (*store.SandboxProjectSettings, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.SaveSandboxProjectSettings(settings)
+}
+
+func (a *App) ListSandboxProfiles(projectID uint) ([]store.SandboxProfile, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.ListSandboxProfiles(projectID)
+}
+
+func (a *App) SaveSandboxProfile(profile store.SandboxProfile) (*store.SandboxProfile, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.SaveSandboxProfile(profile)
+}
+
+func (a *App) DeleteSandboxProfile(profileID uint) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.DeleteSandboxProfile(profileID)
+}
+
+func (a *App) ListSandboxes(projectID uint) ([]store.Sandbox, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	return a.store.ListSandboxes(projectID)
+}
+
+func (a *App) PreviewSandbox(req deploy.SandboxCreateRequest) (*deploy.SandboxPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewSandbox(a.ctx, req)
+}
+
+func (a *App) CreateSandbox(req deploy.SandboxCreateRequest) (*store.Sandbox, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.CreateSandbox(a.ctx, req)
+}
+
+// ExtendSandbox pushes a sandbox expiry forward by ttlHours from now.
+func (a *App) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExtendSandbox(a.ctx, sandboxID, ttlHours)
+}
+
+// DeleteSandbox removes every sandbox-owned Docker resource, including
+// Draft-managed volumes; unlike ordinary environment deletion, no data is kept.
+func (a *App) DeleteSandbox(sandboxID uint) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.DeleteSandbox(a.ctx, sandboxID)
 }
 
 // GetLinkedServiceInfo returns whether a node is a virtualized link and its root.
@@ -1753,4 +1844,3 @@ func (a *App) ListProjectEnvVarUsages(projectID uint, key string) ([]deploy.Secr
 	}
 	return c.ListProjectEnvVarUsages(a.ctx, projectID, key)
 }
-
