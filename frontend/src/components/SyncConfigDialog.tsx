@@ -23,6 +23,15 @@ type SyncConfigDialogProps = {
 
 type Scope = 'service' | 'environment';
 
+function normLabel(label: string): string {
+    return label.trim().toLowerCase();
+}
+
+function findByLabel(nodes: store.CanvasNode[], label: string): store.CanvasNode | undefined {
+    const key = normLabel(label);
+    return nodes.find((n) => normLabel(n.label) === key);
+}
+
 function maskSecret(value: string, secret: boolean): string {
     if (!secret || !value) return value || '—';
     if (value.length <= 4) return '••••';
@@ -45,7 +54,6 @@ export default function SyncConfigDialog({
     projectId,
     targetEnvironmentId,
     targetNodeId,
-    targetNodeLabel,
     onClose,
     onApplied,
 }: SyncConfigDialogProps) {
@@ -93,29 +101,40 @@ export default function SyncConfigDialog({
             .then((nodes) => {
                 const list = nodes ?? [];
                 setTargetNodes(list);
-                if (targetNodeId) {
+                if (targetNodeId && list.some((n) => n.id === targetNodeId)) {
                     setTargetNode(targetNodeId);
                     return;
                 }
-                if (!list.find((n) => n.id === targetNode)) {
-                    setTargetNode(list[0]?.id || '');
-                }
+                setTargetNode((cur) => (list.some((n) => n.id === cur) ? cur : list[0]?.id || ''));
             })
             .catch(() => setTargetNodes([]));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [targetEnvId, targetNodeId]);
 
-    // Auto-pick source service with same label when possible.
+    // Keep source paired to the current target label when the source list loads
+    // or the target changes from outside the source dropdown.
     useEffect(() => {
         if (scope !== 'service' || !targetNode) return;
         const tgt = targetNodes.find((n) => n.id === targetNode);
         if (!tgt) return;
-        const match = sourceNodes.find(
-            (n) => n.label.trim().toLowerCase() === tgt.label.trim().toLowerCase(),
-        );
-        if (match) setSourceNodeId(match.id);
-        else if (sourceNodes[0] && !sourceNodeId) setSourceNodeId(sourceNodes[0].id);
-    }, [scope, targetNode, targetNodes, sourceNodes, sourceNodeId]);
+        const match = findByLabel(sourceNodes, tgt.label);
+        setSourceNodeId(match?.id || '');
+    }, [scope, targetNode, targetNodes, sourceNodes]);
+
+    const selectSourceService = (id: string) => {
+        setSourceNodeId(id);
+        const src = sourceNodes.find((n) => n.id === id);
+        if (!src) return;
+        const match = findByLabel(targetNodes, src.label);
+        if (match) setTargetNode(match.id);
+    };
+
+    const selectTargetService = (id: string) => {
+        setTargetNode(id);
+        const tgt = targetNodes.find((n) => n.id === id);
+        if (!tgt) return;
+        const match = findByLabel(sourceNodes, tgt.label);
+        setSourceNodeId(match?.id || '');
+    };
 
     const canPreview = useMemo(() => {
         if (!includeSettings && !includeEnv) return false;
@@ -315,7 +334,7 @@ export default function SyncConfigDialog({
                             <select
                                 className="input settings-select"
                                 value={sourceNodeId}
-                                onChange={(e) => setSourceNodeId(e.target.value)}
+                                onChange={(e) => selectSourceService(e.target.value)}
                             >
                                 <option value="">Select…</option>
                                 {sourceNodes.map((n) => (
@@ -331,17 +350,13 @@ export default function SyncConfigDialog({
                             <select
                                 className="input settings-select"
                                 value={targetNode}
-                                onChange={(e) => setTargetNode(e.target.value)}
-                                disabled={Boolean(targetNodeId)}
+                                onChange={(e) => selectTargetService(e.target.value)}
                             >
                                 <option value="">Select…</option>
                                 {targetNodes.map((n) => (
                                     <option key={n.id} value={n.id}>{n.label}</option>
                                 ))}
                             </select>
-                            {targetNodeLabel && targetNodeId && (
-                                <p className="environment-source-hint">Syncing into {targetNodeLabel}</p>
-                            )}
                         </div>
                     </div>
                 )}

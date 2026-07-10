@@ -1,4 +1,6 @@
 .environment-switcher {
+    position: relative;
+    z-index: 20;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -21,13 +23,14 @@
 .environment-switcher-tab-wrap {
     position: relative;
     display: inline-flex;
-    align-items: center;
+    align-items: stretch;
 }
 
 .environment-switcher-tab {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    min-height: 30px;
     padding: 6px 8px 6px 10px;
     border: 1px solid transparent;
     border-radius: var(--radius) 0 0 var(--radius);
@@ -43,8 +46,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 28px;
+    box-sizing: border-box;
+    width: 28px;
+    min-height: 30px;
     padding: 0;
     border: 1px solid transparent;
     border-left: 0;
@@ -52,6 +56,7 @@
     background: transparent;
     color: var(--text-faint);
     cursor: pointer;
+    flex-shrink: 0;
 }
 
 .environment-switcher-tab-menu-btn:hover {
@@ -78,9 +83,9 @@
 .environment-switcher-menu {
     position: absolute;
     top: calc(100% + 4px);
-    right: 0;
-    z-index: 40;
-    min-width: 160px;
+    left: 0;
+    z-index: 30;
+    min-width: 168px;
     padding: 4px;
     border: 1px solid var(--border);
     border-radius: var(--radius);

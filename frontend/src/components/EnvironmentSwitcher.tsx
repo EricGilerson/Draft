@@ -322,7 +322,7 @@ export default function EnvironmentSwitcher({
                                     setMenuEnvId(menuEnvId === env.id ? null : env.id);
                                 }}
                             >
-                                <MoreHorizontal size={13}/>
+                                <MoreHorizontal size={15}/>
                             </button>
                             {menuEnvId === env.id && (
                                 <div className="environment-switcher-menu" ref={menuRef}>

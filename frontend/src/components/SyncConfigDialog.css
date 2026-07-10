@@ -16,6 +16,14 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
+    align-items: start;
+}
+
+/* Global ".form-field + .form-field { margin-top: 14px }" is for stacked
+   fields; in a side-by-side grid the second column is still an adjacent
+   sibling and gets pushed down — neutralize it here. */
+.sync-dialog-grid .form-field + .form-field {
+    margin-top: 0;
 }
 
 .sync-env-pickers {
