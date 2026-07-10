@@ -1,15 +1,18 @@
 import {ChevronDown, RefreshCw} from 'lucide-react';
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
+import {GetAppSettings, GetLocalDomainStatus, SetAppSettings} from '../../wailsjs/go/main/App';
+import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import './WorkspaceViews.css';
 
-function Toggle({checked, onChange}: {checked: boolean; onChange: (value: boolean) => void}) {
+function Toggle({checked, onChange, disabled}: {checked: boolean; onChange: (value: boolean) => void; disabled?: boolean}) {
     return (
         <button
             type="button"
             className={'toggle' + (checked ? ' checked' : '')}
             role="switch"
             aria-checked={checked}
+            disabled={disabled}
             onClick={() => onChange(!checked)}
         >
             <span className="toggle-thumb"/>
@@ -46,77 +49,152 @@ function SettingsRow({
     );
 }
 
-export default function SettingsView() {
-    // These values are intentionally local-only until the backend exposes a
-    // persistent settings contract.
-    const [launchAtLogin, setLaunchAtLogin] = useState(true);
-    const [autoSyncEnv, setAutoSyncEnv] = useState(true);
+type SettingsViewProps = {
+    onSettingsChanged?: (settings: main.AppSettings) => void;
+};
+
+export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [savedFlash, setSavedFlash] = useState(false);
     const [compactSidebar, setCompactSidebar] = useState(false);
+    const [localDomainPreference, setLocalDomainPreference] = useState('auto');
+    const [domainStatus, setDomainStatus] = useState<networking.LocalDomainStatus | null>(null);
+
+    const load = () => {
+        setLoading(true);
+        setError(null);
+        Promise.all([
+            GetAppSettings().catch((e) => {
+                throw e;
+            }),
+            GetLocalDomainStatus().catch(() => null),
+        ])
+            .then(([settings, status]) => {
+                setCompactSidebar(!!settings?.compactSidebar);
+                setLocalDomainPreference(settings?.localDomainPreference || 'auto');
+                setDomainStatus(status);
+            })
+            .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Could not load settings'))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        load();
+    }, []);
+
+    const persist = async (next: {compactSidebar?: boolean; localDomainPreference?: string}) => {
+        setSaving(true);
+        setError(null);
+        setSavedFlash(false);
+        try {
+            const saved = await SetAppSettings({
+                compactSidebar: next.compactSidebar ?? compactSidebar,
+                localDomainPreference: next.localDomainPreference ?? localDomainPreference,
+            } as main.AppSettings);
+            if (saved) {
+                setCompactSidebar(!!saved.compactSidebar);
+                setLocalDomainPreference(saved.localDomainPreference || 'auto');
+                onSettingsChanged?.(saved);
+            }
+            const status = await GetLocalDomainStatus().catch(() => null);
+            setDomainStatus(status);
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 2000);
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Could not save settings');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const modeLabel = domainStatus?.mode === 'public-hostname-port'
+        ? 'Public hostname + proxy port'
+        : 'Localhost + host port';
 
     return (
         <div className="workspace-view">
             <PageHeader
                 title="Settings"
-                description="Prepared UI for app preferences, Docker behavior, and appearance. Controls are not persisted yet."
+                description="App preferences for appearance and how service URLs are presented."
             />
 
             <div className="workspace-body workspace-narrow">
-                <div className="preview-banner">
-                    <RefreshCw size={14}/>
-                    <span>This screen is a design pass only for now. The controls are present, but they do not save to the backend yet.</span>
-                </div>
+                {loading ? (
+                    <div className="panel-empty">Loading settings…</div>
+                ) : (
+                    <>
+                        {error && (
+                            <div className="preview-banner preview-banner-error">
+                                <span>{error}</span>
+                            </div>
+                        )}
+                        {savedFlash && (
+                            <div className="preview-banner">
+                                <span>Settings saved.</span>
+                            </div>
+                        )}
 
-                <SettingsSection title="General">
-                    <SettingsRow label="App name" description="Display name shown in the shell">
-                        <input className="settings-input" value="Draft" readOnly/>
-                    </SettingsRow>
-                    <SettingsRow label="Launch at login" description="Start Draft automatically after sign-in">
-                        <Toggle checked={launchAtLogin} onChange={setLaunchAtLogin}/>
-                    </SettingsRow>
-                    <SettingsRow label="Auto-sync .env" description="Apply resolved variables when topology changes">
-                        <Toggle checked={autoSyncEnv} onChange={setAutoSyncEnv}/>
-                    </SettingsRow>
-                </SettingsSection>
+                        <SettingsSection title="Appearance">
+                            <SettingsRow
+                                label="Compact sidebar"
+                                description="Tighten nav spacing for denser workspaces."
+                            >
+                                <Toggle
+                                    checked={compactSidebar}
+                                    disabled={saving}
+                                    onChange={(value) => {
+                                        setCompactSidebar(value);
+                                        void persist({compactSidebar: value});
+                                    }}
+                                />
+                            </SettingsRow>
+                        </SettingsSection>
 
-                <SettingsSection title="Docker">
-                    <SettingsRow label="Socket path">
-                        <input className="settings-input settings-input-mono" value="/var/run/docker.sock" readOnly/>
-                    </SettingsRow>
-                    <SettingsRow label="Connection timeout" description="Retry threshold before the desktop app reports Docker as unavailable">
-                        <input className="settings-input settings-input-mono settings-input-short" value="5s" readOnly/>
-                    </SettingsRow>
-                    <SettingsRow label="Connectivity check">
-                        <button className="btn btn-ghost">
-                            <RefreshCw size={14}/> Run test
-                        </button>
-                    </SettingsRow>
-                </SettingsSection>
-
-                <SettingsSection title="Ports">
-                    <SettingsRow label="Reserved range" description="Draft allocates host ports from this window first">
-                        <div className="range-group">
-                            <input className="settings-input settings-input-mono settings-input-short" value="3000" readOnly/>
-                            <span className="range-divider">-</span>
-                            <input className="settings-input settings-input-mono settings-input-short" value="9999" readOnly/>
-                        </div>
-                    </SettingsRow>
-                    <SettingsRow label="Conflict strategy" description="Default handling when a desired host port is taken">
-                        <div className="settings-select-wrap">
-                            <select className="settings-select" defaultValue="Auto-reassign">
-                                <option>Auto-reassign</option>
-                                <option>Warn and skip</option>
-                                <option>Fail loudly</option>
-                            </select>
-                            <ChevronDown size={14} className="settings-select-icon" aria-hidden="true"/>
-                        </div>
-                    </SettingsRow>
-                </SettingsSection>
-
-                <SettingsSection title="Appearance">
-                    <SettingsRow label="Compact sidebar" description="Tighten nav spacing for denser workspaces">
-                        <Toggle checked={compactSidebar} onChange={setCompactSidebar}/>
-                    </SettingsRow>
-                </SettingsSection>
+                        <SettingsSection title="Local networking">
+                            <SettingsRow
+                                label="URL preference"
+                                description="Choose how Draft presents service URLs. Auto follows whether the local reverse proxy is available."
+                            >
+                                <div className="settings-select-wrap">
+                                    <select
+                                        className="settings-select"
+                                        value={localDomainPreference}
+                                        disabled={saving}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            setLocalDomainPreference(value);
+                                            void persist({localDomainPreference: value});
+                                        }}
+                                    >
+                                        <option value="auto">Auto</option>
+                                        <option value="public-hostname-port">Prefer public hostname</option>
+                                        <option value="localhost-port">Prefer localhost port</option>
+                                    </select>
+                                    <ChevronDown size={14} className="settings-select-icon" aria-hidden="true"/>
+                                </div>
+                            </SettingsRow>
+                            <SettingsRow
+                                label="Effective mode"
+                                description="What the app is using right now after preference + proxy availability."
+                            >
+                                <div className="settings-status-block">
+                                    <span className="settings-status-value">{modeLabel}</span>
+                                    {domainStatus?.proxyAddr && (
+                                        <span className="settings-status-meta">Proxy {domainStatus.proxyAddr}</span>
+                                    )}
+                                    {domainStatus?.hostsError && (
+                                        <span className="settings-status-error">{domainStatus.hostsError}</span>
+                                    )}
+                                    <button type="button" className="btn btn-ghost" onClick={load} disabled={loading || saving}>
+                                        <RefreshCw size={14}/> Refresh status
+                                    </button>
+                                </div>
+                            </SettingsRow>
+                        </SettingsSection>
+                    </>
+                )}
             </div>
         </div>
     );

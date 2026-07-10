@@ -166,6 +166,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/environment/delete", s.handleDeleteEnvironment)
 	mux.HandleFunc("/environment/duplicate", s.handleDuplicateEnvironment)
 	mux.HandleFunc("/environment/duplicate-preview", s.handlePreviewEnvironmentDuplicate)
+	mux.HandleFunc("/environment/stack", s.handleEnvironmentStack)
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
 	mux.HandleFunc("/service/promote", s.handlePromoteLinkedService)
 	mux.HandleFunc("/service/unlink", s.handleUnlinkService)
@@ -314,6 +315,22 @@ func (s *Server) handleDeleteEnvironment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeError(w, s.engine.DeleteEnvironment(context.Background(), req.EnvironmentID))
+}
+
+func (s *Server) handleEnvironmentStack(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EnvironmentID uint   `json:"environmentId"`
+		Action        string `json:"action"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.RunEnvironmentStack(context.Background(), req.EnvironmentID, deploy.EnvironmentStackAction(req.Action))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
 }
 
 func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {

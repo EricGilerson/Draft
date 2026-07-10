@@ -49,6 +49,7 @@
     --radius: 5px;
     --radius-lg: 6px;
     --sidebar-w: 232px;
+    --sidebar-w-compact: 72px;
     --topbar-h: 46px;
     --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
 }

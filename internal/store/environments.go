@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+
+	"gorm.io/gorm"
 )
 
 var ErrInvalidEnvironment = errors.New("environment name is required")
@@ -87,6 +89,29 @@ func (s *Store) RenameEnvironment(id uint, newName string) error {
 		return ErrInvalidEnvironment
 	}
 	return s.DB.Model(&Environment{}).Where("id = ?", id).Update("name", newName).Error
+}
+
+// SetDefaultEnvironment marks environmentID as the project's default and
+// clears the flag on every other environment in the same project. The default
+// is what project cards emphasize and what open-project lands on.
+func (s *Store) SetDefaultEnvironment(environmentID uint) error {
+	env, err := s.GetEnvironment(environmentID)
+	if err != nil {
+		return err
+	}
+	if env.IsDefault {
+		return nil
+	}
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&Environment{}).
+			Where("project_id = ? AND is_default = ?", env.ProjectID, true).
+			Update("is_default", false).Error; err != nil {
+			return err
+		}
+		return tx.Model(&Environment{}).
+			Where("id = ?", environmentID).
+			Update("is_default", true).Error
+	})
 }
 
 // DeleteEnvironment removes an environment and every node/setting/env-var/

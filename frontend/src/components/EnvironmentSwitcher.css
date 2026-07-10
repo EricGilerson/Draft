@@ -1,26 +1,147 @@
+.environment-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
 .environment-switcher-tabs {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 2px;
-    flex-shrink: 0;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
+    min-width: 0;
+    flex: 1;
+}
+
+.environment-switcher-tab-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
 }
 
 .environment-switcher-tab {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 10px;
+    padding: 6px 8px 6px 10px;
     border: 1px solid transparent;
-    border-radius: var(--radius);
+    border-radius: var(--radius) 0 0 var(--radius);
     background: transparent;
     color: var(--text-muted);
     font-family: inherit;
     font-size: 0.72rem;
     font-weight: 700;
     cursor: pointer;
+}
+
+.environment-switcher-tab-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-left: 0;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+}
+
+.environment-switcher-tab-menu-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+}
+
+.environment-switcher-tab-name {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.environment-switcher-default-badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+    opacity: 0.85;
+}
+
+.environment-switcher-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 40;
+    min-width: 160px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+}
+
+.environment-switcher-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.environment-switcher-menu button:hover:not(:disabled) {
+    background: var(--surface-hover);
+}
+
+.environment-switcher-menu button:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.environment-switcher-menu-danger {
+    color: #ef6f68 !important;
+}
+
+.environment-stack-toolbar {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.environment-stack-btn {
+    font-size: 0.7rem !important;
+    padding: 5px 8px !important;
+    gap: 5px;
+}
+
+.environment-stack-busy {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    margin-left: 4px;
+}
+
+.environment-error {
+    margin: 0 0 10px;
+    color: #ef6f68;
+    font-size: 0.78rem;
 }
 
 .environment-switcher-tab:hover {
@@ -34,22 +155,15 @@
     color: var(--accent-text);
 }
 
-.environment-switcher-tab--active:hover {
+.environment-switcher-tab-wrap:has(.environment-switcher-tab--active) .environment-switcher-tab-menu-btn {
     background: rgba(140, 150, 144, 0.08);
+    border-color: var(--accent-border);
     color: var(--accent-text);
 }
 
-.environment-switcher-tab-remove {
-    color: var(--text-muted);
-    font-size: 0.85rem;
-    line-height: 1;
-    padding: 0 2px;
-    border-radius: 4px;
-}
-
-.environment-switcher-tab-remove:hover {
-    color: var(--text);
-    background: var(--surface-hover);
+.environment-switcher-tab--active:hover {
+    background: rgba(140, 150, 144, 0.08);
+    color: var(--accent-text);
 }
 
 .environment-switcher-action {

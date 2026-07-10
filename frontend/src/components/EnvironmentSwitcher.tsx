@@ -1,11 +1,16 @@
-import {useEffect, useState} from 'react';
-import {Plus} from 'lucide-react';
+import {useEffect, useRef, useState} from 'react';
+import {MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
     DuplicateEnvironment,
     ListEnvironments,
     PreviewEnvironmentDuplicate,
+    RedeployEnvironment,
+    RenameEnvironment,
+    SetDefaultEnvironment,
+    StartEnvironment,
+    StopEnvironment,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
@@ -27,6 +32,8 @@ type EnvironmentSwitcherProps = {
     selectedEnvironmentId: number | null;
     onSelect: (environmentId: number) => void;
     onDuplicating?: (duplicating: boolean) => void;
+    onEnvironmentsChanged?: () => void;
+    onStackActionDone?: () => void;
 };
 
 export default function EnvironmentSwitcher({
@@ -34,6 +41,8 @@ export default function EnvironmentSwitcher({
     selectedEnvironmentId,
     onSelect,
     onDuplicating,
+    onEnvironmentsChanged,
+    onStackActionDone,
 }: EnvironmentSwitcherProps) {
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -45,7 +54,12 @@ export default function EnvironmentSwitcher({
     const [choices, setChoices] = useState<Record<string, ChoiceState>>({});
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
-    const {confirm} = useAppDialog();
+    const [menuEnvId, setMenuEnvId] = useState<number | null>(null);
+    const [renameEnv, setRenameEnv] = useState<store.Environment | null>(null);
+    const [renameValue, setRenameValue] = useState('');
+    const [stackBusy, setStackBusy] = useState(false);
+    const menuRef = useRef<HTMLDivElement | null>(null);
+    const {confirm, alert} = useAppDialog();
 
     const refresh = () => {
         ListEnvironments(projectId).then((envs) => setEnvironments(envs ?? [])).catch(() => setEnvironments([]));
@@ -55,6 +69,17 @@ export default function EnvironmentSwitcher({
         refresh();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
+
+    useEffect(() => {
+        if (menuEnvId == null) return;
+        const onDoc = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setMenuEnvId(null);
+            }
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, [menuEnvId]);
 
     const openNewDialog = () => {
         setName('');
@@ -133,6 +158,7 @@ export default function EnvironmentSwitcher({
                 closeDialog();
                 onDuplicating?.(false);
                 refresh();
+                onEnvironmentsChanged?.();
                 onSelect(env.id);
             })
             .catch((e) => {
@@ -151,19 +177,103 @@ export default function EnvironmentSwitcher({
             confirmLabel: 'Delete',
             danger: true,
         })) return;
+        setMenuEnvId(null);
         DeleteEnvironment(env.id).then(() => {
             refresh();
+            onEnvironmentsChanged?.();
             if (selectedEnvironmentId === env.id) {
                 const fallback = environments.find((e) => e.isDefault);
                 if (fallback) onSelect(fallback.id);
             }
         }).catch((e) => {
-            void confirm({
+            void alert({
                 title: 'Could not delete environment',
                 message: String(e),
-                confirmLabel: 'OK',
             });
         });
+    };
+
+    const setAsDefault = async (env: store.Environment) => {
+        setMenuEnvId(null);
+        try {
+            await SetDefaultEnvironment(env.id);
+            refresh();
+            onEnvironmentsChanged?.();
+        } catch (e) {
+            void alert({
+                title: 'Could not set default',
+                message: String(e),
+            });
+        }
+    };
+
+    const openRename = (env: store.Environment) => {
+        setMenuEnvId(null);
+        setRenameEnv(env);
+        setRenameValue(env.name);
+        setError('');
+    };
+
+    const submitRename = () => {
+        if (!renameEnv || renameValue.trim() === '' || submitting) return;
+        setSubmitting(true);
+        setError('');
+        RenameEnvironment(renameEnv.id, renameValue.trim())
+            .then(() => {
+                setRenameEnv(null);
+                setSubmitting(false);
+                refresh();
+                onEnvironmentsChanged?.();
+            })
+            .catch((e) => {
+                setError(String(e));
+                setSubmitting(false);
+            });
+    };
+
+    const runStack = async (action: 'start' | 'stop' | 'redeploy') => {
+        if (selectedEnvironmentId == null || stackBusy) return;
+        const env = environments.find((e) => e.id === selectedEnvironmentId);
+        const label = env?.name ?? 'environment';
+
+        if (action === 'stop') {
+            if (!await confirm({
+                title: 'Stop all services?',
+                message: `Stop every service in "${label}"?`,
+                detail: 'Linked services that point at another environment are skipped.',
+                confirmLabel: 'Stop all',
+                danger: true,
+            })) return;
+        }
+
+        setStackBusy(true);
+        setMenuEnvId(null);
+        try {
+            const fn =
+                action === 'start' ? StartEnvironment
+                    : action === 'stop' ? StopEnvironment
+                        : RedeployEnvironment;
+            const result = await fn(selectedEnvironmentId);
+            onStackActionDone?.();
+            if (result && result.failed > 0) {
+                const lines = (result.results ?? [])
+                    .filter((r) => r.error)
+                    .map((r) => `${r.label || r.nodeId}: ${r.error}`)
+                    .slice(0, 6);
+                void alert({
+                    title: `${action === 'stop' ? 'Stop' : action === 'start' ? 'Start' : 'Redeploy'} finished with errors`,
+                    message: `${result.succeeded} succeeded, ${result.failed} failed of ${result.total}.`,
+                    detail: lines.join('\n') || undefined,
+                });
+            }
+        } catch (e) {
+            void alert({
+                title: 'Stack action failed',
+                message: String(e),
+            });
+        } finally {
+            setStackBusy(false);
+        }
     };
 
     const setMode = (nodeId: string, mode: DataMode) => {
@@ -180,37 +290,112 @@ export default function EnvironmentSwitcher({
         }));
     };
 
+    const selectedEnv = environments.find((e) => e.id === selectedEnvironmentId) ?? null;
+
     return (
         <>
-            <nav className="environment-switcher-tabs">
-                {environments.map((env) => (
-                    <button
-                        key={env.id}
-                        className={`environment-switcher-tab ${env.id === selectedEnvironmentId ? 'environment-switcher-tab--active' : ''}`}
-                        onClick={() => onSelect(env.id)}
-                    >
-                        {env.name}
-                        {!env.isDefault && (
-                            <span
-                                className="environment-switcher-tab-remove"
+            <div className="environment-switcher">
+                <nav className="environment-switcher-tabs">
+                    {environments.map((env) => (
+                        <div key={env.id} className="environment-switcher-tab-wrap">
+                            <button
+                                className={`environment-switcher-tab ${env.id === selectedEnvironmentId ? 'environment-switcher-tab--active' : ''}`}
+                                onClick={() => onSelect(env.id)}
+                            >
+                                <span className="environment-switcher-tab-name">{env.name}</span>
+                                {env.isDefault && (
+                                    <span className="environment-switcher-default-badge" title="Default environment">
+                                        default
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                className="environment-switcher-tab-menu-btn"
+                                title="Environment actions"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    void removeEnvironment(env);
+                                    setMenuEnvId(menuEnvId === env.id ? null : env.id);
                                 }}
                             >
-                                ×
-                            </span>
-                        )}
+                                <MoreHorizontal size={13}/>
+                            </button>
+                            {menuEnvId === env.id && (
+                                <div className="environment-switcher-menu" ref={menuRef}>
+                                    <button type="button" onClick={() => openRename(env)}>Rename…</button>
+                                    {!env.isDefault && (
+                                        <button type="button" onClick={() => void setAsDefault(env)}>
+                                            Set as default
+                                        </button>
+                                    )}
+                                    {env.id === selectedEnvironmentId && (
+                                        <>
+                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('start')}>
+                                                Start all
+                                            </button>
+                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('redeploy')}>
+                                                Redeploy all
+                                            </button>
+                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('stop')}>
+                                                Stop all
+                                            </button>
+                                        </>
+                                    )}
+                                    {!env.isDefault && (
+                                        <button
+                                            type="button"
+                                            className="environment-switcher-menu-danger"
+                                            onClick={() => void removeEnvironment(env)}
+                                        >
+                                            Delete…
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                    <button
+                        className="environment-switcher-action"
+                        onClick={openNewDialog}
+                        title="New environment"
+                    >
+                        <Plus size={13}/> New
                     </button>
-                ))}
-                <button
-                    className="environment-switcher-action"
-                    onClick={openNewDialog}
-                    title="New environment"
-                >
-                    <Plus size={13}/> New
-                </button>
-            </nav>
+                </nav>
+
+                {selectedEnv && (
+                    <div className="environment-stack-toolbar">
+                        <button
+                            type="button"
+                            className="btn btn-ghost environment-stack-btn"
+                            disabled={stackBusy}
+                            onClick={() => void runStack('start')}
+                            title="Start all services in this environment"
+                        >
+                            <Play size={13}/> Start all
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-ghost environment-stack-btn"
+                            disabled={stackBusy}
+                            onClick={() => void runStack('redeploy')}
+                            title="Redeploy all services in this environment"
+                        >
+                            <RefreshCw size={13}/> Redeploy all
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-ghost environment-stack-btn"
+                            disabled={stackBusy}
+                            onClick={() => void runStack('stop')}
+                            title="Stop all services in this environment"
+                        >
+                            <Power size={13}/> Stop all
+                        </button>
+                        {stackBusy && <span className="environment-stack-busy">Working…</span>}
+                    </div>
+                )}
+            </div>
 
             {dialogOpen && (
                 <Dialog
@@ -243,6 +428,7 @@ export default function EnvironmentSwitcher({
                         </>
                     }
                 >
+                    {error && <p className="environment-error">{error}</p>}
                     {step === 1 && (
                         <>
                             <div className="form-field">
@@ -330,7 +516,7 @@ export default function EnvironmentSwitcher({
                                                                 checked={c.consistency === 'consistent'}
                                                                 onChange={() => setConsistency(svc.nodeId, 'consistent')}
                                                             />
-                                                            Consistent (stop source)
+                                                            Consistent
                                                         </label>
                                                         <label className="environment-data-mode">
                                                             <input
@@ -339,7 +525,7 @@ export default function EnvironmentSwitcher({
                                                                 checked={c.consistency === 'quick'}
                                                                 onChange={() => setConsistency(svc.nodeId, 'quick')}
                                                             />
-                                                            Quick (source may keep running)
+                                                            Quick
                                                         </label>
                                                     </div>
                                                 )}
@@ -350,7 +536,42 @@ export default function EnvironmentSwitcher({
                             )}
                         </div>
                     )}
-                    {error && <p className="form-error">{error}</p>}
+                </Dialog>
+            )}
+
+            {renameEnv && (
+                <Dialog
+                    title="Rename environment"
+                    onClose={() => setRenameEnv(null)}
+                    footer={
+                        <>
+                            <button className="btn btn-ghost" onClick={() => setRenameEnv(null)}>Cancel</button>
+                            <button
+                                className="btn btn-primary"
+                                disabled={renameValue.trim() === '' || submitting}
+                                onClick={submitRename}
+                            >
+                                {submitting ? 'Saving…' : 'Save'}
+                            </button>
+                        </>
+                    }
+                >
+                    {error && <p className="environment-error">{error}</p>}
+                    <div className="form-field">
+                        <label className="form-label">Display name</label>
+                        <input
+                            className="input"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            autoFocus
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') submitRename();
+                            }}
+                        />
+                        <p className="environment-source-hint">
+                            Hostnames and Docker networks keep the original slug ({renameEnv.slug}); only the label changes.
+                        </p>
+                    </div>
                 </Dialog>
             )}
         </>

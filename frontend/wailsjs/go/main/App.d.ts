@@ -58,6 +58,8 @@ export function ExportProjectConfig(arg1:number,arg2:string):Promise<deploy.Expo
 
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
+export function GetAppSettings():Promise<main.AppSettings>;
+
 export function GetBuildLog(arg1:number):Promise<string>;
 
 export function GetDefaultEnvironment(arg1:number):Promise<store.Environment>;
@@ -130,6 +132,8 @@ export function ListProjectEnvVars(arg1:number):Promise<Array<store.ProjectEnvVa
 
 export function ListProjectServices(arg1:number):Promise<Array<main.ProjectService>>;
 
+export function ListProjectServicesSummary(arg1:number):Promise<main.ProjectServicesSummary>;
+
 export function ListProjects():Promise<Array<store.Project>>;
 
 export function ListReferenceIssues(arg1:string):Promise<Array<deploy.ReferenceIssue>>;
@@ -162,6 +166,8 @@ export function PruneDocker(arg1:string,arg2:boolean):Promise<deploy.PruneReport
 
 export function ReapplyTemplate(arg1:string):Promise<deploy.CreateNodeFromTemplateResult>;
 
+export function RedeployEnvironment(arg1:number):Promise<deploy.EnvironmentStackResult>;
+
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function RemoveDockerContainer(arg1:string,arg2:boolean):Promise<void>;
@@ -192,6 +198,10 @@ export function SelectServiceRoot(arg1:number):Promise<string>;
 
 export function SetAppSecret(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetAppSettings(arg1:main.AppSettings):Promise<main.AppSettings>;
+
+export function SetDefaultEnvironment(arg1:number):Promise<void>;
+
 export function SetDeployTrigger(arg1:string,arg2:number,arg3:string):Promise<void>;
 
 export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -214,9 +224,13 @@ export function StartDocker():Promise<void>;
 
 export function StartDockerContainer(arg1:string):Promise<void>;
 
+export function StartEnvironment(arg1:number):Promise<deploy.EnvironmentStackResult>;
+
 export function StartLogStream(arg1:string):Promise<void>;
 
 export function StopDockerContainer(arg1:string):Promise<void>;
+
+export function StopEnvironment(arg1:number):Promise<deploy.EnvironmentStackResult>;
 
 export function StopLogStream(arg1:string):Promise<void>;
 

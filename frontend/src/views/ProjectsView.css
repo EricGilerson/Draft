@@ -192,6 +192,99 @@
     background: var(--canvas-bg);
 }
 
+.project-env-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.project-env-row {
+    border: 1px solid rgba(232, 211, 168, 0.08);
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+}
+
+.project-env-row-main {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) minmax(0, 1.4fr) auto;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.project-env-row-main:hover {
+    background: rgba(224, 218, 204, 0.03);
+}
+
+.project-env-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.project-env-copy {
+    min-width: 0;
+}
+
+.project-env-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.project-env-title strong {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.project-env-default {
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+}
+
+.project-env-meta {
+    margin-top: 2px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    font-family: var(--mono);
+}
+
+.project-env-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+    justify-content: flex-end;
+}
+
+.project-env-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.project-env-row-main:hover .project-env-open {
+    color: var(--accent-text);
+}
+
 .project-card-actions {
     padding-top: 12px;
     justify-content: flex-end;

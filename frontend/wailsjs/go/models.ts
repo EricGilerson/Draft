@@ -600,6 +600,60 @@ export namespace deploy {
 	        this.buildStageArgs = source["buildStageArgs"];
 	    }
 	}
+	export class EnvironmentStackNodeResult {
+	    nodeId: string;
+	    label: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentStackNodeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.error = source["error"];
+	    }
+	}
+	export class EnvironmentStackResult {
+	    action: string;
+	    total: number;
+	    succeeded: number;
+	    failed: number;
+	    results: EnvironmentStackNodeResult[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentStackResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.action = source["action"];
+	        this.total = source["total"];
+	        this.succeeded = source["succeeded"];
+	        this.failed = source["failed"];
+	        this.results = this.convertValues(source["results"], EnvironmentStackNodeResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ExportedFile {
 	    name: string;
 	    content: string;
@@ -1571,6 +1625,20 @@ export namespace image {
 
 export namespace main {
 	
+	export class AppSettings {
+	    compactSidebar: boolean;
+	    localDomainPreference: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.compactSidebar = source["compactSidebar"];
+	        this.localDomainPreference = source["localDomainPreference"];
+	    }
+	}
 	export class DaemonConnectionInfo {
 	    addr: string;
 	    token: string;
@@ -1585,27 +1653,11 @@ export namespace main {
 	        this.token = source["token"];
 	    }
 	}
-	export class GitHookStatus {
-	    supported: boolean;
-	    commitForeign: boolean;
-	    pushForeign: boolean;
-	    pullForeign: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new GitHookStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.supported = source["supported"];
-	        this.commitForeign = source["commitForeign"];
-	        this.pushForeign = source["pushForeign"];
-	        this.pullForeign = source["pullForeign"];
-	    }
-	}
 	export class ProjectService {
 	    id: string;
 	    projectId: number;
+	    environmentId: number;
+	    environmentName: string;
 	    name: string;
 	    type: string;
 	    image: string;
@@ -1626,6 +1678,8 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
+	        this.environmentName = source["environmentName"];
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.image = source["image"];
@@ -1636,6 +1690,115 @@ export namespace main {
 	        this.dockerfile = source["dockerfile"];
 	        this.serviceRoot = source["serviceRoot"];
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EnvironmentServices {
+	    id: number;
+	    name: string;
+	    slug: string;
+	    isDefault: boolean;
+	    services: ProjectService[];
+	    running: number;
+	    stopped: number;
+	    building: number;
+	    failed: number;
+	    status: string;
+	    // Go type: time
+	    lastActive?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentServices(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.isDefault = source["isDefault"];
+	        this.services = this.convertValues(source["services"], ProjectService);
+	        this.running = source["running"];
+	        this.stopped = source["stopped"];
+	        this.building = source["building"];
+	        this.failed = source["failed"];
+	        this.status = source["status"];
+	        this.lastActive = this.convertValues(source["lastActive"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GitHookStatus {
+	    supported: boolean;
+	    commitForeign: boolean;
+	    pushForeign: boolean;
+	    pullForeign: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitHookStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.commitForeign = source["commitForeign"];
+	        this.pushForeign = source["pushForeign"];
+	        this.pullForeign = source["pullForeign"];
+	    }
+	}
+	
+	export class ProjectServicesSummary {
+	    projectId: number;
+	    status: string;
+	    environments: EnvironmentServices[];
+	    services: ProjectService[];
+	    // Go type: time
+	    lastActive?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectServicesSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.status = source["status"];
+	        this.environments = this.convertValues(source["environments"], EnvironmentServices);
+	        this.services = this.convertValues(source["services"], ProjectService);
+	        this.lastActive = this.convertValues(source["lastActive"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

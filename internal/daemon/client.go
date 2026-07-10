@@ -134,6 +134,18 @@ func (c *Client) DeleteEnvironment(ctx context.Context, environmentID uint) erro
 	return c.postJSON(ctx, "/environment/delete", map[string]uint{"environmentId": environmentID}, nil)
 }
 
+func (c *Client) RunEnvironmentStack(ctx context.Context, environmentID uint, action string) (*deploy.EnvironmentStackResult, error) {
+	var out deploy.EnvironmentStackResult
+	body := map[string]any{
+		"environmentId": environmentID,
+		"action":        action,
+	}
+	if err := c.postJSON(ctx, "/environment/stack", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice) (*store.Environment, error) {
 	var out store.Environment
 	body := map[string]any{

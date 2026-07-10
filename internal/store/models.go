@@ -178,6 +178,15 @@ type AppSecret struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+// AppSetting is an app-wide key/value preference (not project-scoped).
+// Known keys live in app_settings.go; unknown keys are allowed for forward
+// compatibility but the Settings UI only edits the documented set.
+type AppSetting struct {
+	Key       string    `gorm:"primaryKey;not null" json:"key"`
+	Value     string    `gorm:"not null" json:"value"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // ServiceTemplate is a reusable blueprint for creating a service node. Built-in
 // templates are seeded by the store and are locked (not editable/deletable);
 // users clone them or create their own. The Dockerfile is embedded so a later

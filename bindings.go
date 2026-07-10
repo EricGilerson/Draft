@@ -23,18 +23,50 @@ import (
 var errNoStore = errors.New("database is not available")
 
 type ProjectService struct {
-	ID          string    `json:"id"`
-	ProjectID   uint      `json:"projectId"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Image       string    `json:"image"`
-	Port        int       `json:"port"`
-	Status      string    `json:"status"`
-	Hostname    string    `json:"hostname"`
-	HostPort    int       `json:"hostPort"`
-	Dockerfile  string    `json:"dockerfile"`
-	ServiceRoot string    `json:"serviceRoot"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID              string    `json:"id"`
+	ProjectID       uint      `json:"projectId"`
+	EnvironmentID   uint      `json:"environmentId"`
+	EnvironmentName string    `json:"environmentName"`
+	Name            string    `json:"name"`
+	Type            string    `json:"type"`
+	Image           string    `json:"image"`
+	Port            int       `json:"port"`
+	Status          string    `json:"status"`
+	Hostname        string    `json:"hostname"`
+	HostPort        int       `json:"hostPort"`
+	Dockerfile      string    `json:"dockerfile"`
+	ServiceRoot     string    `json:"serviceRoot"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// EnvironmentServices mirrors deploy.EnvironmentServices for Wails bindings.
+type EnvironmentServices struct {
+	ID         uint             `json:"id"`
+	Name       string           `json:"name"`
+	Slug       string           `json:"slug"`
+	IsDefault  bool             `json:"isDefault"`
+	Services   []ProjectService `json:"services"`
+	Running    int              `json:"running"`
+	Stopped    int              `json:"stopped"`
+	Building   int              `json:"building"`
+	Failed     int              `json:"failed"`
+	Status     string           `json:"status"`
+	LastActive *time.Time       `json:"lastActive,omitempty"`
+}
+
+// ProjectServicesSummary mirrors deploy.ProjectServicesSummary for Wails.
+type ProjectServicesSummary struct {
+	ProjectID    uint                  `json:"projectId"`
+	Status       string                `json:"status"`
+	Environments []EnvironmentServices `json:"environments"`
+	Services     []ProjectService      `json:"services"`
+	LastActive   *time.Time            `json:"lastActive,omitempty"`
+}
+
+// AppSettings is the persisted app preferences surface.
+type AppSettings struct {
+	CompactSidebar         bool   `json:"compactSidebar"`
+	LocalDomainPreference  string `json:"localDomainPreference"`
 }
 
 func samePath(a, b string) bool {
@@ -116,6 +148,40 @@ func (a *App) RenameEnvironment(id uint, name string) error {
 		return errNoStore
 	}
 	return a.store.RenameEnvironment(id, name)
+}
+
+// SetDefaultEnvironment marks the given environment as the project default.
+func (a *App) SetDefaultEnvironment(environmentID uint) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.SetDefaultEnvironment(environmentID)
+}
+
+// StartEnvironment deploys every service in the environment (no start-order gating).
+func (a *App) StartEnvironment(environmentID uint) (*deploy.EnvironmentStackResult, error) {
+	return a.runEnvironmentStack(environmentID, deploy.StackStart)
+}
+
+// StopEnvironment stops every service in the environment.
+func (a *App) StopEnvironment(environmentID uint) (*deploy.EnvironmentStackResult, error) {
+	return a.runEnvironmentStack(environmentID, deploy.StackStop)
+}
+
+// RedeployEnvironment redeploys every service in the environment.
+func (a *App) RedeployEnvironment(environmentID uint) (*deploy.EnvironmentStackResult, error) {
+	return a.runEnvironmentStack(environmentID, deploy.StackRedeploy)
+}
+
+func (a *App) runEnvironmentStack(environmentID uint, action deploy.EnvironmentStackAction) (*deploy.EnvironmentStackResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.RunEnvironmentStack(a.ctx, environmentID, string(action))
 }
 
 // DeleteEnvironment stops/removes the environment's containers and network,
@@ -447,31 +513,86 @@ func (a *App) GetNode(id string) (*store.CanvasNode, error) {
 }
 
 func (a *App) ListProjectServices(projectID uint) ([]ProjectService, error) {
-	if a.store == nil {
-		return nil, errNoStore
-	}
-	services, err := deploy.ListProjectServices(a.store, projectID)
+	summary, err := a.ListProjectServicesSummary(projectID)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ProjectService, 0, len(services))
-	for _, svc := range services {
-		out = append(out, ProjectService{
-			ID:          svc.ID,
-			ProjectID:   svc.ProjectID,
-			Name:        svc.Name,
-			Type:        svc.Type,
-			Image:       svc.Image,
-			Port:        svc.Port,
-			Status:      svc.Status,
-			Hostname:    svc.Hostname,
-			HostPort:    svc.HostPort,
-			Dockerfile:  svc.Dockerfile,
-			ServiceRoot: svc.ServiceRoot,
-			UpdatedAt:   svc.UpdatedAt,
-		})
+	for _, env := range summary.Environments {
+		if env.IsDefault {
+			return env.Services, nil
+		}
 	}
-	return out, nil
+	if len(summary.Environments) > 0 {
+		return summary.Environments[0].Services, nil
+	}
+	return []ProjectService{}, nil
+}
+
+// ListProjectServicesSummary returns every environment's services for dashboard cards.
+func (a *App) ListProjectServicesSummary(projectID uint) (*ProjectServicesSummary, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	summary, err := deploy.ListProjectServicesSummary(a.store, projectID)
+	if err != nil {
+		return nil, err
+	}
+	return mapProjectServicesSummary(summary), nil
+}
+
+func mapProjectService(svc deploy.ProjectService) ProjectService {
+	return ProjectService{
+		ID:              svc.ID,
+		ProjectID:       svc.ProjectID,
+		EnvironmentID:   svc.EnvironmentID,
+		EnvironmentName: svc.EnvironmentName,
+		Name:            svc.Name,
+		Type:            svc.Type,
+		Image:           svc.Image,
+		Port:            svc.Port,
+		Status:          svc.Status,
+		Hostname:        svc.Hostname,
+		HostPort:        svc.HostPort,
+		Dockerfile:      svc.Dockerfile,
+		ServiceRoot:     svc.ServiceRoot,
+		UpdatedAt:       svc.UpdatedAt,
+	}
+}
+
+func mapProjectServicesSummary(summary *deploy.ProjectServicesSummary) *ProjectServicesSummary {
+	if summary == nil {
+		return &ProjectServicesSummary{Environments: []EnvironmentServices{}, Services: []ProjectService{}}
+	}
+	out := &ProjectServicesSummary{
+		ProjectID:    summary.ProjectID,
+		Status:       summary.Status,
+		LastActive:   summary.LastActive,
+		Environments: make([]EnvironmentServices, 0, len(summary.Environments)),
+		Services:     make([]ProjectService, 0, len(summary.Services)),
+	}
+	for _, env := range summary.Environments {
+		mapped := EnvironmentServices{
+			ID:         env.ID,
+			Name:       env.Name,
+			Slug:       env.Slug,
+			IsDefault:  env.IsDefault,
+			Running:    env.Running,
+			Stopped:    env.Stopped,
+			Building:   env.Building,
+			Failed:     env.Failed,
+			Status:     env.Status,
+			LastActive: env.LastActive,
+			Services:   make([]ProjectService, 0, len(env.Services)),
+		}
+		for _, svc := range env.Services {
+			mapped.Services = append(mapped.Services, mapProjectService(svc))
+		}
+		out.Environments = append(out.Environments, mapped)
+	}
+	for _, svc := range summary.Services {
+		out.Services = append(out.Services, mapProjectService(svc))
+	}
+	return out
 }
 
 func (a *App) DeployService(nodeID string) error {
@@ -1143,23 +1264,83 @@ func (a *App) StartDocker() error {
 func (a *App) GetLocalDomainStatus() networking.LocalDomainStatus {
 	c, err := a.ensureDaemon()
 	if err != nil || c == nil {
-		return networking.LocalDomainStatus{
+		status := networking.LocalDomainStatus{
 			Mode:           "localhost-port",
 			HostsError:     errString(err),
 			PublicSuffix:   networking.PublicSuffix,
 			LoopbackSuffix: networking.PublicSuffix,
 		}
+		return a.applyLocalDomainPreference(status)
 	}
 	status, err := c.LocalDomainStatus(a.ctx)
 	if err != nil {
-		return networking.LocalDomainStatus{
+		status = networking.LocalDomainStatus{
 			Mode:           "localhost-port",
 			HostsError:     err.Error(),
 			PublicSuffix:   networking.PublicSuffix,
 			LoopbackSuffix: networking.PublicSuffix,
 		}
 	}
+	return a.applyLocalDomainPreference(status)
+}
+
+func (a *App) applyLocalDomainPreference(status networking.LocalDomainStatus) networking.LocalDomainStatus {
+	if a.store == nil {
+		return status
+	}
+	pref, err := a.store.GetAppSetting(store.AppSettingLocalDomainPreference)
+	if err != nil || pref == "" || pref == store.LocalDomainPrefAuto {
+		return status
+	}
+	switch pref {
+	case store.LocalDomainPrefLocalhost:
+		status.Mode = "localhost-port"
+	case store.LocalDomainPrefPublic:
+		// Only claim public mode when the proxy actually has a port.
+		if status.ProxyPort > 0 {
+			status.Mode = "public-hostname-port"
+		} else {
+			status.Mode = "localhost-port"
+		}
+	}
 	return status
+}
+
+// GetAppSettings returns persisted app preferences with defaults filled in.
+func (a *App) GetAppSettings() (*AppSettings, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	all, err := a.store.ListAppSettings()
+	if err != nil {
+		return nil, err
+	}
+	return &AppSettings{
+		CompactSidebar:        all[store.AppSettingCompactSidebar] == "true",
+		LocalDomainPreference: all[store.AppSettingLocalDomainPreference],
+	}, nil
+}
+
+// SetAppSettings merges the provided preferences into the store.
+func (a *App) SetAppSettings(settings AppSettings) (*AppSettings, error) {
+	if a.store == nil {
+		return nil, errNoStore
+	}
+	compact := "false"
+	if settings.CompactSidebar {
+		compact = "true"
+	}
+	pref := settings.LocalDomainPreference
+	if pref == "" {
+		pref = store.LocalDomainPrefAuto
+	}
+	if err := a.store.SetAppSettings(map[string]string{
+		store.AppSettingCompactSidebar:        compact,
+		store.AppSettingLocalDomainPreference: pref,
+	}); err != nil {
+		return nil, err
+	}
+	return a.GetAppSettings()
 }
 
 // GetNodeSettings returns all settings for a node as a map.

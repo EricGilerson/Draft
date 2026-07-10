@@ -81,6 +81,65 @@ func TestListProjectServicesUsesRealCanvasNodes(t *testing.T) {
 	}
 }
 
+func TestListProjectServicesSummaryIncludesAllEnvironments(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	project, err := s.CreateProject("Multi Env", "/tmp/multi-env", "")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	mainID := defaultEnvID(t, s, project.ID)
+	staging, err := s.CreateEnvironment(project.ID, "Staging")
+	if err != nil {
+		t.Fatalf("create staging: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "main-web", ProjectID: project.ID, EnvironmentID: mainID, Label: "web"}); err != nil {
+		t.Fatalf("create main node: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "stg-web", ProjectID: project.ID, EnvironmentID: staging.ID, Label: "web"}); err != nil {
+		t.Fatalf("create staging node: %v", err)
+	}
+	if err := s.SetNodeSetting("main-web", "service_port", "8080"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	now := time.Now()
+	if _, err := s.CreateDeployment(&store.Deployment{
+		NodeID: "main-web", ProjectID: project.ID, Status: "running", UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("create deployment: %v", err)
+	}
+
+	summary, err := ListProjectServicesSummary(s, project.ID)
+	if err != nil {
+		t.Fatalf("ListProjectServicesSummary: %v", err)
+	}
+	if len(summary.Environments) != 2 {
+		t.Fatalf("expected 2 environments, got %d", len(summary.Environments))
+	}
+	if len(summary.Services) != 2 {
+		t.Fatalf("expected 2 flat services, got %d", len(summary.Services))
+	}
+	if summary.Status != "partial" {
+		t.Errorf("project status = %q, want partial (one env running, one stopped)", summary.Status)
+	}
+
+	// Default-only list still works.
+	def, err := ListProjectServices(s, project.ID)
+	if err != nil {
+		t.Fatalf("ListProjectServices: %v", err)
+	}
+	if len(def) != 1 || def[0].ID != "main-web" {
+		t.Fatalf("default services = %+v", def)
+	}
+	if def[0].EnvironmentID != mainID {
+		t.Errorf("EnvironmentID = %d, want %d", def[0].EnvironmentID, mainID)
+	}
+}
+
 func TestServiceStatusFromDeployment(t *testing.T) {
 	tests := map[string]string{
 		"running":     "running",

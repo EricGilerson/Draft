@@ -102,6 +102,10 @@ export function GetActiveDeployment(arg1) {
   return window['go']['main']['App']['GetActiveDeployment'](arg1);
 }
 
+export function GetAppSettings() {
+  return window['go']['main']['App']['GetAppSettings']();
+}
+
 export function GetBuildLog(arg1) {
   return window['go']['main']['App']['GetBuildLog'](arg1);
 }
@@ -246,6 +250,10 @@ export function ListProjectServices(arg1) {
   return window['go']['main']['App']['ListProjectServices'](arg1);
 }
 
+export function ListProjectServicesSummary(arg1) {
+  return window['go']['main']['App']['ListProjectServicesSummary'](arg1);
+}
+
 export function ListProjects() {
   return window['go']['main']['App']['ListProjects']();
 }
@@ -310,6 +318,10 @@ export function ReapplyTemplate(arg1) {
   return window['go']['main']['App']['ReapplyTemplate'](arg1);
 }
 
+export function RedeployEnvironment(arg1) {
+  return window['go']['main']['App']['RedeployEnvironment'](arg1);
+}
+
 export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
@@ -370,6 +382,14 @@ export function SetAppSecret(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetAppSecret'](arg1, arg2, arg3);
 }
 
+export function SetAppSettings(arg1) {
+  return window['go']['main']['App']['SetAppSettings'](arg1);
+}
+
+export function SetDefaultEnvironment(arg1) {
+  return window['go']['main']['App']['SetDefaultEnvironment'](arg1);
+}
+
 export function SetDeployTrigger(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetDeployTrigger'](arg1, arg2, arg3);
 }
@@ -414,12 +434,20 @@ export function StartDockerContainer(arg1) {
   return window['go']['main']['App']['StartDockerContainer'](arg1);
 }
 
+export function StartEnvironment(arg1) {
+  return window['go']['main']['App']['StartEnvironment'](arg1);
+}
+
 export function StartLogStream(arg1) {
   return window['go']['main']['App']['StartLogStream'](arg1);
 }
 
 export function StopDockerContainer(arg1) {
   return window['go']['main']['App']['StopDockerContainer'](arg1);
+}
+
+export function StopEnvironment(arg1) {
+  return window['go']['main']['App']['StopEnvironment'](arg1);
 }
 
 export function StopLogStream(arg1) {

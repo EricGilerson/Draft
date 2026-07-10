@@ -31,6 +31,7 @@ const FOOTER: NavItem[] = [
 type SidebarProps = {
     active: NavId;
     onSelect: (id: NavId) => void;
+    compact?: boolean;
 };
 
 function BrandMark() {
@@ -47,7 +48,7 @@ function BrandMark() {
     );
 }
 
-export default function Sidebar({active, onSelect}: SidebarProps) {
+export default function Sidebar({active, onSelect, compact}: SidebarProps) {
     const renderItem = (item: NavItem) => {
         const Icon = item.icon;
         const isActive = active === item.id;
@@ -58,6 +59,7 @@ export default function Sidebar({active, onSelect}: SidebarProps) {
                 className={'nav-item' + (isActive ? ' active' : '')}
                 onClick={() => onSelect(item.id)}
                 aria-current={isActive ? 'page' : undefined}
+                title={item.label}
             >
                 <Icon className="nav-icon" size={14} strokeWidth={2}/>
                 <span className="nav-label">{item.label}</span>
@@ -66,7 +68,7 @@ export default function Sidebar({active, onSelect}: SidebarProps) {
     };
 
     return (
-        <aside className="sidebar">
+        <aside className={'sidebar' + (compact ? ' sidebar--compact' : '')}>
             <div className="brand">
                 <BrandMark/>
                 <span className="brand-name">Draft</span>

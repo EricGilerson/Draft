@@ -21,13 +21,32 @@ export type ServicePreview = {
     image: string;
     port?: number;
     status: ServiceStatus;
+    environmentId?: number;
+    environmentName?: string;
+};
+
+export type EnvironmentSummary = {
+    id: number;
+    name: string;
+    slug: string;
+    isDefault: boolean;
+    status: ProjectStatus;
+    running: number;
+    stopped: number;
+    building: number;
+    failed: number;
+    lastActive: string;
+    services: ServicePreview[];
 };
 
 export type ProjectSummary = {
     project: store.Project;
     status: ProjectStatus;
     lastActive: string;
+    /** Flat list of all services across environments (activity, totals). */
     services: ServicePreview[];
+    environments: EnvironmentSummary[];
+    environmentCount: number;
 };
 
 export type SandboxPreview = {
@@ -99,8 +118,9 @@ function coerceServiceStatus(status: string): ServiceStatus {
     }
 }
 
-function isLiveStatus(status: ServiceStatus): boolean {
-    return status === 'running' || status === 'starting' || status === 'building' || status === 'built' || status === 'pending';
+function coerceProjectStatus(status: string): ProjectStatus {
+    if (status === 'active' || status === 'partial' || status === 'stopped') return status;
+    return 'stopped';
 }
 
 function asDate(value: any): Date | null {
@@ -131,19 +151,63 @@ function servicePreview(service: main.ProjectService): ServicePreview {
         image: service.image || service.dockerfile || 'unconfigured',
         port: service.port || undefined,
         status: coerceServiceStatus(service.status),
+        environmentId: service.environmentId || undefined,
+        environmentName: service.environmentName || undefined,
     };
 }
 
-function summarizeStatus(services: ServicePreview[]): ProjectStatus {
-    if (services.length === 0) return 'stopped';
-    const running = services.filter((service) => service.status === 'running').length;
-    const live = services.filter((service) => isLiveStatus(service.status)).length;
-    if (live === 0) return 'stopped';
-    if (running === services.length) return 'active';
-    return 'partial';
+export function projectStatusColor(status: ProjectStatus): string {
+    if (status === 'active') return STATUS_COLORS.running;
+    if (status === 'partial') return STATUS_COLORS.starting;
+    return STATUS_COLORS.stopped;
 }
 
-export function decorateProjects(projects: store.Project[], servicesByProject: Record<number, main.ProjectService[]> = {}): ProjectSummary[] {
+/** Build project cards from multi-env summaries. */
+export function decorateProjectSummaries(
+    projects: store.Project[],
+    summariesByProject: Record<number, main.ProjectServicesSummary> = {},
+): ProjectSummary[] {
+    return projects.map((project) => {
+        const summary = summariesByProject[project.id];
+        const environments: EnvironmentSummary[] = (summary?.environments ?? []).map((env) => ({
+            id: env.id,
+            name: env.name,
+            slug: env.slug,
+            isDefault: !!env.isDefault,
+            status: coerceProjectStatus(env.status),
+            running: env.running ?? 0,
+            stopped: env.stopped ?? 0,
+            building: env.building ?? 0,
+            failed: env.failed ?? 0,
+            lastActive: env.services?.length
+                ? relativeLabel(env.lastActive ?? project.updatedAt)
+                : 'No services',
+            services: (env.services ?? []).map(servicePreview),
+        }));
+        const services = (summary?.services ?? []).map(servicePreview);
+        const status = coerceProjectStatus(summary?.status ?? 'stopped');
+        const lastActive =
+            services.length === 0
+                ? environments.length === 0
+                    ? 'No services'
+                    : 'No services'
+                : relativeLabel(summary?.lastActive ?? project.updatedAt);
+        return {
+            project,
+            services,
+            environments,
+            environmentCount: environments.length,
+            status,
+            lastActive,
+        };
+    });
+}
+
+/** @deprecated Prefer decorateProjectSummaries with multi-env data. */
+export function decorateProjects(
+    projects: store.Project[],
+    servicesByProject: Record<number, main.ProjectService[]> = {},
+): ProjectSummary[] {
     return projects.map((project) => {
         const rawServices = servicesByProject[project.id] ?? [];
         const services = rawServices.map(servicePreview);
@@ -151,13 +215,47 @@ export function decorateProjects(projects: store.Project[], servicesByProject: R
             .map((service) => asDate(service.updatedAt))
             .filter((date): date is Date => Boolean(date))
             .sort((a, b) => b.getTime() - a.getTime())[0];
+        const status = summarizeStatusLegacy(services);
         return {
             project,
             services,
-            status: summarizeStatus(services),
+            environments: [
+                {
+                    id: 0,
+                    name: 'Main',
+                    slug: 'main',
+                    isDefault: true,
+                    status,
+                    running: services.filter((s) => s.status === 'running').length,
+                    stopped: services.filter((s) => s.status === 'stopped').length,
+                    building: services.filter((s) =>
+                        s.status === 'building' || s.status === 'starting' || s.status === 'pending' || s.status === 'built',
+                    ).length,
+                    failed: services.filter((s) => s.status === 'failed' || s.status === 'error').length,
+                    lastActive: services.length === 0 ? 'No services' : relativeLabel(latestServiceUpdate ?? project.updatedAt),
+                    services,
+                },
+            ],
+            environmentCount: 1,
+            status,
             lastActive: services.length === 0 ? 'No services' : relativeLabel(latestServiceUpdate ?? project.updatedAt),
         };
     });
+}
+
+function summarizeStatusLegacy(services: ServicePreview[]): ProjectStatus {
+    if (services.length === 0) return 'stopped';
+    const running = services.filter((service) => service.status === 'running').length;
+    const live = services.filter((service) =>
+        service.status === 'running' ||
+        service.status === 'starting' ||
+        service.status === 'building' ||
+        service.status === 'built' ||
+        service.status === 'pending',
+    ).length;
+    if (live === 0) return 'stopped';
+    if (running === services.length) return 'active';
+    return 'partial';
 }
 
 export function buildSandboxPreviews(projects: ProjectSummary[]): SandboxPreview[] {
@@ -218,30 +316,6 @@ export function buildActivity(projects: ProjectSummary[], sandboxes: SandboxPrev
                 type: primary.status === 'running' ? 'start' : 'port',
             });
         }
-        items.push({
-            id: `activity-env-${project.project.id}`,
-            time: ELAPSED_LABELS[(index + 2) % ELAPSED_LABELS.length],
-            project: project.project.name,
-            message: `.env targets resolved for ${project.services.length} services`,
-            type: 'env',
-        });
     });
-
-    sandboxes.slice(0, 2).forEach((sandbox, index) => {
-        items.push({
-            id: `activity-sandbox-${sandbox.id}`,
-            time: ELAPSED_LABELS[(index + 1) % ELAPSED_LABELS.length],
-            project: sandbox.forkedFrom,
-            message: `Sandbox "${sandbox.branch}" ${sandbox.status === 'running' ? 'available' : 'prepared'}`,
-            type: 'sandbox',
-        });
-    });
-
-    return items.slice(0, 6);
-}
-
-export function projectStatusColor(status: ProjectStatus) {
-    if (status === 'active') return STATUS_COLORS.running;
-    if (status === 'partial') return STATUS_COLORS.starting;
-    return STATUS_COLORS.stopped;
+    return items;
 }

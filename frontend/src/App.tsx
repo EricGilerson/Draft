@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {FlaskConical} from 'lucide-react';
 import './App.css';
-import {ListProjects, ListProjectServices, GetDefaultEnvironment} from '../wailsjs/go/main/App';
+import {GetAppSettings, GetDefaultEnvironment, ListProjectServicesSummary, ListProjects} from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
@@ -12,7 +12,7 @@ import CreateProjectDialog from './components/CreateProjectDialog';
 import ImportConfigDialog from './components/ImportConfigDialog';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog';
 import EmptyState from './components/EmptyState';
-import {decorateProjects} from './lib/dashboardData';
+import {decorateProjectSummaries} from './lib/dashboardData';
 import {useActivityLog} from './lib/useActivityLog';
 import ProjectCanvas from './components/ProjectCanvas';
 import EnvironmentSwitcher from './components/EnvironmentSwitcher';
@@ -32,7 +32,7 @@ type NodeFocus = {projectId: number; nodeId: string; environmentId?: number | nu
 function App() {
     const [view, setView] = useState<NavId>('overview');
     const [projects, setProjects] = useState<store.Project[]>([]);
-    const [servicesByProject, setServicesByProject] = useState<Record<number, main.ProjectService[]>>({});
+    const [summariesByProject, setSummariesByProject] = useState<Record<number, main.ProjectServicesSummary>>({});
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
@@ -42,21 +42,26 @@ function App() {
     const [pendingVolumeFocus, setPendingVolumeFocus] = useState<VolumeFocus | null>(null);
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
+    const [compactSidebar, setCompactSidebar] = useState(false);
     const projectsRef = useRef<store.Project[]>([]);
     const requestedEnvironmentRef = useRef<{projectId: number; environmentId: number} | null>(null);
 
-    const refreshProjectServices = useCallback(async (items: store.Project[]) => {
+    const refreshProjectSummaries = useCallback(async (items: store.Project[]) => {
         if (items.length === 0) {
-            setServicesByProject({});
+            setSummariesByProject({});
             return;
         }
         const entries = await Promise.all(
             items.map(async (project) => {
-                const services = await ListProjectServices(project.id).catch(() => []);
-                return [project.id, services ?? []] as const;
+                const summary = await ListProjectServicesSummary(project.id).catch(() => null);
+                return [project.id, summary] as const;
             }),
         );
-        setServicesByProject(Object.fromEntries(entries));
+        const next: Record<number, main.ProjectServicesSummary> = {};
+        for (const [id, summary] of entries) {
+            if (summary) next[id] = summary;
+        }
+        setSummariesByProject(next);
     }, []);
 
     const refreshProjects = useCallback(async () => {
@@ -66,26 +71,32 @@ function App() {
             const nextProjects = items ?? [];
             projectsRef.current = nextProjects;
             setProjects(nextProjects);
-            await refreshProjectServices(nextProjects);
+            await refreshProjectSummaries(nextProjects);
         } catch {
             projectsRef.current = [];
             setProjects([]);
-            setServicesByProject({});
+            setSummariesByProject({});
         } finally {
             setLoading(false);
         }
-    }, [refreshProjectServices]);
+    }, [refreshProjectSummaries]);
 
     useEffect(() => {
         refreshProjects();
     }, [refreshProjects]);
 
     useEffect(() => {
+        GetAppSettings()
+            .then((settings) => setCompactSidebar(!!settings?.compactSidebar))
+            .catch(() => undefined);
+    }, []);
+
+    useEffect(() => {
         const unsubscribe = EventsOn('deploy:status', () => {
-            refreshProjectServices(projectsRef.current);
+            refreshProjectSummaries(projectsRef.current);
         });
         return unsubscribe;
-    }, [refreshProjectServices]);
+    }, [refreshProjectSummaries]);
 
     useEffect(() => {
         if (!selectedProject) {
@@ -110,12 +121,24 @@ function App() {
         };
     }, [selectedProject]);
 
-    const summaries = useMemo(() => decorateProjects(projects, servicesByProject), [projects, servicesByProject]);
+    const servicesByProject = useMemo(() => {
+        const out: Record<number, main.ProjectService[]> = {};
+        for (const [id, summary] of Object.entries(summariesByProject)) {
+            out[Number(id)] = summary.services ?? [];
+        }
+        return out;
+    }, [summariesByProject]);
+
+    const summaries = useMemo(
+        () => decorateProjectSummaries(projects, summariesByProject),
+        [projects, summariesByProject],
+    );
     const activity = useActivityLog(projects, servicesByProject);
+
     const handleSelectView = (next: NavId) => {
         setView(next);
-        if (next === 'projects') {
-            refreshProjectServices(projectsRef.current);
+        if (next === 'projects' || next === 'overview') {
+            refreshProjectSummaries(projectsRef.current);
         }
         if (next !== 'projects') {
             setSelectedProject(null);
@@ -134,15 +157,27 @@ function App() {
             projectsRef.current = nextProjects;
             return nextProjects;
         });
-        setServicesByProject((prev) => ({...prev, [project.id]: []}));
+        setSummariesByProject((prev) => ({
+            ...prev,
+            [project.id]: main.ProjectServicesSummary.createFrom({
+                projectId: project.id,
+                status: 'stopped',
+                environments: [],
+                services: [],
+            }),
+        }));
         setDialogOpen(false);
         setSelectedProject(project);
         setView('projects');
+        refreshProjectSummaries([project, ...projectsRef.current.filter((p) => p.id !== project.id)]);
     };
 
-    const openProject = (project: store.Project) => {
-        requestedEnvironmentRef.current = null;
+    const openProject = (project: store.Project, environmentId?: number) => {
+        requestedEnvironmentRef.current = environmentId
+            ? {projectId: project.id, environmentId}
+            : null;
         setSelectedProject(project);
+        if (environmentId) setSelectedEnvironmentId(environmentId);
         setView('projects');
     };
 
@@ -187,7 +222,7 @@ function App() {
             projectsRef.current = nextProjects;
             return nextProjects;
         });
-        setServicesByProject((prev) => {
+        setSummariesByProject((prev) => {
             const next = {...prev};
             delete next[projectId];
             return next;
@@ -199,7 +234,7 @@ function App() {
         <BuildLogProvider>
             <AppDialogProvider>
                 <div className="app-shell">
-                    <Sidebar active={view} onSelect={handleSelectView}/>
+                    <Sidebar active={view} onSelect={handleSelectView} compact={compactSidebar}/>
                     <div className="app-main">
                         <header className="topbar">
                             <ActivityTicker/>
@@ -215,13 +250,15 @@ function App() {
                                     selectedEnvironmentId={selectedEnvironmentId}
                                     onSelect={setSelectedEnvironmentId}
                                     onDuplicating={setEnvironmentBusy}
+                                    onEnvironmentsChanged={() => refreshProjectSummaries(projectsRef.current)}
+                                    onStackActionDone={() => refreshProjectSummaries(projectsRef.current)}
                                 />
                                 {selectedEnvironmentId && !environmentBusy && (
                                     <div className="project-workspace-canvas">
                                         <ProjectCanvas
                                             project={selectedProject}
                                             environmentId={selectedEnvironmentId}
-                                            onServicesChanged={() => refreshProjectServices(projectsRef.current)}
+                                            onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
                                             initialVolumeFocus={pendingVolumeFocus}
                                             onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
                                             onOpenProjectSettings={() => openProjectSettings(selectedProject)}
@@ -276,7 +313,9 @@ function App() {
                                 onRevealNode={revealNode}
                             />
                         ) : (
-                            <SettingsView/>
+                            <SettingsView
+                                onSettingsChanged={(settings) => setCompactSidebar(!!settings.compactSidebar)}
+                            />
                         )}
                             </div>
                         </main>

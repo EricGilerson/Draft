@@ -10,7 +10,7 @@ type OverviewViewProps = {
     projects: ProjectSummary[];
     activity: ActivityPreview[];
     onCreateProject: () => void;
-    onOpenProject: (project: store.Project) => void;
+    onOpenProject: (project: store.Project, environmentId?: number) => void;
 };
 
 const ACTIVITY_COLORS: Record<ActivityPreview['type'], string> = {
@@ -113,8 +113,13 @@ export default function OverviewView({
 }: OverviewViewProps) {
     const runningServices = projects.flatMap((project) => project.services).filter((service) => service.status === 'running').length;
     const totalServices = projects.flatMap((project) => project.services).length;
+    const totalEnvironments = projects.reduce((n, project) => n + (project.environmentCount || project.environments.length), 0);
     const activeProjects = projects.filter((project) => project.status !== 'stopped').length;
     const highlighted = projects[0];
+    const highlightedServices =
+        highlighted?.environments.find((e) => e.isDefault)?.services
+        ?? highlighted?.services
+        ?? [];
 
     return (
         <div className="workspace-view">
@@ -134,6 +139,11 @@ export default function OverviewView({
                         <div className="metric-label">Projects</div>
                         <div className="metric-value">{loading ? '...' : projects.length}</div>
                         <div className="metric-subtle">{activeProjects} active right now</div>
+                    </div>
+                    <div className="metric-card">
+                        <div className="metric-label">Environments</div>
+                        <div className="metric-value">{loading ? '...' : totalEnvironments}</div>
+                        <div className="metric-subtle">Across all projects</div>
                     </div>
                     <div className="metric-card">
                         <div className="metric-label">Services</div>
@@ -159,14 +169,14 @@ export default function OverviewView({
                                 </button>
                             )}
                         </div>
-                        <CanvasPreview project={highlighted}/>
+                        <CanvasPreview project={highlighted ? {...highlighted, services: highlightedServices} : undefined}/>
                     </section>
 
                     <section className="panel">
                         <div className="panel-header">
                             <div>
                                 <h2 className="panel-title">Project focus</h2>
-                                <p className="panel-description">The most relevant environments should stay one click from the canvas.</p>
+                                <p className="panel-description">Environments stay one click from the canvas.</p>
                             </div>
                         </div>
                         <div className="stack-list">
@@ -177,27 +187,52 @@ export default function OverviewView({
                                 </div>
                             ) : (
                                 projects.slice(0, 3).map((project) => (
-                                    <button
-                                        key={project.project.id}
-                                        className="list-row-button"
-                                        onClick={() => onOpenProject(project.project)}
-                                    >
-                                        <div className="list-row-main">
-                                            <div className="list-row-title">
-                                                <span
-                                                    className="status-dot"
-                                                    style={{background: project.status === 'active' ? STATUS_COLORS.running : project.status === 'partial' ? STATUS_COLORS.starting : STATUS_COLORS.stopped}}
-                                                />
-                                                <span>{project.project.name}</span>
+                                    <div key={project.project.id} className="overview-project-block">
+                                        <button
+                                            className="list-row-button"
+                                            onClick={() => onOpenProject(project.project)}
+                                        >
+                                            <div className="list-row-main">
+                                                <div className="list-row-title">
+                                                    <span
+                                                        className="status-dot"
+                                                        style={{background: project.status === 'active' ? STATUS_COLORS.running : project.status === 'partial' ? STATUS_COLORS.starting : STATUS_COLORS.stopped}}
+                                                    />
+                                                    <span>{project.project.name}</span>
+                                                </div>
+                                                <div className="list-row-subtle">
+                                                    {project.environmentCount || project.environments.length} env
+                                                    {(project.environmentCount || project.environments.length) === 1 ? '' : 's'}
+                                                    {' · '}
+                                                    {project.services.length} services
+                                                </div>
                                             </div>
-                                            <div className="list-row-subtle">{project.project.path}</div>
+                                        </button>
+                                        <div className="overview-env-chips">
+                                            {project.environments.map((env) => (
+                                                <button
+                                                    key={env.id || env.slug}
+                                                    type="button"
+                                                    className="overview-env-chip"
+                                                    onClick={() => onOpenProject(project.project, env.id || undefined)}
+                                                >
+                                                    <span
+                                                        className="status-dot"
+                                                        style={{background: env.status === 'active' ? STATUS_COLORS.running : env.status === 'partial' ? STATUS_COLORS.starting : STATUS_COLORS.stopped}}
+                                                    />
+                                                    <span>{env.name}</span>
+                                                    <span className="overview-env-chip-meta">
+                                                        {env.running}↑ {env.stopped}↓
+                                                    </span>
+                                                </button>
+                                            ))}
                                         </div>
-                                        <div className="list-row-pills">
-                                            {project.services.slice(0, 2).map((service) => (
+                                        <div className="list-row-pills overview-service-pills">
+                                            {project.services.slice(0, 4).map((service) => (
                                                 <ServicePill key={service.id} service={service}/>
                                             ))}
                                         </div>
-                                    </button>
+                                    </div>
                                 ))
                             )}
                         </div>
