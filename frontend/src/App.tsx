@@ -1,5 +1,4 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {FlaskConical} from 'lucide-react';
 import './App.css';
 import {GetAppSettings, GetDefaultEnvironment, ListProjectServicesSummary, ListProjects} from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
@@ -11,7 +10,6 @@ import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import ImportConfigDialog from './components/ImportConfigDialog';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog';
-import EmptyState from './components/EmptyState';
 import {decorateProjectSummaries} from './lib/dashboardData';
 import {useActivityLog} from './lib/useActivityLog';
 import ProjectCanvas from './components/ProjectCanvas';
@@ -24,6 +22,7 @@ import SecretsView from './views/SecretsView';
 import VolumesView from './views/VolumesView';
 import DockerView from './views/DockerView';
 import RoutesView from './views/RoutesView';
+import SandboxesView from './views/SandboxesView';
 import {main, store} from '../wailsjs/go/models';
 
 type VolumeFocus = {nodeId: string; target: string};
@@ -43,6 +42,7 @@ function App() {
     const [pendingNodeFocus, setPendingNodeFocus] = useState<NodeFocus | null>(null);
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const [compactSidebar, setCompactSidebar] = useState(false);
+    const [sandboxSource, setSandboxSource] = useState<{projectId: number; environmentId: number} | null>(null);
     const projectsRef = useRef<store.Project[]>([]);
     const requestedEnvironmentRef = useRef<{projectId: number; environmentId: number} | null>(null);
 
@@ -253,6 +253,7 @@ function App() {
                                     onEnvironmentsChanged={() => refreshProjectSummaries(projectsRef.current)}
                                     onStackActionDone={() => refreshProjectSummaries(projectsRef.current)}
                                     onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
+                                    onCreateSandbox={(environmentId) => { setSandboxSource({projectId: selectedProject.id, environmentId}); setSelectedProject(null); setView('sandboxes'); }}
                                 />
                                 {selectedEnvironmentId && !environmentBusy && (
                                     <div className="project-workspace-canvas">
@@ -292,14 +293,17 @@ function App() {
                                 onOpenProjectSettings={openProjectSettings}
                             />
                         ) : view === 'sandboxes' ? (
-                            <div className="view-center">
-                                <EmptyState
-                                    icon={FlaskConical}
-                                    title="Sandboxes"
-                                    description="Sandbox UI is intentionally blank until the feature is implemented."
-                                    chip="Coming soon"
-                                />
-                            </div>
+                            <SandboxesView
+                                projects={projects}
+                                initialSource={sandboxSource}
+                                onOpenSandbox={(projectId, environmentId) => {
+                                    const project = projects.find((item) => item.id === projectId);
+                                    if (!project) return;
+                                    requestedEnvironmentRef.current = {projectId, environmentId};
+                                    setSandboxSource(null);
+                                    setSelectedProject(project);
+                                }}
+                            />
                         ) : view === 'templates' ? (
                             <TemplatesView/>
                         ) : view === 'secrets' ? (

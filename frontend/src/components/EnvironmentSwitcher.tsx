@@ -36,6 +36,7 @@ type EnvironmentSwitcherProps = {
     onEnvironmentsChanged?: () => void;
     onStackActionDone?: () => void;
     onServicesChanged?: () => void;
+    onCreateSandbox?: (sourceEnvironmentId: number) => void;
 };
 
 export default function EnvironmentSwitcher({
@@ -46,6 +47,7 @@ export default function EnvironmentSwitcher({
     onEnvironmentsChanged,
     onStackActionDone,
     onServicesChanged,
+    onCreateSandbox,
 }: EnvironmentSwitcherProps) {
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -299,68 +301,32 @@ export default function EnvironmentSwitcher({
     return (
         <>
             <div className="environment-switcher">
-                <nav className="environment-switcher-tabs">
-                    {environments.map((env) => (
-                        <div key={env.id} className="environment-switcher-tab-wrap">
-                            <button
-                                className={`environment-switcher-tab ${env.id === selectedEnvironmentId ? 'environment-switcher-tab--active' : ''}`}
-                                onClick={() => onSelect(env.id)}
-                            >
-                                <span className="environment-switcher-tab-name">{env.name}</span>
-                                {env.isDefault && (
-                                    <span className="environment-switcher-default-badge" title="Default environment">
-                                        default
-                                    </span>
-                                )}
-                            </button>
-                            <button
-                                type="button"
-                                className="environment-switcher-tab-menu-btn"
-                                title="Environment actions"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuEnvId(menuEnvId === env.id ? null : env.id);
-                                }}
-                            >
+                <div className="environment-selector">
+                    <select
+                        className="input settings-select environment-select"
+                        value={selectedEnvironmentId ?? ''}
+                        onChange={(e) => onSelect(Number(e.target.value))}
+                        aria-label="Selected environment"
+                    >
+                        {environments.map((env) => (
+                            <option key={env.id} value={env.id}>{env.name}{env.isDefault ? ' (default)' : ''}</option>
+                        ))}
+                    </select>
+                    {selectedEnv && (
+                        <div className="environment-selector-menu-wrap" ref={menuRef}>
+                            <button type="button" className="icon-button" title="Environment actions" onClick={() => setMenuEnvId(menuEnvId === selectedEnv.id ? null : selectedEnv.id)}>
                                 <MoreHorizontal size={15}/>
                             </button>
-                            {menuEnvId === env.id && (
-                                <div className="environment-switcher-menu" ref={menuRef}>
-                                    <button type="button" onClick={() => openRename(env)}>Rename…</button>
-                                    {!env.isDefault && (
-                                        <button type="button" onClick={() => void setAsDefault(env)}>
-                                            Set as default
-                                        </button>
-                                    )}
-                                    {env.id === selectedEnvironmentId && (
-                                        <>
-                                            <button type="button" onClick={() => { setMenuEnvId(null); setSyncOpen(true); }}>
-                                                Sync config…
-                                            </button>
-                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('start')}>
-                                                Start all
-                                            </button>
-                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('redeploy')}>
-                                                Redeploy all
-                                            </button>
-                                            <button type="button" disabled={stackBusy} onClick={() => void runStack('stop')}>
-                                                Stop all
-                                            </button>
-                                        </>
-                                    )}
-                                    {!env.isDefault && (
-                                        <button
-                                            type="button"
-                                            className="environment-switcher-menu-danger"
-                                            onClick={() => void removeEnvironment(env)}
-                                        >
-                                            Delete…
-                                        </button>
-                                    )}
+                            {menuEnvId === selectedEnv.id && (
+                                <div className="environment-switcher-menu">
+                                    <button type="button" onClick={() => openRename(selectedEnv)}>Rename…</button>
+                                    {!selectedEnv.isDefault && <button type="button" onClick={() => void setAsDefault(selectedEnv)}>Set as default</button>}
+                                    <button type="button" onClick={() => { setMenuEnvId(null); setSyncOpen(true); }}>Sync config…</button>
+                                    {!selectedEnv.isDefault && <button type="button" className="environment-switcher-menu-danger" onClick={() => void removeEnvironment(selectedEnv)}>Delete…</button>}
                                 </div>
                             )}
                         </div>
-                    ))}
+                    )}
                     <button
                         className="environment-switcher-action"
                         onClick={openNewDialog}
@@ -368,7 +334,8 @@ export default function EnvironmentSwitcher({
                     >
                         <Plus size={13}/> New
                     </button>
-                </nav>
+                    {selectedEnv && <button className="btn btn-ghost environment-sandbox-action" onClick={() => onCreateSandbox?.(selectedEnv.id)}><Plus size={13}/> Sandbox</button>}
+                </div>
 
                 {selectedEnv && (
                     <div className="environment-stack-toolbar">
