@@ -65,8 +65,9 @@ type ProjectServicesSummary struct {
 
 // AppSettings is the persisted app preferences surface.
 type AppSettings struct {
-	CompactSidebar        bool   `json:"compactSidebar"`
-	LocalDomainPreference string `json:"localDomainPreference"`
+	CompactSidebar          bool   `json:"compactSidebar"`
+	LocalDomainPreference   string `json:"localDomainPreference"`
+	LocalDraftDomainEnabled bool   `json:"localDraftDomainEnabled"`
 }
 
 func samePath(a, b string) bool {
@@ -1465,9 +1466,24 @@ func (a *App) GetAppSettings() (*AppSettings, error) {
 		return nil, err
 	}
 	return &AppSettings{
-		CompactSidebar:        all[store.AppSettingCompactSidebar] == "true",
-		LocalDomainPreference: all[store.AppSettingLocalDomainPreference],
+		CompactSidebar:          all[store.AppSettingCompactSidebar] == "true",
+		LocalDomainPreference:   all[store.AppSettingLocalDomainPreference],
+		LocalDraftDomainEnabled: all[store.AppSettingLocalDraftDomainEnabled] == "true",
 	}, nil
+}
+
+// SetLocalDraftDomainEnabled installs/removes the OS suffix resolver using a
+// one-time system authorization prompt. The daemon verifies real resolution
+// before reporting the feature as enabled.
+func (a *App) SetLocalDraftDomainEnabled(enabled bool) (networking.LocalDomainStatus, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return networking.LocalDomainStatus{}, err
+	}
+	if enabled {
+		return c.EnableLocalDraftDomain(a.ctx)
+	}
+	return c.DisableLocalDraftDomain(a.ctx)
 }
 
 // SetAppSettings merges the provided preferences into the store.

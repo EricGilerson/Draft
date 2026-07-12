@@ -2066,6 +2066,7 @@ export namespace main {
 	export class AppSettings {
 	    compactSidebar: boolean;
 	    localDomainPreference: string;
+	    localDraftDomainEnabled: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -2075,6 +2076,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.compactSidebar = source["compactSidebar"];
 	        this.localDomainPreference = source["localDomainPreference"];
+	        this.localDraftDomainEnabled = source["localDraftDomainEnabled"];
 	    }
 	}
 	export class DaemonConnectionInfo {
@@ -2377,6 +2379,12 @@ export namespace networking {
 	    mode: string;
 	    publicSuffix: string;
 	    loopbackSuffix: string;
+	    draftEnabled: boolean;
+	    resolverInstalled: boolean;
+	    dnsListening: boolean;
+	    dnsVerified: boolean;
+	    dnsAddr: string;
+	    dnsError: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalDomainStatus(source);
@@ -2392,6 +2400,12 @@ export namespace networking {
 	        this.mode = source["mode"];
 	        this.publicSuffix = source["publicSuffix"];
 	        this.loopbackSuffix = source["loopbackSuffix"];
+	        this.draftEnabled = source["draftEnabled"];
+	        this.resolverInstalled = source["resolverInstalled"];
+	        this.dnsListening = source["dnsListening"];
+	        this.dnsVerified = source["dnsVerified"];
+	        this.dnsAddr = source["dnsAddr"];
+	        this.dnsError = source["dnsError"];
 	    }
 	}
 

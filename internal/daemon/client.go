@@ -510,6 +510,16 @@ func (c *Client) LocalDomainStatus(ctx context.Context) (networking.LocalDomainS
 	return out, c.get(ctx, "/local-domain", &out)
 }
 
+func (c *Client) EnableLocalDraftDomain(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	return out, c.postJSONWithTimeout(ctx, "/local-domain/enable", map[string]any{}, &out, 2*time.Minute)
+}
+
+func (c *Client) DisableLocalDraftDomain(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	return out, c.postJSONWithTimeout(ctx, "/local-domain/disable", map[string]any{}, &out, 2*time.Minute)
+}
+
 func (c *Client) SuggestEnvFile(ctx context.Context, nodeID string, projectID uint) (string, error) {
 	var out struct{ Path string }
 	body, _ := json.Marshal(map[string]any{"nodeId": nodeID, "projectId": projectID})
@@ -791,6 +801,19 @@ func (c *Client) postNode(ctx context.Context, path, nodeID string) error {
 }
 
 func (c *Client) postJSON(ctx context.Context, path string, in any, out any) error {
+	return c.postJSONWithClient(ctx, path, in, out, c.http)
+}
+
+// postJSONWithTimeout is for user-mediated system operations, such as a
+// macOS administrator sheet. Most daemon calls intentionally retain the
+// normal 30-second client timeout.
+func (c *Client) postJSONWithTimeout(ctx context.Context, path string, in any, out any, timeout time.Duration) error {
+	client := *c.http
+	client.Timeout = timeout
+	return c.postJSONWithClient(ctx, path, in, out, &client)
+}
+
+func (c *Client) postJSONWithClient(ctx context.Context, path string, in any, out any, client *http.Client) error {
 	body, _ := json.Marshal(in)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url(path), bytes.NewReader(body))
 	if err != nil {
@@ -798,7 +821,7 @@ func (c *Client) postJSON(ctx context.Context, path string, in any, out any) err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(tokenHeader, c.state.Token)
-	resp, err := c.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

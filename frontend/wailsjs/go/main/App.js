@@ -458,6 +458,10 @@ export function SetEnvVarScope(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarScope'](arg1, arg2, arg3);
 }
 
+export function SetLocalDraftDomainEnabled(arg1) {
+  return window['go']['main']['App']['SetLocalDraftDomainEnabled'](arg1);
+}
+
 export function SetNodeSetting(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
 }

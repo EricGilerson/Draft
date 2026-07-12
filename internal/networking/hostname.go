@@ -15,6 +15,10 @@ import (
 const (
 	Suffix       = "draft.local"
 	PublicSuffix = "draft.resolv.sh"
+	// LocalSuffix is the optional, machine-local public hostname suffix. It
+	// deliberately remains separate from Suffix: Docker keeps using
+	// *.draft.local internally, while host DNS may opt into *.draft.
+	LocalSuffix = "draft"
 )
 
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
@@ -60,12 +64,27 @@ func PublicHostname(hostname string) string {
 	return hostname
 }
 
+// LocalHostname returns the optional local-DNS alias for an internal Draft
+// hostname. Resolution is installed only when the user enables local domains.
+func LocalHostname(hostname string) string {
+	hostname = strings.TrimSuffix(hostname, ".")
+	if strings.HasSuffix(hostname, "."+Suffix) {
+		return strings.TrimSuffix(hostname, "."+Suffix) + "." + LocalSuffix
+	}
+	return hostname
+}
+
 func HostAliases(hostname string) []string {
 	public := PublicHostname(hostname)
-	if public == hostname {
-		return []string{hostname}
+	local := LocalHostname(hostname)
+	aliases := []string{hostname}
+	if local != hostname {
+		aliases = append(aliases, local)
 	}
-	return []string{hostname, public}
+	if public != hostname && public != local {
+		aliases = append(aliases, public)
+	}
+	return aliases
 }
 
 func InternalURL(hostname, port string) string {

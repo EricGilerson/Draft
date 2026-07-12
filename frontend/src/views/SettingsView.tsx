@@ -1,6 +1,6 @@
-import {RefreshCw} from 'lucide-react';
+import {LoaderCircle, RefreshCw} from 'lucide-react';
 import {useEffect, useState} from 'react';
-import {GetAppSettings, GetLocalDomainStatus, SetAppSettings} from '../../wailsjs/go/main/App';
+import {GetAppSettings, GetLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import './WorkspaceViews.css';
@@ -33,13 +33,15 @@ function SettingsRow({
     label,
     description,
     children,
+    className,
 }: {
     label: string;
     description?: string;
     children: React.ReactNode;
+    className?: string;
 }) {
     return (
-        <div className="settings-row">
+        <div className={'settings-row' + (className ? ` ${className}` : '')}>
             <div className="settings-row-copy">
                 <div className="settings-row-label">{label}</div>
                 {description && <div className="settings-row-description">{description}</div>}
@@ -60,6 +62,8 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const [savedFlash, setSavedFlash] = useState(false);
     const [compactSidebar, setCompactSidebar] = useState(false);
     const [localDomainPreference, setLocalDomainPreference] = useState('auto');
+    const [localDraftDomainEnabled, setLocalDraftDomainEnabled] = useState(false);
+    const [localDraftDomainPending, setLocalDraftDomainPending] = useState<boolean | null>(null);
     const [domainStatus, setDomainStatus] = useState<networking.LocalDomainStatus | null>(null);
 
     const load = () => {
@@ -74,10 +78,32 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
             .then(([settings, status]) => {
                 setCompactSidebar(!!settings?.compactSidebar);
                 setLocalDomainPreference(settings?.localDomainPreference || 'auto');
+                setLocalDraftDomainEnabled(!!settings?.localDraftDomainEnabled);
                 setDomainStatus(status);
             })
             .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Could not load settings'))
             .finally(() => setLoading(false));
+    };
+
+    const setLocalDraftDomain = async (enabled: boolean) => {
+        setSaving(true);
+        setLocalDraftDomainPending(enabled);
+        setError(null);
+        setSavedFlash(false);
+        try {
+            const status = await SetLocalDraftDomainEnabled(enabled);
+            setLocalDraftDomainEnabled(!!status?.draftEnabled);
+            setDomainStatus(status);
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 2000);
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Could not update local .draft domains');
+            const status = await GetLocalDomainStatus().catch(() => null);
+            setDomainStatus(status);
+        } finally {
+            setLocalDraftDomainPending(null);
+            setSaving(false);
+        }
     };
 
     useEffect(() => {
@@ -153,6 +179,36 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                         </SettingsSection>
 
                         <SettingsSection title="Local networking">
+                            <SettingsRow
+                                label="Local .draft domains"
+                                description="Make *.draft resolve only on this computer, even offline. Enabling or disabling asks for system permission once; existing routes and .draft.resolv.sh links remain unchanged."
+                                className={localDraftDomainPending !== null ? 'settings-row--pending' : undefined}
+                            >
+                                <Toggle
+                                    checked={localDraftDomainEnabled}
+                                    disabled={saving}
+                                    onChange={(value) => void setLocalDraftDomain(value)}
+                                />
+                            </SettingsRow>
+                            {localDraftDomainPending !== null && (
+                                <div className="settings-local-domain-progress" role="status" aria-live="polite">
+                                    <LoaderCircle size={14} className="spin"/>
+                                    <span className="settings-status-value">
+                                        {localDraftDomainPending
+                                            ? 'Enabling local .draft domains — waiting for permission, then installing and verifying DNS…'
+                                            : 'Disabling local .draft domains — removing Draft’s DNS rule…'}
+                                    </span>
+                                </div>
+                            )}
+                            {localDraftDomainEnabled && (
+                                <div className="settings-status-block">
+                                    <span className="settings-status-value">
+                                        {domainStatus?.dnsVerified ? '.draft is resolving locally' : '.draft setup needs attention'}
+                                    </span>
+                                    {domainStatus?.dnsAddr && <span className="settings-status-meta">DNS {domainStatus.dnsAddr}</span>}
+                                    {domainStatus?.dnsError && <span className="settings-status-error">{domainStatus.dnsError}</span>}
+                                </div>
+                            )}
                             <SettingsRow
                                 label="URL preference"
                                 description="Choose how Draft presents service URLs. Auto follows whether the local reverse proxy is available."

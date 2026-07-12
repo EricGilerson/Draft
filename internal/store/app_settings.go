@@ -13,6 +13,9 @@ import (
 const (
 	AppSettingCompactSidebar        = "compact_sidebar"
 	AppSettingLocalDomainPreference = "local_domain_preference"
+	// AppSettingLocalDraftDomainEnabled records whether Draft's optional,
+	// machine-local *.draft resolver has been installed and enabled.
+	AppSettingLocalDraftDomainEnabled = "local_draft_domain_enabled"
 )
 
 // Local domain preference values for AppSettingLocalDomainPreference.
@@ -26,8 +29,9 @@ const (
 // missing from the database.
 func DefaultAppSettings() map[string]string {
 	return map[string]string{
-		AppSettingCompactSidebar:        "false",
-		AppSettingLocalDomainPreference: LocalDomainPrefAuto,
+		AppSettingCompactSidebar:          "false",
+		AppSettingLocalDomainPreference:   LocalDomainPrefAuto,
+		AppSettingLocalDraftDomainEnabled: "false",
 	}
 }
 
@@ -90,6 +94,11 @@ func normalizeAppSetting(key, value string) string {
 	value = strings.TrimSpace(value)
 	switch key {
 	case AppSettingCompactSidebar:
+		if value == "1" || strings.EqualFold(value, "true") || value == "yes" {
+			return "true"
+		}
+		return "false"
+	case AppSettingLocalDraftDomainEnabled:
 		if value == "1" || strings.EqualFold(value, "true") || value == "yes" {
 			return "true"
 		}

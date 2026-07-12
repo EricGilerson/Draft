@@ -86,6 +86,13 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 
 	hostname := networking.Hostname(serviceName, projectName, environment, uid)
 	publicHostname := networking.PublicHostname(hostname)
+	localDomain := networking.LocalDomainStatus{}
+	if e.router != nil {
+		localDomain = e.router.LocalDomainStatus()
+		if localDomain.DraftEnabled && localDomain.DNSVerified {
+			publicHostname = networking.LocalHostname(hostname)
+		}
+	}
 	// HTTP: reverse-proxy public URL. TCP: scheme-less host:port (preferred
 	// host_port when set, else service_port) so @{refs} and inject never invent
 	// http:// for wire protocols.
@@ -97,10 +104,14 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 			pubPort = hp
 		}
 		if n, err := strconv.Atoi(pubPort); err == nil && n > 0 {
-			publicURL = networking.PublicTCPEndpoint(hostname, n)
+			publicURL = fmt.Sprintf("%s:%d", publicHostname, n)
 		}
 	} else if e.router != nil {
-		publicURL = networking.PublicURL(hostname, e.router.LocalDomainStatus().ProxyPort)
+		if localDomain.ProxyPort == 80 {
+			publicURL = "http://" + publicHostname
+		} else if localDomain.ProxyPort > 0 {
+			publicURL = fmt.Sprintf("http://%s:%d", publicHostname, localDomain.ProxyPort)
+		}
 	}
 
 	return NodeAddress{

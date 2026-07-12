@@ -211,6 +211,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/health", s.handleNodeHealth)
 	mux.HandleFunc("/docker", s.handleDocker)
 	mux.HandleFunc("/local-domain", s.handleLocalDomain)
+	mux.HandleFunc("/local-domain/enable", s.handleEnableLocalDomain)
+	mux.HandleFunc("/local-domain/disable", s.handleDisableLocalDomain)
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/delete", s.handleDeleteEnv)
@@ -939,6 +941,40 @@ func (s *Server) handleLocalDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, s.router.LocalDomainStatus())
+}
+
+func (s *Server) handleEnableLocalDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.router == nil {
+		http.Error(w, "local router unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	status, err := s.router.EnableLocalDraftDomain()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, status)
+}
+
+func (s *Server) handleDisableLocalDomain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.router == nil {
+		http.Error(w, "local router unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	status, err := s.router.DisableLocalDraftDomain()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, status)
 }
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

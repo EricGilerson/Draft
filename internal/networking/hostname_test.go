@@ -65,14 +65,17 @@ func TestPublicURLOmitsDefaultHTTPPort(t *testing.T) {
 
 func TestHostAliases(t *testing.T) {
 	aliases := HostAliases("api.myapp.default.a3f2.draft.local")
-	if len(aliases) != 2 {
-		t.Fatalf("len(HostAliases) = %d, want 2: %+v", len(aliases), aliases)
+	if len(aliases) != 3 {
+		t.Fatalf("len(HostAliases) = %d, want 3: %+v", len(aliases), aliases)
 	}
 	if aliases[0] != "api.myapp.default.a3f2.draft.local" {
 		t.Errorf("primary alias = %q", aliases[0])
 	}
-	if aliases[1] != "api.myapp.default.a3f2.draft.resolv.sh" {
-		t.Errorf("public alias = %q", aliases[1])
+	if aliases[1] != "api.myapp.default.a3f2.draft" {
+		t.Errorf("local alias = %q", aliases[1])
+	}
+	if aliases[2] != "api.myapp.default.a3f2.draft.resolv.sh" {
+		t.Errorf("public alias = %q", aliases[2])
 	}
 }
 

@@ -642,6 +642,26 @@
     flex-shrink: 0;
 }
 
+.settings-row--pending {
+    opacity: 0.48;
+}
+
+.settings-local-domain-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px 14px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    line-height: 1.4;
+}
+
+.settings-local-domain-progress .settings-status-value {
+    color: inherit;
+    font-weight: 600;
+}
+
 .settings-input {
     height: 40px;
     border: 1px solid var(--border);

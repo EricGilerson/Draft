@@ -94,6 +94,18 @@ func TestRouterRegisterHTTP(t *testing.T) {
 		t.Errorf("public proxy response = %q, want 'ok'", body)
 	}
 
+	req, _ = http.NewRequest("GET", "http://"+r.proxy.Addr()+"/", nil)
+	req.Host = LocalHostname(wantHostname)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("local proxy request: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ = io.ReadAll(resp.Body)
+	if string(body) != "ok" {
+		t.Errorf("local proxy response = %q, want 'ok'", body)
+	}
+
 	// Verify the route is persisted in the database
 	route, err := r.Lookup(wantHostname)
 	if err != nil {

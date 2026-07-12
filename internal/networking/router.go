@@ -1,12 +1,14 @@
 package networking
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"Draft/internal/store"
 )
@@ -23,17 +25,25 @@ type Router struct {
 	syncHostsTo func([]HostsEntry) error
 	mu          sync.RWMutex
 	hostsError  string
+	dns         LocalDNS
+	dnsError    string
 }
 
 type LocalDomainStatus struct {
-	ProxyAddr       string `json:"proxyAddr"`
-	ProxyPort       int    `json:"proxyPort"`
-	ProxyOnDefault  bool   `json:"proxyOnDefault"`
-	HostsConfigured bool   `json:"hostsConfigured"`
-	HostsError      string `json:"hostsError"`
-	Mode            string `json:"mode"` // public-hostname-port|localhost-port
-	PublicSuffix    string `json:"publicSuffix"`
-	LoopbackSuffix  string `json:"loopbackSuffix"` // Deprecated: use PublicSuffix.
+	ProxyAddr         string `json:"proxyAddr"`
+	ProxyPort         int    `json:"proxyPort"`
+	ProxyOnDefault    bool   `json:"proxyOnDefault"`
+	HostsConfigured   bool   `json:"hostsConfigured"`
+	HostsError        string `json:"hostsError"`
+	Mode              string `json:"mode"` // public-hostname-port|localhost-port
+	PublicSuffix      string `json:"publicSuffix"`
+	LoopbackSuffix    string `json:"loopbackSuffix"` // Deprecated: use PublicSuffix.
+	DraftEnabled      bool   `json:"draftEnabled"`
+	ResolverInstalled bool   `json:"resolverInstalled"`
+	DNSListening      bool   `json:"dnsListening"`
+	DNSVerified       bool   `json:"dnsVerified"`
+	DNSAddr           string `json:"dnsAddr"`
+	DNSError          string `json:"dnsError"`
 }
 
 // NewRouter creates a Router backed by the given store. The proxy listens on
@@ -54,12 +64,22 @@ func (r *Router) Start() error {
 	if err := r.reloadRoutes(); err != nil {
 		return err
 	}
+	if enabled, _ := r.store.GetAppSetting(store.AppSettingLocalDraftDomainEnabled); enabled == "true" {
+		if err := r.startDraftDNS(); err != nil {
+			r.setDNSError(err)
+		}
+	}
 	return nil
 }
 
 // Stop shuts down the proxy gracefully.
 func (r *Router) Stop() error {
-	return r.proxy.Stop()
+	dnsErr := r.dns.Stop()
+	proxyErr := r.proxy.Stop()
+	if proxyErr != nil {
+		return proxyErr
+	}
+	return dnsErr
 }
 
 // RegisterRequest describes a service that needs a hostname and (for TCP) a
@@ -221,7 +241,25 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 
 	r.mu.RLock()
 	hostsError := r.hostsError
+	dnsError := r.dnsError
 	r.mu.RUnlock()
+	installed, installErr := localDomainResolverInstalled()
+	if installErr != nil && dnsError == "" {
+		dnsError = installErr.Error()
+	}
+	enabled, _ := r.store.GetAppSetting(store.AppSettingLocalDraftDomainEnabled)
+	dnsAddr := r.dns.Addr()
+	verified := false
+	if enabled == "true" && installed && dnsAddr != "" {
+		verified = verifyDraftLookup()
+	}
+	publicSuffix := PublicSuffix
+	// .draft is offered only after an actual OS-level lookup succeeds. A
+	// stale rule, rejected permission prompt, or occupied DNS port therefore
+	// keeps all UI URLs on the working resolv.sh fallback.
+	if enabled == "true" && installed && dnsAddr != "" && verified {
+		publicSuffix = LocalSuffix
+	}
 
 	mode := "localhost-port"
 	if port > 0 {
@@ -229,15 +267,115 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 	}
 
 	return LocalDomainStatus{
-		ProxyAddr:       addr,
-		ProxyPort:       port,
-		ProxyOnDefault:  port == 80,
-		HostsConfigured: false,
-		HostsError:      hostsError,
-		Mode:            mode,
-		PublicSuffix:    PublicSuffix,
-		LoopbackSuffix:  PublicSuffix,
+		ProxyAddr:         addr,
+		ProxyPort:         port,
+		ProxyOnDefault:    port == 80,
+		HostsConfigured:   false,
+		HostsError:        hostsError,
+		Mode:              mode,
+		PublicSuffix:      publicSuffix,
+		LoopbackSuffix:    publicSuffix,
+		DraftEnabled:      enabled == "true",
+		ResolverInstalled: installed,
+		DNSListening:      dnsAddr != "",
+		DNSVerified:       verified,
+		DNSAddr:           dnsAddr,
+		DNSError:          dnsError,
 	}
+}
+
+// EnableLocalDraftDomain starts the loopback DNS responder before requesting
+// OS authorization. If installation or verification fails, it leaves existing
+// hostname aliases and routing untouched and does not persist the setting.
+func (r *Router) EnableLocalDraftDomain() (LocalDomainStatus, error) {
+	if err := r.startDraftDNS(); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	if err := installLocalDomainResolver(); err != nil {
+		r.setDNSError(err)
+		_ = r.dns.Stop()
+		return r.LocalDomainStatus(), err
+	}
+	if !verifyDraftLookupWithin(12 * time.Second) {
+		err := fmt.Errorf("the system resolver did not resolve .draft to loopback")
+		r.setDNSError(err)
+		_ = removeLocalDomainResolver()
+		_ = r.dns.Stop()
+		return r.LocalDomainStatus(), err
+	}
+	if err := r.store.SetAppSetting(store.AppSettingLocalDraftDomainEnabled, "true"); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	r.setDNSError(nil)
+	return r.LocalDomainStatus(), nil
+}
+
+// DisableLocalDraftDomain removes only the resolver configuration installed by
+// Draft. Existing proxy routes, Docker networking, and resolv.sh aliases stay
+// live; this feature is strictly additive.
+func (r *Router) DisableLocalDraftDomain() (LocalDomainStatus, error) {
+	if err := removeLocalDomainResolver(); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	if err := r.store.SetAppSetting(store.AppSettingLocalDraftDomainEnabled, "false"); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	if err := r.dns.Stop(); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	r.setDNSError(nil)
+	return r.LocalDomainStatus(), nil
+}
+
+func (r *Router) startDraftDNS() error {
+	if err := r.dns.Start(localDNSAddr()); err != nil {
+		return err
+	}
+	r.setDNSError(nil)
+	return nil
+}
+
+func (r *Router) setDNSError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err == nil {
+		r.dnsError = ""
+		return
+	}
+	r.dnsError = err.Error()
+}
+
+func verifyDraftLookup() bool {
+	return verifyDraftLookupOnce()
+}
+
+// verifyDraftLookupWithin accounts for macOS applying a new /etc/resolver
+// entry asynchronously after the administrator operation completes.
+func verifyDraftLookupWithin(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if verifyDraftLookupOnce() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func verifyDraftLookupOnce() bool {
+	name := fmt.Sprintf("draft-probe-%d.%s", time.Now().UnixNano(), LocalSuffix)
+	addrs, err := net.DefaultResolver.LookupHost(context.Background(), name)
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		if addr == "127.0.0.1" || addr == "::1" {
+			return true
+		}
+	}
+	return false
 }
 
 // reloadRoutes loads persisted routes from the database into the proxy's
