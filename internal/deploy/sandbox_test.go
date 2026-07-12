@@ -118,3 +118,25 @@ func TestExtendSandboxRestoresActiveLifecycle(t *testing.T) {
 		t.Fatalf("extended sandbox = %+v", updated)
 	}
 }
+
+func TestGetSandboxDetailPreservesResolvedPlanAndManualLinks(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, _ := s.CreateProject("sandbox-detail", t.TempDir(), "")
+	source, _ := s.GetDefaultEnvironment(p.ID)
+	env, _ := s.CreateEnvironment(p.ID, "temporary")
+	sandbox, err := s.CreateSandbox(&store.Sandbox{ProjectID: p.ID, EnvironmentID: env.ID, SourceEnvironmentID: source.ID, Name: "temporary", PlanJSON: `{"ttlHours":48,"services":[{"sourceNodeId":"api","mode":"share"}]}`, ExpiresAt: time.Now().Add(time.Hour), WarnAt: time.Now(), GraceEndsAt: time.Now().Add(2 * time.Hour)}, []store.SandboxLink{{Kind: "pr", Value: "412"}}, []store.SandboxRepositorySource{{RepoRoot: "/repo", Ref: "feature/x", CommitSHA: "0123456789abcdef"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := New(s, nil, t.TempDir(), func(string, any) {}).GetSandboxDetail(sandbox.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Source.ID != source.ID || len(detail.Links) != 1 || len(detail.Repositories) != 1 || len(detail.Plan.Services) != 1 {
+		t.Fatalf("unexpected detail: %+v", detail)
+	}
+}

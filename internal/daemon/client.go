@@ -162,6 +162,30 @@ func (c *Client) DeleteSandbox(ctx context.Context, sandboxID uint) error {
 	return c.postJSON(ctx, "/sandbox/delete", map[string]uint{"sandboxId": sandboxID}, nil)
 }
 
+func (c *Client) GetSandboxDetail(ctx context.Context, sandboxID uint) (*deploy.SandboxDetail, error) {
+	var out deploy.SandboxDetail
+	if err := c.postJSON(ctx, "/sandbox/detail", map[string]uint{"sandboxId": sandboxID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) SuspendSandbox(ctx context.Context, sandboxID uint) (*store.Sandbox, error) {
+	var out store.Sandbox
+	if err := c.postJSON(ctx, "/sandbox/suspend", map[string]uint{"sandboxId": sandboxID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ResumeSandbox(ctx context.Context, sandboxID uint) (*store.Sandbox, error) {
+	var out store.Sandbox
+	if err := c.postJSON(ctx, "/sandbox/resume", map[string]uint{"sandboxId": sandboxID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) RunEnvironmentStack(ctx context.Context, environmentID uint, action string) (*deploy.EnvironmentStackResult, error) {
 	var out deploy.EnvironmentStackResult
 	body := map[string]any{

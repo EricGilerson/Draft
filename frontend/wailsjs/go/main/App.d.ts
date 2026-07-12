@@ -96,6 +96,8 @@ export function GetNodeHealth(arg1:string):Promise<deploy.NodeHealth>;
 
 export function GetNodeSettings(arg1:string):Promise<Record<string, string>>;
 
+export function GetSandboxDetail(arg1:number):Promise<deploy.SandboxDetail>;
+
 export function GetSandboxProjectSettings(arg1:number):Promise<store.SandboxProjectSettings>;
 
 export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
@@ -204,6 +206,8 @@ export function RestartDockerContainer(arg1:string):Promise<void>;
 
 export function RestartService(arg1:string):Promise<void>;
 
+export function ResumeSandbox(arg1:number):Promise<store.Sandbox>;
+
 export function RollbackDeployment(arg1:number):Promise<void>;
 
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
@@ -261,6 +265,8 @@ export function StopLogStream(arg1:string):Promise<void>;
 export function StopService(arg1:string):Promise<void>;
 
 export function SuggestEnvFile(arg1:string,arg2:number):Promise<string>;
+
+export function SuspendSandbox(arg1:number):Promise<store.Sandbox>;
 
 export function UnlinkService(arg1:string,arg2:string):Promise<void>;
 

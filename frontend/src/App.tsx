@@ -253,7 +253,7 @@ function App() {
                                     onEnvironmentsChanged={() => refreshProjectSummaries(projectsRef.current)}
                                     onStackActionDone={() => refreshProjectSummaries(projectsRef.current)}
                                     onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
-                                    onCreateSandbox={(environmentId) => { setSandboxSource({projectId: selectedProject.id, environmentId}); setSelectedProject(null); setView('sandboxes'); }}
+                                    onCreateSandbox={(environmentId) => setSandboxSource({projectId: selectedProject.id, environmentId})}
                                 />
                                 {selectedEnvironmentId && !environmentBusy && (
                                     <div className="project-workspace-canvas">
@@ -273,6 +273,15 @@ function App() {
                                             onNodeFocusApplied={() => setPendingNodeFocus(null)}
                                         />
                                     </div>
+                                )}
+                                {sandboxSource && (
+                                    <SandboxesView
+                                        dialogOnly
+                                        projects={projects}
+                                        initialSource={sandboxSource}
+                                        onOpenSandbox={() => undefined}
+                                        onReturnToSource={() => setSandboxSource(null)}
+                                    />
                                 )}
                             </div>
                         ) : view === 'overview' ? (
@@ -296,6 +305,13 @@ function App() {
                             <SandboxesView
                                 projects={projects}
                                 initialSource={sandboxSource}
+                                onReturnToSource={(projectId, environmentId) => {
+                                    const project = projects.find((item) => item.id === projectId);
+                                    if (!project) return;
+                                    requestedEnvironmentRef.current = {projectId, environmentId};
+                                    setSandboxSource(null);
+                                    setSelectedProject(project);
+                                }}
                                 onOpenSandbox={(projectId, environmentId) => {
                                     const project = projects.find((item) => item.id === projectId);
                                     if (!project) return;

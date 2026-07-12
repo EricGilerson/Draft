@@ -178,6 +178,10 @@ export function GetNodeSettings(arg1) {
   return window['go']['main']['App']['GetNodeSettings'](arg1);
 }
 
+export function GetSandboxDetail(arg1) {
+  return window['go']['main']['App']['GetSandboxDetail'](arg1);
+}
+
 export function GetSandboxProjectSettings(arg1) {
   return window['go']['main']['App']['GetSandboxProjectSettings'](arg1);
 }
@@ -394,6 +398,10 @@ export function RestartService(arg1) {
   return window['go']['main']['App']['RestartService'](arg1);
 }
 
+export function ResumeSandbox(arg1) {
+  return window['go']['main']['App']['ResumeSandbox'](arg1);
+}
+
 export function RollbackDeployment(arg1) {
   return window['go']['main']['App']['RollbackDeployment'](arg1);
 }
@@ -508,6 +516,10 @@ export function StopService(arg1) {
 
 export function SuggestEnvFile(arg1, arg2) {
   return window['go']['main']['App']['SuggestEnvFile'](arg1, arg2);
+}
+
+export function SuspendSandbox(arg1) {
+  return window['go']['main']['App']['SuspendSandbox'](arg1);
 }
 
 export function UnlinkService(arg1, arg2) {

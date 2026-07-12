@@ -175,6 +175,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sandbox/create", s.handleCreateSandbox)
 	mux.HandleFunc("/sandbox/extend", s.handleExtendSandbox)
 	mux.HandleFunc("/sandbox/delete", s.handleDeleteSandbox)
+	mux.HandleFunc("/sandbox/detail", s.handleSandboxDetail)
+	mux.HandleFunc("/sandbox/suspend", s.handleSuspendSandbox)
+	mux.HandleFunc("/sandbox/resume", s.handleResumeSandbox)
 	mux.HandleFunc("/sync/preview", s.handleSyncPreview)
 	mux.HandleFunc("/sync/apply", s.handleSyncApply)
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
@@ -457,6 +460,51 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.DeleteSandbox(r.Context(), req.SandboxID))
+}
+
+func (s *Server) handleSandboxDetail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.GetSandboxDetail(req.SandboxID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleSuspendSandbox(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.SuspendSandbox(r.Context(), req.SandboxID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ResumeSandbox(r.Context(), req.SandboxID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handleGetLinkedServiceInfo(w http.ResponseWriter, r *http.Request) {

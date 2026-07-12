@@ -476,6 +476,117 @@
     flex-shrink: 0;
 }
 
+.sandbox-plan-editor,
+.sandbox-plan-review,
+.sandbox-detail {
+    margin-top: 18px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.sandbox-page-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sandbox-plan-review {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.sandbox-plan-review .project-settings-section-title,
+.sandbox-plan-review p,
+.sandbox-plan-review ul {
+    margin: 0;
+}
+
+.sandbox-plan-review .form-field {
+    gap: 7px;
+}
+
+.sandbox-plan-review .environment-data-mode {
+    margin: 0;
+}
+
+.sandbox-plan-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) minmax(150px, 1fr) minmax(150px, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+}
+
+.sandbox-plan-row:first-of-type {
+    border-top: 0;
+}
+
+.sandbox-plan-row .input {
+    min-width: 0;
+}
+
+.sandbox-plan-review p,
+.sandbox-plan-review ul,
+.sandbox-detail p,
+.sandbox-detail ul {
+    margin: 6px 0;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
+.sandbox-profile-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.sandbox-profile-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+}
+
+.sandbox-profile-card:first-child { border-top: 0; }
+.sandbox-profile-card strong,
+.sandbox-profile-card span { display: block; }
+.sandbox-profile-card span { margin-top: 3px; color: var(--text-faint); font-size: 0.72rem; }
+.sandbox-profile-card > div:last-child { display: inline-flex; gap: 5px; }
+
+.sandbox-profile-times {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 0;
+}
+
+.sandbox-profile-times label {
+    display: grid;
+    gap: 5px;
+    color: var(--text-faint);
+    font-size: 0.68rem;
+    font-family: var(--mono);
+}
+
+@media (max-width: 700px) {
+    .sandbox-profile-layout { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+    .sandbox-plan-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 .icon-button {
     display: inline-flex;
     align-items: center;

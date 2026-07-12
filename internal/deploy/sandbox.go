@@ -72,6 +72,41 @@ type SandboxPreview struct {
 	GraceEndsAt         time.Time                       `json:"graceEndsAt"`
 }
 
+// SandboxDetail is the inspectable record shown after creation. It exposes the
+// immutable resolved plan and manual context rather than re-evaluating current
+// profiles or branch names against a running sandbox.
+type SandboxDetail struct {
+	Sandbox      store.Sandbox                   `json:"sandbox"`
+	Source       store.Environment               `json:"source"`
+	Links        []store.SandboxLink             `json:"links"`
+	Repositories []store.SandboxRepositorySource `json:"repositories"`
+	Plan         SandboxPlan                     `json:"plan"`
+}
+
+func (e *Engine) GetSandboxDetail(sandboxID uint) (*SandboxDetail, error) {
+	sandbox, err := e.store.GetSandbox(sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	source, err := e.store.GetEnvironment(sandbox.SourceEnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	links, err := e.store.ListSandboxLinks(sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	repositories, err := e.store.ListSandboxRepositorySources(sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	var plan SandboxPlan
+	if err := json.Unmarshal([]byte(sandbox.PlanJSON), &plan); err != nil {
+		return nil, fmt.Errorf("read sandbox plan: %w", err)
+	}
+	return &SandboxDetail{Sandbox: *sandbox, Source: *source, Links: links, Repositories: repositories, Plan: plan}, nil
+}
+
 // PreviewSandbox resolves project/source-environment defaults into the exact
 // immutable plan that CreateSandbox will persist. It does not touch Docker.
 func (e *Engine) PreviewSandbox(ctx context.Context, req SandboxCreateRequest) (*SandboxPreview, error) {
@@ -198,6 +233,44 @@ func (e *Engine) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, er
 	}
 	expires, warn, grace := sandboxTimes(time.Now().UTC(), plan)
 	if err := e.store.ExtendSandbox(sandboxID, expires, warn, grace); err != nil {
+		return nil, err
+	}
+	return e.store.GetSandbox(sandboxID)
+}
+
+// SuspendSandbox stops every sandbox-owned service but preserves its plan and
+// volumes. ResumeSandbox starts the same environment again; no source or data
+// plan is re-evaluated during either operation.
+func (e *Engine) SuspendSandbox(ctx context.Context, sandboxID uint) (*store.Sandbox, error) {
+	sandbox, err := e.store.GetSandbox(sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	if sandbox.Status == "suspended" {
+		return sandbox, nil
+	}
+	if _, err := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackStop); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := e.store.UpdateSandboxStatus(sandboxID, "suspended", &now); err != nil {
+		return nil, err
+	}
+	return e.store.GetSandbox(sandboxID)
+}
+
+func (e *Engine) ResumeSandbox(ctx context.Context, sandboxID uint) (*store.Sandbox, error) {
+	sandbox, err := e.store.GetSandbox(sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	if sandbox.Status != "suspended" {
+		return sandbox, nil
+	}
+	if _, err := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackStart); err != nil {
+		return nil, err
+	}
+	if err := e.store.UpdateSandboxStatus(sandboxID, "active", nil); err != nil {
 		return nil, err
 	}
 	return e.store.GetSandbox(sandboxID)

@@ -341,6 +341,39 @@ func (a *App) DeleteSandbox(sandboxID uint) error {
 	return c.DeleteSandbox(a.ctx, sandboxID)
 }
 
+func (a *App) GetSandboxDetail(sandboxID uint) (*deploy.SandboxDetail, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetSandboxDetail(a.ctx, sandboxID)
+}
+
+func (a *App) SuspendSandbox(sandboxID uint) (*store.Sandbox, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.SuspendSandbox(a.ctx, sandboxID)
+}
+
+func (a *App) ResumeSandbox(sandboxID uint) (*store.Sandbox, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ResumeSandbox(a.ctx, sandboxID)
+}
+
 // GetLinkedServiceInfo returns whether a node is a virtualized link and its root.
 func (a *App) GetLinkedServiceInfo(nodeID string) (*deploy.LinkedServiceInfo, error) {
 	c, err := a.ensureDaemon()

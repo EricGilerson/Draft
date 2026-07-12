@@ -3,7 +3,8 @@ import {AlertTriangle, Eye, EyeOff, Pencil, Plus, Trash2} from 'lucide-react';
 import {
     ListProjectEnvVars, SetProjectEnvVar, DeleteProjectEnvVar,
     ListProjectEnvVarUsages, DeployService,
-    UpdateProject, DeleteProject,
+    UpdateProject, DeleteProject, DeleteSandboxProfile, GetSandboxProjectSettings,
+    ListEnvironments, ListNodes, ListSandboxProfiles, SaveSandboxProfile, SaveSandboxProjectSettings,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
@@ -127,6 +128,8 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                     </div>
                 </section>
 
+                <ProjectSandboxSettings projectId={project.id}/>
+
                 <section className="project-settings-section">
                     <div className="secrets-section-head">
                         <h3 className="project-settings-section-title">Shared values</h3>
@@ -199,6 +202,55 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
             )}
         </Dialog>
     );
+}
+
+function ProjectSandboxSettings({projectId}: {projectId: number}) {
+    const [settings, setSettings] = useState<store.SandboxProjectSettings | null>(null);
+    const [profiles, setProfiles] = useState<store.SandboxProfile[]>([]);
+    const [environments, setEnvironments] = useState<store.Environment[]>([]);
+    const [name, setName] = useState('');
+    const [scope, setScope] = useState(0);
+    const [ttl, setTTL] = useState(168);
+    const [warning, setWarning] = useState(24);
+    const [grace, setGrace] = useState(72);
+    const [isDefault, setIsDefault] = useState(false);
+    const [editing, setEditing] = useState<store.SandboxProfile | null>(null);
+    const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+    const [profileNodes, setProfileNodes] = useState<store.CanvasNode[]>([]);
+    const [profileRules, setProfileRules] = useState<Record<string, deploy.SandboxServiceRule>>({});
+    const [saving, setSaving] = useState(false);
+
+    const refresh = () => {
+        GetSandboxProjectSettings(projectId).then(setSettings).catch(() => setSettings(null));
+        ListSandboxProfiles(projectId).then((rows) => setProfiles(rows ?? [])).catch(() => setProfiles([]));
+        ListEnvironments(projectId).then((rows) => setEnvironments(rows ?? [])).catch(() => setEnvironments([]));
+    };
+    useEffect(refresh, [projectId]);
+    const edit = (profile?: store.SandboxProfile) => {
+        setProfileEditorOpen(true);
+        setEditing(profile ?? null); setName(profile?.name ?? ''); setScope(profile?.sourceEnvironmentId ?? 0); setIsDefault(profile?.isDefault ?? false);
+        try { const plan = JSON.parse(profile?.planJson || '{}'); setTTL(plan.ttlHours ?? settings?.defaultTtlHours ?? 168); setWarning(plan.warningHours ?? settings?.warningHours ?? 24); setGrace(plan.graceHours ?? settings?.graceHours ?? 72); setProfileRules(Object.fromEntries((plan.services ?? []).map((rule: deploy.SandboxServiceRule) => [rule.sourceNodeId, deploy.SandboxServiceRule.createFrom(rule)]))); }
+        catch { setTTL(168); setWarning(24); setGrace(72); setProfileRules({}); }
+    };
+    useEffect(() => {
+        if (!profileEditorOpen || !scope) { setProfileNodes([]); return; }
+        ListNodes(scope).then((nodes) => setProfileNodes(nodes ?? [])).catch(() => setProfileNodes([]));
+    }, [scope, profileEditorOpen]);
+    const saveDefaults = async () => {
+        if (!settings) return; setSaving(true);
+        try { await SaveSandboxProjectSettings(store.SandboxProjectSettings.createFrom(settings)); } finally { setSaving(false); }
+    };
+    const saveProfile = async () => {
+        if (!name.trim()) return; setSaving(true);
+        try { await SaveSandboxProfile(store.SandboxProfile.createFrom({id: editing?.id, projectId, sourceEnvironmentId: scope, name: name.trim(), description: '', isDefault, planJson: JSON.stringify({ttlHours: ttl, warningHours: warning, graceHours: grace, services: Object.values(profileRules)})})); setProfileEditorOpen(false); setEditing(null); setName(''); refresh(); } finally { setSaving(false); }
+    };
+    return <section className="project-settings-section">
+        <div className="secrets-section-head"><h3 className="project-settings-section-title">Sandbox defaults & profiles</h3><button type="button" className="btn btn-primary" onClick={() => edit()}><Plus size={14}/> New profile</button></div>
+        <p className="settings-hint">These defaults apply to new sandboxes in this project. Profiles can be scoped to a source environment and selected during creation.</p>
+        {settings && <div className="sandbox-profile-times"><label>Default lifetime (hours)<input className="input" type="number" min="1" value={settings.defaultTtlHours} onChange={(e) => setSettings(store.SandboxProjectSettings.createFrom({...settings, defaultTtlHours: Number(e.target.value)}))}/></label><label>Warning (hours)<input className="input" type="number" min="0" value={settings.warningHours} onChange={(e) => setSettings(store.SandboxProjectSettings.createFrom({...settings, warningHours: Number(e.target.value)}))}/></label><label>Grace (hours)<input className="input" type="number" min="0" value={settings.graceHours} onChange={(e) => setSettings(store.SandboxProjectSettings.createFrom({...settings, graceHours: Number(e.target.value)}))}/></label><button className="btn btn-ghost" disabled={saving} onClick={() => void saveDefaults()}>Save defaults</button></div>}
+        {profiles.map((profile) => <div key={profile.id} className="sandbox-profile-card"><div><strong>{profile.name}</strong><span>{profile.sourceEnvironmentId ? environments.find((env) => env.id === profile.sourceEnvironmentId)?.name ?? 'Source environment' : 'Project-wide'}{profile.isDefault ? ' · default' : ''}</span></div><div><button className="btn btn-ghost" onClick={() => edit(profile)}>Edit</button><button className="btn btn-ghost" onClick={() => void DeleteSandboxProfile(profile.id).then(refresh)}>Delete</button></div></div>)}
+        {profileEditorOpen ? <div className="sandbox-plan-review"><div className="form-field"><label className="form-label">Profile name</label><input className="input" value={name} onChange={(e) => setName(e.target.value)}/></div><div className="form-field"><label className="form-label">Source environment</label><select className="input settings-select" value={scope} onChange={(e) => { setScope(Number(e.target.value)); setProfileRules({}); }}><option value={0}>Any environment</option>{environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}</select></div><div className="sandbox-profile-times"><label>Lifetime<input className="input" type="number" min="1" value={ttl} onChange={(e) => setTTL(Number(e.target.value))}/></label><label>Warning<input className="input" type="number" min="0" value={warning} onChange={(e) => setWarning(Number(e.target.value))}/></label><label>Grace<input className="input" type="number" min="0" value={grace} onChange={(e) => setGrace(Number(e.target.value))}/></label></div>{scope ? <div className="sandbox-plan-editor"><h4 className="project-settings-section-title">Service defaults</h4><p className="settings-hint">These rules apply when this profile is used from the selected source environment.</p>{profileNodes.map((node) => { const rule = profileRules[node.id]; const mode = rule?.mode ?? 'copy'; return <div className="sandbox-plan-row" key={node.id}><strong>{node.label}</strong><select className="input settings-select" value={mode} onChange={(e) => setProfileRules((rules) => ({...rules, [node.id]: deploy.SandboxServiceRule.createFrom({sourceNodeId: node.id, mode: e.target.value, dataMode: rule?.dataMode})}))}><option value="copy">Copy</option><option value="share">Share source service</option><option value="omit">Omit</option></select>{mode === 'copy' && <select className="input settings-select" value={rule?.dataMode ?? ''} onChange={(e) => setProfileRules((rules) => ({...rules, [node.id]: deploy.SandboxServiceRule.createFrom({sourceNodeId: node.id, mode, dataMode: e.target.value || undefined})}))}><option value="">Use automatic data policy</option><option value="clone">Clone data</option><option value="fresh">Fresh data</option></select>}</div>; })}</div> : <p className="settings-hint">Choose a source environment to configure service defaults. Project-wide profiles only set lifecycle defaults because service IDs differ between environments.</p>}<label className="environment-data-mode"><input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)}/> Default for this source</label><div className="project-settings-actions"><button className="btn btn-primary" disabled={saving || !name.trim()} onClick={() => void saveProfile()}>{editing ? 'Save profile' : 'Create profile'}</button><button className="btn btn-ghost" onClick={() => { setProfileEditorOpen(false); setEditing(null); setName(''); }}>Cancel</button></div></div> : null}
+    </section>;
 }
 
 function ProjectValueEditorDialog({projectId, mode, onClose, onSaved}: {

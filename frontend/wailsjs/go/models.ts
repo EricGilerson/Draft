@@ -1315,6 +1315,44 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class SandboxDetail {
+	    sandbox: store.Sandbox;
+	    source: store.Environment;
+	    links: store.SandboxLink[];
+	    repositories: store.SandboxRepositorySource[];
+	    plan: SandboxPlan;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sandbox = this.convertValues(source["sandbox"], store.Sandbox);
+	        this.source = this.convertValues(source["source"], store.Environment);
+	        this.links = this.convertValues(source["links"], store.SandboxLink);
+	        this.repositories = this.convertValues(source["repositories"], store.SandboxRepositorySource);
+	        this.plan = this.convertValues(source["plan"], SandboxPlan);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class SandboxPreview {
 	    projectId: number;
