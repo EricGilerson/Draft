@@ -89,7 +89,10 @@ func (e *Engine) resolveVolumeNameForPath(node *store.CanvasNode, settings map[s
 		sandbox := false
 		if env, err := e.store.GetEnvironment(node.EnvironmentID); err == nil {
 			envSlug = env.Slug
-			sandbox = e.isSandboxEnvironment(env.ID)
+			sandbox, err = e.isSandboxEnvironment(env.ID)
+			if err != nil {
+				return "", err
+			}
 		}
 		uid, err := e.store.EnsureNodeUID(node.ID)
 		if err != nil {
@@ -255,7 +258,10 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 	sandbox := false
 	if env, err := e.store.GetEnvironment(target.EnvironmentID); err == nil {
 		envSlug = env.Slug
-		sandbox = e.isSandboxEnvironment(env.ID)
+		sandbox, err = e.isSandboxEnvironment(env.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	dockerEnv := networking.DockerEnvironment(envSlug, sandbox)
 

@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -9,6 +10,8 @@ import (
 
 	"Draft/internal/networking"
 	"Draft/internal/store"
+
+	"gorm.io/gorm"
 )
 
 // refPattern matches @{Label.ATTR} tokens inside an env var value, letting
@@ -87,7 +90,10 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 	sandbox := false
 	if env, err := e.store.GetEnvironment(node.EnvironmentID); err == nil {
 		environment = env.Slug
-		sandbox = e.isSandboxEnvironment(env.ID)
+		sandbox, err = e.isSandboxEnvironment(env.ID)
+		if err != nil {
+			return NodeAddress{}, err
+		}
 	}
 	dockerEnv := networking.DockerEnvironment(environment, sandbox)
 	portStr := settings["service_port"]
@@ -139,12 +145,20 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 
 // isSandboxEnvironment reports whether environmentID belongs to a sandbox.
 // Used for DNS (.sand segment) and Docker identity (sand-{slug}).
-func (e *Engine) isSandboxEnvironment(environmentID uint) bool {
+// Not-found is false; other store errors are returned so callers do not mint
+// non-sandbox identity on a transient failure.
+func (e *Engine) isSandboxEnvironment(environmentID uint) (bool, error) {
 	if environmentID == 0 {
-		return false
+		return false, nil
 	}
 	_, err := e.store.GetSandboxByEnvironment(environmentID)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	return false, err
 }
 
 // resolveValue substitutes every {{draft.X}} template expression (resolved

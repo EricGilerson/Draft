@@ -427,7 +427,11 @@ func (e *Engine) attachRootToAliasNetwork(
 	if err != nil {
 		return err
 	}
-	dockerEnv := networking.DockerEnvironment(env.Slug, e.isSandboxEnvironment(env.ID))
+	sand, err := e.isSandboxEnvironment(env.ID)
+	if err != nil {
+		return err
+	}
+	dockerEnv := networking.DockerEnvironment(env.Slug, sand)
 	netName := draftNetworkName(project.ID, project.Name, dockerEnv)
 	if err := ensureDraftNetwork(ctx, cli, netName, project.ID, project.Name, dockerEnv); err != nil {
 		return err
@@ -480,7 +484,11 @@ func (e *Engine) DisconnectServiceLinkNetwork(ctx context.Context, aliasNodeID s
 		return err
 	}
 	defer cli.Close()
-	dockerEnv := networking.DockerEnvironment(env.Slug, e.isSandboxEnvironment(env.ID))
+	sand, err := e.isSandboxEnvironment(env.ID)
+	if err != nil {
+		return err
+	}
+	dockerEnv := networking.DockerEnvironment(env.Slug, sand)
 	netName := draftNetworkName(project.ID, project.Name, dockerEnv)
 	if err := cli.NetworkDisconnect(ctx, netName, rootDep.ContainerID, true); err != nil && !errdefs.IsNotFound(err) {
 		// Container may already be gone.

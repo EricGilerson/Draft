@@ -87,6 +87,62 @@ func TestSandboxPreviewAndCreateUseIsolatedCopyDefaults(t *testing.T) {
 	}
 }
 
+func TestCreateSandboxOmitsServicesWithoutDuplicating(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, err := s.CreateProject("sandbox-omit", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := s.GetDefaultEnvironment(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", Label: "API", ProjectID: p.ID, EnvironmentID: source.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "worker", Label: "Worker", ProjectID: p.ID, EnvironmentID: source.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveSandboxProfile(store.SandboxProfile{
+		ProjectID:           p.ID,
+		SourceEnvironmentID: source.ID,
+		Name:                "Omit worker",
+		IsDefault:           true,
+		PlanJSON:            `{"ttlHours":24,"services":[{"sourceNodeId":"worker","mode":"omit"}]}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+		Name:                "omit-demo",
+		SourceEnvironmentID: source.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateSandbox: %v", err)
+	}
+	targets, err := s.ListNodesByEnvironment(sandbox.EnvironmentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0].Label != "API" {
+		t.Fatalf("expected only API in sandbox, got %+v", targets)
+	}
+	for _, n := range targets {
+		if n.Label == "Worker" {
+			t.Fatal("omitted Worker must not appear in sandbox environment")
+		}
+		settings, _ := s.GetNodeSettings(n.ID)
+		if ParseServiceLink(settings[SettingServiceLink]) != nil {
+			t.Fatalf("unexpected service_link on %q after omit-only create", n.Label)
+		}
+	}
+}
+
 func TestSandboxLifecycleTransitionsToWarningAndExpired(t *testing.T) {
 	s, err := store.Open(store.MemoryDSN())
 	if err != nil {

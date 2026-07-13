@@ -142,7 +142,8 @@ func (e *Engine) PreviewSandbox(ctx context.Context, req SandboxCreateRequest) (
 //
 // The sandbox row is written before nodes are duplicated so hostname / Docker
 // identity generation can insert the sand marker during {{draft.*}} re-resolve
-// and shared-service network attach.
+// and shared-service network attach. Omitted source services are never
+// duplicated (avoids create-then-delete and leftover shared-network attaches).
 func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*store.Sandbox, error) {
 	preview, err := e.PreviewSandbox(ctx, req)
 	if err != nil {
@@ -171,7 +172,7 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	cleanup := func() { _ = e.store.DeleteEnvironment(env.ID) }
+	cleanup := func() { e.cleanupFailedSandbox(ctx, env) }
 
 	planJSON, err := json.Marshal(preview.Plan)
 	if err != nil {
@@ -200,13 +201,21 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 		cleanup()
 		return nil, err
 	}
-	if err := e.duplicateNodesInto(ctx, sourceNodes, env, choiceBySource); err != nil {
+	// Skip omit up front so shared roots are never attached for excluded services.
+	toDuplicate := make([]store.CanvasNode, 0, len(sourceNodes))
+	for _, n := range sourceNodes {
+		if omit[n.ID] {
+			continue
+		}
+		toDuplicate = append(toDuplicate, n)
+	}
+	if err := e.duplicateNodesInto(ctx, toDuplicate, env, choiceBySource); err != nil {
 		cleanup()
 		return nil, err
 	}
 
 	// Source labels are unique per environment, so they safely identify the
-	// duplicate for branch pinning and omit handling.
+	// duplicate for branch pinning.
 	targetNodes, err := e.store.ListNodesByEnvironment(env.ID)
 	if err != nil {
 		cleanup()
@@ -216,23 +225,11 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 	for _, n := range targetNodes {
 		targetByLabel[n.Label] = n
 	}
-	for _, sourceNode := range sourceNodes {
+	for _, sourceNode := range toDuplicate {
 		target, ok := targetByLabel[sourceNode.Label]
 		if !ok {
-			// Omitted services are deleted below only when present; a missing
-			// non-omitted node means duplication failed to copy it.
-			if omit[sourceNode.ID] {
-				continue
-			}
 			cleanup()
 			return nil, fmt.Errorf("sandbox duplicate missing service %q", sourceNode.Label)
-		}
-		if omit[sourceNode.ID] {
-			if err := DeleteServiceFromStore(e.store, target.ID); err != nil {
-				cleanup()
-				return nil, err
-			}
-			continue
 		}
 		if err := e.pinSandboxNodeToRepository(ctx, target.ID, sourceNode.ID, preview.Repositories); err != nil {
 			cleanup()
@@ -240,6 +237,28 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 		}
 	}
 	return sandbox, nil
+}
+
+// cleanupFailedSandbox tears down a partially created sandbox: disconnect any
+// shared-root network attaches, remove the sandbox Docker network if present,
+// then delete the environment (and cascaded sandbox row) from the store.
+func (e *Engine) cleanupFailedSandbox(ctx context.Context, env *store.Environment) {
+	if env == nil {
+		return
+	}
+	nodes, err := e.store.ListNodesByEnvironment(env.ID)
+	if err == nil {
+		for _, n := range nodes {
+			if link, _ := e.GetServiceLink(n.ID); link != nil {
+				_ = e.DisconnectServiceLinkNetwork(ctx, n.ID)
+			}
+		}
+	}
+	if project, err := e.store.GetProject(env.ProjectID); err == nil {
+		dockerEnv := networking.DockerEnvironment(env.Slug, true)
+		_ = e.RemoveNetwork(ctx, draftNetworkName(project.ID, project.Name, dockerEnv))
+	}
+	_ = e.store.DeleteEnvironment(env.ID)
 }
 
 // ExtendSandbox is deliberately an explicit lifecycle action. It restores an
