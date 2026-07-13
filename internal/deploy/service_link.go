@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"Draft/internal/networking"
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types/container"
@@ -426,8 +427,9 @@ func (e *Engine) attachRootToAliasNetwork(
 	if err != nil {
 		return err
 	}
-	netName := draftNetworkName(project.ID, project.Name, env.Slug)
-	if err := ensureDraftNetwork(ctx, cli, netName, project.ID, project.Name, env.Slug); err != nil {
+	dockerEnv := networking.DockerEnvironment(env.Slug, e.isSandboxEnvironment(env.ID))
+	netName := draftNetworkName(project.ID, project.Name, dockerEnv)
+	if err := ensureDraftNetwork(ctx, cli, netName, project.ID, project.Name, dockerEnv); err != nil {
 		return err
 	}
 	addr, err := e.computeNodeAddress(alias)
@@ -478,7 +480,8 @@ func (e *Engine) DisconnectServiceLinkNetwork(ctx context.Context, aliasNodeID s
 		return err
 	}
 	defer cli.Close()
-	netName := draftNetworkName(project.ID, project.Name, env.Slug)
+	dockerEnv := networking.DockerEnvironment(env.Slug, e.isSandboxEnvironment(env.ID))
+	netName := draftNetworkName(project.ID, project.Name, dockerEnv)
 	if err := cli.NetworkDisconnect(ctx, netName, rootDep.ContainerID, true); err != nil && !errdefs.IsNotFound(err) {
 		// Container may already be gone.
 		if !strings.Contains(err.Error(), "is not connected") {

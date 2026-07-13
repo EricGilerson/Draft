@@ -30,6 +30,30 @@ func TestHostname(t *testing.T) {
 	}
 }
 
+func TestFormatHostnameSandbox(t *testing.T) {
+	h := FormatHostname("api", "myapp", "pr-412", "a3f2", true)
+	want := "api.myapp.sand.pr-412.a3f2.draft.local"
+	if h != want {
+		t.Errorf("FormatHostname(sandbox) = %q, want %q", h, want)
+	}
+	normal := FormatHostname("api", "myapp", "pr-412", "a3f2", false)
+	if normal != "api.myapp.pr-412.a3f2.draft.local" {
+		t.Errorf("FormatHostname(normal) = %q", normal)
+	}
+}
+
+func TestDockerEnvironment(t *testing.T) {
+	if got := DockerEnvironment("pr-412", true); got != "sand-pr-412" {
+		t.Errorf("DockerEnvironment(sandbox) = %q", got)
+	}
+	if got := DockerEnvironment("staging", false); got != "staging" {
+		t.Errorf("DockerEnvironment(normal) = %q", got)
+	}
+	if got := DockerEnvironment("", true); got != "sand-default" {
+		t.Errorf("DockerEnvironment(empty sandbox) = %q", got)
+	}
+}
+
 func TestHostnameSpecialChars(t *testing.T) {
 	h := Hostname("My API", "Cool App!", "staging", "b1c2")
 	want := "my-api.cool-app.staging.b1c2.draft.local"
@@ -84,7 +108,17 @@ func TestParseHostname(t *testing.T) {
 	if p == nil {
 		t.Fatal("ParseHostname returned nil")
 	}
-	if p.Service != "api" || p.Project != "myapp" || p.Environment != "default" || p.UID != "a3f2" {
+	if p.Service != "api" || p.Project != "myapp" || p.Environment != "default" || p.UID != "a3f2" || p.Sandbox {
+		t.Errorf("parsed = %+v", p)
+	}
+}
+
+func TestParseHostnameSandbox(t *testing.T) {
+	p := ParseHostname("api.myapp.sand.pr-412.a3f2.draft.local")
+	if p == nil {
+		t.Fatal("ParseHostname returned nil")
+	}
+	if p.Service != "api" || p.Project != "myapp" || p.Environment != "pr-412" || p.UID != "a3f2" || !p.Sandbox {
 		t.Errorf("parsed = %+v", p)
 	}
 }
@@ -95,6 +129,7 @@ func TestParseHostnameInvalid(t *testing.T) {
 		"draft.local",
 		"a.draft.local",
 		"a.b.draft.local",
+		"api.myapp.notsand.pr-412.a3f2.draft.local",
 		"",
 	}
 	for _, c := range cases {

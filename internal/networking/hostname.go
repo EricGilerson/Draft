@@ -19,6 +19,12 @@ const (
 	// deliberately remains separate from Suffix: Docker keeps using
 	// *.draft.local internally, while host DNS may opt into *.draft.
 	LocalSuffix = "draft"
+	// SandboxKindLabel is the fixed DNS / Docker identity marker for sandbox
+	// environments. Hostnames insert it as its own label
+	// ({service}.{project}.sand.{slug}.{uid}.draft.local); Docker network,
+	// image, container, and volume names use sand-{slug} as the env segment.
+	// Environment slugs stay project-global unique (including sandboxes).
+	SandboxKindLabel = "sand"
 )
 
 var unsafeChars = regexp.MustCompile(`[^a-z0-9-]`)
@@ -44,16 +50,48 @@ func GenerateUID() string {
 	return hex.EncodeToString(b)
 }
 
-// Hostname builds a Draft-managed hostname from the component parts.
+// Hostname builds a Draft-managed hostname for a normal (non-sandbox)
+// environment.
 // Pattern: {service}.{project}.{environment}.{uid}.draft.local
 func Hostname(service, project, environment, uid string) string {
+	return FormatHostname(service, project, environment, uid, false)
+}
+
+// FormatHostname builds a Draft-managed hostname. When sandbox is true the
+// fixed sand label is inserted so sandbox DNS cannot be mistaken for a durable
+// environment, even when the env slug string matches a real env name:
+//
+//	normal:  {service}.{project}.{environment}.{uid}.draft.local
+//	sandbox: {service}.{project}.sand.{environment}.{uid}.draft.local
+func FormatHostname(service, project, environment, uid string, sandbox bool) string {
+	service = sanitize(service)
+	project = sanitize(project)
+	environment = sanitize(environment)
+	if sandbox {
+		return fmt.Sprintf("%s.%s.%s.%s.%s.%s",
+			service, project, SandboxKindLabel, environment, uid, Suffix)
+	}
 	return fmt.Sprintf("%s.%s.%s.%s.%s",
-		sanitize(service),
-		sanitize(project),
-		sanitize(environment),
-		uid,
-		Suffix,
-	)
+		service, project, environment, uid, Suffix)
+}
+
+// DockerEnvironment is the single environment segment used in Docker network,
+// image, container, and managed volume names. Sandboxes use sand-{slug} so
+// operators can distinguish them in docker ps / network ls; slugs themselves
+// remain unique per project so this is clarity, not a second uniqueness space.
+func DockerEnvironment(slug string, sandbox bool) string {
+	raw := strings.TrimSpace(slug)
+	if raw == "" {
+		if sandbox {
+			return SandboxKindLabel + "-default"
+		}
+		return "default"
+	}
+	slug = sanitize(raw)
+	if sandbox {
+		return SandboxKindLabel + "-" + slug
+	}
+	return slug
 }
 
 func PublicHostname(hostname string) string {
@@ -156,24 +194,39 @@ type ParsedHostname struct {
 	Project     string
 	Environment string
 	UID         string
+	Sandbox     bool
 }
 
 // ParseHostname splits a Draft hostname into its parts. Returns nil if the
-// hostname doesn't match the expected pattern.
+// hostname doesn't match the expected pattern. Accepts both normal 4-label
+// hostnames and sandbox 5-label hostnames with a sand segment.
 func ParseHostname(hostname string) *ParsedHostname {
 	hostname = strings.TrimSuffix(hostname, ".")
 	if !strings.HasSuffix(hostname, "."+Suffix) {
 		return nil
 	}
 	prefix := strings.TrimSuffix(hostname, "."+Suffix)
-	parts := strings.SplitN(prefix, ".", 4)
-	if len(parts) != 4 {
+	parts := strings.Split(prefix, ".")
+	switch len(parts) {
+	case 4:
+		return &ParsedHostname{
+			Service:     parts[0],
+			Project:     parts[1],
+			Environment: parts[2],
+			UID:         parts[3],
+		}
+	case 5:
+		if parts[2] != SandboxKindLabel {
+			return nil
+		}
+		return &ParsedHostname{
+			Service:     parts[0],
+			Project:     parts[1],
+			Environment: parts[3],
+			UID:         parts[4],
+			Sandbox:     true,
+		}
+	default:
 		return nil
-	}
-	return &ParsedHostname{
-		Service:     parts[0],
-		Project:     parts[1],
-		Environment: parts[2],
-		UID:         parts[3],
 	}
 }

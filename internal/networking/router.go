@@ -106,7 +106,8 @@ type RegisterRequest struct {
 	Project     string
 	ProjectID   uint
 	NodeID      string
-	Environment string
+	Environment string // raw environment slug (not sand-prefixed Docker identity)
+	Sandbox     bool   // when true, hostname inserts the sand DNS segment
 	UID         string // 4-char hex, generated at project creation
 	Protocol    string // "http" or "tcp"
 	TargetHost  string // container-reachable host (e.g. "127.0.0.1")
@@ -133,7 +134,7 @@ func (r *Router) Register(req RegisterRequest) (*RegisterResult, error) {
 		protocol = "http"
 	}
 
-	hostname := Hostname(req.Service, req.Project, env, req.UID)
+	hostname := FormatHostname(req.Service, req.Project, env, req.UID, req.Sandbox)
 
 	var hostPort int
 	if protocol == "tcp" {

@@ -46,7 +46,12 @@ func (e *Engine) startContainerAndRegister(
 	nodeID := node.ID
 	serviceName := addr.ServiceName
 	projectName := addr.ProjectName
-	environment := addr.Environment
+	// Docker resources use sand-{slug} for sandboxes; hostnames use raw slug + Sandbox flag.
+	dockerEnv := addr.DockerEnvironment
+	if dockerEnv == "" {
+		dockerEnv = networking.DockerEnvironment(addr.Environment, addr.Sandbox)
+	}
+	environment := dockerEnv
 	hostname := addr.InternalHostname
 
 	// Route protocol: "http" (default, proxied, ephemeral host port) or "tcp"
@@ -85,7 +90,8 @@ func (e *Engine) startContainerAndRegister(
 			ProjectID:   node.ProjectID,
 			NodeID:      nodeID,
 			UID:         uid,
-			Environment: environment,
+			Environment: addr.Environment,
+			Sandbox:     addr.Sandbox,
 			Protocol:    "tcp",
 			TargetHost:  "127.0.0.1",
 			TargetPort:  atoiPort(portStr),
@@ -260,7 +266,8 @@ func (e *Engine) startContainerAndRegister(
 			ProjectID:   node.ProjectID,
 			NodeID:      nodeID,
 			UID:         uid,
-			Environment: environment,
+			Environment: addr.Environment,
+			Sandbox:     addr.Sandbox,
 			Protocol:    "http",
 			TargetHost:  "127.0.0.1",
 			TargetPort:  hostPort,

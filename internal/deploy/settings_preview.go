@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"Draft/internal/networking"
 	"Draft/internal/store"
 )
 
@@ -128,9 +129,14 @@ func volumeMountChangeWarnings(s *store.Store, nodeID, oldRaw, newRaw string) ([
 		return nil, err
 	}
 	envSlug := "default"
+	sandbox := false
 	if env, err := s.GetEnvironment(node.EnvironmentID); err == nil {
 		envSlug = env.Slug
+		if _, err := s.GetSandboxByEnvironment(env.ID); err == nil {
+			sandbox = true
+		}
 	}
+	dockerEnv := networking.DockerEnvironment(envSlug, sandbox)
 	uid, _ := s.EnsureNodeUID(nodeID)
 	oldSpecs := ParseVolumeSpecs(oldRaw)
 	newSpecs := ParseVolumeSpecs(newRaw)
@@ -149,14 +155,14 @@ func volumeMountChangeWarnings(s *store.Store, nodeID, oldRaw, newRaw string) ([
 			if had && (old.Type == VolumeTypeVolume || old.Type == "") {
 				src := strings.TrimSpace(old.Source)
 				if src == "" {
-					oldName = DraftVolumeName(node.ProjectID, project.Name, envSlug, uid, old.ContainerPath)
+					oldName = DraftVolumeName(node.ProjectID, project.Name, dockerEnv, uid, old.ContainerPath)
 				} else {
 					oldName = src
 				}
 			}
 			newName := strings.TrimSpace(spec.Source)
 			if newName == "" {
-				newName = DraftVolumeName(node.ProjectID, project.Name, envSlug, uid, spec.ContainerPath)
+				newName = DraftVolumeName(node.ProjectID, project.Name, dockerEnv, uid, spec.ContainerPath)
 			}
 			if oldName != "" && oldName != newName {
 				warnings = append(warnings, SettingsWarning{

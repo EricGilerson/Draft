@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,34 @@ func TestSandboxPreviewAndCreateUseIsolatedCopyDefaults(t *testing.T) {
 	targets, err := s.ListNodesByEnvironment(sandbox.EnvironmentID)
 	if err != nil || len(targets) != 1 || targets[0].ID == "api" {
 		t.Fatalf("sandbox nodes = %+v, %v", targets, err)
+	}
+
+	// Sandbox identity: .sand DNS segment + sand-{slug} Docker env segment.
+	// Slugs stay project-unique (no kind-scoped uniqueness).
+	addr, err := e.computeNodeAddress(&targets[0])
+	if err != nil {
+		t.Fatalf("computeNodeAddress: %v", err)
+	}
+	if !addr.Sandbox {
+		t.Fatal("expected Sandbox=true on sandbox node address")
+	}
+	if !strings.Contains(addr.InternalHostname, ".sand.") {
+		t.Fatalf("sandbox hostname missing .sand. segment: %q", addr.InternalHostname)
+	}
+	if addr.DockerEnvironment != "sand-feature-123" {
+		t.Fatalf("DockerEnvironment = %q, want sand-feature-123", addr.DockerEnvironment)
+	}
+	if addr.Environment != "feature-123" {
+		t.Fatalf("Environment slug = %q, want feature-123", addr.Environment)
+	}
+	// feature-123 already used by the sandbox env; a durable env with the same
+	// display name must uniquify (shared slug space, not kind-scoped).
+	dup, err := s.CreateEnvironment(p.ID, "feature-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dup.Slug != "feature-123-2" {
+		t.Fatalf("expected slug uniquify against sandbox env, got %q", dup.Slug)
 	}
 }
 

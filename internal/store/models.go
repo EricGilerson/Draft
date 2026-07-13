@@ -17,9 +17,10 @@ type Project struct {
 // services (e.g. "Main", "Staging"). Every project has exactly one default
 // environment, created alongside the project. Slug is generated once and
 // never changes — it's the segment baked into hostnames
-// (service.project.environment.uid.draft.local), Docker network names
-// (draft-{project}-{environment}), and volume names, so renaming a project's
-// display Name never disturbs already-running containers.
+// (service.project.environment.uid.draft.local, or
+// service.project.sand.environment.uid.draft.local for sandboxes), Docker
+// network names, and volume names, so renaming a project's display Name never
+// disturbs already-running containers.
 type Environment struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	ProjectID uint      `gorm:"index;not null;uniqueIndex:idx_env_project_slug" json:"projectId"`

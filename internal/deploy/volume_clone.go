@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"Draft/internal/networking"
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types/container"
@@ -85,14 +86,16 @@ func (e *Engine) resolveVolumeNameForPath(node *store.CanvasNode, settings map[s
 			return "", err
 		}
 		envSlug := "default"
+		sandbox := false
 		if env, err := e.store.GetEnvironment(node.EnvironmentID); err == nil {
 			envSlug = env.Slug
+			sandbox = e.isSandboxEnvironment(env.ID)
 		}
 		uid, err := e.store.EnsureNodeUID(node.ID)
 		if err != nil {
 			return "", err
 		}
-		return DraftVolumeName(node.ProjectID, project.Name, envSlug, uid, containerPath), nil
+		return DraftVolumeName(node.ProjectID, project.Name, networking.DockerEnvironment(envSlug, sandbox), uid, containerPath), nil
 	}
 	return "", fmt.Errorf("no volume mount at path %q on service %q", containerPath, node.Label)
 }
@@ -249,9 +252,12 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 		return nil, err
 	}
 	envSlug := "default"
+	sandbox := false
 	if env, err := e.store.GetEnvironment(target.EnvironmentID); err == nil {
 		envSlug = env.Slug
+		sandbox = e.isSandboxEnvironment(env.ID)
 	}
+	dockerEnv := networking.DockerEnvironment(envSlug, sandbox)
 
 	stagingName := fmt.Sprintf("draft-clone-%s-%s", sanitize(targetNodeID), shortHash(containerPath + targetNodeID)[:8])
 	// Create staging with ownership labels for the target (will become the live volume).
@@ -263,7 +269,7 @@ func (e *Engine) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID
 			"draft.project":       fmt.Sprintf("%d", target.ProjectID),
 			"draft.projectName":   project.Name,
 			"draft.node":          target.ID,
-			"draft.environment":   envSlug,
+			"draft.environment":   dockerEnv,
 			"draft.target":        containerPath,
 			"draft.clone_staging": "true",
 		},

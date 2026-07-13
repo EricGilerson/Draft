@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	"Draft/internal/networking"
 	"Draft/internal/store"
 
 	"github.com/docker/docker/api/types"
@@ -103,12 +104,19 @@ func SpecsToMounts(specs []VolumeSpec) []mount.Mount {
 	return out
 }
 
+// dockerEnvironment returns the Docker env identity segment for a NodeAddress.
+func dockerEnvironment(addr NodeAddress) string {
+	if addr.DockerEnvironment != "" {
+		return addr.DockerEnvironment
+	}
+	return networking.DockerEnvironment(addr.Environment, addr.Sandbox)
+}
+
 // DraftVolumeName builds the deterministic Docker volume name for an auto-named
 // (empty Source) volume on a given node. The name is derived from the node's
 // permanent UID + project + environment + target, so the same service keeps
 // its data across redeploys while two different services never share a volume.
-// The environment segment is included now even though Draft is single-env
-// today, so multi-environment support later won't require renaming volumes.
+// The environment segment is the Docker identity (sand-{slug} for sandboxes).
 func DraftVolumeName(projectID uint, projectName, environment, uid, target string) string {
 	env := sanitize(environment)
 	if env == "" {
@@ -206,12 +214,12 @@ func (e *Engine) ensureNamedVolumes(
 		case VolumeTypeVolume:
 			name := strings.TrimSpace(s.Source)
 			if name == "" {
-				name = DraftVolumeName(node.ProjectID, addr.ProjectName, addr.Environment, uid, s.ContainerPath)
+				name = DraftVolumeName(node.ProjectID, addr.ProjectName, dockerEnvironment(addr), uid, s.ContainerPath)
 			}
 			if _, err := cli.VolumeCreate(ctx, volume.CreateOptions{
 				Name:   name,
 				Driver: "local",
-				Labels: volumeLabels(node, addr.ProjectName, addr.Environment, s.ContainerPath, s.Labels),
+				Labels: volumeLabels(node, addr.ProjectName, dockerEnvironment(addr), s.ContainerPath, s.Labels),
 			}); err != nil {
 				return nil, fmt.Errorf("create volume %s for %s: %w", name, s.ContainerPath, err)
 			}

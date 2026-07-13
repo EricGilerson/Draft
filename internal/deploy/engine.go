@@ -295,7 +295,7 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 		return
 	}
 
-	imageTag := draftImageTag(projectName, addr.Environment, serviceName, dep.Sequence)
+	imageTag := draftImageTag(projectName, addr.DockerEnvironment, serviceName, dep.Sequence)
 	dep.ImageTag = imageTag
 	dep.LastSeenAt = ptrTime(time.Now())
 	e.store.UpdateDeployment(dep)

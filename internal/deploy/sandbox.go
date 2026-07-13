@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"Draft/internal/gitsrc"
+	"Draft/internal/networking"
 	"Draft/internal/store"
 )
 
@@ -138,36 +139,74 @@ func (e *Engine) PreviewSandbox(ctx context.Context, req SandboxCreateRequest) (
 // CreateSandbox materializes a resolved plan through the existing environment
 // duplication path. This means isolated copies use Draft's normal network,
 // UID, hostname, volume clone, and shared-service network bridge mechanics.
+//
+// The sandbox row is written before nodes are duplicated so hostname / Docker
+// identity generation can insert the sand marker during {{draft.*}} re-resolve
+// and shared-service network attach.
 func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*store.Sandbox, error) {
 	preview, err := e.PreviewSandbox(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	choices := make([]ServiceDataChoice, 0, len(preview.Services))
 	omit := map[string]bool{}
+	choiceBySource := map[string]ServiceDataChoice{}
 	for _, rule := range preview.Services {
 		switch rule.Mode {
 		case SandboxServiceOmit:
 			omit[rule.SourceNodeID] = true
 		case SandboxServiceShare:
-			choices = append(choices, ServiceDataChoice{SourceNodeID: rule.SourceNodeID, Mode: ServiceDataShare})
+			choiceBySource[rule.SourceNodeID] = ServiceDataChoice{SourceNodeID: rule.SourceNodeID, Mode: ServiceDataShare}
 		default:
 			mode := rule.DataMode
 			if mode == "" {
 				mode = ServiceDataClone
 			}
-			choices = append(choices, ServiceDataChoice{SourceNodeID: rule.SourceNodeID, Mode: mode, Consistency: rule.Consistency})
+			choiceBySource[rule.SourceNodeID] = ServiceDataChoice{SourceNodeID: rule.SourceNodeID, Mode: mode, Consistency: rule.Consistency}
 		}
 	}
-	env, err := e.DuplicateEnvironmentWithChoices(ctx, preview.SourceEnvironmentID, req.Name, choices)
+
+	// Create the environment + sandbox record first so isSandboxEnvironment is
+	// true for every subsequent identity computation in this env.
+	env, err := e.store.CreateEnvironment(preview.ProjectID, strings.TrimSpace(req.Name))
 	if err != nil {
 		return nil, err
 	}
 	cleanup := func() { _ = e.store.DeleteEnvironment(env.ID) }
 
+	planJSON, err := json.Marshal(preview.Plan)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	sandbox, err := e.store.CreateSandbox(&store.Sandbox{
+		ProjectID:           preview.ProjectID,
+		EnvironmentID:       env.ID,
+		SourceEnvironmentID: preview.SourceEnvironmentID,
+		ProfileID:           preview.ProfileID,
+		Name:                strings.TrimSpace(req.Name),
+		Status:              "active",
+		PlanJSON:            string(planJSON),
+		ExpiresAt:           preview.ExpiresAt,
+		WarnAt:              preview.WarnAt,
+		GraceEndsAt:         preview.GraceEndsAt,
+	}, req.Links, preview.Repositories)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	sourceNodes, err := e.store.ListNodesByEnvironment(preview.SourceEnvironmentID)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	if err := e.duplicateNodesInto(ctx, sourceNodes, env, choiceBySource); err != nil {
+		cleanup()
+		return nil, err
+	}
+
 	// Source labels are unique per environment, so they safely identify the
 	// duplicate for branch pinning and omit handling.
-	sourceNodes, _ := e.store.ListNodesByEnvironment(preview.SourceEnvironmentID)
 	targetNodes, err := e.store.ListNodesByEnvironment(env.ID)
 	if err != nil {
 		cleanup()
@@ -180,6 +219,11 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 	for _, sourceNode := range sourceNodes {
 		target, ok := targetByLabel[sourceNode.Label]
 		if !ok {
+			// Omitted services are deleted below only when present; a missing
+			// non-omitted node means duplication failed to copy it.
+			if omit[sourceNode.ID] {
+				continue
+			}
 			cleanup()
 			return nil, fmt.Errorf("sandbox duplicate missing service %q", sourceNode.Label)
 		}
@@ -194,16 +238,6 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 			cleanup()
 			return nil, err
 		}
-	}
-	planJSON, err := json.Marshal(preview.Plan)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	sandbox, err := e.store.CreateSandbox(&store.Sandbox{ProjectID: preview.ProjectID, EnvironmentID: env.ID, SourceEnvironmentID: preview.SourceEnvironmentID, ProfileID: preview.ProfileID, Name: strings.TrimSpace(req.Name), Status: "active", PlanJSON: string(planJSON), ExpiresAt: preview.ExpiresAt, WarnAt: preview.WarnAt, GraceEndsAt: preview.GraceEndsAt}, req.Links, preview.Repositories)
-	if err != nil {
-		cleanup()
-		return nil, err
 	}
 	return sandbox, nil
 }
@@ -323,7 +357,8 @@ func (e *Engine) DeleteSandbox(ctx context.Context, sandboxID uint) error {
 	if err != nil {
 		return err
 	}
-	if err := e.RemoveNetwork(ctx, draftNetworkName(project.ID, project.Name, env.Slug)); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
+	dockerEnv := networking.DockerEnvironment(env.Slug, true)
+	if err := e.RemoveNetwork(ctx, draftNetworkName(project.ID, project.Name, dockerEnv)); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
 		_ = e.store.UpdateSandboxStatus(sandboxID, "cleanup_failed", nil)
 		return err
 	}

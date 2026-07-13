@@ -31,9 +31,15 @@ var generatedAttrs = []string{"DRAFT_INTERNAL_HOSTNAME", "DRAFT_INTERNAL_URL", "
 // a node. It's used both to inject this node's own DRAFT_* vars and to
 // resolve other services' references to this node.
 type NodeAddress struct {
-	ServiceName      string
-	ProjectName      string
-	Environment      string
+	ServiceName string
+	ProjectName string
+	// Environment is the raw environment slug (DRAFT_ENVIRONMENT, hostname env label).
+	Environment string
+	// DockerEnvironment is the env segment for Docker network/image/container/volume
+	// names. Sandboxes use sand-{slug}; normal envs use the raw slug.
+	DockerEnvironment string
+	// Sandbox is true when the node's environment is a disposable sandbox.
+	Sandbox          bool
 	ServicePort      string
 	InternalHostname string
 	InternalURL      string
@@ -78,13 +84,16 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 	serviceName := sanitize(node.Label)
 	projectName := sanitize(project.Name)
 	environment := "default"
+	sandbox := false
 	if env, err := e.store.GetEnvironment(node.EnvironmentID); err == nil {
 		environment = env.Slug
+		sandbox = e.isSandboxEnvironment(env.ID)
 	}
+	dockerEnv := networking.DockerEnvironment(environment, sandbox)
 	portStr := settings["service_port"]
 	protocol := strings.TrimSpace(settings["route_protocol"])
 
-	hostname := networking.Hostname(serviceName, projectName, environment, uid)
+	hostname := networking.FormatHostname(serviceName, projectName, environment, uid, sandbox)
 	publicHostname := networking.PublicHostname(hostname)
 	localDomain := networking.LocalDomainStatus{}
 	if e.router != nil {
@@ -115,15 +124,27 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 	}
 
 	return NodeAddress{
-		ServiceName:      serviceName,
-		ProjectName:      projectName,
-		Environment:      environment,
-		ServicePort:      portStr,
-		InternalHostname: hostname,
-		InternalURL:      internalURL,
-		PublicHostname:   publicHostname,
-		PublicURL:        publicURL,
+		ServiceName:       serviceName,
+		ProjectName:       projectName,
+		Environment:       environment,
+		DockerEnvironment: dockerEnv,
+		Sandbox:           sandbox,
+		ServicePort:       portStr,
+		InternalHostname:  hostname,
+		InternalURL:       internalURL,
+		PublicHostname:    publicHostname,
+		PublicURL:         publicURL,
 	}, nil
+}
+
+// isSandboxEnvironment reports whether environmentID belongs to a sandbox.
+// Used for DNS (.sand segment) and Docker identity (sand-{slug}).
+func (e *Engine) isSandboxEnvironment(environmentID uint) bool {
+	if environmentID == 0 {
+		return false
+	}
+	_, err := e.store.GetSandboxByEnvironment(environmentID)
+	return err == nil
 }
 
 // resolveValue substitutes every {{draft.X}} template expression (resolved
