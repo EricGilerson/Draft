@@ -204,6 +204,36 @@ func TestExtendSandboxRestoresActiveLifecycle(t *testing.T) {
 	}
 }
 
+func TestExtendSandboxAddsToRemainingLifetime(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, _ := s.CreateProject("sandbox-extend-add", t.TempDir(), "")
+	source, _ := s.GetDefaultEnvironment(p.ID)
+	env, _ := s.CreateEnvironment(p.ID, "temporary")
+	now := time.Now().UTC()
+	remaining := now.Add(10 * time.Hour)
+	sandbox, err := s.CreateSandbox(&store.Sandbox{
+		ProjectID: p.ID, EnvironmentID: env.ID, SourceEnvironmentID: source.ID,
+		Name: "temporary", Status: "active", PlanJSON: `{"warningHours":2,"graceHours":4}`,
+		ExpiresAt: remaining, WarnAt: remaining.Add(-2 * time.Hour), GraceEndsAt: remaining.Add(4 * time.Hour),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	updated, err := e.ExtendSandbox(sandbox.ID, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10h remaining + 12h extension ≈ 22h from now, not 12h from now.
+	if updated.ExpiresAt.Before(remaining.Add(11*time.Hour)) || updated.ExpiresAt.After(remaining.Add(13*time.Hour)) {
+		t.Fatalf("expected additive expiry around %v, got %v", remaining.Add(12*time.Hour), updated.ExpiresAt)
+	}
+}
+
 func TestGetSandboxDetailPreservesResolvedPlanAndManualLinks(t *testing.T) {
 	s, err := store.Open(store.MemoryDSN())
 	if err != nil {

@@ -436,13 +436,22 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExtendSandbox(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SandboxID uint `json:"sandboxId"`
-		TTLHours  int  `json:"ttlHours"`
+		SandboxID uint       `json:"sandboxId"`
+		TTLHours  int        `json:"ttlHours"`
+		ExpiresAt *time.Time `json:"expiresAt"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	out, err := s.engine.ExtendSandbox(req.SandboxID, req.TTLHours)
+	var (
+		out *store.Sandbox
+		err error
+	)
+	if req.ExpiresAt != nil {
+		out, err = s.engine.ExtendSandboxUntil(req.SandboxID, *req.ExpiresAt)
+	} else {
+		out, err = s.engine.ExtendSandbox(req.SandboxID, req.TTLHours)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

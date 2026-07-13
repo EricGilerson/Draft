@@ -1,0 +1,10 @@
+.sandbox-hours-decimal-warning {
+    color: var(--warning, #b8860b);
+    font-size: 0.62rem;
+    line-height: 1.35;
+    font-family: var(--sans, inherit);
+}
+
+.form-field .sandbox-hours-decimal-warning {
+    margin-top: 4px;
+}

@@ -1,0 +1,96 @@
+.sandbox-extend {
+    position: relative;
+    display: inline-flex;
+}
+
+.sandbox-extend-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.sandbox-extend--compact .sandbox-extend-trigger {
+    min-height: 30px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 0.72rem;
+}
+
+.sandbox-extend-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 40;
+    width: min(320px, calc(100vw - 24px));
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    display: grid;
+    gap: 10px;
+}
+
+.sandbox-extend-presets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+}
+
+.sandbox-extend-preset {
+    min-height: 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg, transparent);
+    color: var(--text);
+    font-size: 0.74rem;
+    cursor: pointer;
+}
+
+.sandbox-extend-preset:hover:not(:disabled) {
+    background: var(--surface-hover);
+}
+
+.sandbox-extend-preset:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.sandbox-extend-section {
+    display: grid;
+    gap: 6px;
+}
+
+.sandbox-extend-label {
+    color: var(--text-faint);
+    font-size: 0.68rem;
+    font-family: var(--mono);
+}
+
+.sandbox-extend-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+}
+
+.sandbox-extend-row .btn {
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+    white-space: nowrap;
+}
+
+.sandbox-extend-hint {
+    margin: 0;
+    color: var(--text-faint);
+    font-size: 0.68rem;
+    line-height: 1.35;
+}
+
+.sandbox-extend-error {
+    margin: 0;
+    color: var(--danger, #b5473b);
+    font-size: 0.7rem;
+    line-height: 1.35;
+}

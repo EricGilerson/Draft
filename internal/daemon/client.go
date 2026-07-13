@@ -158,6 +158,14 @@ func (c *Client) ExtendSandbox(ctx context.Context, sandboxID uint, ttlHours int
 	return &out, nil
 }
 
+func (c *Client) ExtendSandboxUntil(ctx context.Context, sandboxID uint, expiresAt time.Time) (*store.Sandbox, error) {
+	var out store.Sandbox
+	if err := c.postJSON(ctx, "/sandbox/extend", map[string]any{"sandboxId": sandboxID, "expiresAt": expiresAt.UTC()}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) DeleteSandbox(ctx context.Context, sandboxID uint) error {
 	return c.postJSON(ctx, "/sandbox/delete", map[string]uint{"sandboxId": sandboxID}, nil)
 }

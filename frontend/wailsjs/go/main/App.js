@@ -118,6 +118,10 @@ export function ExtendSandbox(arg1, arg2) {
   return window['go']['main']['App']['ExtendSandbox'](arg1, arg2);
 }
 
+export function ExtendSandboxUntil(arg1, arg2) {
+  return window['go']['main']['App']['ExtendSandboxUntil'](arg1, arg2);
+}
+
 export function GetActiveDeployment(arg1) {
   return window['go']['main']['App']['GetActiveDeployment'](arg1);
 }

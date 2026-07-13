@@ -321,7 +321,8 @@ func (a *App) CreateSandbox(req deploy.SandboxCreateRequest) (*store.Sandbox, er
 	return c.CreateSandbox(a.ctx, req)
 }
 
-// ExtendSandbox pushes a sandbox expiry forward by ttlHours from now.
+// ExtendSandbox adds ttlHours to the sandbox's remaining lifetime (or from now
+// if it has already expired).
 func (a *App) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -331,6 +332,22 @@ func (a *App) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, error
 		return nil, errNoStore
 	}
 	return c.ExtendSandbox(a.ctx, sandboxID, ttlHours)
+}
+
+// ExtendSandboxUntil sets an absolute sandbox expiry time.
+func (a *App) ExtendSandboxUntil(sandboxID uint, expiresAt string) (*store.Sandbox, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(expiresAt))
+	if err != nil {
+		return nil, fmt.Errorf("invalid expiry time: %w", err)
+	}
+	return c.ExtendSandboxUntil(a.ctx, sandboxID, parsed)
 }
 
 // DeleteSandbox removes every sandbox-owned Docker resource, including

@@ -1,10 +1,11 @@
 import {useEffect, useRef, useState} from 'react';
-import {GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
+import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
     DuplicateEnvironment,
     ListEnvironments,
+    ListSandboxes,
     PreviewEnvironmentDuplicate,
     RedeployEnvironment,
     RenameEnvironment,
@@ -15,8 +16,14 @@ import {
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import SandboxExtendControl from './SandboxExtendControl';
 import SyncConfigDialog from './SyncConfigDialog';
 import './EnvironmentSwitcher.css';
+
+function sandboxExpiryLabel(value: unknown): string {
+    const date = new Date(value as string | number | Date);
+    return Number.isNaN(date.valueOf()) ? 'Unknown expiry' : date.toLocaleString();
+}
 
 /** Sentinel for "start empty" in the source dropdown. */
 const SOURCE_BLANK = '';
@@ -50,6 +57,7 @@ export default function EnvironmentSwitcher({
     onCreateSandbox,
 }: EnvironmentSwitcherProps) {
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
+    const [sandboxes, setSandboxes] = useState<store.Sandbox[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [syncOpen, setSyncOpen] = useState(false);
     const [step, setStep] = useState<1 | 2>(1);
@@ -69,12 +77,13 @@ export default function EnvironmentSwitcher({
 
     const refresh = () => {
         ListEnvironments(projectId).then((envs) => setEnvironments(envs ?? [])).catch(() => setEnvironments([]));
+        ListSandboxes(projectId).then((rows) => setSandboxes(rows ?? [])).catch(() => setSandboxes([]));
     };
 
     useEffect(() => {
         refresh();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [projectId]);
+    }, [projectId, selectedEnvironmentId]);
 
     useEffect(() => {
         if (menuEnvId == null) return;
@@ -297,6 +306,13 @@ export default function EnvironmentSwitcher({
     };
 
     const selectedEnv = environments.find((e) => e.id === selectedEnvironmentId) ?? null;
+    const selectedSandbox = selectedEnv
+        ? sandboxes.find((sandbox) => sandbox.environmentId === selectedEnv.id) ?? null
+        : null;
+    const sandboxByEnvironmentId = new Map(sandboxes.map((sandbox) => [sandbox.environmentId, sandbox]));
+    const sandboxSourceEnv = selectedSandbox
+        ? environments.find((env) => env.id === selectedSandbox.sourceEnvironmentId) ?? null
+        : null;
 
     return (
         <>
@@ -308,9 +324,15 @@ export default function EnvironmentSwitcher({
                         onChange={(e) => onSelect(Number(e.target.value))}
                         aria-label="Selected environment"
                     >
-                        {environments.map((env) => (
-                            <option key={env.id} value={env.id}>{env.name}{env.isDefault ? ' (default)' : ''}</option>
-                        ))}
+                        {environments.map((env) => {
+                            const sandbox = sandboxByEnvironmentId.get(env.id);
+                            const suffix = sandbox
+                                ? ' (sandbox)'
+                                : env.isDefault
+                                    ? ' (default)'
+                                    : '';
+                            return <option key={env.id} value={env.id}>{env.name}{suffix}</option>;
+                        })}
                     </select>
                     {selectedEnv && (
                         <div className="environment-selector-menu-wrap" ref={menuRef}>
@@ -320,7 +342,7 @@ export default function EnvironmentSwitcher({
                             {menuEnvId === selectedEnv.id && (
                                 <div className="environment-switcher-menu">
                                     <button type="button" onClick={() => openRename(selectedEnv)}>Rename…</button>
-                                    {!selectedEnv.isDefault && <button type="button" onClick={() => void setAsDefault(selectedEnv)}>Set as default</button>}
+                                    {!selectedEnv.isDefault && !selectedSandbox && <button type="button" onClick={() => void setAsDefault(selectedEnv)}>Set as default</button>}
                                     <button type="button" onClick={() => { setMenuEnvId(null); setSyncOpen(true); }}>Sync config…</button>
                                     {!selectedEnv.isDefault && <button type="button" className="environment-switcher-menu-danger" onClick={() => void removeEnvironment(selectedEnv)}>Delete…</button>}
                                 </div>
@@ -334,7 +356,11 @@ export default function EnvironmentSwitcher({
                     >
                         <Plus size={13}/> New
                     </button>
-                    {selectedEnv && <button className="btn btn-ghost environment-sandbox-action" onClick={() => onCreateSandbox?.(selectedEnv.id)}><Plus size={13}/> Sandbox</button>}
+                    {selectedEnv && !selectedSandbox && (
+                        <button className="btn btn-ghost environment-sandbox-action" onClick={() => onCreateSandbox?.(selectedEnv.id)}>
+                            <Plus size={13}/> Sandbox
+                        </button>
+                    )}
                 </div>
 
                 {selectedEnv && (
@@ -378,6 +404,47 @@ export default function EnvironmentSwitcher({
                     </div>
                 )}
             </div>
+            {selectedSandbox && (
+                <div
+                    className={`environment-sandbox-banner environment-sandbox-banner--${selectedSandbox.status || 'active'}`}
+                    role="status"
+                >
+                    <div className="environment-sandbox-banner-main">
+                        <FlaskConical size={14}/>
+                        <strong>Sandbox</strong>
+                        <span className="environment-sandbox-status">{selectedSandbox.status}</span>
+                        {sandboxSourceEnv && (
+                            <span className="environment-sandbox-source">
+                                from {sandboxSourceEnv.name}
+                            </span>
+                        )}
+                        <span className="environment-sandbox-expiry">
+                            <Clock3 size={12}/>
+                            {selectedSandbox.status === 'expired'
+                                ? `Grace until ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`
+                                : `Expires ${sandboxExpiryLabel(selectedSandbox.expiresAt)}`}
+                        </span>
+                    </div>
+                    <div className="environment-sandbox-banner-actions">
+                        {sandboxSourceEnv && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost"
+                                onClick={() => onSelect(sandboxSourceEnv.id)}
+                            >
+                                Open source
+                            </button>
+                        )}
+                        <SandboxExtendControl
+                            compact
+                            sandboxId={selectedSandbox.id}
+                            currentExpiresAt={selectedSandbox.expiresAt}
+                            onExtended={refresh}
+                            onError={(message) => void alert({title: 'Could not extend sandbox', message})}
+                        />
+                    </div>
+                </div>
+            )}
 
             {dialogOpen && (
                 <Dialog

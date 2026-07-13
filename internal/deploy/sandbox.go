@@ -264,7 +264,8 @@ func (e *Engine) cleanupFailedSandbox(ctx context.Context, env *store.Environmen
 // ExtendSandbox is deliberately an explicit lifecycle action. It restores an
 // expired/warning sandbox to active and recalculates warning/grace windows from
 // the immutable creation plan, rather than from any profile that has changed
-// since the sandbox was created.
+// since the sandbox was created. Duration is added to the remaining lifetime
+// when the sandbox has not yet expired; otherwise it starts from now.
 func (e *Engine) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, error) {
 	if ttlHours <= 0 {
 		return nil, fmt.Errorf("sandbox extension must be greater than zero hours")
@@ -273,19 +274,46 @@ func (e *Engine) ExtendSandbox(sandboxID uint, ttlHours int) (*store.Sandbox, er
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
+	base := now
+	if sandbox.ExpiresAt.After(now) {
+		base = sandbox.ExpiresAt.UTC()
+	}
+	return e.extendSandboxTo(sandboxID, base.Add(time.Duration(ttlHours)*time.Hour))
+}
+
+// ExtendSandboxUntil sets an absolute expiry time and restores the sandbox to
+// active using the creation plan's warning/grace windows.
+func (e *Engine) ExtendSandboxUntil(sandboxID uint, expiresAt time.Time) (*store.Sandbox, error) {
+	expiresAt = expiresAt.UTC()
+	if !expiresAt.After(time.Now().UTC()) {
+		return nil, fmt.Errorf("sandbox expiry must be in the future")
+	}
+	return e.extendSandboxTo(sandboxID, expiresAt)
+}
+
+func (e *Engine) extendSandboxTo(sandboxID uint, expiresAt time.Time) (*store.Sandbox, error) {
+	sandbox, err := e.store.GetSandbox(sandboxID)
+	if err != nil {
+		return nil, err
+	}
 	var plan SandboxPlan
 	if err := json.Unmarshal([]byte(sandbox.PlanJSON), &plan); err != nil {
 		return nil, fmt.Errorf("read sandbox plan: %w", err)
 	}
-	plan.TTLHours = ttlHours
 	if plan.WarningHours == 0 {
 		plan.WarningHours = 24
 	}
 	if plan.GraceHours == 0 {
 		plan.GraceHours = 72
 	}
-	expires, warn, grace := sandboxTimes(time.Now().UTC(), plan)
-	if err := e.store.ExtendSandbox(sandboxID, expires, warn, grace); err != nil {
+	now := time.Now().UTC()
+	warn := expiresAt.Add(-time.Duration(plan.WarningHours) * time.Hour)
+	if warn.Before(now) {
+		warn = now
+	}
+	grace := expiresAt.Add(time.Duration(plan.GraceHours) * time.Hour)
+	if err := e.store.ExtendSandbox(sandboxID, expiresAt, warn, grace); err != nil {
 		return nil, err
 	}
 	return e.store.GetSandbox(sandboxID)

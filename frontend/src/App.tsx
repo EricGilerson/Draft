@@ -279,7 +279,11 @@ function App() {
                                         dialogOnly
                                         projects={projects}
                                         initialSource={sandboxSource}
-                                        onOpenSandbox={() => undefined}
+                                        onOpenSandbox={(projectId, environmentId) => {
+                                            requestedEnvironmentRef.current = {projectId, environmentId};
+                                            setSelectedEnvironmentId(environmentId);
+                                            setSandboxSource(null);
+                                        }}
                                         onReturnToSource={() => setSandboxSource(null)}
                                     />
                                 )}

@@ -64,6 +64,81 @@ select.input.settings-select.environment-select {
     font-size: 0.74rem !important;
 }
 
+.environment-sandbox-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(120, 150, 140, 0.1);
+}
+
+.environment-sandbox-banner--warning {
+    background: rgba(180, 120, 40, 0.12);
+    border-bottom-color: rgba(180, 120, 40, 0.35);
+}
+
+.environment-sandbox-banner--expired {
+    background: rgba(180, 70, 60, 0.12);
+    border-bottom-color: rgba(180, 70, 60, 0.35);
+}
+
+.environment-sandbox-banner--suspended {
+    background: rgba(110, 120, 130, 0.14);
+}
+
+.environment-sandbox-banner-main {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--text);
+    font-size: 0.74rem;
+}
+
+.environment-sandbox-banner-main strong {
+    font-size: 0.78rem;
+}
+
+.environment-sandbox-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-faint);
+    font-size: 0.66rem;
+    font-family: var(--mono);
+    text-transform: lowercase;
+}
+
+.environment-sandbox-source,
+.environment-sandbox-expiry {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-faint);
+}
+
+.environment-sandbox-banner-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.environment-sandbox-banner-actions .btn,
+.environment-sandbox-banner-actions .sandbox-extend-trigger {
+    min-height: 30px;
+    height: 30px;
+    padding: 0 10px;
+    font-size: 0.72rem;
+}
+
 .environment-switcher-tab-wrap {
     position: relative;
     display: inline-flex;

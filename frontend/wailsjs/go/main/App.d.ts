@@ -66,6 +66,8 @@ export function ExportProjectConfig(arg1:number,arg2:string):Promise<deploy.Expo
 
 export function ExtendSandbox(arg1:number,arg2:number):Promise<store.Sandbox>;
 
+export function ExtendSandboxUntil(arg1:number,arg2:string):Promise<store.Sandbox>;
+
 export function GetActiveDeployment(arg1:string):Promise<store.Deployment>;
 
 export function GetAppSettings():Promise<main.AppSettings>;
