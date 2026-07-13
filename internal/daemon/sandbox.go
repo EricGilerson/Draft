@@ -7,9 +7,9 @@ import (
 )
 
 // reconcileSandboxLifecycle keeps lifecycle state honest even after Draft was
-// closed at the warning/expiry boundary. Deletion is intentionally not driven
-// by this loop yet: the eventual purge policy must also remove sandbox-owned
-// volumes, unlike normal environment deletion which preserves them.
+// closed at the warning/expiry boundary. After the grace window ends it purges
+// the sandbox, including Draft-managed volumes (more destructive than normal
+// environment deletion, which preserves volumes for reclaim).
 func (s *Server) reconcileSandboxLifecycle(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()

@@ -172,7 +172,7 @@ export default function SandboxExtendControl({sandboxId, currentExpiresAt, onExt
                         </div>
                         {untilDate && untilDate.getTime() > Date.now() && (
                             <p className="sandbox-extend-hint">
-                                Expires {formatExtendPreview(untilDate)}
+                                Expires {formatExtendPreview(untilDate)}. Auto-delete still waits for the sandbox grace period after that.
                             </p>
                         )}
                     </div>

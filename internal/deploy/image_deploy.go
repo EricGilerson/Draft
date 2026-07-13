@@ -104,6 +104,12 @@ func (e *Engine) startContainerAndRegister(
 		preRegisteredHostname = reg.Hostname
 		preRegisteredHostPort = reg.HostPort
 		e.emitBuildLog(nodeID, fmt.Sprintf("    TCP route: %s → 127.0.0.1:%d", reg.Hostname, reg.HostPort))
+
+		// Env was resolved before the lease existed. Rewrite public TCP
+		// endpoints in the container env to the leased host port.
+		oldPublicURL := addr.PublicURL
+		addr.PublicURL = fmt.Sprintf("%s:%d", addr.PublicHostname, reg.HostPort)
+		deployEnv = withTCPPublicURL(deployEnv, oldPublicURL, addr.PublicURL)
 	}
 	defer func() {
 		if preRegisteredHostname != "" && !succeeded {
@@ -312,6 +318,15 @@ func (e *Engine) startContainerAndRegister(
 	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
 	e.promoteStagedAfterSuccessfulDeploy(ctx, nodeID, node.ProjectID)
+
+	// Persist leased public endpoints into template-generated connection
+	// strings (PUBLIC_DATABASE_URL, …) so Variables matches the live bind.
+	if isTCP {
+		if err := e.refreshTemplateGeneratedEnvVars(nodeID); err != nil {
+			log.Printf("[deploy] warning: refresh public connection URLs: %v", err)
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not refresh public connection URLs: %v", err))
+		}
+	}
 
 	succeeded = true
 

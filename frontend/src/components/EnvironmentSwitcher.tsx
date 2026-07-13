@@ -1,8 +1,9 @@
 import {useEffect, useRef, useState} from 'react';
-import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw} from 'lucide-react';
+import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw, Trash2} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
+    DeleteSandbox,
     DuplicateEnvironment,
     ListEnvironments,
     ListSandboxes,
@@ -23,6 +24,57 @@ import './EnvironmentSwitcher.css';
 function sandboxExpiryLabel(value: unknown): string {
     const date = new Date(value as string | number | Date);
     return Number.isNaN(date.valueOf()) ? 'Unknown expiry' : date.toLocaleString();
+}
+
+/** Confirm dialog tone tracks lifecycle: strongest while live, softest in grace. */
+function sandboxDeleteConfirm(sandbox: store.Sandbox): {
+    title: string;
+    message: string;
+    detail: string;
+    confirmLabel: string;
+    danger: boolean;
+} {
+    const name = sandbox.name || 'this sandbox';
+    const status = sandbox.status || 'active';
+
+    if (status === 'expired' || status === 'cleanup_failed') {
+        const scheduled = sandboxExpiryLabel(sandbox.graceEndsAt);
+        if (status === 'cleanup_failed') {
+            return {
+                title: 'Retry sandbox delete?',
+                message: `Previous cleanup of "${name}" failed. Try again?`,
+                detail: 'This removes any remaining containers, routes, network, and Draft-managed volumes.',
+                confirmLabel: 'Retry delete',
+                danger: true,
+            };
+        }
+        return {
+            title: 'Remove expired sandbox?',
+            message: `"${name}" has already expired and is only waiting out its grace period.`,
+            detail: `Auto-delete is scheduled for ${scheduled}. Removing it now just frees Docker resources early.`,
+            confirmLabel: 'Remove now',
+            danger: false,
+        };
+    }
+
+    if (status === 'warning') {
+        return {
+            title: 'Delete sandbox?',
+            message: `"${name}" is already in its warning window. Delete it now?`,
+            detail: `Draft will auto-delete after grace ends (${sandboxExpiryLabel(sandbox.graceEndsAt)}). Deleting now frees containers, routes, and Draft-managed volumes immediately.`,
+            confirmLabel: 'Delete now',
+            danger: true,
+        };
+    }
+
+    // active, suspended, or any other live status — most careful wording
+    return {
+        title: 'Delete sandbox?',
+        message: `Delete "${name}" and all of its Draft-managed data?`,
+        detail: 'Containers, routes, the sandbox network, and Draft-managed volumes are permanently removed. This cannot be undone.',
+        confirmLabel: 'Delete sandbox',
+        danger: true,
+    };
 }
 
 /** Sentinel for "start empty" in the source dropdown. */
@@ -206,6 +258,27 @@ export default function EnvironmentSwitcher({
                 message: String(e),
             });
         });
+    };
+
+    const removeSandbox = async (sandbox: store.Sandbox) => {
+        const options = sandboxDeleteConfirm(sandbox);
+        if (!await confirm(options)) return;
+        try {
+            await DeleteSandbox(sandbox.id);
+            refresh();
+            onEnvironmentsChanged?.();
+            onServicesChanged?.();
+            if (selectedEnvironmentId === sandbox.environmentId) {
+                const source = environments.find((e) => e.id === sandbox.sourceEnvironmentId);
+                const fallback = source ?? environments.find((e) => e.isDefault);
+                if (fallback) onSelect(fallback.id);
+            }
+        } catch (e) {
+            void alert({
+                title: 'Could not delete sandbox',
+                message: String(e),
+            });
+        }
     };
 
     const setAsDefault = async (env: store.Environment) => {
@@ -420,9 +493,9 @@ export default function EnvironmentSwitcher({
                         )}
                         <span className="environment-sandbox-expiry">
                             <Clock3 size={12}/>
-                            {selectedSandbox.status === 'expired'
-                                ? `Grace until ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`
-                                : `Expires ${sandboxExpiryLabel(selectedSandbox.expiresAt)}`}
+                            {selectedSandbox.status === 'expired' || selectedSandbox.status === 'cleanup_failed'
+                                ? `Deletes ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`
+                                : `Expires ${sandboxExpiryLabel(selectedSandbox.expiresAt)} · deletes ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`}
                         </span>
                     </div>
                     <div className="environment-sandbox-banner-actions">
@@ -435,6 +508,15 @@ export default function EnvironmentSwitcher({
                                 Open source
                             </button>
                         )}
+                        <button
+                            type="button"
+                            className="btn btn-ghost environment-sandbox-delete"
+                            onClick={() => void removeSandbox(selectedSandbox)}
+                            title="Delete sandbox"
+                            aria-label="Delete sandbox"
+                        >
+                            <Trash2 size={13}/>
+                        </button>
                         <SandboxExtendControl
                             compact
                             sandboxId={selectedSandbox.id}

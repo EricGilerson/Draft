@@ -108,18 +108,23 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 			publicHostname = networking.LocalHostname(hostname)
 		}
 	}
-	// HTTP: reverse-proxy public URL. TCP: scheme-less host:port (preferred
-	// host_port when set, else service_port) so @{refs} and inject never invent
-	// http:// for wire protocols.
+	// HTTP: reverse-proxy public URL. TCP: scheme-less host:port so @{refs}
+	// and inject never invent http:// for wire protocols. Prefer the leased
+	// route/deployment host port when known; otherwise the preferred host_port
+	// (or service_port) so pre-deploy stamps still have a usable guess.
 	internalURL := networking.ServiceInternalURL(hostname, portStr, protocol)
 	publicURL := ""
 	if networking.IsTCPProtocol(protocol) {
-		pubPort := portStr
-		if hp := strings.TrimSpace(settings["host_port"]); hp != "" && hp != "0" {
-			pubPort = hp
-		}
-		if n, err := strconv.Atoi(pubPort); err == nil && n > 0 {
+		if n := e.leasedTCPHostPort(node.ID, hostname); n > 0 {
 			publicURL = fmt.Sprintf("%s:%d", publicHostname, n)
+		} else {
+			pubPort := portStr
+			if hp := strings.TrimSpace(settings["host_port"]); hp != "" && hp != "0" {
+				pubPort = hp
+			}
+			if n, err := strconv.Atoi(pubPort); err == nil && n > 0 {
+				publicURL = fmt.Sprintf("%s:%d", publicHostname, n)
+			}
 		}
 	} else if e.router != nil {
 		if localDomain.ProxyPort == 80 {
@@ -141,6 +146,37 @@ func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error)
 		PublicHostname:    publicHostname,
 		PublicURL:         publicURL,
 	}, nil
+}
+
+// leasedTCPHostPort returns the host port Draft actually bound for a TCP
+// service, preferring the persisted route (stable across restarts) and falling
+// back to the active deployment. Zero means "not leased yet" — callers should
+// use the preferred host_port setting instead.
+func (e *Engine) leasedTCPHostPort(nodeID, hostname string) int {
+	if e.store == nil {
+		return 0
+	}
+	if hostname != "" {
+		if route, err := e.store.GetRoute(hostname); err == nil && route != nil {
+			if networking.IsTCPProtocol(route.Protocol) && route.HostPort > 0 {
+				return route.HostPort
+			}
+		}
+	}
+	if routes, err := e.store.ListRoutesByNode(nodeID); err == nil {
+		for _, route := range routes {
+			if networking.IsTCPProtocol(route.Protocol) && route.HostPort > 0 {
+				return route.HostPort
+			}
+		}
+	}
+	if dep, err := e.store.ActiveDeployment(nodeID); err == nil && dep != nil && dep.HostPort > 0 {
+		settings, err := e.store.GetNodeSettings(nodeID)
+		if err == nil && networking.IsTCPProtocol(settings["route_protocol"]) {
+			return dep.HostPort
+		}
+	}
+	return 0
 }
 
 // isSandboxEnvironment reports whether environmentID belongs to a sandbox.

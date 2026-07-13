@@ -98,7 +98,7 @@ const DRAFT_TOKENS: {token: string; hint: string}[] = [
     {token: '{{draft.internal_hostname}}', hint: 'Docker-network hostname'},
     {token: '{{draft.internal_url}}', hint: 'Internal URL (http://… or host:port for TCP)'},
     {token: '{{draft.public_hostname}}', hint: 'Host-side hostname (*.draft.resolv.sh)'},
-    {token: '{{draft.public_url}}', hint: 'Public access (http proxy URL or host:port for TCP)'},
+    {token: '{{draft.public_url}}', hint: 'Public endpoint (proxy URL, or hostname:leased-port for TCP)'},
     {token: '{{draft.service_port}}', hint: 'Configured container port'},
     {token: '{{draft.service}}', hint: 'Sanitized service label'},
     {token: '{{draft.project}}', hint: 'Sanitized project name'},

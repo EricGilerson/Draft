@@ -361,21 +361,18 @@ func (e *Engine) ReapplyTemplate(nodeID string) (*CreateNodeFromTemplateResult, 
 	return result, nil
 }
 
-// restampTemplateOwnedGeneratedValues refreshes template-owned generated values
-// after a service stops being a shared alias or after a copied service becomes
-// its own independent node. Only generated env vars are rewritten outright;
-// template-derived settings are refreshed conservatively only when the copied
-// value still exactly matches the source node's template-derived value.
-func (e *Engine) restampTemplateOwnedGeneratedValues(nodeID, sourceNodeID string) error {
+// refreshTemplateGeneratedEnvVars re-resolves every EnvSourceGenerated var that
+// still matches a template default against the node's current identity. Used
+// after TCP deploy so PUBLIC_* connection strings pick up the leased host port
+// (computeNodeAddress reads the route once Register has persisted it).
+func (e *Engine) refreshTemplateGeneratedEnvVars(nodeID string) error {
 	if e.store == nil {
 		return fmt.Errorf("store is not available")
 	}
 	nodeID = strings.TrimSpace(nodeID)
-	sourceNodeID = strings.TrimSpace(sourceNodeID)
-	if nodeID == "" || sourceNodeID == "" {
+	if nodeID == "" {
 		return nil
 	}
-
 	node, err := e.store.GetNode(nodeID)
 	if err != nil {
 		return err
@@ -431,6 +428,39 @@ func (e *Engine) restampTemplateOwnedGeneratedValues(nodeID, sourceNodeID string
 		}); err != nil {
 			return fmt.Errorf("seed env %q: %w", key, err)
 		}
+	}
+	return nil
+}
+
+// restampTemplateOwnedGeneratedValues refreshes template-owned generated values
+// after a service stops being a shared alias or after a copied service becomes
+// its own independent node. Only generated env vars are rewritten outright;
+// template-derived settings are refreshed conservatively only when the copied
+// value still exactly matches the source node's template-derived value.
+func (e *Engine) restampTemplateOwnedGeneratedValues(nodeID, sourceNodeID string) error {
+	if e.store == nil {
+		return fmt.Errorf("store is not available")
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	sourceNodeID = strings.TrimSpace(sourceNodeID)
+	if nodeID == "" || sourceNodeID == "" {
+		return nil
+	}
+
+	if err := e.refreshTemplateGeneratedEnvVars(nodeID); err != nil {
+		return err
+	}
+
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+	if node.TemplateID == 0 {
+		return nil
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return fmt.Errorf("template not found: %w", err)
 	}
 
 	sourceSettings, err := e.store.GetNodeSettings(sourceNodeID)

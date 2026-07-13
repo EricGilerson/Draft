@@ -208,6 +208,177 @@ func TestComputeNodeAddressTCPUsesSchemelessEndpoints(t *testing.T) {
 	}
 }
 
+func TestComputeNodeAddressTCPPrefersLeasedHostPort(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	p, err := s.CreateProject("lease-proj", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.CreateNode(&store.CanvasNode{
+		ID:            "tcp-leased",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		Label:         "db",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetNodeSetting(node.ID, "service_port", "5432")
+	_ = s.SetNodeSetting(node.ID, "route_protocol", "tcp")
+	_ = s.SetNodeSetting(node.ID, "host_port", "5432")
+
+	addr, err := e.computeNodeAddress(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertRoute(&store.Route{
+		Hostname:    addr.InternalHostname,
+		ProjectID:   p.ID,
+		NodeID:      node.ID,
+		Environment: addr.Environment,
+		Protocol:    "tcp",
+		TargetHost:  "127.0.0.1",
+		TargetPort:  5432,
+		HostPort:    32831,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := e.computeNodeAddress(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(got.PublicURL, ":32831") {
+		t.Fatalf("PublicURL = %q, want leased …:32831", got.PublicURL)
+	}
+	if strings.HasSuffix(got.InternalURL, ":32831") {
+		t.Fatalf("InternalURL must keep service port, got %q", got.InternalURL)
+	}
+}
+
+func TestWithTCPPublicURLRewritesConnectionStrings(t *testing.T) {
+	oldURL := "db.app.main.abcd.draft.resolv.sh:5432"
+	newURL := "db.app.main.abcd.draft.resolv.sh:32831"
+	env := deploymentEnv{
+		RuntimeEnv: []string{
+			"DATABASE_URL=postgres://postgres:secret@" + strings.Replace(oldURL, ".resolv.sh:5432", ".local:5432", 1) + "/postgres",
+			"PUBLIC_DATABASE_URL=postgres://postgres:secret@" + oldURL + "/postgres",
+			"DRAFT_PUBLIC_URL=" + oldURL,
+			"OTHER=keep-me",
+		},
+		BuildArgs: map[string]*string{},
+	}
+	got := withTCPPublicURL(env, oldURL, newURL)
+	byKey := map[string]string{}
+	for _, item := range got.RuntimeEnv {
+		k, v, ok := splitEnv(item)
+		if !ok {
+			t.Fatalf("bad env item %q", item)
+		}
+		byKey[k] = v
+	}
+	if byKey["DRAFT_PUBLIC_URL"] != newURL {
+		t.Fatalf("DRAFT_PUBLIC_URL = %q", byKey["DRAFT_PUBLIC_URL"])
+	}
+	if !strings.Contains(byKey["PUBLIC_DATABASE_URL"], newURL) {
+		t.Fatalf("PUBLIC_DATABASE_URL = %q", byKey["PUBLIC_DATABASE_URL"])
+	}
+	if strings.Contains(byKey["PUBLIC_DATABASE_URL"], ":5432") {
+		t.Fatalf("PUBLIC_DATABASE_URL still has preferred port: %q", byKey["PUBLIC_DATABASE_URL"])
+	}
+	if !strings.Contains(byKey["DATABASE_URL"], ".local:5432") {
+		t.Fatalf("internal DATABASE_URL should stay on service port, got %q", byKey["DATABASE_URL"])
+	}
+	if byKey["OTHER"] != "keep-me" {
+		t.Fatalf("OTHER = %q", byKey["OTHER"])
+	}
+}
+
+func TestRefreshTemplateGeneratedEnvVarsUsesLeasedPublicURL(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	if err := s.SeedBuiltins(); err != nil {
+		t.Fatal(err)
+	}
+	tpl := findBuiltin(t, s, "PostgreSQL")
+	dir := t.TempDir()
+	p, err := s.CreateProject("pg-lease", dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := s.CreateNode(&store.CanvasNode{
+		ID:            "pg1",
+		Label:         "db",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		TemplateID:    tpl.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureNodeUID(node.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetNodeSetting(node.ID, "service_port", "5432")
+	_ = s.SetNodeSetting(node.ID, "route_protocol", "tcp")
+	_ = s.SetNodeSetting(node.ID, "host_port", "5432")
+	_ = s.SetNodeSetting(node.ID, "image", "postgres:16-alpine")
+
+	// Stamp-like preferred-port URL (what Variables shows before a lease fallback).
+	if err := s.UpsertEnvVar(store.EnvVar{
+		NodeID: node.ID, Key: "PUBLIC_DATABASE_URL", Scope: store.EnvScopeRuntime,
+		Source: store.EnvSourceGenerated,
+		Value:  "postgres://postgres:secret@db.example.draft.resolv.sh:5432/postgres",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertEnvVar(store.EnvVar{
+		NodeID: node.ID, Key: "DATABASE_URL", Scope: store.EnvScopeRuntime,
+		Source: store.EnvSourceGenerated,
+		Value:  "postgres://postgres:secret@db.example.draft.local:5432/postgres",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	addr, err := e.computeNodeAddress(node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertRoute(&store.Route{
+		Hostname:    addr.InternalHostname,
+		ProjectID:   p.ID,
+		NodeID:      node.ID,
+		Environment: addr.Environment,
+		Protocol:    "tcp",
+		TargetHost:  "127.0.0.1",
+		TargetPort:  5432,
+		HostPort:    32831,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.refreshTemplateGeneratedEnvVars(node.ID); err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.GetEnvVar(node.ID, "PUBLIC_DATABASE_URL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(v.Value, ":32831") {
+		t.Fatalf("PUBLIC_DATABASE_URL = %q, want leased port 32831", v.Value)
+	}
+	if strings.Contains(v.Value, ":5432/") || strings.HasSuffix(v.Value, ":5432/postgres") {
+		t.Fatalf("PUBLIC_DATABASE_URL still preferred port: %q", v.Value)
+	}
+	internal, err := s.GetEnvVar(node.ID, "DATABASE_URL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(internal.Value, ":5432") {
+		t.Fatalf("DATABASE_URL should keep service port, got %q", internal.Value)
+	}
+}
+
 func TestComputeNodeAddressHTTPKeepsURLs(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
@@ -234,13 +405,4 @@ func TestComputeNodeAddressHTTPKeepsURLs(t *testing.T) {
 	if !strings.HasPrefix(addr.InternalURL, "http://") {
 		t.Errorf("InternalURL = %q, want http://…", addr.InternalURL)
 	}
-}
-
-func splitEnv(item string) (string, string, bool) {
-	for i, r := range item {
-		if r == '=' {
-			return item[:i], item[i+1:], true
-		}
-	}
-	return "", "", false
 }

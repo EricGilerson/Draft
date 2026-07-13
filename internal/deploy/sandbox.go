@@ -571,6 +571,10 @@ func sandboxTimes(now time.Time, plan SandboxPlan) (time.Time, time.Time, time.T
 // ReconcileSandboxLifecycle advances persisted lifecycle status. It is safe to
 // call at daemon startup and periodically. Expired sandboxes are purged after
 // their configured grace period, including Draft-managed volume data.
+//
+// Status transitions are applied in-memory so a single pass can move
+// active → warning → expired → deleted when timestamps land in the same
+// reconcile window (for example graceHours=0).
 func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) error {
 	projects, err := e.store.ListProjects()
 	if err != nil {
@@ -582,17 +586,25 @@ func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) e
 			return err
 		}
 		for _, sandbox := range sandboxes {
-			if sandbox.Status == "active" && !sandbox.WarnAt.After(now) {
+			status := sandbox.Status
+			// Warning only applies while the sandbox is still considered live.
+			if status == "active" && !sandbox.WarnAt.After(now) {
 				if err := e.store.UpdateSandboxStatus(sandbox.ID, "warning", nil); err != nil {
 					return err
 				}
+				status = "warning"
 			}
-			if (sandbox.Status == "active" || sandbox.Status == "warning") && !sandbox.ExpiresAt.After(now) {
+			// Suspended sandboxes still expire on schedule so they are not left
+			// around forever after the user stops them and walks away.
+			if (status == "active" || status == "warning" || status == "suspended") && !sandbox.ExpiresAt.After(now) {
 				if err := e.store.UpdateSandboxStatus(sandbox.ID, "expired", nil); err != nil {
 					return err
 				}
+				status = "expired"
 			}
-			if sandbox.Status == "expired" && !sandbox.GraceEndsAt.After(now) {
+			// cleanup_failed is retriable: a prior purge attempt may have failed
+			// because Docker was down mid-delete.
+			if (status == "expired" || status == "cleanup_failed") && !sandbox.GraceEndsAt.After(now) {
 				if err := e.DeleteSandbox(ctx, sandbox.ID); err != nil {
 					return err
 				}

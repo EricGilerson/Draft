@@ -3,6 +3,7 @@ package deploy
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"Draft/internal/store"
 )
@@ -127,6 +128,69 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 		RuntimeEnv: runtimeEnv,
 		BuildArgs:  buildArgs,
 	}, nil
+}
+
+// withTCPPublicURL rewrites a resolved deployment env so public TCP endpoints
+// use the leased host port. Env is resolved before the lease exists, so
+// DRAFT_PUBLIC_URL and stamped PUBLIC_* DSNs may still carry the preferred
+// port; replace that host:port pair once the real lease is known.
+func withTCPPublicURL(env deploymentEnv, oldPublicURL, newPublicURL string) deploymentEnv {
+	if newPublicURL == "" || oldPublicURL == newPublicURL {
+		if newPublicURL != "" {
+			env.RuntimeEnv = setRuntimeEnvValue(env.RuntimeEnv, "DRAFT_PUBLIC_URL", newPublicURL)
+		}
+		return env
+	}
+	out := make([]string, len(env.RuntimeEnv))
+	copy(out, env.RuntimeEnv)
+	if oldPublicURL != "" {
+		for i, item := range out {
+			key, val, ok := splitEnv(item)
+			if !ok {
+				continue
+			}
+			if key == "DRAFT_PUBLIC_URL" {
+				out[i] = key + "=" + newPublicURL
+				continue
+			}
+			if strings.Contains(val, oldPublicURL) {
+				out[i] = key + "=" + strings.ReplaceAll(val, oldPublicURL, newPublicURL)
+			}
+		}
+	}
+	out = setRuntimeEnvValue(out, "DRAFT_PUBLIC_URL", newPublicURL)
+	env.RuntimeEnv = out
+
+	if env.BuildArgs != nil && oldPublicURL != "" {
+		for key, ptr := range env.BuildArgs {
+			if ptr == nil || !strings.Contains(*ptr, oldPublicURL) {
+				continue
+			}
+			updated := strings.ReplaceAll(*ptr, oldPublicURL, newPublicURL)
+			env.BuildArgs[key] = &updated
+		}
+	}
+	return env
+}
+
+func setRuntimeEnvValue(runtimeEnv []string, key, value string) []string {
+	prefix := key + "="
+	for i, item := range runtimeEnv {
+		if strings.HasPrefix(item, prefix) {
+			runtimeEnv[i] = prefix + value
+			return runtimeEnv
+		}
+	}
+	return append(runtimeEnv, prefix+value)
+}
+
+func splitEnv(item string) (string, string, bool) {
+	for i, r := range item {
+		if r == '=' {
+			return item[:i], item[i+1:], true
+		}
+	}
+	return "", "", false
 }
 
 // scopeVar is the common shape of a node-level env var for the resolution loop above.

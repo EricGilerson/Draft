@@ -220,6 +220,9 @@ func TestIntegrationPostgresTCPRouteVolumeAndQuery(t *testing.T) {
 	if pub := env["DRAFT_PUBLIC_URL"]; pub == "" || strings.HasPrefix(pub, "http") {
 		t.Errorf("DRAFT_PUBLIC_URL should be scheme-less host:port for TCP, got %q", pub)
 	}
+	if want := ":" + strconv.Itoa(hostPort); !strings.HasSuffix(env["DRAFT_PUBLIC_URL"], want) {
+		t.Errorf("DRAFT_PUBLIC_URL = %q, want suffix %q (leased host port)", env["DRAFT_PUBLIC_URL"], want)
+	}
 	if strings.Contains(env["DRAFT_PUBLIC_URL"], strconv.Itoa(r.LocalDomainStatus().ProxyPort)) && r.LocalDomainStatus().ProxyPort != hostPort {
 		t.Errorf("DRAFT_PUBLIC_URL must not use HTTP proxy port: %q", env["DRAFT_PUBLIC_URL"])
 	}
