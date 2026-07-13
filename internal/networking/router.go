@@ -364,9 +364,17 @@ func verifyDraftLookupWithin(timeout time.Duration) bool {
 	}
 }
 
+// verifyLookupTimeout bounds each OS-level probe. Without this, a misconfigured
+// macOS resolver (e.g. nameserver on 127.0.0.1:53 with nothing listening) can
+// block LookupHost for 30–60s per attempt and make enable feel stuck for a
+// minute before the second admin prompt tears the rule back down.
+const verifyLookupTimeout = 2 * time.Second
+
 func verifyDraftLookupOnce() bool {
 	name := fmt.Sprintf("draft-probe-%d.%s", time.Now().UnixNano(), LocalSuffix)
-	addrs, err := net.DefaultResolver.LookupHost(context.Background(), name)
+	ctx, cancel := context.WithTimeout(context.Background(), verifyLookupTimeout)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupHost(ctx, name)
 	if err != nil {
 		return false
 	}
