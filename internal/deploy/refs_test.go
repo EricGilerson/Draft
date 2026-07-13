@@ -489,6 +489,32 @@ func TestLinkedServiceDATABASE_URLRewritesHostname(t *testing.T) {
 	if prev.Kind != "linked" {
 		t.Errorf("alias preview kind = %q, want linked", prev.Kind)
 	}
+
+	issues, err := e.ListReferenceIssues(worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("worker reference issues = %+v, want none (root-only attrs on linked db)", issues)
+	}
+
+	targets, err := e.ListReferenceTargets(worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dbTarget *ReferenceTarget
+	for i := range targets {
+		if targets[i].Label == "db" {
+			dbTarget = &targets[i]
+			break
+		}
+	}
+	if dbTarget == nil {
+		t.Fatal("db not in reference targets")
+	}
+	if !containsString(dbTarget.CustomKeys, "POSTGRES_PASSWORD") {
+		t.Errorf("db custom keys = %v, want POSTGRES_PASSWORD from linked root", dbTarget.CustomKeys)
+	}
 }
 
 func TestPreviewKind(t *testing.T) {

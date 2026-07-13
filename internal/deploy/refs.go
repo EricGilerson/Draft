@@ -399,6 +399,20 @@ func isGeneratedAttr(attrName string) bool {
 	return false
 }
 
+// referenceEnvVarNodeID returns the node whose custom env vars should be
+// listed or validated for a reference target. Linked aliases follow the same
+// one-hop-to-root rule as resolveNodeAttr so UI pickers and warnings match deploy.
+func referenceEnvVarNodeID(s *store.Store, targetNodeID string) (string, error) {
+	settings, err := s.GetNodeSettings(targetNodeID)
+	if err != nil {
+		return "", err
+	}
+	if link := ParseServiceLink(settings[SettingServiceLink]); link != nil && strings.TrimSpace(link.RootNodeID) != "" {
+		return link.RootNodeID, nil
+	}
+	return targetNodeID, nil
+}
+
 // ResolveEnvVars returns nodeID's env vars with service reference tokens
 // expanded for .env export. {{secret.*}} and {{project.*}} tokens are preserved literally.
 // Linked aliases rewrite root hostnames to the alias DNS names used on the
@@ -502,7 +516,11 @@ func (e *Engine) ListReferenceTargets(nodeID string) ([]ReferenceTarget, error) 
 		if n.ID == nodeID {
 			continue
 		}
-		vars, err := e.store.ListEnvVars(n.ID)
+		envNodeID, err := referenceEnvVarNodeID(e.store, n.ID)
+		if err != nil {
+			return nil, err
+		}
+		vars, err := e.store.ListEnvVars(envNodeID)
 		if err != nil {
 			return nil, err
 		}
@@ -613,7 +631,16 @@ func listReferenceIssues(s *store.Store, nodeID string) ([]ReferenceIssue, error
 			if isGeneratedAttr(attrName) {
 				continue
 			}
-			if _, err := s.GetEnvVar(target.ID, attrName); err != nil {
+			envNodeID, err := referenceEnvVarNodeID(s, target.ID)
+			if err != nil {
+				issues = append(issues, ReferenceIssue{
+					VarKey: v.Key,
+					Token:  token,
+					Reason: fmt.Sprintf("%q has no variable named %q", label, attrName),
+				})
+				continue
+			}
+			if _, err := s.GetEnvVar(envNodeID, attrName); err != nil {
 				issues = append(issues, ReferenceIssue{
 					VarKey: v.Key,
 					Token:  token,
