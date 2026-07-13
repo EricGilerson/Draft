@@ -1,42 +1,61 @@
 package networking
 
 import (
-	"fmt"
-
 	"Draft/internal/store"
 )
 
 // BestDeploymentURL returns the preferred public access string for a
 // deployment. protocol is "http" (default) or "tcp".
 //
-// HTTP services use the Draft reverse-proxy public URL when available.
-// TCP services never use the HTTP proxy port — they use the public hostname
-// with the leased host port (scheme-less host:port).
+// Uses local.PublicSuffix from LocalDomainStatus (cached .draft vs resolv.sh)
+// and falls back to 127.0.0.1:hostPort when hostname mode is unavailable.
 func BestDeploymentURL(dep *store.Deployment, local LocalDomainStatus, protocol string) string {
 	if dep == nil {
 		return ""
 	}
-	if IsTCPProtocol(protocol) {
-		if dep.Hostname != "" && dep.HostPort > 0 && local.Mode != "localhost-port" {
-			return PublicTCPEndpoint(dep.Hostname, dep.HostPort)
-		}
-		if dep.HostPort > 0 {
-			return fmt.Sprintf("127.0.0.1:%d", dep.HostPort)
-		}
+	return BestServiceURL(dep.Hostname, dep.HostPort, protocol, local)
+}
+
+// DisplayPublicURL is the router-backed helper for UI surfaces. It reads the
+// cached local-domain status (no synchronous DNS probe on warm cache).
+func (r *Router) DisplayPublicURL(hostname string, hostPort int, protocol string) string {
+	if r == nil {
+		return BestServiceURL(hostname, hostPort, protocol, LocalDomainStatus{
+			Mode:         "localhost-port",
+			PublicSuffix: PublicSuffix,
+		})
+	}
+	return BestServiceURL(hostname, hostPort, protocol, r.LocalDomainStatus())
+}
+
+// DisplayPublicHostname rewrites an internal hostname to the effective public
+// suffix from cached local-domain status.
+func (r *Router) DisplayPublicHostname(hostname string) string {
+	if hostname == "" {
 		return ""
 	}
-	// localhost-port preference (or no working proxy) uses the mapped host port.
-	if local.Mode == "localhost-port" || local.ProxyPort <= 0 {
-		if dep.HostPort > 0 {
-			return fmt.Sprintf("http://127.0.0.1:%d", dep.HostPort)
+	suffix := PublicSuffix
+	if r != nil {
+		status := r.LocalDomainStatus()
+		if status.Mode == "localhost-port" {
+			return "127.0.0.1"
 		}
-		return ""
+		if status.PublicSuffix != "" {
+			suffix = status.PublicSuffix
+		}
 	}
-	if dep.Hostname != "" && local.ProxyPort > 0 {
-		return PublicURL(dep.Hostname, local.ProxyPort)
+	return HostnameWithSuffix(hostname, suffix)
+}
+
+// EffectivePublicSuffix returns the cached UI public suffix without forcing a
+// fresh DNS probe when the verify cache is warm.
+func (r *Router) EffectivePublicSuffix() string {
+	if r == nil {
+		return PublicSuffix
 	}
-	if dep.HostPort > 0 {
-		return fmt.Sprintf("http://127.0.0.1:%d", dep.HostPort)
+	status := r.LocalDomainStatus()
+	if status.PublicSuffix != "" {
+		return status.PublicSuffix
 	}
-	return ""
+	return PublicSuffix
 }

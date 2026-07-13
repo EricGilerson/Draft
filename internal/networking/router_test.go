@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"Draft/internal/store"
 )
@@ -396,6 +397,39 @@ func TestRouterLocalDomainStatusModes(t *testing.T) {
 	status = noPort.LocalDomainStatus()
 	if status.Mode != "localhost-port" || status.ProxyPort != 0 || status.HostsConfigured {
 		t.Fatalf("localhost-port status = %+v", status)
+	}
+}
+
+func TestRouterDraftVerifyCacheSkipsRepeatProbe(t *testing.T) {
+	s := openTestStore(t)
+	r := NewRouter(s, "127.0.0.1:54321")
+	r.setDraftInstalled(true)
+	r.setDraftVerified(true)
+	_ = s.SetAppSetting(store.AppSettingLocalDraftDomainEnabled, "true")
+	// Pretend DNS is listening without binding a real socket.
+	r.dns.addr = "127.0.0.1:53535"
+
+	status := r.LocalDomainStatus()
+	if !status.DNSVerified || status.PublicSuffix != LocalSuffix {
+		t.Fatalf("cached verified status = %+v", status)
+	}
+
+	// Warm cache should keep .draft without re-probing.
+	r.mu.Lock()
+	r.draftVerifiedAt = time.Now()
+	r.mu.Unlock()
+	again := r.LocalDomainStatus()
+	if again.PublicSuffix != LocalSuffix {
+		t.Fatalf("warm cache should keep .draft, got %+v", again)
+	}
+
+	r.invalidateDraftDNSCache()
+	r.setDraftInstalled(true)
+	r.setDraftVerified(false)
+	r.dns.addr = "127.0.0.1:53535"
+	cold := r.LocalDomainStatus()
+	if cold.DNSVerified || cold.PublicSuffix != PublicSuffix {
+		t.Fatalf("unverified cache should fall back to resolv.sh, got %+v", cold)
 	}
 }
 

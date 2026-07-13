@@ -192,6 +192,8 @@ export function RedeployEnvironment(arg1:number):Promise<deploy.EnvironmentStack
 
 export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
+export function RefreshLocalDomainStatus():Promise<networking.LocalDomainStatus>;
+
 export function RemoveDockerContainer(arg1:string,arg2:boolean):Promise<void>;
 
 export function RemoveDockerImage(arg1:string,arg2:boolean):Promise<void>;

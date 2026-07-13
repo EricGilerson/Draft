@@ -940,6 +940,10 @@ func (s *Server) handleLocalDomain(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if r.URL.Query().Get("refresh") == "1" {
+		writeJSON(w, s.router.RefreshLocalDomainStatus())
+		return
+	}
 	writeJSON(w, s.router.LocalDomainStatus())
 }
 

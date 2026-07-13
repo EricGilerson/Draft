@@ -17,7 +17,7 @@ import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeleteNode,
-    GetDeployments,
+    GetActiveDeployment,
     GetEnvironmentConnections,
     GetLinkedServiceInfo,
     GetNodeConfigStatus,
@@ -379,6 +379,9 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     let deploymentId: number | undefined;
                     let linkedFromEnv: string | undefined;
                     let linkedRootNodeId: string | undefined;
+                    let hostPort: number | undefined;
+                    let publicUrl: string | undefined;
+                    let health: string | undefined;
                     try {
                         const link = await GetLinkedServiceInfo(n.id);
                         if (link?.isLinked) {
@@ -386,17 +389,23 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                             linkedRootNodeId = link.rootNodeId || undefined;
                         }
                     } catch { /* not linked */ }
-                    // Linked aliases have no local deployment row — status comes from
-                    // GetNodeHealth (root-mirrored) in refreshNodeHealth below.
+                    // Resolve live status before first paint. GetDeployments[0] is the
+                    // newest row (can be failed/stopped while an older deploy still
+                    // runs); GetNodeHealth picks the active one and mirrors linked roots.
+                    try {
+                        const h = await GetNodeHealth(n.id);
+                        if (h?.status) {
+                            status = serviceStatusFromDeployment(h.status);
+                        }
+                        if (h?.hostPort) hostPort = h.hostPort;
+                        if (h?.publicUrl) publicUrl = h.publicUrl;
+                        if (h?.dockerHealth) health = h.dockerHealth;
+                    } catch { /* leave defaults */ }
                     if (!linkedRootNodeId) {
                         try {
-                            const deps = await GetDeployments(n.id);
-                            const dep = deps?.[0];
-                            if (dep?.status) {
-                                status = serviceStatusFromDeployment(dep.status);
-                                deploymentId = dep.id;
-                            }
-                        } catch { /* no deployment history */ }
+                            const dep = await GetActiveDeployment(n.id);
+                            if (dep?.id) deploymentId = dep.id;
+                        } catch { /* no active deployment */ }
                     }
                     const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
                     return {
@@ -412,6 +421,9 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                             iconColor: tpl?.color,
                             linkedFromEnv,
                             linkedRootNodeId,
+                            hostPort,
+                            publicUrl,
+                            health,
                         },
                     };
                 }),

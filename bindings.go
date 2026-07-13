@@ -1434,6 +1434,31 @@ func (a *App) GetLocalDomainStatus() networking.LocalDomainStatus {
 	return a.applyLocalDomainPreference(status)
 }
 
+// RefreshLocalDomainStatus re-probes OS DNS / install state and returns the
+// updated status. Prefer GetLocalDomainStatus for hot UI paths.
+func (a *App) RefreshLocalDomainStatus() networking.LocalDomainStatus {
+	c, err := a.ensureDaemon()
+	if err != nil || c == nil {
+		status := networking.LocalDomainStatus{
+			Mode:           "localhost-port",
+			HostsError:     errString(err),
+			PublicSuffix:   networking.PublicSuffix,
+			LoopbackSuffix: networking.PublicSuffix,
+		}
+		return a.applyLocalDomainPreference(status)
+	}
+	status, err := c.RefreshLocalDomainStatus(a.ctx)
+	if err != nil {
+		status = networking.LocalDomainStatus{
+			Mode:           "localhost-port",
+			HostsError:     err.Error(),
+			PublicSuffix:   networking.PublicSuffix,
+			LoopbackSuffix: networking.PublicSuffix,
+		}
+	}
+	return a.applyLocalDomainPreference(status)
+}
+
 func (a *App) applyLocalDomainPreference(status networking.LocalDomainStatus) networking.LocalDomainStatus {
 	if a.store == nil {
 		return status

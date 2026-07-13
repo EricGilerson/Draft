@@ -21,9 +21,15 @@ func TestBestDeploymentURL(t *testing.T) {
 	}{
 		{
 			name:     "http public hostname with proxy port",
-			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
+			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888, PublicSuffix: PublicSuffix},
 			protocol: "http",
 			want:     "http://api.app.default.abcd.draft.resolv.sh:53888",
+		},
+		{
+			name:     "http prefers local .draft suffix when verified",
+			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888, PublicSuffix: LocalSuffix},
+			protocol: "http",
+			want:     "http://api.app.default.abcd.draft:53888",
 		},
 		{
 			name:     "http localhost port fallback without proxy",
@@ -33,13 +39,13 @@ func TestBestDeploymentURL(t *testing.T) {
 		},
 		{
 			name:     "tcp uses public hostname and host port not proxy",
-			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
+			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888, PublicSuffix: PublicSuffix},
 			protocol: "tcp",
 			want:     "api.app.default.abcd.draft.resolv.sh:49152",
 		},
 		{
 			name:     "tcp without hostname falls back to loopback host port",
-			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888},
+			mode:     LocalDomainStatus{Mode: "public-hostname-port", ProxyPort: 53888, PublicSuffix: PublicSuffix},
 			protocol: "tcp",
 			want:     "api.app.default.abcd.draft.resolv.sh:49152",
 		},

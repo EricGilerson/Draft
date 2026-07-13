@@ -1,6 +1,6 @@
 import {LoaderCircle, RefreshCw} from 'lucide-react';
 import {useEffect, useState} from 'react';
-import {GetAppSettings, GetLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
+import {GetAppSettings, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import './WorkspaceViews.css';
@@ -73,7 +73,8 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
             GetAppSettings().catch((e) => {
                 throw e;
             }),
-            GetLocalDomainStatus().catch(() => null),
+            // Settings is the rare place that should re-probe; hot UI uses the cache.
+            RefreshLocalDomainStatus().catch(() => GetLocalDomainStatus().catch(() => null)),
         ])
             .then(([settings, status]) => {
                 setCompactSidebar(!!settings?.compactSidebar);

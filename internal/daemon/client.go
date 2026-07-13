@@ -510,6 +510,11 @@ func (c *Client) LocalDomainStatus(ctx context.Context) (networking.LocalDomainS
 	return out, c.get(ctx, "/local-domain", &out)
 }
 
+func (c *Client) RefreshLocalDomainStatus(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	return out, c.get(ctx, "/local-domain?refresh=1", &out)
+}
+
 func (c *Client) EnableLocalDraftDomain(ctx context.Context) (networking.LocalDomainStatus, error) {
 	var out networking.LocalDomainStatus
 	return out, c.postJSONWithTimeout(ctx, "/local-domain/enable", map[string]any{}, &out, 2*time.Minute)

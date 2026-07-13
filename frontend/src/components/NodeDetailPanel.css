@@ -336,6 +336,7 @@
 .status-badge {
     display: inline-flex;
     align-items: center;
+    gap: 5px;
     padding: 3px 8px;
     border: 1px solid currentColor;
     border-radius: 4px;

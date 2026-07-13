@@ -11,6 +11,7 @@ import {networking, store, deploy} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 import {useAppDialog} from './AppDialogProvider';
+import {bestPublicDeploymentURL, bestPublicEndpoint} from '../lib/localDomainUrls';
 
 type OverviewTabProps = {
     nodeId: string;
@@ -52,6 +53,7 @@ async function loadLinkedAwareRuntime(nodeId: string): Promise<{
 export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProps) {
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
     const [health, setHealth] = useState<deploy.NodeHealth | null>(null);
+    const [runtimeReady, setRuntimeReady] = useState(false);
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
@@ -73,11 +75,16 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     useEffect(() => {
         let cancelled = false;
+        setRuntimeReady(false);
+        setHealth(null);
+        setDeployment(null);
+        setLinkInfo(null);
         loadLinkedAwareRuntime(nodeId).then(({linkInfo: link, health: h, deployment: d}) => {
             if (cancelled) return;
             setLinkInfo(link);
             setHealth(h);
             setDeployment(d);
+            setRuntimeReady(true);
         });
         GetNodeConfigStatus(nodeId).then((status) => {
             if (cancelled) return;
@@ -102,6 +109,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setLinkInfo(link);
             setHealth(h);
             setDeployment(d);
+            setRuntimeReady(true);
             GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
             if (h?.status === 'failed' || d?.status === 'failed') {
                 setError(d?.error || 'Deployment failed');
@@ -180,6 +188,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setLinkInfo(runtime.linkInfo);
             setHealth(runtime.health);
             setDeployment(runtime.deployment);
+            setRuntimeReady(true);
             onServicesChanged?.();
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Promote failed');
@@ -199,6 +208,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setLinkInfo(runtime.linkInfo);
             setHealth(runtime.health);
             setDeployment(runtime.deployment);
+            setRuntimeReady(true);
             onServicesChanged?.();
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Unlink failed');
@@ -229,21 +239,27 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     // Prefer GetNodeHealth: for linked aliases it mirrors the root and uses
     // alias DNS names; for normal nodes it matches the active deployment.
-    const status = health?.status || deployment?.status || 'stopped';
+    // Until the first load finishes, avoid defaulting to "stopped" — that flash
+    // is wrong when a service is already running.
+    const status = runtimeReady
+        ? (health?.status || deployment?.status || 'stopped')
+        : '';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
     const routeProtocol = (health?.routeProtocol || settings.route_protocol || 'http').toLowerCase();
     const isTCP = routeProtocol === 'tcp';
-    const publicURL = isLinked
-        ? (health?.publicUrl || bestPublicEndpoint(health?.hostname, deployment, localDomain, routeProtocol)
-            || bestPublicDeploymentURL(deployment, localDomain, routeProtocol))
-        : (health?.publicUrl || bestPublicDeploymentURL(deployment, localDomain, routeProtocol));
     const hostPort = health?.hostPort || deployment?.hostPort || 0;
+    const displayHost = health?.hostname || deployment?.hostname || '';
+    // Prefer LocalDomainStatus-backed URLs: they carry cached .draft vs resolv.sh
+    // and the user's URL preference. health.publicUrl is the daemon fallback.
+    const publicURL = bestPublicEndpoint(displayHost, hostPort, localDomain, routeProtocol)
+        || health?.publicUrl
+        || bestPublicDeploymentURL(deployment, localDomain, routeProtocol);
     // TCP: scheme-less loopback endpoint (wire clients). HTTP: browser-openable URL.
     const localURL = hostPort > 0
         ? (isTCP ? `127.0.0.1:${hostPort}` : `http://127.0.0.1:${hostPort}`)
         : '';
-    const displayHostname = health?.hostname || deployment?.hostname || '';
+    const displayHostname = displayHost;
 
     const handleOpenDeployment = () => {
         if (!publicURL || isTCP) return;
@@ -283,7 +299,14 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     return (
         <div className="overview-tab">
             <div className="overview-status-row">
-                <StatusBadge status={status} />
+                {runtimeReady && status ? (
+                    <StatusBadge status={status} />
+                ) : (
+                    <span className="status-badge status-badge--pending" aria-busy="true">
+                        <Loader2 size={11} className="spin" />
+                        loading
+                    </span>
+                )}
                 {publicURL && isRunning && (
                     isTCP ? (
                         <span
@@ -352,7 +375,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         </button>
                     </>
                 )}
-                {!isLinked && !isActive && !deploying && (
+                {!isLinked && runtimeReady && !isActive && !deploying && (
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
@@ -369,7 +392,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         {pendingAction === 'stopping' ? 'Cancelling…' : 'Cancel Build'}
                     </button>
                 )}
-                {!isLinked && isActive && !deploying && (
+                {!isLinked && runtimeReady && isActive && !deploying && (
                     <>
                         <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
                             {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
@@ -560,55 +583,4 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             )}
         </div>
     );
-}
-
-function bestPublicDeploymentURL(
-    deployment: store.Deployment | null,
-    localDomain: networking.LocalDomainStatus | null,
-    protocol: string = 'http',
-): string {
-    if (!deployment) return '';
-    return bestPublicEndpoint(deployment.hostname, deployment, localDomain, protocol);
-}
-
-function bestPublicEndpoint(
-    hostname: string | undefined,
-    deployment: store.Deployment | null,
-    localDomain: networking.LocalDomainStatus | null,
-    protocol: string,
-): string {
-    const hostPort = deployment?.hostPort || 0;
-    if (protocol === 'tcp') {
-        const publicHostname = hostnameWithSuffix(
-            hostname || deployment?.hostname || '',
-            localDomain?.publicSuffix || localDomain?.loopbackSuffix || '',
-        );
-        if (publicHostname && hostPort > 0) {
-            return `${publicHostname}:${hostPort}`;
-        }
-        return hostPort > 0 ? `127.0.0.1:${hostPort}` : '';
-    }
-    return bestPublicURLFromHostname(hostname || deployment?.hostname, localDomain)
-        || (hostPort > 0 ? `http://127.0.0.1:${hostPort}` : '');
-}
-
-function bestPublicURLFromHostname(
-    hostname: string | undefined,
-    localDomain: networking.LocalDomainStatus | null,
-): string {
-    if (!hostname || !localDomain?.proxyPort) return '';
-    const publicHostname = hostnameWithSuffix(
-        hostname,
-        localDomain.publicSuffix || localDomain.loopbackSuffix,
-    );
-    if (!publicHostname) return '';
-    if (localDomain.proxyPort === 80) {
-        return `http://${publicHostname}`;
-    }
-    return `http://${publicHostname}:${localDomain.proxyPort}`;
-}
-
-function hostnameWithSuffix(hostname: string, suffix: string): string {
-    if (!suffix) return '';
-    return hostname.replace(/\.draft\.local\.?$/, `.${suffix}`);
 }

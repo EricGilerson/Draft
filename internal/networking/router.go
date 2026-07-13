@@ -27,7 +27,20 @@ type Router struct {
 	hostsError  string
 	dns         LocalDNS
 	dnsError    string
+
+	// draft DNS verify/install cache — LocalDomainStatus must stay cheap for UI
+	// (canvas health, overview) and must not shell out / LookupHost on every call.
+	draftInstalled      bool
+	draftInstalledOK    bool
+	draftVerified       bool
+	draftVerifiedOK     bool
+	draftVerifiedAt     time.Time
+	draftVerifyRefreshing bool
 }
+
+// draftVerifyCacheTTL is how long a successful/failed OS DNS probe is trusted
+// before a background re-check. Reads within the TTL never block on DNS.
+var draftVerifyCacheTTL = 2 * time.Minute
 
 type LocalDomainStatus struct {
 	ProxyAddr         string `json:"proxyAddr"`
@@ -67,6 +80,9 @@ func (r *Router) Start() error {
 	if enabled, _ := r.store.GetAppSetting(store.AppSettingLocalDraftDomainEnabled); enabled == "true" {
 		if err := r.startDraftDNS(); err != nil {
 			r.setDNSError(err)
+		} else {
+			// Seed verify cache without blocking daemon startup on DNS.
+			r.kickDraftVerifyRefresh()
 		}
 	}
 	return nil
@@ -74,6 +90,7 @@ func (r *Router) Start() error {
 
 // Stop shuts down the proxy gracefully.
 func (r *Router) Stop() error {
+	r.invalidateDraftDNSCache()
 	dnsErr := r.dns.Stop()
 	proxyErr := r.proxy.Stop()
 	if proxyErr != nil {
@@ -236,6 +253,18 @@ func (r *Router) Lookup(hostname string) (*store.Route, error) {
 }
 
 func (r *Router) LocalDomainStatus() LocalDomainStatus {
+	return r.localDomainStatus(false)
+}
+
+// RefreshLocalDomainStatus invalidates the install/verify cache and returns a
+// freshly probed status. Use for Settings enable/disable follow-up or an
+// explicit "recheck" — not for hot canvas/overview paths.
+func (r *Router) RefreshLocalDomainStatus() LocalDomainStatus {
+	r.invalidateDraftDNSCache()
+	return r.localDomainStatus(true)
+}
+
+func (r *Router) localDomainStatus(forceVerify bool) LocalDomainStatus {
 	addr := r.proxy.Addr()
 	port := parsePort(addr)
 
@@ -243,27 +272,47 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 	hostsError := r.hostsError
 	dnsError := r.dnsError
 	r.mu.RUnlock()
-	installed, installErr := localDomainResolverInstalled()
-	if installErr != nil && dnsError == "" {
-		dnsError = installErr.Error()
-	}
+
 	enabled, _ := r.store.GetAppSetting(store.AppSettingLocalDraftDomainEnabled)
+	draftOn := enabled == "true"
 	dnsAddr := r.dns.Addr()
+	listening := dnsAddr != ""
+
+	// Setting off → resolv.sh (or localhost preference). No install shell-out,
+	// no DNS probe; enable/disable owns that state transition.
+	installed := false
 	verified := false
-	if enabled == "true" && installed && dnsAddr != "" {
-		verified = verifyDraftLookup()
+	if draftOn {
+		var installErr error
+		installed, installErr = r.resolverInstalledCached()
+		if installErr != nil && dnsError == "" {
+			dnsError = installErr.Error()
+		}
+		if installed && listening {
+			verified = r.draftVerifiedCached(forceVerify)
+		}
 	}
+
 	publicSuffix := PublicSuffix
-	// .draft is offered only after an actual OS-level lookup succeeds. A
-	// stale rule, rejected permission prompt, or occupied DNS port therefore
-	// keeps all UI URLs on the working resolv.sh fallback.
-	if enabled == "true" && installed && dnsAddr != "" && verified {
+	if draftOn && installed && listening && verified {
 		publicSuffix = LocalSuffix
 	}
 
 	mode := "localhost-port"
 	if port > 0 {
 		mode = "public-hostname-port"
+	}
+	if pref, _ := r.store.GetAppSetting(store.AppSettingLocalDomainPreference); pref != "" && pref != store.LocalDomainPrefAuto {
+		switch pref {
+		case store.LocalDomainPrefLocalhost:
+			mode = "localhost-port"
+		case store.LocalDomainPrefPublic:
+			if port > 0 {
+				mode = "public-hostname-port"
+			} else {
+				mode = "localhost-port"
+			}
+		}
 	}
 
 	return LocalDomainStatus{
@@ -275,9 +324,9 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 		Mode:              mode,
 		PublicSuffix:      publicSuffix,
 		LoopbackSuffix:    publicSuffix,
-		DraftEnabled:      enabled == "true",
+		DraftEnabled:      draftOn,
 		ResolverInstalled: installed,
-		DNSListening:      dnsAddr != "",
+		DNSListening:      listening,
 		DNSVerified:       verified,
 		DNSAddr:           dnsAddr,
 		DNSError:          dnsError,
@@ -288,21 +337,26 @@ func (r *Router) LocalDomainStatus() LocalDomainStatus {
 // OS authorization. If installation or verification fails, it leaves existing
 // hostname aliases and routing untouched and does not persist the setting.
 func (r *Router) EnableLocalDraftDomain() (LocalDomainStatus, error) {
+	r.invalidateDraftDNSCache()
 	if err := r.startDraftDNS(); err != nil {
 		return r.LocalDomainStatus(), err
 	}
 	if err := installLocalDomainResolver(); err != nil {
 		r.setDNSError(err)
 		_ = r.dns.Stop()
+		r.invalidateDraftDNSCache()
 		return r.LocalDomainStatus(), err
 	}
+	r.setDraftInstalled(true)
 	if !verifyDraftLookupWithin(12 * time.Second) {
 		err := fmt.Errorf("the system resolver did not resolve .draft to loopback")
 		r.setDNSError(err)
 		_ = removeLocalDomainResolver()
 		_ = r.dns.Stop()
+		r.invalidateDraftDNSCache()
 		return r.LocalDomainStatus(), err
 	}
+	r.setDraftVerified(true)
 	if err := r.store.SetAppSetting(store.AppSettingLocalDraftDomainEnabled, "true"); err != nil {
 		return r.LocalDomainStatus(), err
 	}
@@ -321,8 +375,12 @@ func (r *Router) DisableLocalDraftDomain() (LocalDomainStatus, error) {
 		return r.LocalDomainStatus(), err
 	}
 	if err := r.dns.Stop(); err != nil {
+		r.invalidateDraftDNSCache()
 		return r.LocalDomainStatus(), err
 	}
+	r.invalidateDraftDNSCache()
+	r.setDraftInstalled(false)
+	r.setDraftVerified(false)
 	r.setDNSError(nil)
 	return r.LocalDomainStatus(), nil
 }
@@ -345,8 +403,87 @@ func (r *Router) setDNSError(err error) {
 	r.dnsError = err.Error()
 }
 
-func verifyDraftLookup() bool {
-	return verifyDraftLookupOnce()
+func (r *Router) invalidateDraftDNSCache() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.draftInstalledOK = false
+	r.draftVerifiedOK = false
+	r.draftVerifiedAt = time.Time{}
+	r.draftVerifyRefreshing = false
+}
+
+func (r *Router) setDraftInstalled(installed bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.draftInstalled = installed
+	r.draftInstalledOK = true
+}
+
+func (r *Router) setDraftVerified(ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.draftVerified = ok
+	r.draftVerifiedOK = true
+	r.draftVerifiedAt = time.Now()
+	r.draftVerifyRefreshing = false
+}
+
+func (r *Router) resolverInstalledCached() (bool, error) {
+	r.mu.RLock()
+	if r.draftInstalledOK {
+		v := r.draftInstalled
+		r.mu.RUnlock()
+		return v, nil
+	}
+	r.mu.RUnlock()
+
+	installed, err := localDomainResolverInstalled()
+	if err != nil {
+		return false, err
+	}
+	r.setDraftInstalled(installed)
+	return installed, nil
+}
+
+// draftVerifiedCached returns the last probe result. When force is set, or the
+// cache has never been filled, it probes synchronously. When the TTL has
+// expired it returns the stale value and refreshes in the background so UI
+// reads never block on DNS.
+func (r *Router) draftVerifiedCached(force bool) bool {
+	r.mu.RLock()
+	cached := r.draftVerifiedOK
+	fresh := cached && time.Since(r.draftVerifiedAt) < draftVerifyCacheTTL
+	last := r.draftVerified
+	refreshing := r.draftVerifyRefreshing
+	r.mu.RUnlock()
+
+	if force || !cached {
+		ok := verifyDraftLookupOnce()
+		r.setDraftVerified(ok)
+		return ok
+	}
+	if fresh {
+		return last
+	}
+	if !refreshing {
+		r.kickDraftVerifyRefresh()
+	}
+	return last
+}
+
+func (r *Router) kickDraftVerifyRefresh() {
+	r.mu.Lock()
+	if r.draftVerifyRefreshing {
+		r.mu.Unlock()
+		return
+	}
+	r.draftVerifyRefreshing = true
+	r.mu.Unlock()
+
+	go func() {
+		ok := verifyDraftLookupOnce()
+		r.setDraftVerified(ok)
+	}()
 }
 
 // verifyDraftLookupWithin accounts for macOS applying a new /etc/resolver

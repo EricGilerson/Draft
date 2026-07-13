@@ -70,22 +70,20 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 
 	out.Status = active.Status
 	out.HostPort = active.HostPort
-	proxyPort := 0
-	if e.router != nil {
-		proxyPort = e.router.LocalDomainStatus().ProxyPort
-	}
+	hostname := active.Hostname
 	if isLinked {
 		if node, err := e.store.GetNode(nodeID); err == nil {
 			if addr, err := e.computeNodeAddress(node); err == nil {
-				out.Hostname = addr.InternalHostname
-				out.InternalURL = networking.ServiceInternalURL(addr.InternalHostname, portStr, protocol)
-				out.PublicURL = networking.ServicePublicURL(addr.InternalHostname, proxyPort, active.HostPort, protocol)
+				hostname = addr.InternalHostname
 			}
 		}
+	}
+	out.Hostname = hostname
+	out.InternalURL = networking.ServiceInternalURL(hostname, portStr, protocol)
+	if e.router != nil {
+		out.PublicURL = e.router.DisplayPublicURL(hostname, active.HostPort, protocol)
 	} else {
-		out.Hostname = active.Hostname
-		out.InternalURL = networking.ServiceInternalURL(active.Hostname, portStr, protocol)
-		out.PublicURL = networking.ServicePublicURL(active.Hostname, proxyPort, active.HostPort, protocol)
+		out.PublicURL = networking.ServicePublicURL(hostname, 0, active.HostPort, protocol)
 	}
 
 	if active.ContainerID == "" || (active.Status != "running" && active.Status != "starting") {

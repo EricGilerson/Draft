@@ -370,6 +370,10 @@ export function RefreshEnvFile(arg1) {
   return window['go']['main']['App']['RefreshEnvFile'](arg1);
 }
 
+export function RefreshLocalDomainStatus() {
+  return window['go']['main']['App']['RefreshLocalDomainStatus']();
+}
+
 export function RemoveDockerContainer(arg1, arg2) {
   return window['go']['main']['App']['RemoveDockerContainer'](arg1, arg2);
 }
