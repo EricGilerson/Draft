@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,6 +69,9 @@ type AppSettings struct {
 	CompactSidebar          bool   `json:"compactSidebar"`
 	LocalDomainPreference   string `json:"localDomainPreference"`
 	LocalDraftDomainEnabled bool   `json:"localDraftDomainEnabled"`
+	ProxyPortMode           string `json:"proxyPortMode"`
+	ProxyPort               int    `json:"proxyPort"`
+	ProxyFallbackPort       int    `json:"proxyFallbackPort"`
 }
 
 func samePath(a, b string) bool {
@@ -1494,7 +1498,18 @@ func (a *App) GetAppSettings() (*AppSettings, error) {
 		CompactSidebar:          all[store.AppSettingCompactSidebar] == "true",
 		LocalDomainPreference:   all[store.AppSettingLocalDomainPreference],
 		LocalDraftDomainEnabled: all[store.AppSettingLocalDraftDomainEnabled] == "true",
+		ProxyPortMode:           all[store.AppSettingProxyPortMode],
+		ProxyPort:               atoiPort(all[store.AppSettingProxyPort]),
+		ProxyFallbackPort:       atoiPort(all[store.AppSettingProxyFallbackPort]),
 	}, nil
+}
+
+func atoiPort(raw string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 || n > 65535 {
+		return 0
+	}
+	return n
 }
 
 // SetLocalDraftDomainEnabled installs/removes the OS suffix resolver using a
@@ -1524,9 +1539,16 @@ func (a *App) SetAppSettings(settings AppSettings) (*AppSettings, error) {
 	if pref == "" {
 		pref = store.LocalDomainPrefAuto
 	}
+	mode := settings.ProxyPortMode
+	if mode == "" {
+		mode = store.ProxyPortModePrefer80
+	}
 	if err := a.store.SetAppSettings(map[string]string{
 		store.AppSettingCompactSidebar:        compact,
 		store.AppSettingLocalDomainPreference: pref,
+		store.AppSettingProxyPortMode:         mode,
+		store.AppSettingProxyPort:             strconv.Itoa(settings.ProxyPort),
+		store.AppSettingProxyFallbackPort:     strconv.Itoa(settings.ProxyFallbackPort),
 	}); err != nil {
 		return nil, err
 	}

@@ -70,13 +70,9 @@ func RunProcess(ctx context.Context) error {
 	}
 	defer s.Close()
 
-	router := networking.NewRouter(s, "127.0.0.1:80")
-	if err := router.Start(); err != nil {
-		log.Printf("[draft-daemon] local domain proxy on port 80 unavailable, falling back to random port: %v", err)
-		router = networking.NewRouter(s, "127.0.0.1:0")
-		if err := router.Start(); err != nil {
-			return err
-		}
+	router, err := networking.StartRouterFromSettings(s)
+	if err != nil {
+		return err
 	}
 	defer router.Stop()
 

@@ -2067,6 +2067,9 @@ export namespace main {
 	    compactSidebar: boolean;
 	    localDomainPreference: string;
 	    localDraftDomainEnabled: boolean;
+	    proxyPortMode: string;
+	    proxyPort: number;
+	    proxyFallbackPort: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -2077,6 +2080,9 @@ export namespace main {
 	        this.compactSidebar = source["compactSidebar"];
 	        this.localDomainPreference = source["localDomainPreference"];
 	        this.localDraftDomainEnabled = source["localDraftDomainEnabled"];
+	        this.proxyPortMode = source["proxyPortMode"];
+	        this.proxyPort = source["proxyPort"];
+	        this.proxyFallbackPort = source["proxyFallbackPort"];
 	    }
 	}
 	export class DaemonConnectionInfo {

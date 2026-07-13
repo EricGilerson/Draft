@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,11 @@ const (
 	// AppSettingLocalDraftDomainEnabled records whether Draft's optional,
 	// machine-local *.draft resolver has been installed and enabled.
 	AppSettingLocalDraftDomainEnabled = "local_draft_domain_enabled"
+	// Reverse-proxy listen preference: try port 80 for clean URLs, optionally a
+	// user fallback, or a fixed custom primary (+ same fallback), then ephemeral.
+	AppSettingProxyPortMode     = "proxy_port_mode"
+	AppSettingProxyPort         = "proxy_port"
+	AppSettingProxyFallbackPort = "proxy_fallback_port"
 )
 
 // Local domain preference values for AppSettingLocalDomainPreference.
@@ -25,6 +31,13 @@ const (
 	LocalDomainPrefLocalhost = "localhost-port"
 )
 
+// Proxy port mode values for AppSettingProxyPortMode.
+const (
+	ProxyPortModePrefer80         = "prefer80"
+	ProxyPortModePrefer80Fallback = "prefer80_fallback"
+	ProxyPortModeCustom           = "custom"
+)
+
 // DefaultAppSettings returns the documented defaults applied when a key is
 // missing from the database.
 func DefaultAppSettings() map[string]string {
@@ -32,6 +45,9 @@ func DefaultAppSettings() map[string]string {
 		AppSettingCompactSidebar:          "false",
 		AppSettingLocalDomainPreference:   LocalDomainPrefAuto,
 		AppSettingLocalDraftDomainEnabled: "false",
+		AppSettingProxyPortMode:           ProxyPortModePrefer80,
+		AppSettingProxyPort:               "38473",
+		AppSettingProxyFallbackPort:       "38473",
 	}
 }
 
@@ -110,6 +126,22 @@ func normalizeAppSetting(key, value string) string {
 		default:
 			return LocalDomainPrefAuto
 		}
+	case AppSettingProxyPortMode:
+		switch value {
+		case ProxyPortModePrefer80, ProxyPortModePrefer80Fallback, ProxyPortModeCustom:
+			return value
+		default:
+			return ProxyPortModePrefer80
+		}
+	case AppSettingProxyPort, AppSettingProxyFallbackPort:
+		if value == "" {
+			return DefaultAppSettings()[key]
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 65535 {
+			return DefaultAppSettings()[key]
+		}
+		return strconv.Itoa(n)
 	default:
 		return value
 	}

@@ -705,6 +705,11 @@
     width: 240px;
 }
 
+.settings-port-input {
+    width: 100px;
+    font-family: var(--mono);
+}
+
 .settings-input-short {
     width: 76px;
 }

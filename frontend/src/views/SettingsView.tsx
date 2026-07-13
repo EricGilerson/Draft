@@ -5,6 +5,8 @@ import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import './WorkspaceViews.css';
 
+const DEFAULT_PROXY_PORT = 38473;
+
 function Toggle({checked, onChange, disabled}: {checked: boolean; onChange: (value: boolean) => void; disabled?: boolean}) {
     return (
         <button
@@ -55,16 +57,43 @@ type SettingsViewProps = {
     onSettingsChanged?: (settings: main.AppSettings) => void;
 };
 
+type PersistPatch = {
+    compactSidebar?: boolean;
+    localDomainPreference?: string;
+    proxyPortMode?: string;
+    proxyPort?: number;
+    proxyFallbackPort?: number;
+};
+
+function clampPort(value: number, fallback = DEFAULT_PROXY_PORT): number {
+    if (!Number.isFinite(value) || value < 1 || value > 65535) return fallback;
+    return Math.floor(value);
+}
+
 export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [savedFlash, setSavedFlash] = useState(false);
+    const [savedNeedsRestart, setSavedNeedsRestart] = useState(false);
     const [compactSidebar, setCompactSidebar] = useState(false);
     const [localDomainPreference, setLocalDomainPreference] = useState('auto');
     const [localDraftDomainEnabled, setLocalDraftDomainEnabled] = useState(false);
     const [localDraftDomainPending, setLocalDraftDomainPending] = useState<boolean | null>(null);
+    const [proxyPortMode, setProxyPortMode] = useState('prefer80');
+    const [proxyPort, setProxyPort] = useState(DEFAULT_PROXY_PORT);
+    const [proxyFallbackPort, setProxyFallbackPort] = useState(DEFAULT_PROXY_PORT);
     const [domainStatus, setDomainStatus] = useState<networking.LocalDomainStatus | null>(null);
+
+    const applySettings = (settings: main.AppSettings | null | undefined) => {
+        if (!settings) return;
+        setCompactSidebar(!!settings.compactSidebar);
+        setLocalDomainPreference(settings.localDomainPreference || 'auto');
+        setLocalDraftDomainEnabled(!!settings.localDraftDomainEnabled);
+        setProxyPortMode(settings.proxyPortMode || 'prefer80');
+        setProxyPort(clampPort(settings.proxyPort || DEFAULT_PROXY_PORT));
+        setProxyFallbackPort(clampPort(settings.proxyFallbackPort || DEFAULT_PROXY_PORT));
+    };
 
     const load = () => {
         setLoading(true);
@@ -77,9 +106,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
             RefreshLocalDomainStatus().catch(() => GetLocalDomainStatus().catch(() => null)),
         ])
             .then(([settings, status]) => {
-                setCompactSidebar(!!settings?.compactSidebar);
-                setLocalDomainPreference(settings?.localDomainPreference || 'auto');
-                setLocalDraftDomainEnabled(!!settings?.localDraftDomainEnabled);
+                applySettings(settings);
                 setDomainStatus(status);
             })
             .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Could not load settings'))
@@ -111,22 +138,30 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
         load();
     }, []);
 
-    const persist = async (next: {compactSidebar?: boolean; localDomainPreference?: string}) => {
+    const persist = async (next: PersistPatch) => {
         setSaving(true);
         setError(null);
         setSavedFlash(false);
+        setSavedNeedsRestart(false);
         try {
             const saved = await SetAppSettings({
                 compactSidebar: next.compactSidebar ?? compactSidebar,
                 localDomainPreference: next.localDomainPreference ?? localDomainPreference,
+                localDraftDomainEnabled,
+                proxyPortMode: next.proxyPortMode ?? proxyPortMode,
+                proxyPort: next.proxyPort ?? proxyPort,
+                proxyFallbackPort: next.proxyFallbackPort ?? proxyFallbackPort,
             } as main.AppSettings);
             if (saved) {
-                setCompactSidebar(!!saved.compactSidebar);
-                setLocalDomainPreference(saved.localDomainPreference || 'auto');
+                applySettings(saved);
                 onSettingsChanged?.(saved);
             }
             const status = await GetLocalDomainStatus().catch(() => null);
             setDomainStatus(status);
+            const proxyChanged = next.proxyPortMode !== undefined
+                || next.proxyPort !== undefined
+                || next.proxyFallbackPort !== undefined;
+            setSavedNeedsRestart(proxyChanged);
             setSavedFlash(true);
             setTimeout(() => setSavedFlash(false), 2000);
         } catch (e: any) {
@@ -139,6 +174,9 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const modeLabel = domainStatus?.mode === 'public-hostname-port'
         ? 'Public hostname + proxy port'
         : 'Localhost + host port';
+
+    const showPrimaryPort = proxyPortMode === 'custom';
+    const showFallbackPort = proxyPortMode === 'prefer80_fallback' || proxyPortMode === 'custom';
 
     return (
         <div className="workspace-view">
@@ -159,7 +197,11 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                         )}
                         {savedFlash && (
                             <div className="preview-banner">
-                                <span>Settings saved.</span>
+                                <span>
+                                    {savedNeedsRestart
+                                        ? 'Settings saved. Proxy port changes apply the next time Draft’s daemon starts.'
+                                        : 'Settings saved.'}
+                                </span>
                             </div>
                         )}
 
@@ -213,6 +255,59 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                         <span className="settings-status-error">{domainStatus.dnsError}</span>
                                     )}
                                 </div>
+                            )}
+                            <SettingsRow
+                                label="Proxy listen port"
+                                description="How Draft picks the reverse-proxy port. Port 80 lets URLs omit :port. A niche fallback or custom port keeps URLs predictable when 80 is taken. Applies on daemon restart."
+                            >
+                                <select
+                                    className="input select-styled settings-url-preference-select"
+                                    value={proxyPortMode}
+                                    disabled={saving}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setProxyPortMode(value);
+                                        void persist({proxyPortMode: value});
+                                    }}
+                                >
+                                    <option value="prefer80">Prefer 80, then random</option>
+                                    <option value="prefer80_fallback">Prefer 80, then custom fallback</option>
+                                    <option value="custom">Custom port (+ fallback)</option>
+                                </select>
+                            </SettingsRow>
+                            {showPrimaryPort && (
+                                <SettingsRow
+                                    label="Custom proxy port"
+                                    description="Tried first in custom mode. Use a rarely claimed loopback port."
+                                >
+                                    <input
+                                        className="input settings-port-input"
+                                        type="number"
+                                        min={1}
+                                        max={65535}
+                                        value={proxyPort}
+                                        disabled={saving}
+                                        onChange={(e) => setProxyPort(clampPort(Number(e.target.value)))}
+                                        onBlur={() => void persist({proxyPort: clampPort(proxyPort)})}
+                                    />
+                                </SettingsRow>
+                            )}
+                            {showFallbackPort && (
+                                <SettingsRow
+                                    label="Fallback proxy port"
+                                    description="Tried after 80 (or after the custom port). If this is busy too, Draft uses a random port."
+                                >
+                                    <input
+                                        className="input settings-port-input"
+                                        type="number"
+                                        min={1}
+                                        max={65535}
+                                        value={proxyFallbackPort}
+                                        disabled={saving}
+                                        onChange={(e) => setProxyFallbackPort(clampPort(Number(e.target.value)))}
+                                        onBlur={() => void persist({proxyFallbackPort: clampPort(proxyFallbackPort)})}
+                                    />
+                                </SettingsRow>
                             )}
                             <SettingsRow
                                 label="URL preference"
