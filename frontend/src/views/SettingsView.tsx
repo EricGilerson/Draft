@@ -201,12 +201,16 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                 </div>
                             )}
                             {localDraftDomainEnabled && (
-                                <div className="settings-status-block">
+                                <div className="settings-local-domain-status" role="status">
                                     <span className="settings-status-value">
                                         {domainStatus?.dnsVerified ? '.draft is resolving locally' : '.draft setup needs attention'}
                                     </span>
-                                    {domainStatus?.dnsAddr && <span className="settings-status-meta">DNS {domainStatus.dnsAddr}</span>}
-                                    {domainStatus?.dnsError && <span className="settings-status-error">{domainStatus.dnsError}</span>}
+                                    {domainStatus?.dnsAddr && (
+                                        <span className="settings-status-meta">DNS {domainStatus.dnsAddr}</span>
+                                    )}
+                                    {domainStatus?.dnsError && (
+                                        <span className="settings-status-error">{domainStatus.dnsError}</span>
+                                    )}
                                 </div>
                             )}
                             <SettingsRow
