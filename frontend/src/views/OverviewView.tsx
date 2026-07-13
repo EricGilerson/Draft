@@ -1,4 +1,4 @@
-import {ArrowRight, Boxes, FolderPlus, FlaskConical, Layers3} from 'lucide-react';
+import {ArrowRight, Boxes, FolderPlus} from 'lucide-react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import ServicePill from '../components/ServicePill';
@@ -239,56 +239,31 @@ export default function OverviewView({
                     </section>
                 </div>
 
-                <div className="overview-grid overview-grid-bottom">
-                    <section className="panel">
-                        <div className="panel-header">
-                            <div>
-                                <h2 className="panel-title">Recent activity</h2>
-                                <p className="panel-description">Live deploy and Docker events from this machine.</p>
-                            </div>
+                <section className="panel overview-grid-bottom">
+                    <div className="panel-header">
+                        <div>
+                            <h2 className="panel-title">Recent activity</h2>
+                            <p className="panel-description">Live deploy and Docker events from this machine.</p>
                         </div>
-                        <div className="activity-list">
-                            {activity.length === 0 ? (
-                                <div className="panel-empty">
-                                    <Boxes size={18}/>
-                                    <span>No activity yet. Deploy a service to populate the feed.</span>
+                    </div>
+                    <div className="activity-list">
+                        {activity.length === 0 ? (
+                            <div className="panel-empty">
+                                <Boxes size={18}/>
+                                <span>No activity yet. Deploy a service to populate the feed.</span>
+                            </div>
+                        ) : (
+                            activity.map((item) => (
+                                <div key={item.id} className="activity-row">
+                                    <span className="activity-dot" style={{background: ACTIVITY_COLORS[item.type]}}/>
+                                    <span className="activity-time">{formatRelative(item.ts) ?? item.time}</span>
+                                    <span className="activity-project">{item.project}</span>
+                                    <span className="activity-message">{item.message}</span>
                                 </div>
-                            ) : (
-                                activity.map((item) => (
-                                    <div key={item.id} className="activity-row">
-                                        <span className="activity-dot" style={{background: ACTIVITY_COLORS[item.type]}}/>
-                                        <span className="activity-time">{formatRelative(item.ts) ?? item.time}</span>
-                                        <span className="activity-project">{item.project}</span>
-                                        <span className="activity-message">{item.message}</span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </section>
-
-                    <section className="panel">
-                        <div className="panel-header">
-                            <div>
-                                <h2 className="panel-title">What changed in the redesign</h2>
-                                <p className="panel-description">The global shell now matches the Figma language across current and planned surfaces.</p>
-                            </div>
-                        </div>
-                        <div className="callout-list">
-                            <div className="callout-row">
-                                <Layers3 size={15}/>
-                                <span>Denser panels, stronger hierarchy, and a quieter chrome.</span>
-                            </div>
-                            <div className="callout-row">
-                                <Boxes size={15}/>
-                                <span>Projects now open into a styled topology workspace instead of an empty flow grid.</span>
-                            </div>
-                            <div className="callout-row">
-                                <FlaskConical size={15}/>
-                                <span>Sandboxes and settings are designed now, with explicit UI-only scaffolding where the backend is not ready.</span>
-                            </div>
-                        </div>
-                    </section>
-                </div>
+                            ))
+                        )}
+                    </div>
+                </section>
             </div>
         </div>
     );
