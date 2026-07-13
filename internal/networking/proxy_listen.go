@@ -19,7 +19,7 @@ type ProxyListenPlan struct {
 
 // ProxyListenPlanFromSettings reads the proxy port preference from app settings.
 func ProxyListenPlanFromSettings(s *store.Store) ProxyListenPlan {
-	plan := ProxyListenPlan{Mode: store.ProxyPortModePrefer80}
+	plan := ProxyListenPlan{Mode: store.ProxyPortModePrefer80Fallback}
 	if s == nil {
 		return plan
 	}
@@ -35,15 +35,16 @@ func mustSetting(s *store.Store, key string) string {
 	return v
 }
 
-// NormalizeProxyPortMode returns a known mode, defaulting to prefer80.
+// NormalizeProxyPortMode returns a known mode, defaulting to prefer80_fallback
+// so public URLs use a stable port when 80 is unavailable.
 func NormalizeProxyPortMode(mode string) string {
 	switch strings.TrimSpace(mode) {
-	case store.ProxyPortModePrefer80Fallback:
-		return store.ProxyPortModePrefer80Fallback
+	case store.ProxyPortModePrefer80:
+		return store.ProxyPortModePrefer80
 	case store.ProxyPortModeCustom:
 		return store.ProxyPortModeCustom
 	default:
-		return store.ProxyPortModePrefer80
+		return store.ProxyPortModePrefer80Fallback
 	}
 }
 

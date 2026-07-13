@@ -15,7 +15,7 @@ func TestAppSettingsDefaultsAndSet(t *testing.T) {
 	if all[AppSettingLocalDomainPreference] != LocalDomainPrefAuto {
 		t.Errorf("local_domain_preference default = %q", all[AppSettingLocalDomainPreference])
 	}
-	if all[AppSettingProxyPortMode] != ProxyPortModePrefer80 {
+	if all[AppSettingProxyPortMode] != ProxyPortModePrefer80Fallback {
 		t.Errorf("proxy_port_mode default = %q", all[AppSettingProxyPortMode])
 	}
 	if all[AppSettingProxyPort] != "38473" || all[AppSettingProxyFallbackPort] != "38473" {

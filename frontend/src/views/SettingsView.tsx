@@ -80,7 +80,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const [localDomainPreference, setLocalDomainPreference] = useState('auto');
     const [localDraftDomainEnabled, setLocalDraftDomainEnabled] = useState(false);
     const [localDraftDomainPending, setLocalDraftDomainPending] = useState<boolean | null>(null);
-    const [proxyPortMode, setProxyPortMode] = useState('prefer80');
+    const [proxyPortMode, setProxyPortMode] = useState('prefer80_fallback');
     const [proxyPort, setProxyPort] = useState(DEFAULT_PROXY_PORT);
     const [proxyFallbackPort, setProxyFallbackPort] = useState(DEFAULT_PROXY_PORT);
     const [domainStatus, setDomainStatus] = useState<networking.LocalDomainStatus | null>(null);
@@ -90,7 +90,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
         setCompactSidebar(!!settings.compactSidebar);
         setLocalDomainPreference(settings.localDomainPreference || 'auto');
         setLocalDraftDomainEnabled(!!settings.localDraftDomainEnabled);
-        setProxyPortMode(settings.proxyPortMode || 'prefer80');
+        setProxyPortMode(settings.proxyPortMode || 'prefer80_fallback');
         setProxyPort(clampPort(settings.proxyPort || DEFAULT_PROXY_PORT));
         setProxyFallbackPort(clampPort(settings.proxyFallbackPort || DEFAULT_PROXY_PORT));
     };
@@ -258,7 +258,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                             )}
                             <SettingsRow
                                 label="Proxy listen port"
-                                description="How Draft picks the reverse-proxy port. Port 80 lets URLs omit :port. A niche fallback or custom port keeps URLs predictable when 80 is taken. Applies on daemon restart."
+                                description="How Draft picks the reverse-proxy port. Port 80 lets URLs omit :port; the default keeps a fixed fallback when 80 is taken so URLs stay predictable. Applies on daemon restart."
                             >
                                 <select
                                     className="input select-styled settings-url-preference-select"
@@ -270,8 +270,8 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                         void persist({proxyPortMode: value});
                                     }}
                                 >
-                                    <option value="prefer80">Prefer 80, then random</option>
                                     <option value="prefer80_fallback">Prefer 80, then custom fallback</option>
+                                    <option value="prefer80">Prefer 80, then random</option>
                                     <option value="custom">Custom port (+ fallback)</option>
                                 </select>
                             </SettingsRow>

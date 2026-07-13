@@ -45,7 +45,9 @@ func DefaultAppSettings() map[string]string {
 		AppSettingCompactSidebar:          "false",
 		AppSettingLocalDomainPreference:   LocalDomainPrefAuto,
 		AppSettingLocalDraftDomainEnabled: "false",
-		AppSettingProxyPortMode:           ProxyPortModePrefer80,
+		// Prefer 80 for clean URLs; if taken, use the fixed fallback (not an
+		// ephemeral OS port) so public URLs stay stable across daemon restarts.
+		AppSettingProxyPortMode:           ProxyPortModePrefer80Fallback,
 		AppSettingProxyPort:               "38473",
 		AppSettingProxyFallbackPort:       "38473",
 	}
@@ -131,7 +133,7 @@ func normalizeAppSetting(key, value string) string {
 		case ProxyPortModePrefer80, ProxyPortModePrefer80Fallback, ProxyPortModeCustom:
 			return value
 		default:
-			return ProxyPortModePrefer80
+			return ProxyPortModePrefer80Fallback
 		}
 	case AppSettingProxyPort, AppSettingProxyFallbackPort:
 		if value == "" {

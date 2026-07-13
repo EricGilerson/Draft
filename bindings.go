@@ -1558,7 +1558,7 @@ func (a *App) SetAppSettings(settings AppSettings) (*AppSettings, error) {
 	}
 	mode := settings.ProxyPortMode
 	if mode == "" {
-		mode = store.ProxyPortModePrefer80
+		mode = store.ProxyPortModePrefer80Fallback
 	}
 	if err := a.store.SetAppSettings(map[string]string{
 		store.AppSettingCompactSidebar:        compact,
