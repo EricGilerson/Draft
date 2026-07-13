@@ -606,13 +606,14 @@ export default function EnvironmentSwitcher({
 
                     {step === 2 && (
                         <div className="environment-data-step">
-                            <p className="environment-source-hint">
-                                Default is a <strong>fresh</strong> independent copy of each service. Share keeps one
-                                running container and attaches it into this environment (prefer this over public
-                                hostnames across environments). Clone copies volume data once into new volumes.
+                            <p className="environment-data-lead">
+                                <strong>Fresh</strong> creates an independent copy.
+                                {' '}<strong>Share</strong> attaches the source service into this environment
+                                (prefer this over public hostnames).
+                                {' '}<strong>Clone</strong> copies volume data once when mounts exist.
                             </p>
                             {stateful.length === 0 ? (
-                                <p className="settings-hint">No services in the source environment.</p>
+                                <p className="environment-data-empty">No services in the source environment.</p>
                             ) : (
                                 <ul className="environment-data-list">
                                     {stateful.map((svc) => {
@@ -621,52 +622,81 @@ export default function EnvironmentSwitcher({
                                         const modes: DataMode[] = hasVolumes
                                             ? ['fresh', 'share', 'clone']
                                             : ['fresh', 'share'];
+                                        const modeLabel = (mode: DataMode) =>
+                                            mode === 'fresh' ? 'Fresh' : mode === 'share' ? 'Share' : 'Clone';
                                         return (
-                                            <li key={svc.nodeId} className="environment-data-row">
+                                            <li
+                                                key={svc.nodeId}
+                                                className={`environment-data-row environment-data-row--${c.mode}`}
+                                            >
                                                 <div className="environment-data-row-head">
-                                                    <strong>{svc.label}</strong>
-                                                    <span className="settings-hint">
-                                                        {hasVolumes
-                                                            ? svc.volumes.join(', ')
-                                                            : 'no volumes — copy or share'}
-                                                    </span>
-                                                </div>
-                                                <div className="environment-data-modes">
-                                                    {modes.map((mode) => (
-                                                        <label key={mode} className="environment-data-mode">
-                                                            <input
-                                                                type="radio"
-                                                                name={`mode-${svc.nodeId}`}
-                                                                checked={c.mode === mode}
-                                                                onChange={() => setMode(svc.nodeId, mode)}
-                                                            />
-                                                            {mode === 'fresh' ? 'Fresh' : mode === 'share' ? 'Share service' : 'Clone data'}
-                                                        </label>
-                                                    ))}
+                                                    <div className="environment-data-identity">
+                                                        <strong className="environment-data-label">{svc.label}</strong>
+                                                        {hasVolumes ? (
+                                                            <span className="environment-data-meta" title={svc.volumes.join(', ')}>
+                                                                {svc.volumes.join(' · ')}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="environment-data-meta environment-data-meta--muted">
+                                                                no volumes
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div
+                                                        className="environment-data-segment"
+                                                        role="radiogroup"
+                                                        aria-label={`${svc.label} data mode`}
+                                                    >
+                                                        {modes.map((mode) => (
+                                                            <label
+                                                                key={mode}
+                                                                className={`environment-data-segment-option${c.mode === mode ? ' is-active' : ''}`}
+                                                            >
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`mode-${svc.nodeId}`}
+                                                                    checked={c.mode === mode}
+                                                                    onChange={() => setMode(svc.nodeId, mode)}
+                                                                />
+                                                                {modeLabel(mode)}
+                                                            </label>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                                 {c.mode === 'share' && svc.warning && (
                                                     <p className="environment-data-warning">{svc.warning}</p>
                                                 )}
                                                 {c.mode === 'clone' && hasVolumes && (
-                                                    <div className="environment-data-modes">
-                                                        <label className="environment-data-mode">
-                                                            <input
-                                                                type="radio"
-                                                                name={`cons-${svc.nodeId}`}
-                                                                checked={c.consistency === 'consistent'}
-                                                                onChange={() => setConsistency(svc.nodeId, 'consistent')}
-                                                            />
-                                                            Consistent
-                                                        </label>
-                                                        <label className="environment-data-mode">
-                                                            <input
-                                                                type="radio"
-                                                                name={`cons-${svc.nodeId}`}
-                                                                checked={c.consistency === 'quick'}
-                                                                onChange={() => setConsistency(svc.nodeId, 'quick')}
-                                                            />
-                                                            Quick
-                                                        </label>
+                                                    <div className="environment-data-subrow">
+                                                        <span className="environment-data-sublabel">Consistency</span>
+                                                        <div
+                                                            className="environment-data-segment environment-data-segment--compact"
+                                                            role="radiogroup"
+                                                            aria-label={`${svc.label} clone consistency`}
+                                                        >
+                                                            <label
+                                                                className={`environment-data-segment-option${c.consistency === 'consistent' ? ' is-active' : ''}`}
+                                                            >
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`cons-${svc.nodeId}`}
+                                                                    checked={c.consistency === 'consistent'}
+                                                                    onChange={() => setConsistency(svc.nodeId, 'consistent')}
+                                                                />
+                                                                Consistent
+                                                            </label>
+                                                            <label
+                                                                className={`environment-data-segment-option${c.consistency === 'quick' ? ' is-active' : ''}`}
+                                                            >
+                                                                <input
+                                                                    type="radio"
+                                                                    name={`cons-${svc.nodeId}`}
+                                                                    checked={c.consistency === 'quick'}
+                                                                    onChange={() => setConsistency(svc.nodeId, 'quick')}
+                                                                />
+                                                                Quick
+                                                            </label>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </li>
