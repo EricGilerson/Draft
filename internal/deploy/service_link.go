@@ -51,12 +51,14 @@ type ServiceDataChoice struct {
 	Consistency  CloneConsistency `json:"consistency,omitempty"`
 }
 
-// StatefulServiceSummary describes a source service that can be shared or cloned.
+// StatefulServiceSummary describes a source service shown in the duplicate-
+// environment wizard. Volume-backed services can also choose clone; every
+// non-alias root can choose fresh (independent copy) or share (service link).
 type StatefulServiceSummary struct {
 	NodeID      string   `json:"nodeId"`
 	Label       string   `json:"label"`
 	TemplateID  uint     `json:"templateId"`
-	Volumes     []string `json:"volumes"` // container paths
+	Volumes     []string `json:"volumes"` // container paths; empty => no clone option
 	WarningKind string   `json:"warningKind"`
 	Warning     string   `json:"warning"`
 }
@@ -274,7 +276,8 @@ func managedVolumePaths(settings map[string]string) []string {
 	return paths
 }
 
-// PreviewEnvironmentDuplicate lists stateful services the wizard should show.
+// PreviewEnvironmentDuplicate lists every non-alias root in the source
+// environment for the duplicate wizard (fresh / share; clone when volumes exist).
 func (e *Engine) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]StatefulServiceSummary, error) {
 	if _, err := e.store.GetEnvironment(sourceEnvironmentID); err != nil {
 		return nil, fmt.Errorf("source environment not found: %w", err)
@@ -294,9 +297,6 @@ func (e *Engine) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]Statef
 			continue
 		}
 		paths := managedVolumePaths(settings)
-		if len(paths) == 0 {
-			continue
-		}
 		kind, msg := shareWarningForNode(e.store, &n, settings)
 		out = append(out, StatefulServiceSummary{
 			NodeID:      n.ID,

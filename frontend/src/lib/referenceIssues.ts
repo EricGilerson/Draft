@@ -8,6 +8,38 @@ const REF_PATTERN = /@\{([^{}]+)\.([A-Za-z0-9_]+)\}/g;
 const SECRET_EXPR_PATTERN = /\{\{secret\.([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 const PROJECT_EXPR_PATTERN = /\{\{project\.([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
 
+/** Soft guidance when a same-env @{ref} uses a public address unnecessarily. */
+export type SoftReferenceWarning = {
+    varKey: string;
+    token: string;
+    reason: string;
+};
+
+const PUBLIC_GENERATED_ATTRS = new Set([
+    'DRAFT_PUBLIC_URL',
+    'DRAFT_PUBLIC_HOSTNAME',
+]);
+
+/** Datastore public connection strings stamped by Draft templates. */
+const PUBLIC_CONNECTION_KEYS = new Set([
+    'PUBLIC_DATABASE_URL',
+    'PUBLIC_REDIS_URL',
+]);
+
+function publicRefAdvice(label: string, attr: string): string | null {
+    if (PUBLIC_GENERATED_ATTRS.has(attr)) {
+        const internal = attr === 'DRAFT_PUBLIC_HOSTNAME'
+            ? 'DRAFT_INTERNAL_HOSTNAME'
+            : 'DRAFT_INTERNAL_URL';
+        return `prefer @{${label}.${internal}} in this environment — public addresses are for host tools; to reach a service from another environment, share it instead of its public URL`;
+    }
+    if (PUBLIC_CONNECTION_KEYS.has(attr)) {
+        const internalKey = attr.replace(/^PUBLIC_/, '');
+        return `prefer @{${label}.${internalKey}} in this environment — public connection strings are for host clients; across environments, share the service instead of its public URL`;
+    }
+    return null;
+}
+
 export function computeReferenceIssues(
     vars: store.EnvVar[],
     linkTargets: deploy.ReferenceTarget[],
@@ -72,4 +104,40 @@ export function computeReferenceIssues(
         }
     }
     return issues;
+}
+
+/**
+ * Soft warnings for same-environment @{refs} that point at public host/URLs
+ * when an internal (or share-across-env) alternative exists. Reference targets
+ * are environment-scoped, so a matched target always means same-env — never
+ * cross-project.
+ */
+export function computePublicReferenceWarnings(
+    vars: store.EnvVar[],
+    linkTargets: deploy.ReferenceTarget[],
+): SoftReferenceWarning[] {
+    const targetsByLabel = new Map<string, deploy.ReferenceTarget>();
+    for (const t of linkTargets) {
+        targetsByLabel.set(t.label.trim().toLowerCase(), t);
+    }
+
+    const warnings: SoftReferenceWarning[] = [];
+    for (const v of vars) {
+        const value = v.value || '';
+        for (const m of value.matchAll(REF_PATTERN)) {
+            const token = m[0];
+            const label = m[1];
+            const attr = m[2];
+            const target = targetsByLabel.get(label.trim().toLowerCase());
+            if (!target) continue;
+            // Only warn when the attribute actually exists on the target.
+            if (!target.attributes.includes(attr) && !target.customKeys.includes(attr)) {
+                continue;
+            }
+            const reason = publicRefAdvice(label, attr);
+            if (!reason) continue;
+            warnings.push({varKey: v.key, token, reason});
+        }
+    }
+    return warnings;
 }

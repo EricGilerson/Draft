@@ -10,7 +10,7 @@ import {store, deploy} from '../../wailsjs/go/models';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
 import {committedEnvByKey, effectiveEnvVarList} from '../lib/envStaging';
 import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
-import {computeReferenceIssues} from '../lib/referenceIssues';
+import {computeReferenceIssues, computePublicReferenceWarnings} from '../lib/referenceIssues';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import './VariablesTab.css';
@@ -358,6 +358,10 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const referenceIssues = useMemo(
         () => computeReferenceIssues(vars, linkTargets, appSecrets, projectVars),
         [vars, linkTargets, appSecrets, projectVars],
+    );
+    const publicRefWarnings = useMemo(
+        () => computePublicReferenceWarnings(vars, linkTargets),
+        [vars, linkTargets],
     );
 
     useEffect(() => {
@@ -907,6 +911,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                 )}
                 {vars.map(v => {
                     const varIssues = referenceIssues.filter((issue) => issue.varKey === v.key);
+                    const varPublicWarnings = publicRefWarnings.filter((w) => w.varKey === v.key);
                     const varBuildWarnings = buildWarnings.filter((w) => w.key === v.key);
                     return (
                     <div key={v.key} className="var-row">
@@ -970,6 +975,14 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                             {varIssues.map((issue) => (
                                 <div key={`${issue.token}:${issue.reason}`} className="var-preview var-preview--error">
                                     <span className="var-preview-text">{issue.token}: {issue.reason}</span>
+                                </div>
+                            ))}
+                            {varPublicWarnings.map((w) => (
+                                <div key={`${w.token}:${w.reason}`} className="var-build-warning">
+                                    <AlertTriangle size={13} className="var-build-warning-icon"/>
+                                    <div className="var-build-warning-body">
+                                        <span><code>{w.token}</code>: {w.reason}</span>
+                                    </div>
                                 </div>
                             ))}
                             {varBuildWarnings.map((w) => (

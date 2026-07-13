@@ -223,7 +223,7 @@ func TestUnlinkServiceRegeneratesGeneratedEnvVars(t *testing.T) {
 	}
 }
 
-func TestPreviewEnvironmentDuplicateListsStateful(t *testing.T) {
+func TestPreviewEnvironmentDuplicateListsAllRoots(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 	dir := t.TempDir()
@@ -242,11 +242,21 @@ func TestPreviewEnvironmentDuplicateListsStateful(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(preview) != 1 || preview[0].Label != "db" {
-		t.Fatalf("expected only db stateful, got %+v", preview)
+	if len(preview) != 2 {
+		t.Fatalf("expected api + db, got %+v", preview)
 	}
-	if preview[0].Warning == "" || preview[0].WarningKind == "" {
-		t.Fatal("expected warning for share")
+	byLabel := map[string]StatefulServiceSummary{}
+	for _, row := range preview {
+		byLabel[row.Label] = row
+	}
+	if len(byLabel["db"].Volumes) == 0 {
+		t.Fatal("db should report volumes for clone")
+	}
+	if len(byLabel["api"].Volumes) != 0 {
+		t.Fatalf("api should have no volumes, got %v", byLabel["api"].Volumes)
+	}
+	if byLabel["db"].Warning == "" || byLabel["db"].WarningKind == "" {
+		t.Fatal("expected warning for share on db")
 	}
 }
 

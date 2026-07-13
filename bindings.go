@@ -243,7 +243,8 @@ func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, cho
 	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices)
 }
 
-// PreviewEnvironmentDuplicate lists stateful services for the new-env data wizard.
+// PreviewEnvironmentDuplicate lists services for the new-env data wizard
+// (fresh / share for all roots; clone when volumes exist).
 func (a *App) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]deploy.StatefulServiceSummary, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {

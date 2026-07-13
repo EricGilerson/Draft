@@ -206,13 +206,16 @@ export default function EnvironmentSwitcher({
 
         const isDuplicate = sourceId !== SOURCE_BLANK;
         const dataChoices: deploy.ServiceDataChoice[] = isDuplicate
-            ? Object.entries(choices).map(([sourceNodeId, c]) =>
-                deploy.ServiceDataChoice.createFrom({
+            ? Object.entries(choices).map(([sourceNodeId, c]) => {
+                const svc = stateful.find((row) => row.nodeId === sourceNodeId);
+                const hasVolumes = (svc?.volumes?.length ?? 0) > 0;
+                const mode = c.mode === 'clone' && !hasVolumes ? 'fresh' : c.mode;
+                return deploy.ServiceDataChoice.createFrom({
                     sourceNodeId,
-                    mode: c.mode,
-                    consistency: c.mode === 'clone' ? c.consistency : undefined,
-                }),
-            )
+                    mode,
+                    consistency: mode === 'clone' ? c.consistency : undefined,
+                });
+            })
             : [];
 
         const request = isDuplicate
@@ -595,7 +598,7 @@ export default function EnvironmentSwitcher({
                                 <p className="environment-source-hint">
                                     {sourceId === SOURCE_BLANK
                                         ? 'Start with no services. You can add them after creating.'
-                                        : 'Clone services and settings. On the next step you choose how each database or volume-backed service gets its data.'}
+                                        : 'Clone services and settings. On the next step choose Fresh copy or Share for each service (and Clone data when volumes exist).'}
                                 </p>
                             </div>
                         </>
@@ -604,26 +607,32 @@ export default function EnvironmentSwitcher({
                     {step === 2 && (
                         <div className="environment-data-step">
                             <p className="environment-source-hint">
-                                Default is a <strong>fresh</strong> empty volume for each service. Share uses the
-                                source environment&apos;s running service (no second container). Clone copies volume
-                                data once into new volumes.
+                                Default is a <strong>fresh</strong> independent copy of each service. Share keeps one
+                                running container and attaches it into this environment (prefer this over public
+                                hostnames across environments). Clone copies volume data once into new volumes.
                             </p>
                             {stateful.length === 0 ? (
-                                <p className="settings-hint">No volume-backed services in the source environment.</p>
+                                <p className="settings-hint">No services in the source environment.</p>
                             ) : (
                                 <ul className="environment-data-list">
                                     {stateful.map((svc) => {
                                         const c = choices[svc.nodeId] ?? {mode: 'fresh' as DataMode, consistency: 'consistent' as const};
+                                        const hasVolumes = (svc.volumes?.length ?? 0) > 0;
+                                        const modes: DataMode[] = hasVolumes
+                                            ? ['fresh', 'share', 'clone']
+                                            : ['fresh', 'share'];
                                         return (
                                             <li key={svc.nodeId} className="environment-data-row">
                                                 <div className="environment-data-row-head">
                                                     <strong>{svc.label}</strong>
                                                     <span className="settings-hint">
-                                                        {svc.volumes?.join(', ')}
+                                                        {hasVolumes
+                                                            ? svc.volumes.join(', ')
+                                                            : 'no volumes — copy or share'}
                                                     </span>
                                                 </div>
                                                 <div className="environment-data-modes">
-                                                    {(['fresh', 'share', 'clone'] as DataMode[]).map((mode) => (
+                                                    {modes.map((mode) => (
                                                         <label key={mode} className="environment-data-mode">
                                                             <input
                                                                 type="radio"
@@ -638,7 +647,7 @@ export default function EnvironmentSwitcher({
                                                 {c.mode === 'share' && svc.warning && (
                                                     <p className="environment-data-warning">{svc.warning}</p>
                                                 )}
-                                                {c.mode === 'clone' && (
+                                                {c.mode === 'clone' && hasVolumes && (
                                                     <div className="environment-data-modes">
                                                         <label className="environment-data-mode">
                                                             <input
