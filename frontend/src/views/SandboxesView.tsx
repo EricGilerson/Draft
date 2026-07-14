@@ -1,6 +1,22 @@
-import {useEffect, useState} from 'react';
-import {Clock3, FlaskConical, GitBranch, Pause, Play, SlidersHorizontal, Trash2} from 'lucide-react';
-import {CreateSandbox, DeleteSandbox, DeleteSandboxProfile, GetSandboxDetail, ListEnvironments, ListNodes, ListSandboxProfiles, ListSandboxes, PreviewSandbox, ResumeSandbox, SaveSandboxProfile, SuspendSandbox} from '../../wailsjs/go/main/App';
+import {useEffect, useMemo, useState} from 'react';
+import {CheckCircle2, Clock3, FlaskConical, GitBranch, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Trash2, XCircle} from 'lucide-react';
+import {
+    CreateSandbox,
+    DeleteSandbox,
+    DeleteSandboxProfile,
+    GetSandboxDetail,
+    GetSandboxTestRun,
+    ListEnvironments,
+    ListNodes,
+    ListSandboxProfiles,
+    ListSandboxes,
+    ListSandboxTestRuns,
+    PreviewSandbox,
+    ResumeSandbox,
+    RunTestingSandbox,
+    SaveSandboxProfile,
+    SuspendSandbox,
+} from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
 import SandboxExtendControl from '../components/SandboxExtendControl';
 import SandboxHoursInput from '../components/SandboxHoursInput';
@@ -15,6 +31,13 @@ type Props = {
     onOpenSandbox: (projectId: number, environmentId: number) => void;
     onReturnToSource?: (projectId: number, environmentId: number) => void;
     dialogOnly?: boolean;
+};
+
+type StepDraft = {
+    name: string;
+    serviceLabel: string;
+    cmd: string;
+    workDir: string;
 };
 
 function dateLabel(value: any): string {
@@ -35,13 +58,51 @@ function sandboxLifecycleLabel(sandbox: store.Sandbox): string {
     return `Expires ${expires} · deletes ${deletes}`;
 }
 
+function parseCmdLine(line: string): string[] {
+    const parts = line.trim().match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+    return parts.map((p) => (p.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p)).filter(Boolean);
+}
+
+function stepsFromPlan(plan: any): StepDraft[] {
+    const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+    return steps.map((step: any) => ({
+        name: step.name ?? '',
+        serviceLabel: step.serviceLabel ?? '',
+        cmd: Array.isArray(step.cmd) ? step.cmd.join(' ') : '',
+        workDir: step.workDir ?? '',
+    }));
+}
+
+function stepsToPlan(steps: StepDraft[]): deploy.SandboxStep[] {
+    return steps
+        .filter((step) => step.serviceLabel.trim() && step.cmd.trim())
+        .map((step) => deploy.SandboxStep.createFrom({
+            name: step.name.trim() || undefined,
+            serviceLabel: step.serviceLabel.trim(),
+            cmd: parseCmdLine(step.cmd),
+            workDir: step.workDir.trim() || undefined,
+        }));
+}
+
+function emptyStep(serviceLabel = ''): StepDraft {
+    return {name: '', serviceLabel, cmd: '', workDir: ''};
+}
+
+function purposeLabel(purpose?: string): string {
+    return purpose === 'test' ? 'test' : 'preview';
+}
+
 export default function SandboxesView({projects, initialSource, onOpenSandbox, onReturnToSource, dialogOnly = false}: Props) {
     const [sandboxes, setSandboxes] = useState<store.Sandbox[]>([]);
+    const [testRuns, setTestRuns] = useState<store.SandboxTestRun[]>([]);
     const [projectId, setProjectId] = useState<number>(initialSource?.projectId ?? projects[0]?.id ?? 0);
     const [environments, setEnvironments] = useState<store.Environment[]>([]);
     const [sourceId, setSourceId] = useState<number>(initialSource?.environmentId ?? 0);
     const [name, setName] = useState('');
+    const [purpose, setPurpose] = useState<'preview' | 'test'>('preview');
     const [ttlHours, setTtlHours] = useState(168);
+    const [onComplete, setOnComplete] = useState<'leave' | 'delete' | 'suspend'>('leave');
+    const [steps, setSteps] = useState<StepDraft[]>([emptyStep()]);
     const [links, setLinks] = useState('');
     const [profiles, setProfiles] = useState<store.SandboxProfile[]>([]);
     const [profileId, setProfileId] = useState(0);
@@ -49,6 +110,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [rules, setRules] = useState<Record<string, deploy.SandboxServiceRule>>({});
     const [preview, setPreview] = useState<deploy.SandboxPreview | null>(null);
     const [detail, setDetail] = useState<deploy.SandboxDetail | null>(null);
+    const [runResult, setRunResult] = useState<deploy.SandboxTestRunResult | null>(null);
     const [profilesOpen, setProfilesOpen] = useState(false);
     const [editingProfile, setEditingProfile] = useState<store.SandboxProfile | null>(null);
     const [profileName, setProfileName] = useState('');
@@ -57,6 +119,9 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [profileWarning, setProfileWarning] = useState(24);
     const [profileGrace, setProfileGrace] = useState(72);
     const [profileDefault, setProfileDefault] = useState(false);
+    const [profilePurpose, setProfilePurpose] = useState<'preview' | 'test'>('preview');
+    const [profileOnComplete, setProfileOnComplete] = useState<'leave' | 'delete' | 'suspend'>('leave');
+    const [profileSteps, setProfileSteps] = useState<StepDraft[]>([emptyStep()]);
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
@@ -65,6 +130,8 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const refresh = async () => {
         const rows = await Promise.all(projects.map((p) => ListSandboxes(p.id).catch(() => [])));
         setSandboxes(rows.flat());
+        const runs = await Promise.all(projects.map((p) => ListSandboxTestRuns(p.id, 30).catch(() => [])));
+        setTestRuns(runs.flat().sort((a, b) => new Date(b.startedAt).valueOf() - new Date(a.startedAt).valueOf()));
     };
     useEffect(() => { void refresh(); }, [projects]);
     useEffect(() => {
@@ -85,7 +152,16 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     }, [projectId]);
     useEffect(() => {
         if (!sourceId) return;
-        ListNodes(sourceId).then((rows) => setSourceNodes(rows ?? [])).catch(() => setSourceNodes([]));
+        ListNodes(sourceId).then((rows) => {
+            const next = rows ?? [];
+            setSourceNodes(next);
+            setSteps((current) => {
+                if (current.length === 1 && !current[0].serviceLabel && next[0]) {
+                    return [emptyStep(next[0].label)];
+                }
+                return current;
+            });
+        }).catch(() => setSourceNodes([]));
         setRules({}); setPreview(null);
     }, [sourceId]);
     useEffect(() => {
@@ -97,6 +173,20 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
 
     const selectedProject = projects.find((p) => p.id === projectId);
     const source = environments.find((env) => env.id === sourceId);
+    const defaultServiceLabel = sourceNodes[0]?.label ?? '';
+
+    const testingProfiles = useMemo(
+        () => profiles.filter((profile) => {
+            try {
+                const plan = JSON.parse(profile.planJson || '{}');
+                return plan.purpose === 'test';
+            } catch {
+                return false;
+            }
+        }),
+        [profiles],
+    );
+
     const closeCreate = () => {
         setOpen(false);
         if (initialSource) onReturnToSource?.(initialSource.projectId, initialSource.environmentId);
@@ -113,79 +203,778 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         setProfileDefault(profile?.isDefault ?? false);
         try {
             const plan = JSON.parse(profile?.planJson || '{}');
-            setProfileTTL(plan.ttlHours ?? 168); setProfileWarning(plan.warningHours ?? 24); setProfileGrace(plan.graceHours ?? 72);
-        } catch { setProfileTTL(168); setProfileWarning(24); setProfileGrace(72); }
+            setProfileTTL(plan.ttlHours ?? (plan.purpose === 'test' ? 4 : 168));
+            setProfileWarning(plan.warningHours ?? (plan.purpose === 'test' ? 1 : 24));
+            setProfileGrace(plan.graceHours ?? (plan.purpose === 'test' ? 2 : 72));
+            setProfilePurpose(plan.purpose === 'test' ? 'test' : 'preview');
+            setProfileOnComplete(plan.onComplete === 'delete' || plan.onComplete === 'suspend' ? plan.onComplete : 'leave');
+            const nextSteps = stepsFromPlan(plan);
+            setProfileSteps(nextSteps.length ? nextSteps : [emptyStep(defaultServiceLabel)]);
+        } catch {
+            setProfileTTL(168); setProfileWarning(24); setProfileGrace(72);
+            setProfilePurpose('preview'); setProfileOnComplete('leave');
+            setProfileSteps([emptyStep(defaultServiceLabel)]);
+        }
     };
     const saveProfile = async () => {
         if (!projectId || !profileName.trim()) return;
         setBusy(true); setError('');
         try {
-            await SaveSandboxProfile(store.SandboxProfile.createFrom({id: editingProfile?.id, projectId, sourceEnvironmentId: profileScope, name: profileName.trim(), description: '', isDefault: profileDefault, planJson: JSON.stringify({ttlHours: profileTTL, warningHours: profileWarning, graceHours: profileGrace})}));
+            const plan: Record<string, unknown> = {
+                ttlHours: profileTTL,
+                warningHours: profileWarning,
+                graceHours: profileGrace,
+                purpose: profilePurpose,
+            };
+            if (profilePurpose === 'test') {
+                plan.onComplete = profileOnComplete;
+                plan.steps = stepsToPlan(profileSteps);
+            }
+            await SaveSandboxProfile(store.SandboxProfile.createFrom({
+                id: editingProfile?.id,
+                projectId,
+                sourceEnvironmentId: profileScope,
+                name: profileName.trim(),
+                description: profilePurpose === 'test' ? 'Testing recipe' : '',
+                isDefault: profileDefault,
+                planJson: JSON.stringify(plan),
+            }));
             await loadProfiles(); setEditingProfile(null); setProfileName('');
         } catch (e) { setError(String(e)); } finally { setBusy(false); }
     };
+
+    const buildPlan = () => {
+        const plan = deploy.SandboxPlan.createFrom({
+            ttlHours,
+            purpose,
+            services: Object.values(rules),
+        });
+        if (purpose === 'test') {
+            plan.onComplete = onComplete;
+            plan.steps = stepsToPlan(steps);
+        }
+        return plan;
+    };
+
     const buildRequest = () => deploy.SandboxCreateRequest.createFrom({
-        name: name.trim() || 'sandbox-preview', sourceEnvironmentId: sourceId, profileId: profileId || undefined,
-        plan: deploy.SandboxPlan.createFrom({ttlHours, services: Object.values(rules)}),
+        name: name.trim() || (purpose === 'test' ? 'test-run' : 'sandbox-preview'),
+        sourceEnvironmentId: sourceId,
+        profileId: profileId || undefined,
+        plan: buildPlan(),
         links: links.split(',').map((item) => item.trim()).filter(Boolean).map((value) => {
             const [kind, ...rest] = value.split(':');
             return store.SandboxLink.createFrom({kind: rest.length ? kind.trim() : 'reference', value: (rest.length ? rest.join(':') : kind).trim()});
         }),
     });
+
     const review = async () => {
         if (!sourceId) return;
         setBusy(true); setError('');
         try { setPreview(await PreviewSandbox(buildRequest())); } catch (e) { setError(String(e)); } finally { setBusy(false); }
     };
+
     const create = async () => {
         if (!sourceId || !name.trim() || busy) return;
         setBusy(true); setError('');
         try {
-            const sandbox = await CreateSandbox(buildRequest());
-            setOpen(false); setName(''); setLinks(''); await refresh();
-            if (sandbox) {
-                onOpenSandbox(sandbox.projectId, sandbox.environmentId);
-                onReturnToSource?.(sandbox.projectId, sandbox.environmentId);
+            if (purpose === 'test') {
+                const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+                    name: name.trim(),
+                    sourceEnvironmentId: sourceId,
+                    profileId: profileId || undefined,
+                    plan: buildPlan(),
+                    links: buildRequest().links,
+                    mode: 'fresh',
+                }));
+                setOpen(false);
+                setName('');
+                setLinks('');
+                setRunResult(result);
+                await refresh();
+                if (result.sandbox) {
+                    onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
+                    onReturnToSource?.(result.sandbox.projectId, result.sandbox.environmentId);
+                }
+            } else {
+                const sandbox = await CreateSandbox(buildRequest());
+                setOpen(false); setName(''); setLinks(''); await refresh();
+                if (sandbox) {
+                    onOpenSandbox(sandbox.projectId, sandbox.environmentId);
+                    onReturnToSource?.(sandbox.projectId, sandbox.environmentId);
+                }
             }
         } catch (e) { setError(String(e)); } finally { setBusy(false); }
     };
-    const updateRule = (nodeId: string, patch: Partial<deploy.SandboxServiceRule>) => setRules((current) => ({...current, [nodeId]: deploy.SandboxServiceRule.createFrom({...current[nodeId], sourceNodeId: nodeId, mode: current[nodeId]?.mode || 'copy', ...patch})}));
+
+    const runFreshFromProfile = async (profile: store.SandboxProfile) => {
+        if (!sourceId) {
+            void alert({title: 'Pick a source environment', message: 'Select a project and source environment before running a testing profile.'});
+            return;
+        }
+        setBusy(true); setError('');
+        try {
+            let plan: any = {};
+            try { plan = JSON.parse(profile.planJson || '{}'); } catch { plan = {}; }
+            const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+                name: profile.name,
+                sourceEnvironmentId: sourceId,
+                profileId: profile.id,
+                plan: deploy.SandboxPlan.createFrom({...plan, purpose: 'test'}),
+                mode: 'fresh',
+            }));
+            setRunResult(result);
+            await refresh();
+            if (result.sandbox) {
+                onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
+            }
+        } catch (e) {
+            void alert({title: 'Test run failed', message: String(e)});
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const rerunSandbox = async (sandbox: store.Sandbox, mode: 'fresh' | 'steps') => {
+        setBusy(true);
+        try {
+            const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+                name: sandbox.name,
+                sourceEnvironmentId: sandbox.sourceEnvironmentId,
+                profileId: sandbox.profileId || undefined,
+                sandboxId: sandbox.id,
+                plan: deploy.SandboxPlan.createFrom({purpose: 'test'}),
+                mode,
+            }));
+            setRunResult(result);
+            await refresh();
+            if (result.sandbox && mode === 'fresh') {
+                onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
+            }
+        } catch (e) {
+            void alert({title: mode === 'fresh' ? 'Could not rebuild test sandbox' : 'Could not re-run steps', message: String(e)});
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const openRun = async (run: store.SandboxTestRun) => {
+        try {
+            setRunResult(await GetSandboxTestRun(run.id));
+        } catch (e) {
+            void alert({title: 'Could not load test run', message: String(e)});
+        }
+    };
+
+    const updateRule = (nodeId: string, patch: Partial<deploy.SandboxServiceRule>) => setRules((current) => ({
+        ...current,
+        [nodeId]: deploy.SandboxServiceRule.createFrom({
+            ...current[nodeId],
+            sourceNodeId: nodeId,
+            mode: current[nodeId]?.mode || 'copy',
+            ...patch,
+        }),
+    }));
+
     const remove = async (sandbox: store.Sandbox) => {
-        if (!await confirm({title: 'Delete sandbox?', message: `Delete "${sandbox.name}" and all of its Draft-managed data?`, detail: 'Containers, routes, the sandbox network, and Draft-managed volumes are permanently removed.', confirmLabel: 'Delete sandbox', danger: true})) return;
+        if (!await confirm({
+            title: 'Delete sandbox?',
+            message: `Delete "${sandbox.name}" and all of its Draft-managed data?`,
+            detail: 'Containers, routes, the sandbox network, and Draft-managed volumes are permanently removed. Test run history is kept.',
+            confirmLabel: 'Delete sandbox',
+            danger: true,
+        })) return;
         try { await DeleteSandbox(sandbox.id); await refresh(); } catch (e) { void alert({title: 'Could not delete sandbox', message: String(e)}); }
     };
 
+    const setPurposeAndDefaults = (next: 'preview' | 'test') => {
+        setPurpose(next);
+        setPreview(null);
+        if (next === 'test') {
+            setTtlHours((current) => (current === 168 ? 4 : current));
+            setSteps((current) => (current.length ? current : [emptyStep(defaultServiceLabel)]));
+        } else {
+            setTtlHours((current) => (current === 4 ? 168 : current));
+        }
+    };
+
+    const renderStepEditor = (
+        value: StepDraft[],
+        onChange: (next: StepDraft[]) => void,
+        serviceOptions: store.CanvasNode[],
+    ) => (
+        <section className="sandbox-plan-editor">
+            <h3 className="project-settings-section-title">Test steps</h3>
+            <p className="environment-source-hint">
+                Commands run in the sandbox service container after the stack is healthy. Use shell-style quoting for args with spaces.
+            </p>
+            {value.map((step, index) => (
+                <div className="sandbox-step-row" key={index}>
+                    <input
+                        className="input"
+                        placeholder="Name (optional)"
+                        value={step.name}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, name: e.target.value};
+                            onChange(next);
+                        }}
+                    />
+                    <select
+                        className="input settings-select"
+                        value={step.serviceLabel}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, serviceLabel: e.target.value};
+                            onChange(next);
+                        }}
+                    >
+                        <option value="">Service</option>
+                        {serviceOptions.map((node) => (
+                            <option key={node.id} value={node.label}>{node.label}</option>
+                        ))}
+                    </select>
+                    <input
+                        className="input"
+                        placeholder="pytest -q tests/integration"
+                        value={step.cmd}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, cmd: e.target.value};
+                            onChange(next);
+                        }}
+                    />
+                    <input
+                        className="input"
+                        placeholder="Workdir (optional)"
+                        value={step.workDir}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, workDir: e.target.value};
+                            onChange(next);
+                        }}
+                    />
+                    <button
+                        className="icon-button"
+                        type="button"
+                        aria-label="Remove step"
+                        onClick={() => onChange(value.filter((_, i) => i !== index))}
+                        disabled={value.length <= 1}
+                    >
+                        <Trash2 size={14}/>
+                    </button>
+                </div>
+            ))}
+            <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => onChange([...value, emptyStep(serviceOptions[0]?.label ?? '')])}
+            >
+                <Plus size={14}/> Add step
+            </button>
+        </section>
+    );
+
     return <>
         {!dialogOnly ? (<div className="workspace-view">
-        <PageHeader title="Sandboxes" description="Isolated, short-lived copies of project environments. Dependencies can be shared only when you choose it." action={<div className="sandbox-page-actions"><button className="btn btn-ghost" onClick={() => { setProfilesOpen(true); openProfileEditor(); }}><SlidersHorizontal size={15}/> Profiles</button><button className="btn btn-primary" onClick={() => setOpen(true)}><FlaskConical size={15}/> New sandbox</button></div>}/>
-        <div className="workspace-body workspace-narrow">
-            {sandboxes.length === 0 ? <div className="panel panel-empty"><FlaskConical size={18}/> No sandboxes yet. Create a full isolated copy, then selectively share dependencies when needed.</div> : <div className="stack-list">
-                {sandboxes.map((sandbox) => {
-                    const project = projects.find((p) => p.id === sandbox.projectId);
-                    return <article key={sandbox.id} className="sandbox-card">
-                        <div className="sandbox-card-main">
-                            <div className="sandbox-branch-row"><span className="status-dot"/><GitBranch size={14}/><span className="sandbox-branch">{sandbox.name}</span><span className="tag-pill">{sandbox.status}</span></div>
-                            <div className="sandbox-meta-row"><span>{project?.name ?? 'Unknown project'}</span><span className="sandbox-meta-divider">·</span><Clock3 size={12}/><span>{sandboxLifecycleLabel(sandbox)}</span></div>
+            <PageHeader
+                title="Sandboxes"
+                description="Isolated, short-lived environment copies. Preview sandboxes for PR work; testing sandboxes rebuild a recipe and run commands."
+                action={
+                    <div className="sandbox-page-actions">
+                        <button className="btn btn-ghost" onClick={() => { setProfilesOpen(true); openProfileEditor(); }}>
+                            <SlidersHorizontal size={15}/> Profiles
+                        </button>
+                        <button className="btn btn-primary" onClick={() => { setPurpose('preview'); setOpen(true); }}>
+                            <FlaskConical size={15}/> New sandbox
+                        </button>
+                    </div>
+                }
+            />
+            <div className="workspace-body workspace-narrow">
+                {testingProfiles.length > 0 && (
+                    <section className="sandbox-recipes">
+                        <h3 className="project-settings-section-title">Testing recipes</h3>
+                        <p className="environment-source-hint">Saved testing profiles. Run rebuilds a short-lived sandbox from the recipe and executes steps.</p>
+                        <div className="stack-list">
+                            {testingProfiles.map((profile) => (
+                                <article key={profile.id} className="sandbox-card sandbox-card--recipe">
+                                    <div className="sandbox-card-main">
+                                        <div className="sandbox-branch-row">
+                                            <FlaskConical size={14}/>
+                                            <span className="sandbox-branch">{profile.name}</span>
+                                            <span className="tag-pill">test recipe</span>
+                                            {profile.isDefault ? <span className="tag-pill">default</span> : null}
+                                        </div>
+                                        <div className="sandbox-meta-row">
+                                            <span>{profile.sourceEnvironmentId
+                                                ? environments.find((env) => env.id === profile.sourceEnvironmentId)?.name ?? 'Scoped source'
+                                                : 'Project-wide'}</span>
+                                        </div>
+                                    </div>
+                                    <div className="sandbox-actions">
+                                        <button className="btn btn-ghost" onClick={() => { setProfilesOpen(true); openProfileEditor(profile); }}>Edit</button>
+                                        <button className="btn btn-primary" disabled={busy || !sourceId} onClick={() => void runFreshFromProfile(profile)}>
+                                            <Play size={14}/> Run
+                                        </button>
+                                    </div>
+                                </article>
+                            ))}
                         </div>
-                        <div className="sandbox-actions"><button className="btn btn-ghost" onClick={() => void GetSandboxDetail(sandbox.id).then(setDetail)}>Details</button><button className="btn btn-ghost" onClick={() => onOpenSandbox(sandbox.projectId, sandbox.environmentId)}>Open</button><SandboxExtendControl sandboxId={sandbox.id} currentExpiresAt={sandbox.expiresAt} onExtended={() => void refresh()} onError={(message) => void alert({title: 'Could not extend sandbox', message})}/><button className="icon-button" onClick={() => void remove(sandbox)} aria-label="Delete sandbox"><Trash2 size={14}/></button></div>
-                    </article>;
-                })}
-            </div>}
-        </div>
-    </div>) : null}
-        {open && <Dialog title="New sandbox" wide onClose={() => { if (!busy) closeCreate(); }} footer={<><button className="btn btn-ghost" disabled={busy} onClick={closeCreate}>Cancel</button><button className="btn btn-ghost" disabled={!sourceId || busy} onClick={() => void review()}><SlidersHorizontal size={14}/> Review plan</button><button className="btn btn-primary" disabled={!sourceId || !name.trim() || busy} onClick={() => void create()}>{busy ? 'Creating…' : 'Create sandbox'}</button></>}>
-            {error && <p className="environment-error">{error}</p>}
-            <div className="form-field"><label className="form-label">Project</label><select className="input settings-select" value={projectId} onChange={(e) => setProjectId(Number(e.target.value))}>{projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-            <div className="form-field"><label className="form-label">Source environment</label><select className="input settings-select" value={sourceId} onChange={(e) => setSourceId(Number(e.target.value))}>{environments.map((env) => <option key={env.id} value={env.id}>{env.name}{env.isDefault ? ' (default)' : ''}</option>)}</select></div>
-            <div className="form-field"><label className="form-label">Profile</label><select className="input settings-select" value={profileId} onChange={(e) => { setProfileId(Number(e.target.value)); setPreview(null); }}><option value={0}>Project/source defaults</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.isDefault ? ' (default)' : ''}</option>)}</select></div>
-            <div className="form-field"><label className="form-label">Sandbox name</label><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="checkout-validation"/></div>
-            <SandboxHoursInput label="Lifetime (hours)" value={ttlHours} min={1} onChange={setTtlHours} variant="field"/>
-            <div className="form-field"><label className="form-label">Links (optional)</label><input className="input" value={links} onChange={(e) => setLinks(e.target.value)} placeholder="pr:412, ticket:ENG-933"/><p className="environment-source-hint">Links are manual metadata only.</p></div>
-            <section className="sandbox-plan-editor"><h3 className="project-settings-section-title">Service plan</h3><p className="environment-source-hint">Copy is the isolated default. Share bridges directly to the source root; omit removes the service from this sandbox.</p>{sourceNodes.map((node) => { const rule = rules[node.id]; return <div className="sandbox-plan-row" key={node.id}><strong>{node.label}</strong><select className="input settings-select" value={rule?.mode ?? 'copy'} onChange={(e) => updateRule(node.id, {mode: e.target.value})}><option value="copy">Copy</option><option value="share">Share source service</option><option value="omit">Omit</option></select>{(rule?.mode ?? 'copy') === 'copy' && <select className="input settings-select" value={rule?.dataMode ?? ''} onChange={(e) => updateRule(node.id, {dataMode: e.target.value || undefined})}><option value="">Profile/default data plan</option><option value="clone">Clone data</option><option value="fresh">Fresh data</option></select>}</div>; })}</section>
-            {preview && <section className="sandbox-plan-review"><h3 className="project-settings-section-title">Resolved plan</h3><p>Expires {dateLabel(preview.expiresAt)}; auto-deletes {dateLabel(preview.graceEndsAt)} (after grace). {preview.services.filter((rule) => rule.mode === 'copy').length} copied, {preview.services.filter((rule) => rule.mode === 'share').length} shared, {preview.services.filter((rule) => rule.mode === 'omit').length} omitted.</p>{preview.repositories.length > 0 && <ul>{preview.repositories.map((repo) => <li key={repo.repoRoot}>{repo.repoRoot} · {repo.commitSha.slice(0, 12)}</li>)}</ul>}</section>}
-            {selectedProject && source && <p className="environment-source-hint">Creates an isolated sandbox from {selectedProject.name} / {source.name}. Draft will use the project’s sandbox defaults and profile rules.</p>}
-        </Dialog>}
-        {detail && <Dialog title={`Sandbox · ${detail.sandbox.name}`} onClose={() => setDetail(null)} footer={<><button className="btn btn-ghost" onClick={() => setDetail(null)}>Close</button>{detail.sandbox.status === 'suspended' ? <button className="btn btn-primary" onClick={() => void ResumeSandbox(detail.sandbox.id).then((sandbox) => { setDetail(deploy.SandboxDetail.createFrom({...detail, sandbox})); void refresh(); })}><Play size={14}/> Resume</button> : <button className="btn btn-ghost" onClick={() => void SuspendSandbox(detail.sandbox.id).then((sandbox) => { setDetail(deploy.SandboxDetail.createFrom({...detail, sandbox})); void refresh(); })}><Pause size={14}/> Suspend</button>}</>}><div className="sandbox-detail"><p>Source: <strong>{detail.source.name}</strong> · {sandboxLifecycleLabel(detail.sandbox)}</p><h3 className="project-settings-section-title">Services</h3><ul>{(detail.plan.services ?? []).map((rule) => <li key={rule.sourceNodeId}>{rule.sourceNodeId}: {rule.mode}{rule.dataMode ? ` · ${rule.dataMode}` : ''}</li>)}</ul><h3 className="project-settings-section-title">Repositories</h3><ul>{detail.repositories.map((repo) => <li key={repo.repoRoot}>{repo.repoRoot} · {repo.ref} · {repo.commitSha.slice(0, 12)}</li>)}</ul><h3 className="project-settings-section-title">Manual links</h3>{detail.links.length ? <ul>{detail.links.map((link) => <li key={link.id}>{link.kind}: {link.value}</li>)}</ul> : <p className="settings-hint">No links attached.</p>}</div></Dialog>}
-        {profilesOpen && <Dialog title="Sandbox profiles" wide onClose={() => { setProfilesOpen(false); setEditingProfile(null); }} footer={<button className="btn btn-ghost" onClick={() => { setProfilesOpen(false); setEditingProfile(null); }}>Close</button>}><div className="sandbox-profiles"><p className="environment-source-hint">Profiles provide reusable lifecycle defaults. Service copy/share/omit rules remain editable in each sandbox’s review plan.</p><div className="sandbox-profile-layout"><div>{profiles.map((profile) => <div key={profile.id} className="sandbox-profile-card"><div><strong>{profile.name}</strong><span>{profile.sourceEnvironmentId ? environments.find((env) => env.id === profile.sourceEnvironmentId)?.name ?? 'source environment' : 'Project-wide'}{profile.isDefault ? ' · default' : ''}</span></div><div><button className="btn btn-ghost" onClick={() => openProfileEditor(profile)}>Edit</button><button className="btn btn-ghost" onClick={() => void DeleteSandboxProfile(profile.id).then(loadProfiles)}>Delete</button></div></div>)}</div><div className="sandbox-plan-review"><h3 className="project-settings-section-title">{editingProfile ? 'Edit profile' : 'New profile'}</h3><div className="form-field"><label className="form-label">Name</label><input className="input" value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="PR preview"/></div><div className="form-field"><label className="form-label">Applies when branching from</label><select className="input settings-select" value={profileScope} onChange={(e) => setProfileScope(Number(e.target.value))}><option value={0}>Any environment in this project</option>{environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}</select></div><div className="sandbox-profile-times"><SandboxHoursInput label="Lifetime" value={profileTTL} min={1} onChange={setProfileTTL}/><SandboxHoursInput label="Warning" value={profileWarning} min={0} onChange={setProfileWarning}/><SandboxHoursInput label="Grace" value={profileGrace} min={0} onChange={setProfileGrace}/></div><label className="environment-data-mode"><input type="checkbox" checked={profileDefault} onChange={(e) => setProfileDefault(e.target.checked)}/> Default for this scope</label>{error && <p className="environment-error">{error}</p>}<button className="btn btn-primary" disabled={busy || !profileName.trim()} onClick={() => void saveProfile()}>{busy ? 'Saving…' : editingProfile ? 'Save profile' : 'Create profile'}</button></div></div></div></Dialog>}
+                    </section>
+                )}
+
+                <section className="sandbox-live-section">
+                    <h3 className="project-settings-section-title">Live sandboxes</h3>
+                    {sandboxes.length === 0 ? (
+                        <div className="panel panel-empty">
+                            <FlaskConical size={18}/> No sandboxes yet. Create a preview copy, or a testing sandbox with steps to rerun.
+                        </div>
+                    ) : (
+                        <div className="stack-list">
+                            {sandboxes.map((sandbox) => {
+                                const project = projects.find((p) => p.id === sandbox.projectId);
+                                const isTest = sandbox.purpose === 'test';
+                                return (
+                                    <article key={sandbox.id} className="sandbox-card">
+                                        <div className="sandbox-card-main">
+                                            <div className="sandbox-branch-row">
+                                                <span className="status-dot"/>
+                                                <GitBranch size={14}/>
+                                                <span className="sandbox-branch">{sandbox.name}</span>
+                                                <span className="tag-pill">{purposeLabel(sandbox.purpose)}</span>
+                                                <span className="tag-pill">{sandbox.status}</span>
+                                            </div>
+                                            <div className="sandbox-meta-row">
+                                                <span>{project?.name ?? 'Unknown project'}</span>
+                                                <span className="sandbox-meta-divider">·</span>
+                                                <Clock3 size={12}/>
+                                                <span>{sandboxLifecycleLabel(sandbox)}</span>
+                                            </div>
+                                        </div>
+                                        <div className="sandbox-actions">
+                                            <button className="btn btn-ghost" onClick={() => void GetSandboxDetail(sandbox.id).then(setDetail)}>Details</button>
+                                            <button className="btn btn-ghost" onClick={() => onOpenSandbox(sandbox.projectId, sandbox.environmentId)}>Open</button>
+                                            {isTest && (
+                                                <>
+                                                    <button className="btn btn-ghost" disabled={busy} title="Re-run steps on this stack" onClick={() => void rerunSandbox(sandbox, 'steps')}>
+                                                        <Play size={14}/> Re-run steps
+                                                    </button>
+                                                    <button className="btn btn-primary" disabled={busy} title="Rebuild from recipe and run" onClick={() => void rerunSandbox(sandbox, 'fresh')}>
+                                                        <RotateCcw size={14}/> Rerun fresh
+                                                    </button>
+                                                </>
+                                            )}
+                                            <SandboxExtendControl
+                                                sandboxId={sandbox.id}
+                                                currentExpiresAt={sandbox.expiresAt}
+                                                onExtended={() => void refresh()}
+                                                onError={(message) => void alert({title: 'Could not extend sandbox', message})}
+                                            />
+                                            <button className="icon-button" onClick={() => void remove(sandbox)} aria-label="Delete sandbox">
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    )}
+                </section>
+
+                {testRuns.length > 0 && (
+                    <section className="sandbox-run-history">
+                        <h3 className="project-settings-section-title">Recent test runs</h3>
+                        <div className="stack-list">
+                            {testRuns.slice(0, 20).map((run) => {
+                                const project = projects.find((p) => p.id === run.projectId);
+                                const StatusIcon = run.status === 'passed' ? CheckCircle2 : run.status === 'failed' ? XCircle : Clock3;
+                                return (
+                                    <article key={run.id} className="sandbox-card sandbox-card--run">
+                                        <div className="sandbox-card-main">
+                                            <div className="sandbox-branch-row">
+                                                <StatusIcon size={14}/>
+                                                <span className="sandbox-branch">{run.name}</span>
+                                                <span className="tag-pill">{run.status}</span>
+                                                <span className="tag-pill">{run.mode}</span>
+                                            </div>
+                                            <div className="sandbox-meta-row">
+                                                <span>{project?.name ?? 'Unknown project'}</span>
+                                                <span className="sandbox-meta-divider">·</span>
+                                                <span>{dateLabel(run.startedAt)}</span>
+                                                {run.error ? <><span className="sandbox-meta-divider">·</span><span className="sandbox-run-error">{run.error}</span></> : null}
+                                            </div>
+                                        </div>
+                                        <div className="sandbox-actions">
+                                            <button className="btn btn-ghost" onClick={() => void openRun(run)}>View</button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    </section>
+                )}
+            </div>
+        </div>) : null}
+
+        {open && (
+            <Dialog
+                title={purpose === 'test' ? 'New testing sandbox' : 'New sandbox'}
+                wide
+                onClose={() => { if (!busy) closeCreate(); }}
+                footer={
+                    <>
+                        <button className="btn btn-ghost" disabled={busy} onClick={closeCreate}>Cancel</button>
+                        <button className="btn btn-ghost" disabled={!sourceId || busy} onClick={() => void review()}>
+                            <SlidersHorizontal size={14}/> Review plan
+                        </button>
+                        <button className="btn btn-primary" disabled={!sourceId || !name.trim() || busy} onClick={() => void create()}>
+                            {busy ? (purpose === 'test' ? 'Running…' : 'Creating…') : (purpose === 'test' ? 'Create & run' : 'Create sandbox')}
+                        </button>
+                    </>
+                }
+            >
+                {error && <p className="environment-error">{error}</p>}
+                <div className="form-field">
+                    <label className="form-label">Purpose</label>
+                    <select className="input settings-select" value={purpose} onChange={(e) => setPurposeAndDefaults(e.target.value as 'preview' | 'test')}>
+                        <option value="preview">Preview — short-lived PR / feature copy</option>
+                        <option value="test">Testing — rebuildable recipe + commands</option>
+                    </select>
+                </div>
+                <div className="form-field">
+                    <label className="form-label">Project</label>
+                    <select className="input settings-select" value={projectId} onChange={(e) => setProjectId(Number(e.target.value))}>
+                        {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                </div>
+                <div className="form-field">
+                    <label className="form-label">Source environment</label>
+                    <select className="input settings-select" value={sourceId} onChange={(e) => setSourceId(Number(e.target.value))}>
+                        {environments.map((env) => <option key={env.id} value={env.id}>{env.name}{env.isDefault ? ' (default)' : ''}</option>)}
+                    </select>
+                </div>
+                <div className="form-field">
+                    <label className="form-label">Profile</label>
+                    <select className="input settings-select" value={profileId} onChange={(e) => { setProfileId(Number(e.target.value)); setPreview(null); }}>
+                        <option value={0}>Project/source defaults</option>
+                        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.isDefault ? ' (default)' : ''}</option>)}
+                    </select>
+                </div>
+                <div className="form-field">
+                    <label className="form-label">Sandbox name</label>
+                    <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={purpose === 'test' ? 'api-integration' : 'checkout-validation'}/>
+                </div>
+                <SandboxHoursInput label="Lifetime (hours)" value={ttlHours} min={1} onChange={setTtlHours} variant="field"/>
+                {purpose === 'test' && (
+                    <div className="form-field">
+                        <label className="form-label">After suite completes</label>
+                        <select className="input settings-select" value={onComplete} onChange={(e) => setOnComplete(e.target.value as 'leave' | 'delete' | 'suspend')}>
+                            <option value="leave">Leave running (short TTL)</option>
+                            <option value="suspend">Suspend services</option>
+                            <option value="delete">Delete immediately</option>
+                        </select>
+                    </div>
+                )}
+                {purpose === 'preview' && (
+                    <div className="form-field">
+                        <label className="form-label">Links (optional)</label>
+                        <input className="input" value={links} onChange={(e) => setLinks(e.target.value)} placeholder="pr:412, ticket:ENG-933"/>
+                        <p className="environment-source-hint">Links are manual metadata only.</p>
+                    </div>
+                )}
+                <section className="sandbox-plan-editor">
+                    <h3 className="project-settings-section-title">Service plan</h3>
+                    <p className="environment-source-hint">
+                        Copy is the isolated default{purpose === 'test' ? ' (testing defaults data to fresh)' : ''}.
+                        Share bridges directly to the source root; omit removes the service from this sandbox.
+                    </p>
+                    {sourceNodes.map((node) => {
+                        const rule = rules[node.id];
+                        return (
+                            <div className="sandbox-plan-row" key={node.id}>
+                                <strong>{node.label}</strong>
+                                <select className="input settings-select" value={rule?.mode ?? 'copy'} onChange={(e) => updateRule(node.id, {mode: e.target.value})}>
+                                    <option value="copy">Copy</option>
+                                    <option value="share">Share source service</option>
+                                    <option value="omit">Omit</option>
+                                </select>
+                                {(rule?.mode ?? 'copy') === 'copy' && (
+                                    <select className="input settings-select" value={rule?.dataMode ?? ''} onChange={(e) => updateRule(node.id, {dataMode: e.target.value || undefined})}>
+                                        <option value="">Profile/default data plan</option>
+                                        <option value="clone">Clone data</option>
+                                        <option value="fresh">Fresh data</option>
+                                    </select>
+                                )}
+                            </div>
+                        );
+                    })}
+                </section>
+                {purpose === 'test' && renderStepEditor(steps, setSteps, sourceNodes)}
+                {preview && (
+                    <section className="sandbox-plan-review">
+                        <h3 className="project-settings-section-title">Resolved plan</h3>
+                        <p>
+                            Purpose {purposeLabel(preview.plan.purpose)} · expires {dateLabel(preview.expiresAt)}; auto-deletes {dateLabel(preview.graceEndsAt)} (after grace).{' '}
+                            {preview.services.filter((rule) => rule.mode === 'copy').length} copied,{' '}
+                            {preview.services.filter((rule) => rule.mode === 'share').length} shared,{' '}
+                            {preview.services.filter((rule) => rule.mode === 'omit').length} omitted.
+                        </p>
+                        {(preview.plan.steps?.length ?? 0) > 0 && (
+                            <ul>
+                                {preview.plan.steps!.map((step, i) => (
+                                    <li key={i}>{step.serviceLabel}: {(step.cmd ?? []).join(' ')}</li>
+                                ))}
+                            </ul>
+                        )}
+                        {preview.repositories.length > 0 && (
+                            <ul>
+                                {preview.repositories.map((repo) => (
+                                    <li key={repo.repoRoot}>{repo.repoRoot} · {repo.commitSha.slice(0, 12)}</li>
+                                ))}
+                            </ul>
+                        )}
+                    </section>
+                )}
+                {selectedProject && source && (
+                    <p className="environment-source-hint">
+                        {purpose === 'test'
+                            ? `Creates a testing sandbox from ${selectedProject.name} / ${source.name}, starts services, and runs steps.`
+                            : `Creates an isolated sandbox from ${selectedProject.name} / ${source.name}.`}
+                    </p>
+                )}
+            </Dialog>
+        )}
+
+        {detail && (
+            <Dialog
+                title={`Sandbox · ${detail.sandbox.name}`}
+                onClose={() => setDetail(null)}
+                footer={
+                    <>
+                        <button className="btn btn-ghost" onClick={() => setDetail(null)}>Close</button>
+                        {detail.sandbox.purpose === 'test' && (
+                            <>
+                                <button className="btn btn-ghost" disabled={busy} onClick={() => void rerunSandbox(detail.sandbox, 'steps')}>Re-run steps</button>
+                                <button className="btn btn-primary" disabled={busy} onClick={() => void rerunSandbox(detail.sandbox, 'fresh')}>Rerun fresh</button>
+                            </>
+                        )}
+                        {detail.sandbox.status === 'suspended' ? (
+                            <button className="btn btn-primary" onClick={() => void ResumeSandbox(detail.sandbox.id).then((sandbox) => {
+                                setDetail(deploy.SandboxDetail.createFrom({...detail, sandbox}));
+                                void refresh();
+                            })}>
+                                <Play size={14}/> Resume
+                            </button>
+                        ) : (
+                            <button className="btn btn-ghost" onClick={() => void SuspendSandbox(detail.sandbox.id).then((sandbox) => {
+                                setDetail(deploy.SandboxDetail.createFrom({...detail, sandbox}));
+                                void refresh();
+                            })}>
+                                <Pause size={14}/> Suspend
+                            </button>
+                        )}
+                    </>
+                }
+            >
+                <div className="sandbox-detail">
+                    <p>
+                        Source: <strong>{detail.source.name}</strong> · {purposeLabel(detail.sandbox.purpose)} · {sandboxLifecycleLabel(detail.sandbox)}
+                    </p>
+                    <h3 className="project-settings-section-title">Services</h3>
+                    <ul>
+                        {(detail.plan.services ?? []).map((rule) => (
+                            <li key={rule.sourceNodeId}>{rule.sourceNodeId}: {rule.mode}{rule.dataMode ? ` · ${rule.dataMode}` : ''}</li>
+                        ))}
+                    </ul>
+                    {(detail.plan.steps?.length ?? 0) > 0 && (
+                        <>
+                            <h3 className="project-settings-section-title">Test steps</h3>
+                            <ul>
+                                {detail.plan.steps!.map((step, i) => (
+                                    <li key={i}>{step.name || step.serviceLabel}: {(step.cmd ?? []).join(' ')}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                    {detail.latestRun && (
+                        <>
+                            <h3 className="project-settings-section-title">Latest run</h3>
+                            <p>
+                                {detail.latestRun.status} · {detail.latestRun.mode} · {dateLabel(detail.latestRun.startedAt)}
+                                {detail.latestRun.error ? ` · ${detail.latestRun.error}` : ''}
+                            </p>
+                            <button className="btn btn-ghost" onClick={() => void openRun(detail.latestRun!)}>View run transcript</button>
+                        </>
+                    )}
+                    <h3 className="project-settings-section-title">Repositories</h3>
+                    <ul>
+                        {detail.repositories.map((repo) => (
+                            <li key={repo.repoRoot}>{repo.repoRoot} · {repo.ref} · {repo.commitSha.slice(0, 12)}</li>
+                        ))}
+                    </ul>
+                    <h3 className="project-settings-section-title">Manual links</h3>
+                    {detail.links.length ? (
+                        <ul>{detail.links.map((link) => <li key={link.id}>{link.kind}: {link.value}</li>)}</ul>
+                    ) : (
+                        <p className="settings-hint">No links attached.</p>
+                    )}
+                </div>
+            </Dialog>
+        )}
+
+        {runResult && (
+            <Dialog
+                title={`Test run · ${runResult.run.name}`}
+                wide
+                onClose={() => setRunResult(null)}
+                footer={
+                    <>
+                        <button className="btn btn-ghost" onClick={() => setRunResult(null)}>Close</button>
+                        {runResult.sandbox && (
+                            <button className="btn btn-primary" onClick={() => {
+                                onOpenSandbox(runResult.sandbox!.projectId, runResult.sandbox!.environmentId);
+                                setRunResult(null);
+                            }}>
+                                Open sandbox
+                            </button>
+                        )}
+                    </>
+                }
+            >
+                <div className="sandbox-detail">
+                    <p>
+                        Status: <strong>{runResult.run.status}</strong> · mode {runResult.run.mode}
+                        {runResult.run.error ? ` · ${runResult.run.error}` : ''}
+                    </p>
+                    <p>Started {dateLabel(runResult.run.startedAt)}{runResult.run.finishedAt ? ` · finished ${dateLabel(runResult.run.finishedAt)}` : ''}</p>
+                    <h3 className="project-settings-section-title">Steps</h3>
+                    {(runResult.steps ?? []).length === 0 ? (
+                        <p className="settings-hint">No step results recorded.</p>
+                    ) : (
+                        <div className="sandbox-run-steps">
+                            {runResult.steps.map((step, i) => (
+                                <article key={i} className="sandbox-run-step">
+                                    <div className="sandbox-branch-row">
+                                        {step.exitCode === 0 && !step.error ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
+                                        <strong>{step.name || step.serviceLabel}</strong>
+                                        <span className="tag-pill">{step.serviceLabel}</span>
+                                        <span className="tag-pill">exit {step.exitCode}</span>
+                                        <span className="tag-pill">{step.durationMs}ms</span>
+                                    </div>
+                                    {step.error && <p className="environment-error">{step.error}</p>}
+                                    {step.output && <pre className="sandbox-run-output">{step.output}</pre>}
+                                </article>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </Dialog>
+        )}
+
+        {profilesOpen && (
+            <Dialog
+                title="Sandbox profiles"
+                wide
+                onClose={() => { setProfilesOpen(false); setEditingProfile(null); }}
+                footer={<button className="btn btn-ghost" onClick={() => { setProfilesOpen(false); setEditingProfile(null); }}>Close</button>}
+            >
+                <div className="sandbox-profiles">
+                    <p className="environment-source-hint">
+                        Profiles are reusable recipes. Mark purpose as Testing to save steps and rebuild with Run.
+                    </p>
+                    <div className="sandbox-profile-layout">
+                        <div>
+                            {profiles.map((profile) => {
+                                let profilePurposeTag = 'preview';
+                                try {
+                                    const plan = JSON.parse(profile.planJson || '{}');
+                                    if (plan.purpose === 'test') profilePurposeTag = 'test';
+                                } catch { /* ignore */ }
+                                return (
+                                    <div key={profile.id} className="sandbox-profile-card">
+                                        <div>
+                                            <strong>{profile.name}</strong>
+                                            <span>
+                                                {profile.sourceEnvironmentId
+                                                    ? environments.find((env) => env.id === profile.sourceEnvironmentId)?.name ?? 'source environment'
+                                                    : 'Project-wide'}
+                                                {profile.isDefault ? ' · default' : ''}
+                                                {' · '}{profilePurposeTag}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <button className="btn btn-ghost" onClick={() => openProfileEditor(profile)}>Edit</button>
+                                            {profilePurposeTag === 'test' && (
+                                                <button className="btn btn-ghost" disabled={busy} onClick={() => void runFreshFromProfile(profile)}>Run</button>
+                                            )}
+                                            <button className="btn btn-ghost" onClick={() => void DeleteSandboxProfile(profile.id).then(loadProfiles)}>Delete</button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <div className="sandbox-plan-review">
+                            <h3 className="project-settings-section-title">{editingProfile ? 'Edit profile' : 'New profile'}</h3>
+                            {error && <p className="environment-error">{error}</p>}
+                            <div className="form-field">
+                                <label className="form-label">Name</label>
+                                <input className="input" value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="API integration"/>
+                            </div>
+                            <div className="form-field">
+                                <label className="form-label">Purpose</label>
+                                <select
+                                    className="input settings-select"
+                                    value={profilePurpose}
+                                    onChange={(e) => {
+                                        const next = e.target.value as 'preview' | 'test';
+                                        setProfilePurpose(next);
+                                        if (next === 'test') {
+                                            setProfileTTL((v) => (v === 168 ? 4 : v));
+                                            setProfileWarning((v) => (v === 24 ? 1 : v));
+                                            setProfileGrace((v) => (v === 72 ? 2 : v));
+                                        }
+                                    }}
+                                >
+                                    <option value="preview">Preview</option>
+                                    <option value="test">Testing</option>
+                                </select>
+                            </div>
+                            <div className="form-field">
+                                <label className="form-label">Applies when branching from</label>
+                                <select className="input settings-select" value={profileScope} onChange={(e) => setProfileScope(Number(e.target.value))}>
+                                    <option value={0}>Any environment in this project</option>
+                                    {environments.map((env) => <option key={env.id} value={env.id}>{env.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="sandbox-profile-times">
+                                <SandboxHoursInput label="Lifetime" value={profileTTL} min={1} onChange={setProfileTTL}/>
+                                <SandboxHoursInput label="Warning" value={profileWarning} min={0} onChange={setProfileWarning}/>
+                                <SandboxHoursInput label="Grace" value={profileGrace} min={0} onChange={setProfileGrace}/>
+                            </div>
+                            {profilePurpose === 'test' && (
+                                <>
+                                    <div className="form-field">
+                                        <label className="form-label">After suite completes</label>
+                                        <select className="input settings-select" value={profileOnComplete} onChange={(e) => setProfileOnComplete(e.target.value as 'leave' | 'delete' | 'suspend')}>
+                                            <option value="leave">Leave running</option>
+                                            <option value="suspend">Suspend</option>
+                                            <option value="delete">Delete</option>
+                                        </select>
+                                    </div>
+                                    {renderStepEditor(profileSteps, setProfileSteps, sourceNodes)}
+                                </>
+                            )}
+                            <label className="environment-data-mode">
+                                <input type="checkbox" checked={profileDefault} onChange={(e) => setProfileDefault(e.target.checked)}/>
+                                Default profile for this scope
+                            </label>
+                            <button className="btn btn-primary" disabled={busy || !profileName.trim()} onClick={() => void saveProfile()}>
+                                {editingProfile ? 'Save profile' : 'Create profile'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </Dialog>
+        )}
     </>;
 }

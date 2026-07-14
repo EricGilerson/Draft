@@ -62,6 +62,10 @@ type SandboxProfile struct {
 // Sandbox is the durable lifecycle record for one disposable environment.
 // PlanJSON is an immutable resolved plan captured at creation time; changing a
 // profile later never rewires a running sandbox.
+//
+// Purpose is denormalized from the plan ("preview" | "test") so list UIs can
+// filter without parsing PlanJSON. The plan remains the source of truth for
+// steps, service rules, and lifecycle knobs.
 type Sandbox struct {
 	ID                  uint       `gorm:"primaryKey" json:"id"`
 	ProjectID           uint       `gorm:"index;not null" json:"projectId"`
@@ -69,12 +73,35 @@ type Sandbox struct {
 	SourceEnvironmentID uint       `gorm:"index;not null" json:"sourceEnvironmentId"`
 	ProfileID           uint       `gorm:"index" json:"profileId"`
 	Name                string     `gorm:"not null" json:"name"`
+	Purpose             string     `gorm:"index;not null;default:'preview'" json:"purpose"`
 	Status              string     `gorm:"not null;default:'active'" json:"status"`
 	PlanJSON            string     `gorm:"not null" json:"planJson"`
 	ExpiresAt           time.Time  `gorm:"index;not null" json:"expiresAt"`
 	WarnAt              time.Time  `gorm:"index;not null" json:"warnAt"`
 	GraceEndsAt         time.Time  `gorm:"index;not null" json:"graceEndsAt"`
 	SuspendedAt         *time.Time `json:"suspendedAt,omitempty"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	UpdatedAt           time.Time  `json:"updatedAt"`
+}
+
+// SandboxTestRun records one execution of a testing sandbox's steps. The
+// durable recipe lives on SandboxProfile (or the create request plan); each
+// run is a short-lived instance outcome that can be inspected after the
+// sandbox itself has been cleaned up.
+type SandboxTestRun struct {
+	ID                  uint       `gorm:"primaryKey" json:"id"`
+	ProjectID           uint       `gorm:"index;not null" json:"projectId"`
+	ProfileID           uint       `gorm:"index" json:"profileId"`
+	SandboxID           uint       `gorm:"index" json:"sandboxId"`
+	SourceEnvironmentID uint       `gorm:"index;not null" json:"sourceEnvironmentId"`
+	Name                string     `gorm:"not null" json:"name"`
+	Mode                string     `gorm:"not null;default:'fresh'" json:"mode"` // fresh | steps
+	Status              string     `gorm:"index;not null;default:'running'" json:"status"` // running | passed | failed
+	PlanJSON            string     `gorm:"not null;default:'{}'" json:"planJson"`
+	StepsJSON           string     `gorm:"not null;default:'[]'" json:"stepsJson"`
+	Error               string     `json:"error,omitempty"`
+	StartedAt           time.Time  `gorm:"index;not null" json:"startedAt"`
+	FinishedAt          *time.Time `json:"finishedAt,omitempty"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`
 }

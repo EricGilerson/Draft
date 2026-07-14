@@ -41,14 +41,50 @@ type SandboxRepositoryRef struct {
 	Ref      string `json:"ref"`
 }
 
+// SandboxPurpose distinguishes preview sandboxes (human-driven PR/feature
+// copies) from testing sandboxes (recipe + commands, optimized for rerun).
+type SandboxPurpose string
+
+const (
+	SandboxPurposePreview SandboxPurpose = "preview"
+	SandboxPurposeTest    SandboxPurpose = "test"
+)
+
+// SandboxOnComplete controls what happens after a testing-sandbox step suite
+// finishes. leave keeps the short-lived stack for inspection; delete tears it
+// down immediately; suspend stops services but preserves volumes.
+type SandboxOnComplete string
+
+const (
+	SandboxOnCompleteLeave    SandboxOnComplete = "leave"
+	SandboxOnCompleteDelete   SandboxOnComplete = "delete"
+	SandboxOnCompleteSuspend  SandboxOnComplete = "suspend"
+)
+
+// SandboxStep is one command executed inside a running sandbox service.
+// ServiceLabel is resolved against the sandbox environment (not source IDs)
+// so recipes stay readable after node IDs change across copies.
+type SandboxStep struct {
+	Name         string   `json:"name,omitempty"`
+	ServiceLabel string   `json:"serviceLabel"`
+	Cmd          []string `json:"cmd"`
+	WorkDir      string   `json:"workDir,omitempty"`
+}
+
 // SandboxPlan is both the profile payload and the immutable resolved snapshot
 // stored on Sandbox.PlanJSON. It intentionally separates service/data policy
 // from repository sources so multi-repo projects never need one global branch.
+//
+// Purpose/steps/onComplete apply to testing sandboxes. Preview sandboxes leave
+// them empty and behave as before.
 type SandboxPlan struct {
 	TTLHours         int                    `json:"ttlHours,omitempty"`
 	WarningHours     int                    `json:"warningHours,omitempty"`
 	GraceHours       int                    `json:"graceHours,omitempty"`
 	SuspendIdleHours int                    `json:"suspendIdleHours,omitempty"`
+	Purpose          SandboxPurpose         `json:"purpose,omitempty"`
+	Steps            []SandboxStep          `json:"steps,omitempty"`
+	OnComplete       SandboxOnComplete      `json:"onComplete,omitempty"`
 	Services         []SandboxServiceRule   `json:"services,omitempty"`
 	Repositories     []SandboxRepositoryRef `json:"repositories,omitempty"`
 }
@@ -82,6 +118,7 @@ type SandboxDetail struct {
 	Links        []store.SandboxLink             `json:"links"`
 	Repositories []store.SandboxRepositorySource `json:"repositories"`
 	Plan         SandboxPlan                     `json:"plan"`
+	LatestRun    *store.SandboxTestRun           `json:"latestRun,omitempty"`
 }
 
 func (e *Engine) GetSandboxDetail(sandboxID uint) (*SandboxDetail, error) {
@@ -105,7 +142,11 @@ func (e *Engine) GetSandboxDetail(sandboxID uint) (*SandboxDetail, error) {
 	if err := json.Unmarshal([]byte(sandbox.PlanJSON), &plan); err != nil {
 		return nil, fmt.Errorf("read sandbox plan: %w", err)
 	}
-	return &SandboxDetail{Sandbox: *sandbox, Source: *source, Links: links, Repositories: repositories, Plan: plan}, nil
+	detail := &SandboxDetail{Sandbox: *sandbox, Source: *source, Links: links, Repositories: repositories, Plan: plan}
+	if run, err := e.store.LatestSandboxTestRun(sandboxID); err == nil {
+		detail.LatestRun = run
+	}
+	return detail, nil
 }
 
 // PreviewSandbox resolves project/source-environment defaults into the exact
@@ -126,7 +167,7 @@ func (e *Engine) PreviewSandbox(ctx context.Context, req SandboxCreateRequest) (
 	if err != nil {
 		return nil, err
 	}
-	plan.Services = resolveSandboxServiceRules(nodes, plan.Services, e.store)
+	plan.Services = resolveSandboxServiceRules(nodes, plan.Services, e.store, plan.Purpose)
 	repos, err := e.resolveSandboxRepositories(ctx, source.ProjectID, nodes, plan.Repositories)
 	if err != nil {
 		return nil, err
@@ -179,12 +220,17 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 		cleanup()
 		return nil, err
 	}
+	purpose := string(preview.Plan.Purpose)
+	if purpose == "" {
+		purpose = string(SandboxPurposePreview)
+	}
 	sandbox, err := e.store.CreateSandbox(&store.Sandbox{
 		ProjectID:           preview.ProjectID,
 		EnvironmentID:       env.ID,
 		SourceEnvironmentID: preview.SourceEnvironmentID,
 		ProfileID:           preview.ProfileID,
 		Name:                strings.TrimSpace(req.Name),
+		Purpose:             purpose,
 		Status:              "active",
 		PlanJSON:            string(planJSON),
 		ExpiresAt:           preview.ExpiresAt,
@@ -440,17 +486,65 @@ func (e *Engine) resolveSandboxPlan(req SandboxCreateRequest, source *store.Envi
 		profileID = profile.ID
 	}
 	plan = mergeSandboxPlan(plan, req.Plan)
+	if plan.Purpose == "" {
+		plan.Purpose = SandboxPurposePreview
+	}
+	if plan.Purpose != SandboxPurposePreview && plan.Purpose != SandboxPurposeTest {
+		return plan, 0, fmt.Errorf("invalid sandbox purpose %q", plan.Purpose)
+	}
 	if plan.TTLHours == 0 {
-		plan.TTLHours = settings.DefaultTTLHours
+		if plan.Purpose == SandboxPurposeTest {
+			plan.TTLHours = 4
+		} else {
+			plan.TTLHours = settings.DefaultTTLHours
+		}
 	}
 	if plan.WarningHours == 0 {
-		plan.WarningHours = settings.WarningHours
+		if plan.Purpose == SandboxPurposeTest {
+			plan.WarningHours = 1
+		} else {
+			plan.WarningHours = settings.WarningHours
+		}
 	}
 	if plan.GraceHours == 0 {
-		plan.GraceHours = settings.GraceHours
+		if plan.Purpose == SandboxPurposeTest {
+			plan.GraceHours = 2
+		} else {
+			plan.GraceHours = settings.GraceHours
+		}
 	}
 	if plan.SuspendIdleHours == 0 {
 		plan.SuspendIdleHours = settings.SuspendIdleHours
+	}
+	if plan.Purpose == SandboxPurposeTest {
+		if plan.OnComplete == "" {
+			plan.OnComplete = SandboxOnCompleteLeave
+		}
+		switch plan.OnComplete {
+		case SandboxOnCompleteLeave, SandboxOnCompleteDelete, SandboxOnCompleteSuspend:
+		default:
+			return plan, 0, fmt.Errorf("invalid sandbox onComplete %q", plan.OnComplete)
+		}
+		for i, step := range plan.Steps {
+			step.ServiceLabel = strings.TrimSpace(step.ServiceLabel)
+			step.Name = strings.TrimSpace(step.Name)
+			step.WorkDir = strings.TrimSpace(step.WorkDir)
+			if step.ServiceLabel == "" {
+				return plan, 0, fmt.Errorf("test step %d requires serviceLabel", i+1)
+			}
+			if len(step.Cmd) == 0 {
+				return plan, 0, fmt.Errorf("test step %d requires cmd", i+1)
+			}
+			for _, part := range step.Cmd {
+				if strings.TrimSpace(part) == "" {
+					return plan, 0, fmt.Errorf("test step %d has empty cmd part", i+1)
+				}
+			}
+			if step.Name == "" {
+				step.Name = strings.Join(step.Cmd, " ")
+			}
+			plan.Steps[i] = step
+		}
 	}
 	if plan.TTLHours <= 0 || plan.WarningHours < 0 || plan.GraceHours < 0 {
 		return plan, 0, fmt.Errorf("invalid sandbox lifecycle settings")
@@ -471,6 +565,15 @@ func mergeSandboxPlan(base, override SandboxPlan) SandboxPlan {
 	if override.SuspendIdleHours != 0 {
 		base.SuspendIdleHours = override.SuspendIdleHours
 	}
+	if override.Purpose != "" {
+		base.Purpose = override.Purpose
+	}
+	if override.OnComplete != "" {
+		base.OnComplete = override.OnComplete
+	}
+	if override.Steps != nil {
+		base.Steps = override.Steps
+	}
 	if override.Services != nil {
 		base.Services = override.Services
 	}
@@ -480,7 +583,7 @@ func mergeSandboxPlan(base, override SandboxPlan) SandboxPlan {
 	return base
 }
 
-func resolveSandboxServiceRules(nodes []store.CanvasNode, supplied []SandboxServiceRule, s *store.Store) []SandboxServiceRule {
+func resolveSandboxServiceRules(nodes []store.CanvasNode, supplied []SandboxServiceRule, s *store.Store, purpose SandboxPurpose) []SandboxServiceRule {
 	byNode := map[string]SandboxServiceRule{}
 	for _, r := range supplied {
 		byNode[r.SourceNodeID] = r
@@ -496,7 +599,11 @@ func resolveSandboxServiceRules(nodes []store.CanvasNode, supplied []SandboxServ
 		}
 		if r.Mode == SandboxServiceCopy && r.DataMode == "" {
 			settings, _ := s.GetNodeSettings(node.ID)
-			if len(managedVolumePaths(settings)) > 0 {
+			// Testing sandboxes default to fresh data so reruns stay isolated.
+			// Preview sandboxes still clone managed volumes by default.
+			if purpose == SandboxPurposeTest {
+				r.DataMode = ServiceDataFresh
+			} else if len(managedVolumePaths(settings)) > 0 {
 				r.DataMode = ServiceDataClone
 				r.Consistency = CloneConsistent
 			} else {

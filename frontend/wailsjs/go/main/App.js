@@ -190,6 +190,10 @@ export function GetSandboxProjectSettings(arg1) {
   return window['go']['main']['App']['GetSandboxProjectSettings'](arg1);
 }
 
+export function GetSandboxTestRun(arg1) {
+  return window['go']['main']['App']['GetSandboxTestRun'](arg1);
+}
+
 export function GetServiceMetrics(arg1) {
   return window['go']['main']['App']['GetServiceMetrics'](arg1);
 }
@@ -308,6 +312,10 @@ export function ListRoutes(arg1) {
 
 export function ListSandboxProfiles(arg1) {
   return window['go']['main']['App']['ListSandboxProfiles'](arg1);
+}
+
+export function ListSandboxTestRuns(arg1, arg2) {
+  return window['go']['main']['App']['ListSandboxTestRuns'](arg1, arg2);
 }
 
 export function ListSandboxes(arg1) {
@@ -432,6 +440,10 @@ export function RollbackEligibility(arg1) {
 
 export function RunCommand(arg1, arg2, arg3) {
   return window['go']['main']['App']['RunCommand'](arg1, arg2, arg3);
+}
+
+export function RunTestingSandbox(arg1) {
+  return window['go']['main']['App']['RunTestingSandbox'](arg1);
 }
 
 export function SaveSandboxProfile(arg1) {

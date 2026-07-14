@@ -530,6 +530,65 @@
     min-width: 0;
 }
 
+.sandbox-recipes,
+.sandbox-live-section,
+.sandbox-run-history {
+    margin-bottom: 28px;
+}
+
+.sandbox-card--recipe,
+.sandbox-card--run {
+    align-items: center;
+}
+
+.sandbox-step-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.9fr) minmax(110px, 0.9fr) minmax(180px, 1.6fr) minmax(100px, 0.8fr) auto;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.sandbox-step-row .input {
+    min-width: 0;
+}
+
+.sandbox-run-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sandbox-run-step {
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+
+.sandbox-run-output {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    max-height: 220px;
+    overflow: auto;
+    border-radius: var(--radius);
+    background: var(--surface-2, var(--surface));
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.sandbox-run-error {
+    color: var(--danger, #e35d6a);
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .sandbox-plan-review p,
 .sandbox-plan-review ul,
 .sandbox-detail p,

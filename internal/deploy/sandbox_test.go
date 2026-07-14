@@ -291,3 +291,139 @@ func TestGetSandboxDetailPreservesResolvedPlanAndManualLinks(t *testing.T) {
 		t.Fatalf("unexpected detail: %+v", detail)
 	}
 }
+
+func TestTestingSandboxPlanDefaultsAndStepValidation(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, err := s.CreateProject("sandbox-test-plan", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := s.GetDefaultEnvironment(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", Label: "API", ProjectID: p.ID, EnvironmentID: source.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// Managed volume would clone for preview; testing purpose should default fresh.
+	if err := s.SetNodeSetting("api", "volume_mounts", `[{"type":"volume","containerPath":"/data"}]`); err != nil {
+		t.Fatal(err)
+	}
+
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	preview, err := e.PreviewSandbox(context.Background(), SandboxCreateRequest{
+		Name:                "api-integration",
+		SourceEnvironmentID: source.ID,
+		Plan: SandboxPlan{
+			Purpose: SandboxPurposeTest,
+			Steps: []SandboxStep{
+				{ServiceLabel: "API", Cmd: []string{"pytest", "-q"}},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewSandbox: %v", err)
+	}
+	if preview.Plan.Purpose != SandboxPurposeTest {
+		t.Fatalf("purpose = %q", preview.Plan.Purpose)
+	}
+	if preview.Plan.TTLHours != 4 || preview.Plan.WarningHours != 1 || preview.Plan.GraceHours != 2 {
+		t.Fatalf("testing lifecycle defaults = %+v", preview.Plan)
+	}
+	if preview.Plan.OnComplete != SandboxOnCompleteLeave {
+		t.Fatalf("onComplete = %q", preview.Plan.OnComplete)
+	}
+	if len(preview.Services) != 1 || preview.Services[0].DataMode != ServiceDataFresh {
+		t.Fatalf("testing data default = %+v", preview.Services)
+	}
+	if len(preview.Plan.Steps) != 1 || preview.Plan.Steps[0].Name != "pytest -q" {
+		t.Fatalf("steps = %+v", preview.Plan.Steps)
+	}
+
+	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+		Name:                "api-integration",
+		SourceEnvironmentID: source.ID,
+		Plan: SandboxPlan{
+			Purpose: SandboxPurposeTest,
+			Steps:   []SandboxStep{{ServiceLabel: "API", Cmd: []string{"pytest", "-q"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSandbox: %v", err)
+	}
+	if sandbox.Purpose != string(SandboxPurposeTest) {
+		t.Fatalf("sandbox.Purpose = %q", sandbox.Purpose)
+	}
+}
+
+func TestTestingSandboxRejectsEmptyStepsCmd(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, _ := s.CreateProject("sandbox-test-bad", t.TempDir(), "")
+	source, _ := s.GetDefaultEnvironment(p.ID)
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	_, err = e.PreviewSandbox(context.Background(), SandboxCreateRequest{
+		Name:                "bad",
+		SourceEnvironmentID: source.ID,
+		Plan: SandboxPlan{
+			Purpose: SandboxPurposeTest,
+			Steps:   []SandboxStep{{ServiceLabel: "API", Cmd: nil}},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected validation error for empty cmd")
+	}
+}
+
+func TestRunTestingSandboxStepsRecordsHistory(t *testing.T) {
+	// File-backed store: stack start fans out goroutines and the pure-Go
+	// sqlite pool can open multiple connections; shared file DSN keeps one schema.
+	s, err := store.Open(store.FileDSN(t.TempDir() + "/draft.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, _ := s.CreateProject("sandbox-test-run", t.TempDir(), "")
+	source, _ := s.GetDefaultEnvironment(p.ID)
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "api", Label: "API", ProjectID: p.ID, EnvironmentID: source.ID}); err != nil {
+		t.Fatal(err)
+	}
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+		Name:                "suite",
+		SourceEnvironmentID: source.ID,
+		Plan: SandboxPlan{
+			Purpose: SandboxPurposeTest,
+			// No deployable settings — waitSandboxServicesReady skips non-deployable nodes.
+			Steps: []SandboxStep{{ServiceLabel: "API", Cmd: []string{"true"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateSandbox: %v", err)
+	}
+	// Steps mode against a non-running service should fail the step and record a run.
+	result, err := e.RunTestingSandbox(context.Background(), SandboxTestRunRequest{
+		SandboxID: sandbox.ID,
+		Mode:      SandboxTestRunSteps,
+	})
+	if err != nil {
+		t.Fatalf("RunTestingSandbox infrastructure error: %v", err)
+	}
+	if result.Run.Status != "failed" {
+		t.Fatalf("status = %q, want failed (service not running)", result.Run.Status)
+	}
+	if len(result.Steps) == 0 {
+		t.Fatal("expected at least one step result")
+	}
+	rows, err := e.ListSandboxTestRuns(p.ID, 10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("history = %+v, %v", rows, err)
+	}
+}

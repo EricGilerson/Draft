@@ -33,6 +33,7 @@ var registeredModels = []any{
 	&Sandbox{},
 	&SandboxLink{},
 	&SandboxRepositorySource{},
+	&SandboxTestRun{},
 	&CanvasNode{},
 	&Route{},
 	&PortLease{},

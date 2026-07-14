@@ -174,6 +174,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sandbox/detail", s.handleSandboxDetail)
 	mux.HandleFunc("/sandbox/suspend", s.handleSuspendSandbox)
 	mux.HandleFunc("/sandbox/resume", s.handleResumeSandbox)
+	mux.HandleFunc("/sandbox/test/run", s.handleRunTestingSandbox)
+	mux.HandleFunc("/sandbox/test/runs", s.handleListSandboxTestRuns)
+	mux.HandleFunc("/sandbox/test/run/get", s.handleGetSandboxTestRun)
 	mux.HandleFunc("/sync/preview", s.handleSyncPreview)
 	mux.HandleFunc("/sync/apply", s.handleSyncApply)
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
@@ -511,6 +514,53 @@ func (s *Server) handleResumeSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.engine.ResumeSandbox(r.Context(), req.SandboxID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleRunTestingSandbox(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SandboxTestRunRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.RunTestingSandbox(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleListSandboxTestRuns(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID uint `json:"projectId"`
+		Limit     int  `json:"limit"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ListSandboxTestRuns(req.ProjectID, req.Limit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if out == nil {
+		out = []store.SandboxTestRun{}
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleGetSandboxTestRun(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID uint `json:"runId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.GetSandboxTestRun(req.RunID)
 	if err != nil {
 		writeError(w, err)
 		return

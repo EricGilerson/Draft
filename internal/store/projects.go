@@ -170,6 +170,9 @@ func (s *Store) DeleteProject(id uint) error {
 			return err
 		}
 	}
+	if err := s.DB.Where("project_id = ?", id).Delete(&SandboxTestRun{}).Error; err != nil {
+		return err
+	}
 	if err := s.DB.Where("project_id = ?", id).Delete(&Sandbox{}).Error; err != nil {
 		return err
 	}

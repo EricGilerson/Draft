@@ -194,6 +194,30 @@ func (c *Client) ResumeSandbox(ctx context.Context, sandboxID uint) (*store.Sand
 	return &out, nil
 }
 
+func (c *Client) RunTestingSandbox(ctx context.Context, req deploy.SandboxTestRunRequest) (*deploy.SandboxTestRunResult, error) {
+	var out deploy.SandboxTestRunResult
+	if err := c.postJSON(ctx, "/sandbox/test/run", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListSandboxTestRuns(ctx context.Context, projectID uint, limit int) ([]store.SandboxTestRun, error) {
+	var out []store.SandboxTestRun
+	if err := c.postJSON(ctx, "/sandbox/test/runs", map[string]any{"projectId": projectID, "limit": limit}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetSandboxTestRun(ctx context.Context, runID uint) (*deploy.SandboxTestRunResult, error) {
+	var out deploy.SandboxTestRunResult
+	if err := c.postJSON(ctx, "/sandbox/test/run/get", map[string]uint{"runId": runID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) RunEnvironmentStack(ctx context.Context, environmentID uint, action string) (*deploy.EnvironmentStackResult, error) {
 	var out deploy.EnvironmentStackResult
 	body := map[string]any{

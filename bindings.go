@@ -397,6 +397,43 @@ func (a *App) ResumeSandbox(sandboxID uint) (*store.Sandbox, error) {
 	return c.ResumeSandbox(a.ctx, sandboxID)
 }
 
+// RunTestingSandbox creates (or reuses) a testing sandbox and executes its
+// plan steps. Mode "fresh" rebuilds from the recipe; "steps" re-runs commands
+// on a live testing sandbox. Suite pass/fail is in the result status, not the
+// Go error (infrastructure failures still error).
+func (a *App) RunTestingSandbox(req deploy.SandboxTestRunRequest) (*deploy.SandboxTestRunResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.RunTestingSandbox(a.ctx, req)
+}
+
+func (a *App) ListSandboxTestRuns(projectID uint, limit int) ([]store.SandboxTestRun, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListSandboxTestRuns(a.ctx, projectID, limit)
+}
+
+func (a *App) GetSandboxTestRun(runID uint) (*deploy.SandboxTestRunResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetSandboxTestRun(a.ctx, runID)
+}
+
 // GetLinkedServiceInfo returns whether a node is a virtualized link and its root.
 func (a *App) GetLinkedServiceInfo(nodeID string) (*deploy.LinkedServiceInfo, error) {
 	c, err := a.ensureDaemon()

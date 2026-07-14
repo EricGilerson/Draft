@@ -102,6 +102,8 @@ export function GetSandboxDetail(arg1:number):Promise<deploy.SandboxDetail>;
 
 export function GetSandboxProjectSettings(arg1:number):Promise<store.SandboxProjectSettings>;
 
+export function GetSandboxTestRun(arg1:number):Promise<deploy.SandboxTestRunResult>;
+
 export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
@@ -161,6 +163,8 @@ export function ListReferenceTargets(arg1:string):Promise<Array<deploy.Reference
 export function ListRoutes(arg1:any):Promise<Array<main.RouteRow>>;
 
 export function ListSandboxProfiles(arg1:number):Promise<Array<store.SandboxProfile>>;
+
+export function ListSandboxTestRuns(arg1:number,arg2:number):Promise<Array<store.SandboxTestRun>>;
 
 export function ListSandboxes(arg1:number):Promise<Array<store.Sandbox>>;
 
@@ -223,6 +227,8 @@ export function RollbackDeployment(arg1:number):Promise<void>;
 export function RollbackEligibility(arg1:string):Promise<Array<deploy.RollbackEligibility>>;
 
 export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<deploy.RunCommandResult>;
+
+export function RunTestingSandbox(arg1:deploy.SandboxTestRunRequest):Promise<deploy.SandboxTestRunResult>;
 
 export function SaveSandboxProfile(arg1:store.SandboxProfile):Promise<store.SandboxProfile>;
 

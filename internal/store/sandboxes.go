@@ -94,6 +94,9 @@ func (s *Store) CreateSandbox(sandbox *Sandbox, links []SandboxLink, repositorie
 	if sandbox.Status == "" {
 		sandbox.Status = "active"
 	}
+	if strings.TrimSpace(sandbox.Purpose) == "" {
+		sandbox.Purpose = "preview"
+	}
 	if err := s.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(sandbox).Error; err != nil {
 			return err
@@ -181,6 +184,71 @@ func (s *Store) DeleteSandboxByEnvironment(environmentID uint) error {
 		if err := tx.Where("sandbox_id = ?", sandbox.ID).Delete(&SandboxRepositorySource{}).Error; err != nil {
 			return err
 		}
+		// Keep SandboxTestRun rows for history; only clear the live pointer.
+		if err := tx.Model(&SandboxTestRun{}).Where("sandbox_id = ?", sandbox.ID).Update("sandbox_id", 0).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&Sandbox{}, sandbox.ID).Error
 	})
+}
+
+func (s *Store) CreateSandboxTestRun(run *SandboxTestRun) (*SandboxTestRun, error) {
+	if run.ProjectID == 0 || run.SourceEnvironmentID == 0 || strings.TrimSpace(run.Name) == "" {
+		return nil, errors.New("invalid sandbox test run")
+	}
+	if run.Status == "" {
+		run.Status = "running"
+	}
+	if run.Mode == "" {
+		run.Mode = "fresh"
+	}
+	if run.PlanJSON == "" {
+		run.PlanJSON = "{}"
+	}
+	if run.StepsJSON == "" {
+		run.StepsJSON = "[]"
+	}
+	if run.StartedAt.IsZero() {
+		run.StartedAt = time.Now().UTC()
+	}
+	if err := s.DB.Create(run).Error; err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+func (s *Store) UpdateSandboxTestRun(run *SandboxTestRun) error {
+	if run == nil || run.ID == 0 {
+		return errors.New("invalid sandbox test run")
+	}
+	return s.DB.Save(run).Error
+}
+
+func (s *Store) GetSandboxTestRun(id uint) (*SandboxTestRun, error) {
+	var run SandboxTestRun
+	if err := s.DB.First(&run, id).Error; err != nil {
+		return nil, err
+	}
+	return &run, nil
+}
+
+func (s *Store) ListSandboxTestRuns(projectID uint, limit int) ([]SandboxTestRun, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var rows []SandboxTestRun
+	err := s.DB.Where("project_id = ?", projectID).Order("started_at desc").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (s *Store) LatestSandboxTestRun(sandboxID uint) (*SandboxTestRun, error) {
+	if sandboxID == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var run SandboxTestRun
+	err := s.DB.Where("sandbox_id = ?", sandboxID).Order("started_at desc").First(&run).Error
+	if err != nil {
+		return nil, err
+	}
+	return &run, nil
 }
