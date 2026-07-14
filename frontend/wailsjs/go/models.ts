@@ -839,6 +839,32 @@ export namespace deploy {
 	        this.hasVolumes = source["hasVolumes"];
 	    }
 	}
+	export class LinkToSharedRootPreview {
+	    nodeLabel: string;
+	    isRunning: boolean;
+	    managedVolumeCount: number;
+	    rootNodeId: string;
+	    rootLabel: string;
+	    rootEnvName: string;
+	    warningKind?: string;
+	    warning?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LinkToSharedRootPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeLabel = source["nodeLabel"];
+	        this.isRunning = source["isRunning"];
+	        this.managedVolumeCount = source["managedVolumeCount"];
+	        this.rootNodeId = source["rootNodeId"];
+	        this.rootLabel = source["rootLabel"];
+	        this.rootEnvName = source["rootEnvName"];
+	        this.warningKind = source["warningKind"];
+	        this.warning = source["warning"];
+	    }
+	}
 	export class ManagedVolume {
 	    name: string;
 	    labels: Record<string, string>;
@@ -1139,6 +1165,9 @@ export namespace deploy {
 	    envName: string;
 	    envSlug: string;
 	    templateId: number;
+	    hasVolumes: boolean;
+	    warningKind?: string;
+	    warning?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RootServiceSummary(source);
@@ -1152,6 +1181,9 @@ export namespace deploy {
 	        this.envName = source["envName"];
 	        this.envSlug = source["envSlug"];
 	        this.templateId = source["templateId"];
+	        this.hasVolumes = source["hasVolumes"];
+	        this.warningKind = source["warningKind"];
+	        this.warning = source["warning"];
 	    }
 	}
 	export class RunCommandResult {

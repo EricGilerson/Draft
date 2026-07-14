@@ -322,12 +322,20 @@ export function ListVolumesOverview() {
   return window['go']['main']['App']['ListVolumesOverview']();
 }
 
+export function LinkToSharedRoot(arg1, arg2, arg3) {
+  return window['go']['main']['App']['LinkToSharedRoot'](arg1, arg2, arg3);
+}
+
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
 }
 
 export function PreviewCloneVolume(arg1, arg2, arg3) {
   return window['go']['main']['App']['PreviewCloneVolume'](arg1, arg2, arg3);
+}
+
+export function PreviewLinkToSharedRoot(arg1, arg2) {
+  return window['go']['main']['App']['PreviewLinkToSharedRoot'](arg1, arg2);
 }
 
 export function PreviewDeleteService(arg1) {

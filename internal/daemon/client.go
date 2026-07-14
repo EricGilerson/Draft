@@ -276,6 +276,22 @@ func (c *Client) UnlinkService(ctx context.Context, nodeID, become string) error
 	}, nil)
 }
 
+func (c *Client) PreviewLinkToSharedRoot(ctx context.Context, nodeID, rootNodeID string) (*deploy.LinkToSharedRootPreview, error) {
+	var out deploy.LinkToSharedRootPreview
+	if err := c.postJSON(ctx, "/service/link-preview", map[string]any{
+		"nodeId": nodeID, "rootNodeId": rootNodeID,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) LinkToSharedRoot(ctx context.Context, nodeID, rootNodeID string, volumes deploy.VolumeDisposition) error {
+	return c.postJSONWithTimeout(ctx, "/service/link", map[string]any{
+		"nodeId": nodeID, "rootNodeId": rootNodeID, "volumes": volumes,
+	}, nil, 2*time.Minute)
+}
+
 func (c *Client) ListShareableRoots(ctx context.Context, projectID, excludeEnvironmentID uint) ([]deploy.RootServiceSummary, error) {
 	var out []deploy.RootServiceSummary
 	if err := c.postJSON(ctx, "/service/shareable-roots", map[string]any{

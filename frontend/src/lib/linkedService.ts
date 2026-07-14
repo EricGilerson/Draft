@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {GetLinkedServiceInfo} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 
@@ -7,11 +7,24 @@ type LinkedServiceTarget = {
     isLinked: boolean;
     linkInfo: deploy.LinkedServiceInfo | null;
     targetNodeId: string;
+    refresh: () => Promise<void>;
 };
 
 export function useLinkedServiceTarget(nodeId: string): LinkedServiceTarget {
     const [loading, setLoading] = useState(true);
     const [linkInfo, setLinkInfo] = useState<deploy.LinkedServiceInfo | null>(null);
+
+    const refresh = useCallback(async () => {
+        setLoading(true);
+        try {
+            const info = await GetLinkedServiceInfo(nodeId);
+            setLinkInfo(info ?? null);
+        } catch {
+            setLinkInfo(null);
+        } finally {
+            setLoading(false);
+        }
+    }, [nodeId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -40,6 +53,7 @@ export function useLinkedServiceTarget(nodeId: string): LinkedServiceTarget {
             isLinked,
             linkInfo,
             targetNodeId,
+            refresh,
         };
-    }, [loading, linkInfo, nodeId]);
+    }, [loading, linkInfo, nodeId, refresh]);
 }

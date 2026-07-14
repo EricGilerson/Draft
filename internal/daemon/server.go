@@ -179,6 +179,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/service/link-info", s.handleGetLinkedServiceInfo)
 	mux.HandleFunc("/service/promote", s.handlePromoteLinkedService)
 	mux.HandleFunc("/service/unlink", s.handleUnlinkService)
+	mux.HandleFunc("/service/link", s.handleLinkToSharedRoot)
+	mux.HandleFunc("/service/link-preview", s.handlePreviewLinkToSharedRoot)
 	mux.HandleFunc("/service/shareable-roots", s.handleListShareableRoots)
 	mux.HandleFunc("/volume/clone-preview", s.handlePreviewCloneVolume)
 	mux.HandleFunc("/volume/clone", s.handleCloneVolumeData)
@@ -553,6 +555,35 @@ func (s *Server) handleUnlinkService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.UnlinkService(r.Context(), req.NodeID, req.Become))
+}
+
+func (s *Server) handlePreviewLinkToSharedRoot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID     string `json:"nodeId"`
+		RootNodeID string `json:"rootNodeId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewLinkToSharedRoot(req.NodeID, req.RootNodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleLinkToSharedRoot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID     string                  `json:"nodeId"`
+		RootNodeID string                  `json:"rootNodeId"`
+		Volumes    deploy.VolumeDisposition `json:"volumes"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	// Stop + optional volume delete can outlive a short client timeout.
+	writeError(w, s.engine.LinkToSharedRoot(context.Background(), req.NodeID, req.RootNodeID, req.Volumes))
 }
 
 func (s *Server) handleListShareableRoots(w http.ResponseWriter, r *http.Request) {

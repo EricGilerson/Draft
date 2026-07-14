@@ -380,6 +380,13 @@ func enrichVolumes(s *store.Store, vols []ManagedVolume) []VolumeOverview {
 			switch {
 			case err == nil:
 				ov.NodeLabel = node.Label
+				// Linked aliases do not own volumes — any still labelled with
+				// this node (e.g. after convert-to-share with orphan) are reclaimable.
+				if settings, sErr := s.GetNodeSettings(v.NodeID); sErr == nil {
+					if ParseServiceLink(settings[SettingServiceLink]) != nil {
+						ov.Orphaned = true
+					}
+				}
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				ov.Orphaned = true
 			}

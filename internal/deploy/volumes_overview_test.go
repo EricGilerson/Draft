@@ -47,4 +47,22 @@ func TestEnrichVolumesFlagsOrphans(t *testing.T) {
 	if noNode := byName["draft-nonode"]; !noNode.Orphaned {
 		t.Fatalf("volume with empty node id should be orphaned, got orphaned=%v", noNode.Orphaned)
 	}
+
+	// After the node becomes a linked alias, its leftover volumes are orphans.
+	otherEnv, err := s.CreateEnvironment(p.ID, "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := s.CreateNode(&store.CanvasNode{ID: "root-db", ProjectID: p.ID, EnvironmentID: otherEnv.ID, Label: "db-root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, _ := newTestEngine(t, s)
+	if err := e.SetServiceLink("node-live", root.ID); err != nil {
+		t.Fatal(err)
+	}
+	got = enrichVolumes(s, []ManagedVolume{{Name: "draft-live", NodeID: "node-live", Target: "/data"}})
+	if len(got) != 1 || !got[0].Orphaned || got[0].NodeLabel != "db" {
+		t.Fatalf("linked-node volume should be orphaned with label, got %+v", got)
+	}
 }

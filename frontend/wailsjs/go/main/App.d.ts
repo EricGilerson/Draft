@@ -168,9 +168,13 @@ export function ListShareableRoots(arg1:number,arg2:number):Promise<Array<deploy
 
 export function ListVolumesOverview():Promise<Array<deploy.VolumeOverview>>;
 
+export function LinkToSharedRoot(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
 
 export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<deploy.CloneVolumePreview>;
+
+export function PreviewLinkToSharedRoot(arg1:string,arg2:string):Promise<deploy.LinkToSharedRootPreview>;
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 

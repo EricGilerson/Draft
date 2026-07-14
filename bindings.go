@@ -434,6 +434,31 @@ func (a *App) UnlinkService(nodeID, become string) error {
 	return c.UnlinkService(a.ctx, nodeID, become)
 }
 
+// PreviewLinkToSharedRoot describes converting a local service into a shared alias.
+func (a *App) PreviewLinkToSharedRoot(nodeID, rootNodeID string) (*deploy.LinkToSharedRootPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewLinkToSharedRoot(a.ctx, nodeID, rootNodeID)
+}
+
+// LinkToSharedRoot converts a local service into a linked alias of rootNodeID.
+// volumes is "orphan" (default) or "delete".
+func (a *App) LinkToSharedRoot(nodeID, rootNodeID, volumes string) error {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return errNoStore
+	}
+	return c.LinkToSharedRoot(a.ctx, nodeID, rootNodeID, deploy.VolumeDisposition(volumes))
+}
+
 // ListShareableRoots returns root services that can be share/clone sources.
 func (a *App) ListShareableRoots(projectID, excludeEnvironmentID uint) ([]deploy.RootServiceSummary, error) {
 	c, err := a.ensureDaemon()

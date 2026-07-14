@@ -71,6 +71,30 @@ type RootServiceSummary struct {
 	EnvName       string `json:"envName"`
 	EnvSlug       string `json:"envSlug"`
 	TemplateID    uint   `json:"templateId"`
+	HasVolumes    bool   `json:"hasVolumes"`
+	WarningKind   string `json:"warningKind,omitempty"`
+	Warning       string `json:"warning,omitempty"`
+}
+
+// VolumeDisposition controls what happens to this node's managed volumes when
+// converting it into a shared (linked) alias.
+type VolumeDisposition string
+
+const (
+	VolumeOrphan VolumeDisposition = "orphan"
+	VolumeDelete VolumeDisposition = "delete"
+)
+
+// LinkToSharedRootPreview describes the effects of LinkToSharedRoot.
+type LinkToSharedRootPreview struct {
+	NodeLabel           string `json:"nodeLabel"`
+	IsRunning           bool   `json:"isRunning"`
+	ManagedVolumeCount  int    `json:"managedVolumeCount"`
+	RootNodeID          string `json:"rootNodeId"`
+	RootLabel           string `json:"rootLabel"`
+	RootEnvName         string `json:"rootEnvName"`
+	WarningKind         string `json:"warningKind,omitempty"`
+	Warning             string `json:"warning,omitempty"`
 }
 
 // LinkedServiceInfo is returned for UI (badge, overview).
@@ -230,6 +254,124 @@ func (e *Engine) SetServiceLink(aliasNodeID, rootNodeID string) error {
 	return nil
 }
 
+// PreviewLinkToSharedRoot describes what LinkToSharedRoot will do.
+func (e *Engine) PreviewLinkToSharedRoot(nodeID, rootNodeID string) (*LinkToSharedRootPreview, error) {
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("service not found: %w", err)
+	}
+	if link, err := e.GetServiceLink(nodeID); err != nil {
+		return nil, err
+	} else if link != nil {
+		return nil, fmt.Errorf("service is already linked")
+	}
+	root, err := e.validateLinkTarget(rootNodeID)
+	if err != nil {
+		return nil, err
+	}
+	if node.ProjectID != root.ProjectID {
+		return nil, fmt.Errorf("can only share services within the same project")
+	}
+	if node.EnvironmentID == root.EnvironmentID {
+		return nil, fmt.Errorf("can only share a service from another environment")
+	}
+
+	preview := &LinkToSharedRootPreview{
+		NodeLabel:  node.Label,
+		RootNodeID: root.ID,
+		RootLabel:  root.Label,
+	}
+	if env, err := e.store.GetEnvironment(root.EnvironmentID); err == nil {
+		preview.RootEnvName = env.Name
+	}
+	rootSettings, err := e.store.GetNodeSettings(root.ID)
+	if err != nil {
+		return nil, err
+	}
+	preview.WarningKind, preview.Warning = shareWarningForNode(e.store, root, rootSettings)
+
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	preview.ManagedVolumeCount = len(managedVolumePaths(settings))
+	if dep, _ := e.store.ActiveDeployment(nodeID); dep != nil &&
+		(dep.Status == "running" || dep.Status == "starting" || dep.Status == "building") {
+		preview.IsRunning = true
+	}
+	return preview, nil
+}
+
+// LinkToSharedRoot converts a local root into a linked alias of rootNodeID.
+// volumes is "orphan" (default) or "delete" for this node's managed volumes.
+func (e *Engine) LinkToSharedRoot(ctx context.Context, nodeID, rootNodeID string, volumes VolumeDisposition) error {
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return fmt.Errorf("service not found: %w", err)
+	}
+	if link, err := e.GetServiceLink(nodeID); err != nil {
+		return err
+	} else if link != nil {
+		return fmt.Errorf("service is already linked")
+	}
+	root, err := e.validateLinkTarget(rootNodeID)
+	if err != nil {
+		return err
+	}
+	if node.ProjectID != root.ProjectID {
+		return fmt.Errorf("can only share services within the same project")
+	}
+	if node.EnvironmentID == root.EnvironmentID {
+		return fmt.Errorf("can only share a service from another environment")
+	}
+	if volumes == "" {
+		volumes = VolumeOrphan
+	}
+	if volumes != VolumeOrphan && volumes != VolumeDelete {
+		return fmt.Errorf("volumes must be %q or %q", VolumeOrphan, VolumeDelete)
+	}
+
+	settings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return err
+	}
+	paths := managedVolumePaths(settings)
+
+	// Stop local runtime before clearing mounts / deleting volumes.
+	if err := e.stopNodeContainers(ctx, nodeID); err != nil {
+		return fmt.Errorf("stop local service: %w", err)
+	}
+
+	if volumes == VolumeDelete && len(paths) > 0 {
+		for _, p := range paths {
+			name, err := e.resolveVolumeNameForPath(node, settings, p)
+			if err != nil {
+				continue
+			}
+			if err := e.DeleteManagedVolume(ctx, name, true); err != nil {
+				// Best-effort: volume may not exist yet if never deployed.
+				if !strings.Contains(err.Error(), "no Draft-managed volume") {
+					return fmt.Errorf("delete volume %s: %w", p, err)
+				}
+			}
+		}
+	}
+
+	if err := e.SetServiceLink(nodeID, rootNodeID); err != nil {
+		return err
+	}
+	_ = e.store.DiscardStagedNodeSettings(nodeID)
+	_ = e.store.DiscardStagedEnvVars(nodeID)
+
+	// Attach root into this environment when it's already running.
+	if err := e.EnsureServiceLinkNetworks(ctx, rootNodeID); err != nil {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not attach shared network yet: %v", err))
+	}
+	e.emitStatus(nodeID, StatusEvent{Status: "stopped"})
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Now sharing %s from another environment", root.Label))
+	return nil
+}
+
 // ClearServiceLink removes the link, making the node a normal deployable root.
 // volume_mounts is left for the caller (promote) to restore.
 func (e *Engine) ClearServiceLink(nodeID string) error {
@@ -317,6 +459,7 @@ func (e *Engine) PreviewEnvironmentDuplicate(sourceEnvironmentID uint) ([]Statef
 
 // ListShareableRoots returns root services in projectID that can be share/clone sources.
 // excludeEnvironmentID, when non-zero, omits that environment's nodes (typical: current env).
+// Includes services without volumes (for late share); HasVolumes flags clone-capable roots.
 func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) ([]RootServiceSummary, error) {
 	nodes, err := e.store.ListNodes(projectID)
 	if err != nil {
@@ -342,10 +485,9 @@ func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) (
 		if ParseServiceLink(settings[SettingServiceLink]) != nil {
 			continue
 		}
-		if len(managedVolumePaths(settings)) == 0 {
-			continue
-		}
 		env := envByID[n.EnvironmentID]
+		hasVolumes := len(managedVolumePaths(settings)) > 0
+		kind, msg := shareWarningForNode(e.store, &n, settings)
 		out = append(out, RootServiceSummary{
 			NodeID:        n.ID,
 			Label:         n.Label,
@@ -353,6 +495,9 @@ func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) (
 			EnvName:       env.Name,
 			EnvSlug:       env.Slug,
 			TemplateID:    n.TemplateID,
+			HasVolumes:    hasVolumes,
+			WarningKind:   kind,
+			Warning:       msg,
 		})
 	}
 	return out, nil

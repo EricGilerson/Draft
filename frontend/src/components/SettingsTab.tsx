@@ -7,6 +7,7 @@ import {
     SetNodeSetting,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume, GetNodeConfigStatus,
     PreviewDeleteService, DeleteNode,
+    ListShareableRoots, PreviewLinkToSharedRoot, LinkToSharedRoot,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
@@ -16,6 +17,9 @@ import {useLinkedServiceTarget} from '../lib/linkedService';
 import SettingStagingNote from './SettingStagingNote';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
+import {useAppDialog} from './AppDialogProvider';
+
+type VolumeDisposition = 'orphan' | 'delete';
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
@@ -71,9 +75,21 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         isSessionDirty,
         reload,
     } = useServiceConfigEditor();
-    const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
+    const {loading: linkLoading, isLinked, linkInfo, targetNodeId, refresh: refreshLink} = useLinkedServiceTarget(nodeId);
     const readOnly = isLinked;
     const [linkedHasStagedChanges, setLinkedHasStagedChanges] = useState(false);
+    const {alert} = useAppDialog();
+
+    const [environmentId, setEnvironmentId] = useState(0);
+    const [templateId, setTemplateId] = useState(0);
+    const [shareDialogOpen, setShareDialogOpen] = useState(false);
+    const [shareRoots, setShareRoots] = useState<deploy.RootServiceSummary[]>([]);
+    const [shareRootId, setShareRootId] = useState('');
+    const [shareVolumes, setShareVolumes] = useState<VolumeDisposition>('orphan');
+    const [sharePreview, setSharePreview] = useState<deploy.LinkToSharedRootPreview | null>(null);
+    const [shareLoading, setShareLoading] = useState(false);
+    const [shareBusy, setShareBusy] = useState(false);
+    const [shareError, setShareError] = useState('');
 
     const stagingNoteFor = useCallback((key: string) => (
         <SettingStagingNote {...getSettingStagingState(key, appliedSettings, stagedSettings, draftSettings)} />
@@ -96,6 +112,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const [volumes, setVolumes] = useState<VolumeEntry[]>([]);
     const [managedVolumes, setManagedVolumes] = useState<deploy.ManagedVolume[]>([]);
     const [labels, setLabels] = useState<LabelEntry[]>([]);
+
+    const localManagedVolumeCount = useMemo(
+        () => volumes.filter((v) => v.type === 'volume' && !!v.containerPath.trim()).length,
+        [volumes],
+    );
 
     const [template, setTemplate] = useState<store.ServiceTemplate | null>(null);
     const [imageInput, setImageInput] = useState('');
@@ -303,7 +324,77 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 return Promise.resolve();
             })
             .catch(() => setTemplate(null));
-    }, [targetNodeId, projectId]);
+        GetNode(nodeId)
+            .then((node) => {
+                setEnvironmentId(node?.environmentId || 0);
+                setTemplateId(node?.templateId || 0);
+            })
+            .catch(() => {
+                setEnvironmentId(0);
+                setTemplateId(0);
+            });
+    }, [targetNodeId, nodeId, projectId]);
+
+    const openShareDialog = useCallback(async () => {
+        setShareDialogOpen(true);
+        setShareRootId('');
+        setSharePreview(null);
+        setShareError('');
+        setShareVolumes('orphan');
+        setShareLoading(true);
+        try {
+            const list = await ListShareableRoots(projectId, environmentId || 0);
+            const roots = [...(list || [])].sort((a, b) => {
+                const aMatch = templateId && a.templateId === templateId ? 0 : 1;
+                const bMatch = templateId && b.templateId === templateId ? 0 : 1;
+                if (aMatch !== bMatch) return aMatch - bMatch;
+                const envCmp = (a.envName || '').localeCompare(b.envName || '');
+                if (envCmp !== 0) return envCmp;
+                return (a.label || '').localeCompare(b.label || '');
+            });
+            setShareRoots(roots);
+        } catch (e: any) {
+            setShareRoots([]);
+            setShareError(typeof e === 'string' ? e : e?.message || 'Failed to list shareable services');
+        } finally {
+            setShareLoading(false);
+        }
+    }, [projectId, environmentId, templateId]);
+
+    const onShareRootChange = useCallback(async (rootId: string) => {
+        setShareRootId(rootId);
+        setSharePreview(null);
+        setShareError('');
+        if (!rootId) return;
+        try {
+            const preview = await PreviewLinkToSharedRoot(nodeId, rootId);
+            setSharePreview(preview);
+        } catch (e: any) {
+            setShareError(typeof e === 'string' ? e : e?.message || 'Preview failed');
+        }
+    }, [nodeId]);
+
+    const confirmShare = useCallback(async () => {
+        if (!shareRootId || shareBusy) return;
+        setShareBusy(true);
+        setShareError('');
+        try {
+            const disposition = localManagedVolumeCount > 0 ? shareVolumes : 'orphan';
+            await LinkToSharedRoot(nodeId, shareRootId, disposition);
+            setShareDialogOpen(false);
+            await refreshLink();
+            await reload();
+            onServicesChanged?.();
+            await alert({
+                title: 'Now sharing',
+                message: `This service now uses ${sharePreview?.rootLabel || 'the selected root'} from ${sharePreview?.rootEnvName || 'another environment'}.`,
+            });
+        } catch (e: any) {
+            setShareError(typeof e === 'string' ? e : e?.message || 'Failed to share service');
+        } finally {
+            setShareBusy(false);
+        }
+    }, [shareRootId, shareBusy, localManagedVolumeCount, shareVolumes, nodeId, refreshLink, reload, onServicesChanged, alert, sharePreview]);
 
     const commitImage = useCallback((value?: string) => {
         const trimmed = (value ?? imageInput).trim();
@@ -540,13 +631,14 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             )}
             {readOnly && (
                 <div className="settings-section settings-locked-section">
-                    <h3 className="settings-section-title">Shared Root</h3>
+                    <h3 className="settings-section-title">Sharing</h3>
                     <div className="settings-locked-callout">
                         <p className="settings-locked-title">This linked service is view-only here.</p>
                         <p className="settings-hint">
                             You are viewing the root service&apos;s settings from{' '}
                             <span className="settings-mono">{linkInfo?.rootEnvName || 'another environment'}</span>
                             {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}. Update the root service to change how {serviceLabel} runs here.
+                            Use <strong>Promote</strong> on Overview to become an independent local service again.
                         </p>
                         {!!linkInfo?.rootNodeId && !!linkInfo?.rootEnvironmentId && onOpenRootService && (
                             <button
@@ -557,6 +649,32 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                                 Go to root service
                             </button>
                         )}
+                    </div>
+                </div>
+            )}
+            {!readOnly && !linkLoading && (
+                <div className="settings-section">
+                    <h3 className="settings-section-title">Sharing</h3>
+                    <span className="settings-hint">
+                        Keep this service independent, or share a root service from another environment
+                        (same idea as Share when duplicating an environment).
+                    </span>
+                    <div className="settings-sharing-row">
+                        <div>
+                            <strong className="settings-sharing-mode">Independent</strong>
+                            <p className="settings-hint" style={{margin: '4px 0 0'}}>
+                                This environment runs its own container
+                                {localManagedVolumeCount > 0 ? ' and volumes' : ''}.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            className="btn btn-ghost"
+                            onClick={() => void openShareDialog()}
+                            disabled={saving || shareBusy}
+                        >
+                            Share with…
+                        </button>
                     </div>
                 </div>
             )}
@@ -1147,6 +1265,91 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         </div>
                     )}
                     {deleteError && <p className="form-error">{deleteError}</p>}
+                </Dialog>
+            )}
+
+            {shareDialogOpen && (
+                <Dialog
+                    title="Share with another environment"
+                    onClose={() => !shareBusy && setShareDialogOpen(false)}
+                    footer={
+                        <>
+                            <button className="btn btn-ghost" onClick={() => setShareDialogOpen(false)} disabled={shareBusy}>
+                                Cancel
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => void confirmShare()}
+                                disabled={shareBusy || !shareRootId || shareLoading}
+                            >
+                                {shareBusy ? 'Sharing…' : 'Share'}
+                            </button>
+                        </>
+                    }
+                >
+                    <div className="dialog-copy">
+                        <p className="dialog-message">
+                            Stop the local container for <strong>{serviceLabel}</strong> and attach a root service
+                            from another environment instead. Health and runtime will follow that root.
+                        </p>
+                        {shareLoading ? (
+                            <p className="settings-hint">Loading services…</p>
+                        ) : shareRoots.length === 0 ? (
+                            <p className="settings-hint">
+                                No other environments have a root service to share yet. Duplicate an environment
+                                with independent services first, or create the service in another environment.
+                            </p>
+                        ) : (
+                            <>
+                                <div className="form-field">
+                                    <label className="form-label" htmlFor="share-root-select">Root service</label>
+                                    <select
+                                        id="share-root-select"
+                                        className="input settings-select"
+                                        value={shareRootId}
+                                        disabled={shareBusy}
+                                        onChange={(e) => void onShareRootChange(e.target.value)}
+                                    >
+                                        <option value="">Select service…</option>
+                                        {shareRoots.map((r) => (
+                                            <option key={r.nodeId} value={r.nodeId}>
+                                                {r.envName} · {r.label}
+                                                {templateId && r.templateId === templateId ? ' (same template)' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                                {sharePreview?.warning && (
+                                    <p className="settings-delete-warning">{sharePreview.warning}</p>
+                                )}
+                                {sharePreview?.isRunning && (
+                                    <p className="settings-hint">
+                                        The local container for this service is running and will be stopped.
+                                    </p>
+                                )}
+                                {localManagedVolumeCount > 0 && (
+                                    <div className="form-field">
+                                        <label className="form-label">Local volumes</label>
+                                        <span className="settings-hint">
+                                            This service has {localManagedVolumeCount} managed volume
+                                            {localManagedVolumeCount === 1 ? '' : 's'}. Linked aliases do not keep
+                                            local mounts.
+                                        </span>
+                                        <select
+                                            className="input settings-select"
+                                            value={shareVolumes}
+                                            disabled={shareBusy}
+                                            onChange={(e) => setShareVolumes(e.target.value as VolumeDisposition)}
+                                        >
+                                            <option value="orphan">Keep as orphans (recommended)</option>
+                                            <option value="delete">Delete volumes</option>
+                                        </select>
+                                    </div>
+                                )}
+                            </>
+                        )}
+                        {shareError && <p className="form-error">{shareError}</p>}
+                    </div>
                 </Dialog>
             )}
         </div>

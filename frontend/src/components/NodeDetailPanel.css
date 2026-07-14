@@ -656,6 +656,22 @@
     gap: 12px;
 }
 
+.settings-sharing-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface-2);
+}
+
+.settings-sharing-mode {
+    font-size: 0.875rem;
+}
+
 .settings-locked-callout {
     display: flex;
     flex-direction: column;

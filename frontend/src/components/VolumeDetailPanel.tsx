@@ -68,7 +68,7 @@ function VolumeDetailPanelBody({
 
     useEffect(() => {
         ListShareableRoots(projectId, 0)
-            .then((list) => setShareableRoots((list ?? []).filter((r) => r.nodeId !== parentNodeId)))
+            .then((list) => setShareableRoots((list ?? []).filter((r) => r.nodeId !== parentNodeId && r.hasVolumes)))
             .catch(() => setShareableRoots([]));
     }, [projectId, parentNodeId]);
 

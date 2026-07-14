@@ -168,7 +168,7 @@ func TestShareWarningKinds(t *testing.T) {
 	}
 }
 
-func TestListShareableRootsExcludesAliasesAndEmpty(t *testing.T) {
+func TestListShareableRootsExcludesAliasesIncludesVolumeFree(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 	dir := t.TempDir()
@@ -187,8 +187,49 @@ func TestListShareableRootsExcludesAliasesAndEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roots) != 1 || roots[0].NodeID != root.ID {
-		t.Fatalf("expected only root, got %+v", roots)
+	if len(roots) != 2 {
+		t.Fatalf("expected root+api, got %+v", roots)
+	}
+	byID := map[string]RootServiceSummary{}
+	for _, r := range roots {
+		byID[r.NodeID] = r
+	}
+	if !byID[root.ID].HasVolumes {
+		t.Fatal("db root should report hasVolumes")
+	}
+	if byID[api.ID].HasVolumes {
+		t.Fatal("api should not report hasVolumes")
+	}
+	if _, ok := byID[alias.ID]; ok {
+		t.Fatal("aliases must be excluded")
+	}
+}
+
+func TestLinkToSharedRootRequiresOtherEnvironment(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	env := defaultEnvID(t, s, p.ID)
+	root, _ := s.CreateNode(&store.CanvasNode{ID: "root", ProjectID: p.ID, EnvironmentID: env, Label: "api"})
+	local, _ := s.CreateNode(&store.CanvasNode{ID: "local", ProjectID: p.ID, EnvironmentID: env, Label: "api-copy"})
+	_ = s.SetNodeSetting(local.ID, "volume_mounts", `[]`)
+
+	if err := e.LinkToSharedRoot(t.Context(), local.ID, root.ID, VolumeOrphan); err == nil {
+		t.Fatal("expected same-environment link to fail")
+	}
+
+	staging, err := s.CreateEnvironment(p.ID, "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, _ := s.CreateNode(&store.CanvasNode{ID: "remote", ProjectID: p.ID, EnvironmentID: staging.ID, Label: "api"})
+	if err := e.LinkToSharedRoot(t.Context(), local.ID, remote.ID, VolumeOrphan); err != nil {
+		t.Fatalf("LinkToSharedRoot: %v", err)
+	}
+	link, err := e.GetServiceLink(local.ID)
+	if err != nil || link == nil || link.RootNodeID != remote.ID {
+		t.Fatalf("expected link to remote, got %+v err=%v", link, err)
 	}
 }
 
