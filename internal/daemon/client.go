@@ -302,6 +302,16 @@ func (c *Client) ListShareableRoots(ctx context.Context, projectID, excludeEnvir
 	return out, nil
 }
 
+func (c *Client) ListShareTargets(ctx context.Context, nodeID string) ([]deploy.ShareTargetEnvironment, error) {
+	var out []deploy.ShareTargetEnvironment
+	if err := c.postJSON(ctx, "/service/share-targets", map[string]any{
+		"nodeId": nodeID,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) PreviewCloneVolume(ctx context.Context, targetNodeID, sourceNodeID, containerPath string) (*deploy.CloneVolumePreview, error) {
 	var out deploy.CloneVolumePreview
 	if err := c.postJSON(ctx, "/volume/clone-preview", map[string]any{

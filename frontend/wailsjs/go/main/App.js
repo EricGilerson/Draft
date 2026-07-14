@@ -226,6 +226,10 @@ export function IsGitRepo(arg1, arg2) {
   return window['go']['main']['App']['IsGitRepo'](arg1, arg2);
 }
 
+export function LinkToSharedRoot(arg1, arg2, arg3) {
+  return window['go']['main']['App']['LinkToSharedRoot'](arg1, arg2, arg3);
+}
+
 export function ListAllDockerVolumes() {
   return window['go']['main']['App']['ListAllDockerVolumes']();
 }
@@ -314,6 +318,10 @@ export function ListServiceTemplates() {
   return window['go']['main']['App']['ListServiceTemplates']();
 }
 
+export function ListShareTargets(arg1) {
+  return window['go']['main']['App']['ListShareTargets'](arg1);
+}
+
 export function ListShareableRoots(arg1, arg2) {
   return window['go']['main']['App']['ListShareableRoots'](arg1, arg2);
 }
@@ -322,20 +330,12 @@ export function ListVolumesOverview() {
   return window['go']['main']['App']['ListVolumesOverview']();
 }
 
-export function LinkToSharedRoot(arg1, arg2, arg3) {
-  return window['go']['main']['App']['LinkToSharedRoot'](arg1, arg2, arg3);
-}
-
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
 }
 
 export function PreviewCloneVolume(arg1, arg2, arg3) {
   return window['go']['main']['App']['PreviewCloneVolume'](arg1, arg2, arg3);
-}
-
-export function PreviewLinkToSharedRoot(arg1, arg2) {
-  return window['go']['main']['App']['PreviewLinkToSharedRoot'](arg1, arg2);
 }
 
 export function PreviewDeleteService(arg1) {
@@ -348,6 +348,10 @@ export function PreviewEnvVars(arg1) {
 
 export function PreviewEnvironmentDuplicate(arg1) {
   return window['go']['main']['App']['PreviewEnvironmentDuplicate'](arg1);
+}
+
+export function PreviewLinkToSharedRoot(arg1, arg2) {
+  return window['go']['main']['App']['PreviewLinkToSharedRoot'](arg1, arg2);
 }
 
 export function PreviewSandbox(arg1) {

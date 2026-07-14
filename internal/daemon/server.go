@@ -182,6 +182,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/service/link", s.handleLinkToSharedRoot)
 	mux.HandleFunc("/service/link-preview", s.handlePreviewLinkToSharedRoot)
 	mux.HandleFunc("/service/shareable-roots", s.handleListShareableRoots)
+	mux.HandleFunc("/service/share-targets", s.handleListShareTargets)
 	mux.HandleFunc("/volume/clone-preview", s.handlePreviewCloneVolume)
 	mux.HandleFunc("/volume/clone", s.handleCloneVolumeData)
 	mux.HandleFunc("/rollback", s.handleRollback)
@@ -601,6 +602,24 @@ func (s *Server) handleListShareableRoots(w http.ResponseWriter, r *http.Request
 	}
 	if out == nil {
 		out = []deploy.RootServiceSummary{}
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleListShareTargets(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ListShareTargets(req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if out == nil {
+		out = []deploy.ShareTargetEnvironment{}
 	}
 	writeJSON(w, out)
 }

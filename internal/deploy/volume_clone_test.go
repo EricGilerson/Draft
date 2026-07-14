@@ -205,6 +205,52 @@ func TestListShareableRootsExcludesAliasesIncludesVolumeFree(t *testing.T) {
 	}
 }
 
+func TestListShareTargetsMatchesSameService(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	env := defaultEnvID(t, s, p.ID)
+	staging, err := s.CreateEnvironment(p.ID, "Staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := findBuiltin(t, s, "PostgreSQL")
+
+	local, _ := s.CreateNode(&store.CanvasNode{
+		ID: "local-db", ProjectID: p.ID, EnvironmentID: env, Label: "db", TemplateID: tpl.ID,
+	})
+	_ = s.SetNodeSetting(local.ID, "image", "postgres:16")
+	_ = s.SetNodeSetting(local.ID, "service_port", "5432")
+
+	match, _ := s.CreateNode(&store.CanvasNode{
+		ID: "staging-db", ProjectID: p.ID, EnvironmentID: staging.ID, Label: "db", TemplateID: tpl.ID,
+	})
+	_ = s.SetNodeSetting(match.ID, "image", "postgres:16")
+	_ = s.SetNodeSetting(match.ID, "service_port", "5432")
+	other, _ := s.CreateNode(&store.CanvasNode{
+		ID: "staging-api", ProjectID: p.ID, EnvironmentID: staging.ID, Label: "api",
+	})
+	_ = s.SetNodeSetting(other.ID, "image", "node:20")
+
+	targets, err := e.ListShareTargets(local.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 env, got %+v", targets)
+	}
+	if targets[0].MatchedRoot == nil || targets[0].MatchedRoot.NodeID != match.ID {
+		t.Fatalf("expected matched root db, got %+v", targets[0].MatchedRoot)
+	}
+	if targets[0].MatchedRoot.MatchReason != "label+template" {
+		t.Fatalf("match reason = %q", targets[0].MatchedRoot.MatchReason)
+	}
+	if len(targets[0].Roots) != 2 {
+		t.Fatalf("expected both staging roots for any-service mode, got %+v", targets[0].Roots)
+	}
+}
+
 func TestLinkToSharedRootRequiresOtherEnvironment(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

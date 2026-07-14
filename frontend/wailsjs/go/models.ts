@@ -817,28 +817,6 @@ export namespace deploy {
 		    return a;
 		}
 	}
-	export class LinkedServiceInfo {
-	    isLinked: boolean;
-	    rootNodeId?: string;
-	    rootLabel?: string;
-	    rootEnvironmentId?: number;
-	    rootEnvName?: string;
-	    hasVolumes?: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new LinkedServiceInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.isLinked = source["isLinked"];
-	        this.rootNodeId = source["rootNodeId"];
-	        this.rootLabel = source["rootLabel"];
-	        this.rootEnvironmentId = source["rootEnvironmentId"];
-	        this.rootEnvName = source["rootEnvName"];
-	        this.hasVolumes = source["hasVolumes"];
-	    }
-	}
 	export class LinkToSharedRootPreview {
 	    nodeLabel: string;
 	    isRunning: boolean;
@@ -863,6 +841,28 @@ export namespace deploy {
 	        this.rootEnvName = source["rootEnvName"];
 	        this.warningKind = source["warningKind"];
 	        this.warning = source["warning"];
+	    }
+	}
+	export class LinkedServiceInfo {
+	    isLinked: boolean;
+	    rootNodeId?: string;
+	    rootLabel?: string;
+	    rootEnvironmentId?: number;
+	    rootEnvName?: string;
+	    hasVolumes?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LinkedServiceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.isLinked = source["isLinked"];
+	        this.rootNodeId = source["rootNodeId"];
+	        this.rootLabel = source["rootLabel"];
+	        this.rootEnvironmentId = source["rootEnvironmentId"];
+	        this.rootEnvName = source["rootEnvName"];
+	        this.hasVolumes = source["hasVolumes"];
 	    }
 	}
 	export class ManagedVolume {
@@ -1168,6 +1168,7 @@ export namespace deploy {
 	    hasVolumes: boolean;
 	    warningKind?: string;
 	    warning?: string;
+	    matchReason?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RootServiceSummary(source);
@@ -1184,6 +1185,7 @@ export namespace deploy {
 	        this.hasVolumes = source["hasVolumes"];
 	        this.warningKind = source["warningKind"];
 	        this.warning = source["warning"];
+	        this.matchReason = source["matchReason"];
 	    }
 	}
 	export class RunCommandResult {
@@ -1573,6 +1575,44 @@ export namespace deploy {
 	        this.message = source["message"];
 	        this.field = source["field"];
 	    }
+	}
+	export class ShareTargetEnvironment {
+	    environmentId: number;
+	    envName: string;
+	    envSlug: string;
+	    matchedRoot?: RootServiceSummary;
+	    roots: RootServiceSummary[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ShareTargetEnvironment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.environmentId = source["environmentId"];
+	        this.envName = source["envName"];
+	        this.envSlug = source["envSlug"];
+	        this.matchedRoot = this.convertValues(source["matchedRoot"], RootServiceSummary);
+	        this.roots = this.convertValues(source["roots"], RootServiceSummary);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class StagedChangePreview {
 	    warnings: SettingsWarning[];

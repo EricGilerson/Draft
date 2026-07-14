@@ -471,6 +471,18 @@ func (a *App) ListShareableRoots(projectID, excludeEnvironmentID uint) ([]deploy
 	return c.ListShareableRoots(a.ctx, projectID, excludeEnvironmentID)
 }
 
+// ListShareTargets returns other environments' roots for sharing, with same-service matches.
+func (a *App) ListShareTargets(nodeID string) ([]deploy.ShareTargetEnvironment, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListShareTargets(a.ctx, nodeID)
+}
+
 // PreviewCloneVolume describes a late volume clone before confirmation.
 func (a *App) PreviewCloneVolume(targetNodeID, sourceNodeID, containerPath string) (*deploy.CloneVolumePreview, error) {
 	c, err := a.ensureDaemon()

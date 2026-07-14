@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -74,6 +75,18 @@ type RootServiceSummary struct {
 	HasVolumes    bool   `json:"hasVolumes"`
 	WarningKind   string `json:"warningKind,omitempty"`
 	Warning       string `json:"warning,omitempty"`
+	// MatchReason is set on ListShareTargets matched roots (label+template, etc.).
+	MatchReason string `json:"matchReason,omitempty"`
+}
+
+// ShareTargetEnvironment groups shareable roots in one other environment, with
+// an optional best "same service" match for the source node.
+type ShareTargetEnvironment struct {
+	EnvironmentID uint                 `json:"environmentId"`
+	EnvName       string               `json:"envName"`
+	EnvSlug       string               `json:"envSlug"`
+	MatchedRoot   *RootServiceSummary  `json:"matchedRoot,omitempty"`
+	Roots         []RootServiceSummary `json:"roots"`
 }
 
 // VolumeDisposition controls what happens to this node's managed volumes when
@@ -500,6 +513,179 @@ func (e *Engine) ListShareableRoots(projectID uint, excludeEnvironmentID uint) (
 			Warning:       msg,
 		})
 	}
+	return out, nil
+}
+
+// scoreShareMatch ranks how likely candidate is the "same service" as source.
+// Higher is better. 0 means no usable match signal.
+func scoreShareMatch(source *store.CanvasNode, sourceSettings map[string]string, candidate *store.CanvasNode, candidateSettings map[string]string) (score int, reason string) {
+	srcLabel := strings.TrimSpace(source.Label)
+	candLabel := strings.TrimSpace(candidate.Label)
+	labelMatch := srcLabel != "" && strings.EqualFold(srcLabel, candLabel)
+	templateMatch := source.TemplateID > 0 && source.TemplateID == candidate.TemplateID
+
+	if labelMatch && templateMatch {
+		return 100, "label+template"
+	}
+	if templateMatch {
+		return 70, "template"
+	}
+	if labelMatch {
+		return 60, "label"
+	}
+
+	srcImage := strings.TrimSpace(sourceSettings["image"])
+	candImage := strings.TrimSpace(candidateSettings["image"])
+	if srcImage != "" && strings.EqualFold(srcImage, candImage) {
+		srcPort := strings.TrimSpace(sourceSettings["service_port"])
+		candPort := strings.TrimSpace(candidateSettings["service_port"])
+		if srcPort != "" && srcPort == candPort {
+			return 55, "image+port"
+		}
+		return 40, "image"
+	}
+	return 0, ""
+}
+
+// pickMatchedRoot chooses a unique best match in one environment.
+// Ambiguous top scores (two services equally likely) yield no match.
+func pickMatchedRoot(scored []struct {
+	root  RootServiceSummary
+	score int
+}) *RootServiceSummary {
+	if len(scored) == 0 {
+		return nil
+	}
+	best := scored[0]
+	for _, row := range scored[1:] {
+		if row.score > best.score {
+			best = row
+		}
+	}
+	// Require a meaningful signal — image-only (40) is too weak for the
+	// default "same service" path; image+port and above are accepted.
+	if best.score < 55 {
+		return nil
+	}
+	ties := 0
+	for _, row := range scored {
+		if row.score == best.score {
+			ties++
+		}
+	}
+	if ties > 1 {
+		return nil
+	}
+	// Template-only / label-only must be unique at that score band already
+	// covered by ties check. Copy to avoid retaining loop variable.
+	matched := best.root
+	return &matched
+}
+
+// ListShareTargets lists other environments' roots for converting nodeID into a
+// shared alias. MatchedRoot is the best "same service" counterpart when unique.
+func (e *Engine) ListShareTargets(nodeID string) ([]ShareTargetEnvironment, error) {
+	source, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("service not found: %w", err)
+	}
+	if link, err := e.GetServiceLink(nodeID); err != nil {
+		return nil, err
+	} else if link != nil {
+		return nil, fmt.Errorf("service is already linked")
+	}
+	sourceSettings, err := e.store.GetNodeSettings(nodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes, err := e.store.ListNodes(source.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	envs, err := e.store.ListEnvironments(source.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	envByID := map[uint]store.Environment{}
+	for _, env := range envs {
+		envByID[env.ID] = env
+	}
+
+	type cand struct {
+		root     RootServiceSummary
+		score    int
+		settings map[string]string
+		node     store.CanvasNode
+	}
+	byEnv := map[uint][]cand{}
+	for _, n := range nodes {
+		if n.EnvironmentID == source.EnvironmentID {
+			continue
+		}
+		settings, err := e.store.GetNodeSettings(n.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ParseServiceLink(settings[SettingServiceLink]) != nil {
+			continue
+		}
+		env := envByID[n.EnvironmentID]
+		kind, msg := shareWarningForNode(e.store, &n, settings)
+		score, reason := scoreShareMatch(source, sourceSettings, &n, settings)
+		summary := RootServiceSummary{
+			NodeID:        n.ID,
+			Label:         n.Label,
+			EnvironmentID: n.EnvironmentID,
+			EnvName:       env.Name,
+			EnvSlug:       env.Slug,
+			TemplateID:    n.TemplateID,
+			HasVolumes:    len(managedVolumePaths(settings)) > 0,
+			WarningKind:   kind,
+			Warning:       msg,
+			MatchReason:   reason,
+		}
+		byEnv[n.EnvironmentID] = append(byEnv[n.EnvironmentID], cand{
+			root: summary, score: score, settings: settings, node: n,
+		})
+	}
+
+	out := make([]ShareTargetEnvironment, 0, len(byEnv))
+	for envID, cands := range byEnv {
+		if len(cands) == 0 {
+			continue
+		}
+		env := envByID[envID]
+		roots := make([]RootServiceSummary, 0, len(cands))
+		scored := make([]struct {
+			root  RootServiceSummary
+			score int
+		}, 0, len(cands))
+		for _, c := range cands {
+			roots = append(roots, c.root)
+			if c.score > 0 {
+				scored = append(scored, struct {
+					root  RootServiceSummary
+					score int
+				}{root: c.root, score: c.score})
+			}
+		}
+		// Stable-ish order for UI.
+		sort.Slice(roots, func(i, j int) bool {
+			return strings.ToLower(roots[i].Label) < strings.ToLower(roots[j].Label)
+		})
+		target := ShareTargetEnvironment{
+			EnvironmentID: envID,
+			EnvName:       env.Name,
+			EnvSlug:       env.Slug,
+			Roots:         roots,
+			MatchedRoot:   pickMatchedRoot(scored),
+		}
+		out = append(out, target)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].EnvName) < strings.ToLower(out[j].EnvName)
+	})
 	return out, nil
 }
 

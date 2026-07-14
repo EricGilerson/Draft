@@ -7,7 +7,7 @@ import {
     SetNodeSetting,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume, GetNodeConfigStatus,
     PreviewDeleteService, DeleteNode,
-    ListShareableRoots, PreviewLinkToSharedRoot, LinkToSharedRoot,
+    PreviewLinkToSharedRoot, LinkToSharedRoot, ListShareTargets,
 } from '../../wailsjs/go/main/App';
 import {dockerfile, deploy, main, store} from '../../wailsjs/go/models';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
@@ -18,8 +18,21 @@ import SettingStagingNote from './SettingStagingNote';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
 import {useAppDialog} from './AppDialogProvider';
+import './EnvironmentSwitcher.css';
 
 type VolumeDisposition = 'orphan' | 'delete';
+type ShareMode = 'same' | 'any';
+
+function matchReasonLabel(reason?: string): string {
+    switch (reason) {
+        case 'label+template': return 'same name & template';
+        case 'template': return 'same template';
+        case 'label': return 'same name';
+        case 'image+port': return 'same image & port';
+        case 'image': return 'same image';
+        default: return 'matched';
+    }
+}
 
 type DeployTrigger = 'manual' | 'on_commit' | 'on_push';
 
@@ -80,10 +93,10 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const [linkedHasStagedChanges, setLinkedHasStagedChanges] = useState(false);
     const {alert} = useAppDialog();
 
-    const [environmentId, setEnvironmentId] = useState(0);
-    const [templateId, setTemplateId] = useState(0);
     const [shareDialogOpen, setShareDialogOpen] = useState(false);
-    const [shareRoots, setShareRoots] = useState<deploy.RootServiceSummary[]>([]);
+    const [shareTargets, setShareTargets] = useState<deploy.ShareTargetEnvironment[]>([]);
+    const [shareMode, setShareMode] = useState<ShareMode>('same');
+    const [shareEnvId, setShareEnvId] = useState(0);
     const [shareRootId, setShareRootId] = useState('');
     const [shareVolumes, setShareVolumes] = useState<VolumeDisposition>('orphan');
     const [sharePreview, setSharePreview] = useState<deploy.LinkToSharedRootPreview | null>(null);
@@ -324,55 +337,90 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 return Promise.resolve();
             })
             .catch(() => setTemplate(null));
-        GetNode(nodeId)
-            .then((node) => {
-                setEnvironmentId(node?.environmentId || 0);
-                setTemplateId(node?.templateId || 0);
-            })
-            .catch(() => {
-                setEnvironmentId(0);
-                setTemplateId(0);
-            });
-    }, [targetNodeId, nodeId, projectId]);
+    }, [targetNodeId, projectId]);
+
+    const matchedShareTargets = useMemo(
+        () => shareTargets.filter((t) => !!t.matchedRoot?.nodeId),
+        [shareTargets],
+    );
+    const selectedShareTarget = useMemo(
+        () => shareTargets.find((t) => t.environmentId === shareEnvId) || null,
+        [shareTargets, shareEnvId],
+    );
 
     const openShareDialog = useCallback(async () => {
         setShareDialogOpen(true);
         setShareRootId('');
+        setShareEnvId(0);
         setSharePreview(null);
         setShareError('');
         setShareVolumes('orphan');
         setShareLoading(true);
         try {
-            const list = await ListShareableRoots(projectId, environmentId || 0);
-            const roots = [...(list || [])].sort((a, b) => {
-                const aMatch = templateId && a.templateId === templateId ? 0 : 1;
-                const bMatch = templateId && b.templateId === templateId ? 0 : 1;
-                if (aMatch !== bMatch) return aMatch - bMatch;
-                const envCmp = (a.envName || '').localeCompare(b.envName || '');
-                if (envCmp !== 0) return envCmp;
-                return (a.label || '').localeCompare(b.label || '');
-            });
-            setShareRoots(roots);
+            const targets = await ListShareTargets(nodeId);
+            const list = targets || [];
+            setShareTargets(list);
+            const matched = list.filter((t) => !!t.matchedRoot?.nodeId);
+            const mode: ShareMode = matched.length > 0 ? 'same' : 'any';
+            setShareMode(mode);
+            if (mode === 'same' && matched[0]) {
+                setShareEnvId(matched[0].environmentId);
+                const rootId = matched[0].matchedRoot?.nodeId || '';
+                setShareRootId(rootId);
+                if (rootId) {
+                    try {
+                        setSharePreview(await PreviewLinkToSharedRoot(nodeId, rootId));
+                    } catch (e: any) {
+                        setShareError(typeof e === 'string' ? e : e?.message || 'Preview failed');
+                    }
+                }
+            }
         } catch (e: any) {
-            setShareRoots([]);
-            setShareError(typeof e === 'string' ? e : e?.message || 'Failed to list shareable services');
+            setShareTargets([]);
+            setShareError(typeof e === 'string' ? e : e?.message || 'Failed to list share targets');
         } finally {
             setShareLoading(false);
         }
-    }, [projectId, environmentId, templateId]);
+    }, [nodeId]);
 
-    const onShareRootChange = useCallback(async (rootId: string) => {
+    const selectShareRoot = useCallback(async (rootId: string) => {
         setShareRootId(rootId);
         setSharePreview(null);
         setShareError('');
         if (!rootId) return;
         try {
-            const preview = await PreviewLinkToSharedRoot(nodeId, rootId);
-            setSharePreview(preview);
+            setSharePreview(await PreviewLinkToSharedRoot(nodeId, rootId));
         } catch (e: any) {
             setShareError(typeof e === 'string' ? e : e?.message || 'Preview failed');
         }
     }, [nodeId]);
+
+    const onShareModeChange = useCallback((mode: ShareMode) => {
+        setShareMode(mode);
+        setShareEnvId(0);
+        setShareRootId('');
+        setSharePreview(null);
+        setShareError('');
+        if (mode === 'same') {
+            const first = shareTargets.find((t) => !!t.matchedRoot?.nodeId);
+            if (first?.matchedRoot?.nodeId) {
+                setShareEnvId(first.environmentId);
+                void selectShareRoot(first.matchedRoot.nodeId);
+            }
+        }
+    }, [shareTargets, selectShareRoot]);
+
+    const onShareEnvChange = useCallback((envId: number) => {
+        setShareEnvId(envId);
+        setShareRootId('');
+        setSharePreview(null);
+        setShareError('');
+        const target = shareTargets.find((t) => t.environmentId === envId);
+        if (!target) return;
+        if (shareMode === 'same' && target.matchedRoot?.nodeId) {
+            void selectShareRoot(target.matchedRoot.nodeId);
+        }
+    }, [shareTargets, shareMode, selectShareRoot]);
 
     const confirmShare = useCallback(async () => {
         if (!shareRootId || shareBusy) return;
@@ -1289,12 +1337,13 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 >
                     <div className="dialog-copy">
                         <p className="dialog-message">
-                            Stop the local container for <strong>{serviceLabel}</strong> and attach a root service
-                            from another environment instead. Health and runtime will follow that root.
+                            Stop the local container for <strong>{serviceLabel}</strong> and attach a root from
+                            another environment. Prefer <strong>Same service</strong> when a counterpart exists;
+                            use <strong>Any service</strong> to pick a different root.
                         </p>
                         {shareLoading ? (
                             <p className="settings-hint">Loading services…</p>
-                        ) : shareRoots.length === 0 ? (
+                        ) : shareTargets.length === 0 ? (
                             <p className="settings-hint">
                                 No other environments have a root service to share yet. Duplicate an environment
                                 with independent services first, or create the service in another environment.
@@ -1302,23 +1351,104 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         ) : (
                             <>
                                 <div className="form-field">
-                                    <label className="form-label" htmlFor="share-root-select">Root service</label>
-                                    <select
-                                        id="share-root-select"
-                                        className="input settings-select"
-                                        value={shareRootId}
-                                        disabled={shareBusy}
-                                        onChange={(e) => void onShareRootChange(e.target.value)}
-                                    >
-                                        <option value="">Select service…</option>
-                                        {shareRoots.map((r) => (
-                                            <option key={r.nodeId} value={r.nodeId}>
-                                                {r.envName} · {r.label}
-                                                {templateId && r.templateId === templateId ? ' (same template)' : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                    <label className="form-label">Share mode</label>
+                                    <div className="environment-data-segment" role="radiogroup" aria-label="Share mode">
+                                        <label className={`environment-data-segment-option${shareMode === 'same' ? ' is-active' : ''}`}>
+                                            <input
+                                                type="radio"
+                                                name="share-mode"
+                                                checked={shareMode === 'same'}
+                                                disabled={shareBusy || matchedShareTargets.length === 0}
+                                                onChange={() => onShareModeChange('same')}
+                                            />
+                                            Same service
+                                        </label>
+                                        <label className={`environment-data-segment-option${shareMode === 'any' ? ' is-active' : ''}`}>
+                                            <input
+                                                type="radio"
+                                                name="share-mode"
+                                                checked={shareMode === 'any'}
+                                                disabled={shareBusy}
+                                                onChange={() => onShareModeChange('any')}
+                                            />
+                                            Any service
+                                        </label>
+                                    </div>
+                                    {shareMode === 'same' && matchedShareTargets.length === 0 && (
+                                        <span className="settings-hint">
+                                            No clear counterpart found in other environments. Switch to Any service
+                                            to pick manually.
+                                        </span>
+                                    )}
                                 </div>
+
+                                {shareMode === 'same' ? (
+                                    <div className="form-field">
+                                        <label className="form-label" htmlFor="share-env-same">Environment</label>
+                                        <select
+                                            id="share-env-same"
+                                            className="input settings-select"
+                                            value={shareEnvId || ''}
+                                            disabled={shareBusy || matchedShareTargets.length === 0}
+                                            onChange={(e) => onShareEnvChange(Number(e.target.value) || 0)}
+                                        >
+                                            <option value="">Select environment…</option>
+                                            {matchedShareTargets.map((t) => (
+                                                <option key={t.environmentId} value={t.environmentId}>
+                                                    {t.envName} · {t.matchedRoot?.label}
+                                                    {t.matchedRoot?.matchReason
+                                                        ? ` (${matchReasonLabel(t.matchedRoot.matchReason)})`
+                                                        : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {selectedShareTarget?.matchedRoot && (
+                                            <span className="settings-hint">
+                                                Will share <strong>{selectedShareTarget.matchedRoot.label}</strong> in{' '}
+                                                {selectedShareTarget.envName}.
+                                            </span>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="form-field">
+                                            <label className="form-label" htmlFor="share-env-any">Environment</label>
+                                            <select
+                                                id="share-env-any"
+                                                className="input settings-select"
+                                                value={shareEnvId || ''}
+                                                disabled={shareBusy}
+                                                onChange={(e) => onShareEnvChange(Number(e.target.value) || 0)}
+                                            >
+                                                <option value="">Select environment…</option>
+                                                {shareTargets.map((t) => (
+                                                    <option key={t.environmentId} value={t.environmentId}>
+                                                        {t.envName} ({t.roots?.length || 0} services)
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="form-field">
+                                            <label className="form-label" htmlFor="share-root-any">Service</label>
+                                            <select
+                                                id="share-root-any"
+                                                className="input settings-select"
+                                                value={shareRootId}
+                                                disabled={shareBusy || !shareEnvId}
+                                                onChange={(e) => void selectShareRoot(e.target.value)}
+                                            >
+                                                <option value="">Select service…</option>
+                                                {(selectedShareTarget?.roots || []).map((r) => (
+                                                    <option key={r.nodeId} value={r.nodeId}>
+                                                        {r.label}
+                                                        {r.matchReason ? ` (${matchReasonLabel(r.matchReason)})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
+
                                 {sharePreview?.warning && (
                                     <p className="settings-delete-warning">{sharePreview.warning}</p>
                                 )}

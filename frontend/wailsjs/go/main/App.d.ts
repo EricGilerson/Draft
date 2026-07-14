@@ -120,6 +120,8 @@ export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.Dockerfil
 
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
+export function LinkToSharedRoot(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ListAllDockerVolumes():Promise<Array<deploy.VolumeOverview>>;
 
 export function ListAppSecretUsages(arg1:string):Promise<Array<deploy.SecretUsage>>;
@@ -164,23 +166,23 @@ export function ListSandboxes(arg1:number):Promise<Array<store.Sandbox>>;
 
 export function ListServiceTemplates():Promise<Array<store.ServiceTemplate>>;
 
+export function ListShareTargets(arg1:string):Promise<Array<deploy.ShareTargetEnvironment>>;
+
 export function ListShareableRoots(arg1:number,arg2:number):Promise<Array<deploy.RootServiceSummary>>;
 
 export function ListVolumesOverview():Promise<Array<deploy.VolumeOverview>>;
 
-export function LinkToSharedRoot(arg1:string,arg2:string,arg3:string):Promise<void>;
-
 export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
 
 export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<deploy.CloneVolumePreview>;
-
-export function PreviewLinkToSharedRoot(arg1:string,arg2:string):Promise<deploy.LinkToSharedRootPreview>;
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
 export function PreviewEnvironmentDuplicate(arg1:number):Promise<Array<deploy.StatefulServiceSummary>>;
+
+export function PreviewLinkToSharedRoot(arg1:string,arg2:string):Promise<deploy.LinkToSharedRootPreview>;
 
 export function PreviewSandbox(arg1:deploy.SandboxCreateRequest):Promise<deploy.SandboxPreview>;
 
