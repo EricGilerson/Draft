@@ -823,6 +823,7 @@ export namespace deploy {
 	    rootLabel?: string;
 	    rootEnvironmentId?: number;
 	    rootEnvName?: string;
+	    hasVolumes?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new LinkedServiceInfo(source);
@@ -835,6 +836,7 @@ export namespace deploy {
 	        this.rootLabel = source["rootLabel"];
 	        this.rootEnvironmentId = source["rootEnvironmentId"];
 	        this.rootEnvName = source["rootEnvName"];
+	        this.hasVolumes = source["hasVolumes"];
 	    }
 	}
 	export class ManagedVolume {

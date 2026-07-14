@@ -4,14 +4,17 @@ import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
     GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
-    GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService, UnlinkService,
+    GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
 import {networking, store, deploy} from '../../wailsjs/go/models';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 import {useAppDialog} from './AppDialogProvider';
+import Dialog from './Dialog';
 import {bestPublicDeploymentURL, bestPublicEndpoint} from '../lib/localDomainUrls';
+
+type CloneConsistency = 'consistent' | 'quick';
 
 type OverviewTabProps = {
     nodeId: string;
@@ -72,6 +75,11 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [runOutput, setRunOutput] = useState('');
     const [runExit, setRunExit] = useState<number | null>(null);
     const [showRunOutput, setShowRunOutput] = useState(false);
+
+    const [promoteCloneOpen, setPromoteCloneOpen] = useState(false);
+    const [promoteConsistency, setPromoteConsistency] = useState<CloneConsistency>('consistent');
+    const [promoting, setPromoting] = useState(false);
+    const actionsBusy = !!pendingAction || promoting;
 
     useEffect(() => {
         let cancelled = false;
@@ -173,46 +181,36 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         }
     };
 
-    const handlePromote = async (seed: 'empty' | 'clone') => {
-        if (!await confirm({
-            title: 'Promote to local service?',
-            message: seed === 'clone'
-                ? 'Create local volumes and copy data from the root service.'
-                : 'Create empty local volumes. You can deploy this service independently afterward.',
-            confirmLabel: 'Promote',
-        })) return;
+    const runPromote = async (seed: 'empty' | 'clone', consistency: CloneConsistency) => {
         setError('');
+        setPromoting(true);
         try {
-            await PromoteLinkedService(nodeId, seed, 'consistent');
+            await PromoteLinkedService(nodeId, seed, consistency);
             const runtime = await loadLinkedAwareRuntime(nodeId);
             setLinkInfo(runtime.linkInfo);
             setHealth(runtime.health);
             setDeployment(runtime.deployment);
             setRuntimeReady(true);
             onServicesChanged?.();
+            setPromoteCloneOpen(false);
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Promote failed');
+        } finally {
+            setPromoting(false);
         }
     };
 
-    const handleUnlink = async () => {
+    const handlePromoteEmpty = async () => {
         if (!await confirm({
-            title: 'Unlink service?',
-            message: 'Stop using the shared root. This node becomes a local service with empty volumes.',
-            confirmLabel: 'Unlink',
-            danger: true,
+            title: 'Promote to local service?',
+            message: 'Stop sharing the root and make this an independent local service. You can deploy it afterward.',
+            confirmLabel: 'Promote',
         })) return;
-        try {
-            await UnlinkService(nodeId, 'fresh');
-            const runtime = await loadLinkedAwareRuntime(nodeId);
-            setLinkInfo(runtime.linkInfo);
-            setHealth(runtime.health);
-            setDeployment(runtime.deployment);
-            setRuntimeReady(true);
-            onServicesChanged?.();
-        } catch (e: any) {
-            setError(typeof e === 'string' ? e : e?.message || 'Unlink failed');
-        }
+        await runPromote('empty', 'consistent');
+    };
+
+    const handlePromoteCloneConfirm = async () => {
+        await runPromote('clone', promoteConsistency);
     };
 
     const handleStop = async () => {
@@ -360,26 +358,34 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             <div className="overview-actions">
                 {isLinked && (
                     <>
-                        <button className="btn btn-ghost" onClick={handleDeploy} disabled={!!pendingAction} title="Re-attach root to this environment network">
+                        <button className="btn btn-ghost" onClick={handleDeploy} disabled={actionsBusy} title="Re-attach root to this environment network">
                             {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
                             Sync link
                         </button>
-                        <button className="btn btn-primary" onClick={() => void handlePromote('empty')} disabled={!!pendingAction}>
-                            Promote (empty)
+                        <button className="btn btn-primary" onClick={() => void handlePromoteEmpty()} disabled={actionsBusy}>
+                            {promoting && !promoteCloneOpen ? <Loader2 size={13} className="spin" /> : null}
+                            {promoting && !promoteCloneOpen ? 'Promoting…' : 'Promote'}
                         </button>
-                        <button className="btn btn-ghost" onClick={() => void handlePromote('clone')} disabled={!!pendingAction}>
-                            Promote + clone data
-                        </button>
-                        <button className="btn btn-ghost" onClick={() => void handleUnlink()} disabled={!!pendingAction}>
-                            Unlink
-                        </button>
+                        {!!linkInfo?.hasVolumes && (
+                            <button
+                                className="btn btn-ghost"
+                                onClick={() => {
+                                    setPromoteConsistency('consistent');
+                                    setPromoteCloneOpen(true);
+                                }}
+                                disabled={actionsBusy}
+                            >
+                                {promoting && promoteCloneOpen ? <Loader2 size={13} className="spin" /> : null}
+                                {promoting && promoteCloneOpen ? 'Cloning…' : 'Promote + clone data'}
+                            </button>
+                        )}
                     </>
                 )}
                 {!isLinked && runtimeReady && !isActive && !deploying && (
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
-                        disabled={!canDeploy || !!pendingAction}
+                        disabled={!canDeploy || actionsBusy}
                         title={!canDeploy ? 'Set an image or Dockerfile and a port in Settings first' : 'Deploy service'}
                     >
                         {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
@@ -387,22 +393,22 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                     </button>
                 )}
                 {deploying && (
-                    <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
+                    <button className="btn btn-ghost" onClick={handleStop} disabled={actionsBusy}>
                         {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
                         {pendingAction === 'stopping' ? 'Cancelling…' : 'Cancel Build'}
                     </button>
                 )}
                 {!isLinked && runtimeReady && isActive && !deploying && (
                     <>
-                        <button className="btn btn-ghost" onClick={handleStop} disabled={!!pendingAction}>
+                        <button className="btn btn-ghost" onClick={handleStop} disabled={actionsBusy}>
                             {pendingAction === 'stopping' ? <Loader2 size={13} className="spin" /> : <Square size={13} />}
                             {pendingAction === 'stopping' ? 'Stopping…' : 'Stop'}
                         </button>
-                        <button className="btn btn-ghost" onClick={handleRestart} disabled={!!pendingAction}>
+                        <button className="btn btn-ghost" onClick={handleRestart} disabled={actionsBusy}>
                             {pendingAction === 'restarting' ? <Loader2 size={13} className="spin" /> : <RotateCcw size={13} />}
                             {pendingAction === 'restarting' ? 'Restarting…' : 'Restart'}
                         </button>
-                        <button className="btn btn-primary" onClick={handleDeploy} disabled={!!pendingAction}>
+                        <button className="btn btn-primary" onClick={handleDeploy} disabled={actionsBusy}>
                             {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
                             {pendingAction === 'deploying' ? 'Rebuilding…' : 'Rebuild'}
                         </button>
@@ -580,6 +586,60 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         </div>
                     )}
                 </div>
+            )}
+
+            {promoteCloneOpen && (
+                <Dialog
+                    title="Promote + clone data"
+                    onClose={() => {
+                        if (!promoting) setPromoteCloneOpen(false);
+                    }}
+                    footer={
+                        <>
+                            <button
+                                className="btn btn-ghost"
+                                onClick={() => setPromoteCloneOpen(false)}
+                                disabled={promoting}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn btn-primary"
+                                onClick={() => void handlePromoteCloneConfirm()}
+                                disabled={promoting}
+                            >
+                                {promoting ? <Loader2 size={13} className="spin" /> : null}
+                                {promoting ? 'Cloning…' : 'Promote'}
+                            </button>
+                        </>
+                    }
+                >
+                    <div className="dialog-copy">
+                        <p className="dialog-message">
+                            Create local volumes and copy data from{' '}
+                            <strong>{linkInfo?.rootLabel || 'the root service'}</strong>
+                            {linkInfo?.rootEnvName ? ` (${linkInfo.rootEnvName})` : ''}.
+                            Deploy afterward to start an independent container.
+                        </p>
+                        <div className="form-field" style={{marginTop: 12}}>
+                            <label className="form-label" htmlFor="promote-clone-consistency">Consistency</label>
+                            <select
+                                id="promote-clone-consistency"
+                                className="input settings-select"
+                                value={promoteConsistency}
+                                disabled={promoting}
+                                onChange={(e) => setPromoteConsistency(e.target.value as CloneConsistency)}
+                            >
+                                <option value="consistent">Consistent (stop source during copy)</option>
+                                <option value="quick">Quick (source may keep running)</option>
+                            </select>
+                            <span className="settings-hint">
+                                Consistent briefly stops the shared root so the copy is point-in-time.
+                                Quick keeps the root running and may copy mid-write.
+                            </span>
+                        </div>
+                    </div>
+                </Dialog>
             )}
         </div>
     );

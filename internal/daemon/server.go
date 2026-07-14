@@ -382,7 +382,8 @@ func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Reque
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	env, err := s.engine.DuplicateEnvironmentWithChoices(r.Context(), req.SourceEnvironmentID, req.NewName, req.Choices)
+	// Detach from the request context so clone-data choices can finish after a client timeout.
+	env, err := s.engine.DuplicateEnvironmentWithChoices(context.Background(), req.SourceEnvironmentID, req.NewName, req.Choices)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -538,7 +539,9 @@ func (s *Server) handlePromoteLinkedService(w http.ResponseWriter, r *http.Reque
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	writeError(w, s.engine.PromoteLinkedService(r.Context(), req.NodeID, req.Seed, req.Consistency))
+	// Detach from the request context so a client disconnect/timeout cannot leave
+	// promote mid-clone (link already cleared, volumes half-copied).
+	writeError(w, s.engine.PromoteLinkedService(context.Background(), req.NodeID, req.Seed, req.Consistency))
 }
 
 func (s *Server) handleUnlinkService(w http.ResponseWriter, r *http.Request) {
@@ -598,7 +601,8 @@ func (s *Server) handleCloneVolumeData(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	out, err := s.engine.CloneVolumeData(r.Context(), req.TargetNodeID, req.SourceNodeID, req.ContainerPath, req.Consistency)
+	// Detach from the request context so disconnects cannot abort mid-copy.
+	out, err := s.engine.CloneVolumeData(context.Background(), req.TargetNodeID, req.SourceNodeID, req.ContainerPath, req.Consistency)
 	if err != nil {
 		writeError(w, err)
 		return

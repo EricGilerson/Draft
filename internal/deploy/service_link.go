@@ -80,6 +80,8 @@ type LinkedServiceInfo struct {
 	RootLabel         string `json:"rootLabel,omitempty"`
 	RootEnvironmentID uint   `json:"rootEnvironmentId,omitempty"`
 	RootEnvName       string `json:"rootEnvName,omitempty"`
+	// HasVolumes is true when the root has managed named volumes (clone promote is meaningful).
+	HasVolumes bool `json:"hasVolumes,omitempty"`
 }
 
 // ParseServiceLink decodes the service_link setting. Empty/malformed → nil.
@@ -135,6 +137,9 @@ func (e *Engine) GetLinkedServiceInfo(nodeID string) (*LinkedServiceInfo, error)
 	}
 	if env, err := e.store.GetEnvironment(link.RootEnvironmentID); err == nil {
 		info.RootEnvName = env.Name
+	}
+	if settings, err := e.store.GetNodeSettings(link.RootNodeID); err == nil {
+		info.HasVolumes = len(managedVolumePaths(settings)) > 0
 	}
 	return info, nil
 }

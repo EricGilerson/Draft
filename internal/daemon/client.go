@@ -239,7 +239,8 @@ func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID u
 		"newName":             newName,
 		"choices":             choices,
 	}
-	if err := c.postJSON(ctx, "/environment/duplicate", body, &out); err != nil {
+	// Duplicate with clone-data choices can copy multiple volumes; keep the UI waiting.
+	if err := c.postJSONWithTimeout(ctx, "/environment/duplicate", body, &out, 10*time.Minute); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -263,9 +264,10 @@ func (c *Client) GetLinkedServiceInfo(ctx context.Context, nodeID string) (*depl
 }
 
 func (c *Client) PromoteLinkedService(ctx context.Context, nodeID, seed string, consistency deploy.CloneConsistency) error {
-	return c.postJSON(ctx, "/service/promote", map[string]any{
+	// Promote+clone may stop the root, tar-copy volumes, and restart — far beyond the default 30s client timeout.
+	return c.postJSONWithTimeout(ctx, "/service/promote", map[string]any{
 		"nodeId": nodeID, "seed": seed, "consistency": consistency,
-	}, nil)
+	}, nil, 10*time.Minute)
 }
 
 func (c *Client) UnlinkService(ctx context.Context, nodeID, become string) error {
@@ -296,10 +298,11 @@ func (c *Client) PreviewCloneVolume(ctx context.Context, targetNodeID, sourceNod
 
 func (c *Client) CloneVolumeData(ctx context.Context, targetNodeID, sourceNodeID, containerPath string, consistency deploy.CloneConsistency) (*deploy.CloneVolumeResult, error) {
 	var out deploy.CloneVolumeResult
-	if err := c.postJSON(ctx, "/volume/clone", map[string]any{
+	// Volume tar-copy (and consistent stop/restart) routinely exceeds the default 30s client timeout.
+	if err := c.postJSONWithTimeout(ctx, "/volume/clone", map[string]any{
 		"targetNodeId": targetNodeID, "sourceNodeId": sourceNodeID,
 		"containerPath": containerPath, "consistency": consistency,
-	}, &out); err != nil {
+	}, &out, 10*time.Minute); err != nil {
 		return nil, err
 	}
 	return &out, nil
