@@ -1,6 +1,6 @@
 # Draft
 
-Draft is a native desktop app built with Wails v2 (Go backend + React frontend). It manages local Docker services as a visual workspace: projects contain multi-environment service nodes on a canvas, Draft builds and runs those services, assigns ports, injects environment wiring, and exposes stable local hostnames.
+Draft is a native desktop app built with Wails v2 (Go backend + React frontend). It manages local Docker services as a visual workspace: projects contain multi-environment service nodes on a canvas, Draft builds and runs those services, assigns ports, injects environment wiring, and exposes stable local hostnames. Durable environments support day-to-day stacks; **sandboxes** are short-lived environment copies for previews and test recipes.
 
 ## Tech Stack
 
@@ -31,9 +31,9 @@ Draft is a native desktop app built with Wails v2 (Go backend + React frontend).
 
 - `main.go` starts either the desktop app, the background daemon (`--daemon`), or a fast git-hook entrypoint (`--git-hook`).
 - The Wails app binds thin methods in `bindings.go` and talks to the daemon for long-running work.
-- The daemon owns the store, deployment engine, Docker watch hub, local routing/proxy, and SSE event stream.
+- The daemon owns the store, deployment engine, Docker watch hub, local routing/proxy, sandbox lifecycle, and SSE event stream.
 - The daemon is single-instance. It writes state (`daemon.json` with addr/token/pid) under the user config dir (`~/.../Draft/`), reuses an existing healthy daemon, and idles out after **30 minutes** of inactivity.
-- On app startup, the daemon reconciles Docker state, missed git-trigger events, installed hooks (`githooks.ReconcileAllHooks`), and **service-link multi-network attachments** (`ReconcileServiceLinkNetworks`).
+- On app startup, the daemon reconciles Docker state, missed git-trigger events, installed hooks (`githooks.ReconcileAllHooks`), **service-link multi-network attachments** (`ReconcileServiceLinkNetworks`), and **sandbox lifecycle** (`ReconcileSandboxLifecycle`). A background ticker re-runs sandbox lifecycle every minute while the daemon is up.
 
 ## Current Project Layout
 
@@ -58,6 +58,7 @@ internal/
     secrets.go             # App-secrets API
     exec.go                # Container exec / shell proxy
     project.go             # Project-scoped daemon helpers
+    sandbox.go             # Sandbox lifecycle ticker + HTTP handlers helpers
   deploy/                  # Build/run engine, metrics, env resolution, service projection
     engine.go              # Deploy orchestration (build, image-pull, git-sourced build)
     image_deploy.go        # Image-pull deploy path (no Docker build)
@@ -79,6 +80,8 @@ internal/
     environment_stack.go   # Start/stop/redeploy all services in an environment
     environment_delete.go  # DeleteEnvironment teardown
     project_delete.go      # DeleteProject teardown
+    sandbox.go             # Preview/create/extend/suspend/resume/delete + lifecycle reconcile
+    sandbox_test_run.go    # Testing sandbox step suites (fresh | steps)
     rollback.go            # RollbackDeployment + RollbackEligibility
     config_sync.go         # PreviewSync / ApplySync between environments
     import.go / export.go  # Cloud-config import/export bridge
@@ -96,15 +99,17 @@ internal/
   gitsrc/                  # Branch/ref export and ref/SHA helpers via git
   ignore/                  # .dockerignore / .gitignore matching
   networking/              # Port leases, proxy, hosts/domain routing, URL selection
-    hostname.go            # Internal *.draft.local + public *.draft.resolv.sh (+ TCP endpoints)
+    hostname.go            # Internal *.draft.local (+ sandbox sand segment) + public *.draft.resolv.sh
     router.go              # Local domain modes, GetLocalDomainStatus
     hosts.go               # Hosts-file block management
+    dns.go                 # Optional machine-local *.draft resolver
   store/                   # GORM models, CRUD, auto-migration, validation helpers
     environments.go        # Multi-environment CRUD
     staging.go             # Staged node_settings / env_vars
     project_env_vars.go    # Project-scoped shared values
     app_secrets.go         # App-wide secrets
-    app_settings.go        # App-wide preferences (sidebar, local domain)
+    app_settings.go        # App-wide preferences (sidebar, local domain, proxy ports, *.draft DNS)
+    sandboxes.go           # Sandbox CRUD, profiles, links, repo sources, test runs
     immediate_settings.go  # Settings that apply without staging/deploy
     default_settings.go    # Template DefaultSettings JSON helpers
     templates.go           # Template CRUD + seeding
@@ -158,6 +163,7 @@ frontend/src/
     VolumeEditor.tsx       # Volume mount editor (wizard + settings)
     TemplateEditorDialog.tsx  # Includes default node settings editor
     TemplateIcon.tsx
+    SandboxExtendControl.tsx / SandboxHoursInput.tsx  # Sandbox TTL extend UI
     Dialog.tsx, EmptyState.tsx, PageHeader.tsx, StatusBadge.tsx, ServicePill.tsx
     ScopedValueUsages.tsx  # Secret / project-var usage lists
   views/
@@ -169,7 +175,7 @@ frontend/src/
     DockerView.tsx         # Docker resources: containers/images/networks/volumes + prune
     RoutesView.tsx         # Hostname routes listing (mounted)
     SettingsView.tsx       # App settings; persists via GetAppSettings/SetAppSettings
-    SandboxesView.tsx      # Mock sandbox cards; NOT mounted
+    SandboxesView.tsx      # Sandbox list, profiles, preview/test create, test-run history (mounted)
   wailsjs/                 # Generated Wails bindings (do not hand-edit)
 ```
 
@@ -180,7 +186,7 @@ There is no root project README beyond a one-line `README.md`; `README.wails.md`
 Primary store tables:
 
 - `projects`
-- `environments` — named, independently deployable copies of a project’s services
+- `environments` — named, independently deployable copies of a project’s services (including sandbox-owned environments)
 - `canvas_nodes` — scoped to both `projectId` and `environmentId`
 - `service_templates`
 - `deployments`
@@ -191,25 +197,37 @@ Primary store tables:
 - `app_settings` — app-wide preferences
 - `routes`
 - `port_leases`
+- `sandbox_project_settings` — project-wide sandbox lifecycle defaults (TTL / warning / grace / idle-suspend hours)
+- `sandbox_profiles` — reusable creation plans (JSON `PlanJSON`; optional source-environment scope)
+- `sandboxes` — durable lifecycle record for one disposable environment (`PlanJSON` is immutable at create)
+- `sandbox_links` — open-ended external context (PR, ticket, URL, …) attached to a sandbox
+- `sandbox_repository_sources` — per-repo resolved ref + commit SHA used by a sandbox
+- `sandbox_test_runs` — history of testing-sandbox step suites (kept after sandbox purge)
 
 Important model details:
 
-- Every project has exactly one **default environment** (created with the project). Environment **slug** is immutable and is baked into hostnames, Docker network names, image/container tags, and volume names; renaming the display name does not disturb running resources.
+- Every project has exactly one **default environment** (created with the project). Environment **slug** is immutable and is baked into hostnames, Docker network names, image/container tags, and volume names; renaming the display name does not disturb running resources. Sandbox environments are normal environments plus a `sandboxes` row; their slugs remain unique within the project.
 - `canvas_nodes.uid` is the stable per-node hostname suffix (unique within an environment).
 - `canvas_nodes.templateId` links a node to the `ServiceTemplate` it was created from (0 = blank/legacy node; not a foreign key).
-- Hostnames use four segments: `{service}.{project}.{environment}.{uid}.draft.local` (public: `*.draft.resolv.sh`).
-- Docker networks: `draft-{projectId}-{project}-{environment}`.
-- Image tags / container names include the environment segment: `draft-{project}-{environment}-{service}:{sequence}` / `draft-{project}-{environment}-{service}-{sequence}`.
-- Draft-managed volumes: `draft-{projectId}-{project}-{environment}-{uid}-{target}` (labeled `draft.managed=true`).
+- Hostnames:
+  - Normal: `{service}.{project}.{environment}.{uid}.draft.local` (public: `*.draft.resolv.sh`).
+  - Sandbox: `{service}.{project}.sand.{environment}.{uid}.draft.local` (fixed `sand` label so sandbox DNS cannot collide with durable envs).
+  - Optional host DNS: machine-local `*.draft` via Draft’s local resolver (Docker still uses `*.draft.local` internally).
+- Docker environment segment: normal envs use the slug; sandboxes use `sand-{slug}` in network / image / container / volume names for operator clarity.
+- Docker networks: `draft-{projectId}-{project}-{environmentSegment}`.
+- Image tags / container names include the environment segment: `draft-{project}-{environmentSegment}-{service}:{sequence}` / `draft-{project}-{environmentSegment}-{service}-{sequence}`.
+- Draft-managed volumes: `draft-{projectId}-{project}-{environmentSegment}-{uid}-{target}` (labeled `draft.managed=true`).
 - `deployments.source_sha` records the commit built for pinned git-branch deploys.
 - `deployments.sequence` is the per-node deploy counter used in image tags and container names.
 - Deployment lifecycle statuses include `pending|building|built|starting|running|stopped|failed|interrupted` (interrupted = cut short by app restart). UI status mapping preserves real lifecycle states rather than collapsing everything to a few buckets.
+- Sandbox statuses include `active|warning|expired|suspended|cleanup_failed` (and lifecycle reconcile advances them over time).
 - `env_vars` carry `scope` (runtime/build/both), `secret`, `source`, and `envFile`.
 - `project_env_vars` are **key/value (+ optional secret flag) only**; scope is determined by the service variable that references `{{project.KEY}}`.
 - Staged tables hold pending settings/env changes until the next **successful** deploy promotes them into the applied tables (see Staged Config).
 - `node_settings` remains the extensible feature surface. Important keys include `dockerfile`, `image`, `service_port`, `service_root`, `git_branch`, `git_stream`, `deploy_trigger`, `redeploy_on_pull`, `git_repo_root`, `volume_mounts`, `use_buildkit_local_context`, `use_dockerignore`, `use_gitignore`, `route_protocol` (`http`|`tcp`), `host_port`, `keep_images` (`last`|`none`|`all`), `service_link` (JSON link to a root node in another env), plus settings-tab keys in `deploy/settings.go`.
 - `service_templates` hold reusable blueprints (built-in + user-created) with embedded Dockerfiles, default env vars, volume defaults, **DefaultSettings** (JSON node_settings stamped at create), and a JSON schema that drives the create wizard and Settings tab section visibility.
 - Volume mounts are stored as `volume_mounts` JSON in `node_settings`, not a separate SQL table.
+- Sandbox `PlanJSON` captures purpose, TTL/warning/grace/idle-suspend, per-service copy/share/omit (+ data mode), per-repo refs, and (for testing) steps + `onComplete`. Changing a profile later never rewires an existing sandbox.
 
 ## What Is Implemented
 
@@ -266,7 +284,24 @@ Important model details:
 - Root container is multi-attached onto each linker environment’s Docker network with aliases matching the alias node’s identity (hostname/service name stay local to the alias env).
 - Linked env previews rewrite URLs/hostnames to the **alias** identity so dependents see the local env’s names.
 - Promote alias → real service (`empty` or `clone` seed); unlink with become options; guard root delete while linkers exist.
+- **Share targets**: `ListShareTargets` lists other environments’ roots for converting a node into a shared alias, with best “same service” match hints.
 - Network reattach on daemon startup.
+
+### Sandboxes (ephemeral environments)
+
+- **Mounted Sandboxes view** plus in-project create from `EnvironmentSwitcher` (`SandboxesView` full page or `dialogOnly` overlay).
+- Sandboxes are short-lived **environment copies** materialised through the same duplication path as durable envs (networks, UIDs, hostnames, volume clone, shared-service multi-network attach).
+- **Purposes**:
+  - `preview` — human-driven PR/feature copies (default longer TTL from project settings).
+  - `test` — recipe + commands; shorter default TTL; optional `onComplete` = `leave` | `delete` | `suspend`.
+- **Service plan rules** (keyed by source node ID): `copy` | `share` | `omit`, with copy data modes `fresh` | `share` | `clone` (+ `consistent` | `quick`).
+- **Per-repository refs**: plan can pin each repo root to a ref; create resolves to commit SHA and pins copied git-backed services (no single global branch assumption).
+- **Profiles**: reusable project (or source-env-scoped) plans; create can merge profile + request overrides; resolved plan is frozen on the sandbox row.
+- **Lifecycle**: project defaults (`sandbox_project_settings`) for TTL / warning / grace / idle-suspend hours; statuses `active` → `warning` → `expired` → purge after grace; `suspended` still expires on schedule; `cleanup_failed` is retriable on reconcile.
+- **Actions**: preview plan (no Docker), create, extend (relative hours or absolute expiry), suspend (stop stack, keep volumes), resume (start stack), delete (destructive: services + Draft-managed volumes + sandbox network).
+- **Testing runs**: `RunTestingSandbox` with mode `fresh` (new sandbox + steps) or `steps` (re-run on live testing sandbox); step results and suite pass/fail stored in `sandbox_test_runs` (history survives sandbox delete).
+- **Links**: optional PR/ticket/URL-style context rows on the sandbox.
+- Daemon **ReconcileSandboxLifecycle** on startup and every minute while running.
 
 ### Staged config
 
@@ -293,9 +328,13 @@ Important model details:
 ### Workspace admin views
 
 - **Overview**: live dashboard of projects + activity (mounted).
-- **Secrets**, **Volumes**, **Docker**, **Routes**: fully mounted management views.
+- **Secrets**, **Volumes**, **Docker**, **Routes**, **Sandboxes**: fully mounted management views.
 - **Docker view**: list/start/stop/restart/remove containers; list/remove images (grouped, timestamps); networks; volumes; prune with optional Draft-only filter; bulk selection + confirm dialogs.
-- **App settings**: compact sidebar + local domain preference persisted in `app_settings` (`auto` | `public-hostname-port` | `localhost-port`).
+- **App settings** (persisted via `GetAppSettings` / `SetAppSettings` and related bindings):
+  - Compact sidebar.
+  - Local domain preference: `auto` | `public-hostname-port` | `localhost-port`.
+  - Reverse-proxy port mode: `prefer80` | `prefer80_fallback` | `custom` (+ primary/fallback ports; default prefers 80 then stable fallback `38473`).
+  - Optional machine-local `*.draft` DNS (`local_draft_domain_enabled` / `SetLocalDraftDomainEnabled` with status refresh/verify).
 
 ## Build And Deploy Behavior
 
@@ -317,7 +356,7 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 - `.gitignore`-based context filtering blocks the BuildKit local-context path entirely.
 - Root `.dockerignore` compatibility is required before BuildKit local-context is used when Draft's `.dockerignore` toggle is on.
 - Redeploy cancels any in-flight build for the same node.
-- Image tags and container names use the per-node `deployments.sequence` counter **and environment slug**, not the global deployment ID.
+- Image tags and container names use the per-node `deployments.sequence` counter **and environment segment** (slug, or `sand-{slug}` for sandboxes), not the global deployment ID.
 - Template stamping writes embedded Dockerfiles to the service root (best-effort), resolves `{{draft.*}}` env defaults, seeds volume mounts and DefaultSettings from the template.
 - **Linked services** short-circuit deploy: ensure the root is multi-attached rather than building a second container.
 - **Rollback** reuses the shared start/register tail with a historical image tag; it does not rebuild from git SHA yet.
@@ -335,11 +374,16 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 
 ## Networking
 
-- Each service gets dual hostnames: internal `*.draft.local` (Docker network DNS) and public `*.draft.resolv.sh` (internet-resolvable via Draft's resolver). Pattern: `{service}.{project}.{environment}.{uid}.draft.local`.
-- **Local domain modes**: preference stored in app settings as `auto` | `public-hostname-port` | `localhost-port`. Exposed via `GetLocalDomainStatus` (preference applied in bindings).
+- Each service gets dual hostnames: internal `*.draft.local` (Docker network DNS) and public `*.draft.resolv.sh` (internet-resolvable via Draft's resolver).
+  - Normal: `{service}.{project}.{environment}.{uid}.draft.local`.
+  - Sandbox: `{service}.{project}.sand.{environment}.{uid}.draft.local`.
+- Optional **machine-local `*.draft`** host DNS (separate from Docker’s `*.draft.local`); enable/disable is a privileged local resolver install with verification in Settings.
+- **Local domain modes**: preference stored in app settings as `auto` | `public-hostname-port` | `localhost-port`. Exposed via `GetLocalDomainStatus` / `RefreshLocalDomainStatus` (preference applied in bindings).
+- **HTTP reverse proxy listen**: configurable port mode (`prefer80`, `prefer80_fallback`, `custom`) so public URLs can stay clean on 80 or stable on a fixed fallback rather than random ephemeral ports.
 - HTTP services are proxied by Draft's built-in reverse proxy; TCP services resolve via the hosts file and expose `host:port` endpoints (no HTTP scheme).
-- URL selection for deployments prefers the best available public URL (`networking/best_url.go`), protocol-aware for TCP.
+- URL selection for deployments prefers the best available public URL (`networking/best_url.go`), protocol-aware for TCP, and aware of local public suffix when `*.draft` is active.
 - Linked roots are attached to multiple environment networks so alias hostnames resolve inside each environment’s network.
+- Sandbox Docker identity uses `sand-{slug}` as the environment segment in network/image/container/volume names while the environment **slug** itself stays project-unique.
 
 ## Staged Config And Immediate Settings
 
@@ -355,27 +399,36 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 - `frontend/src/App.tsx` is the real mounted shell, wrapped in `BuildLogProvider` + `AppDialogProvider`.
 - Default nav view is **Overview** (`OverviewView` with live project summaries and activity).
 - Main workflow: Projects → pick environment → canvas → node detail panel tabs (Overview / Deployments / Variables / Logs / Metrics / Shell / Settings).
-- **Mounted workspace views**: Overview, Projects, Templates, Secrets, Volumes, Docker, Routes, Settings.
-- **Sandboxes** remains a placeholder empty state in the mounted app (`SandboxesView.tsx` exists as a richer design mock but is not mounted).
-- Settings view **persists** compact sidebar and local-domain preference via `GetAppSettings` / `SetAppSettings`.
+- **Mounted workspace views**: Overview, Projects, Templates, Secrets, Volumes, Docker, Routes, Sandboxes, Settings.
+- **Sandboxes**: full `SandboxesView` (profiles, live sandboxes, test-run history) plus dialog-only create from a project’s `EnvironmentSwitcher` (“create sandbox” opens over the canvas and can jump into the new sandbox env).
+- Settings view **persists** compact sidebar, local-domain preference, reverse-proxy port mode/ports, and local `*.draft` DNS enablement.
 - Topbar shows `ActivityTicker` (Docker events) and `DockerIndicator`.
 - Service creation uses `CreateServiceDialog` (template picker + wizard); blank services fall back to `CreateNode`.
 - Canvas nodes render template icons via `templateId` + `ListServiceTemplates`; volume mounts render as selectable chips; env-reference edges group by node pair.
-- Environment chrome: `EnvironmentSwitcher` (switch, create, duplicate “based on”, stack start/stop/redeploy, sync config, delete).
+- Environment chrome: `EnvironmentSwitcher` (switch, create, duplicate “based on”, stack start/stop/redeploy, sync config, create sandbox, delete).
 - Import cloud config is available from the app chrome; export from project/service UI.
+
+## Sandbox Behavior
+
+- Create always goes through **PreviewSandbox → CreateSandbox**: resolve profile/defaults into an immutable plan, create the environment + sandbox row first (so identity helpers know the env is a sandbox), then duplicate selected services with copy/share/omit rules.
+- Failed mid-create cleanup disconnects shared-root attaches, removes the sandbox Docker network, and deletes the environment.
+- **DeleteSandbox** is more destructive than normal environment delete: it removes Draft-managed volumes as well as containers/routes/network. Bind mounts and non-Draft volumes are not selected by this path. Test-run history rows are retained (live `sandbox_id` pointer cleared).
+- **Extend** recalculates warning/grace from the sandbox’s frozen plan, not from a profile that may have changed since create.
+- Testing steps run inside sandbox service containers (by service label in the sandbox env). Suite pass/fail is on the test-run record; sandbox lifecycle status is separate.
+- Suspended sandboxes still expire and purge after grace so stopped previews are not left forever.
 
 ## Not Yet Implemented
 
-- Real sandboxes / ephemeral environments.
-- Branch/worktree UX beyond the current pinned-ref deploy path.
+- Branch/worktree UX beyond the current pinned-ref deploy path (sandboxes can pin per-repo refs at create, but there is no first-class worktree workspace model).
 - Rebuild-from-SHA rollback for git-sourced builds (rollback requires a retained local image under `keep_images`).
 - `git pull --rebase` detection for redeploy-on-pull.
-- Depends-on / ordered start for environment stack ops (actions currently run independently per node).
+- Depends-on / ordered start for environment stack ops (actions currently run independently per node; sandbox test steps wait for their own service readiness, not a full graph).
+- Idle-time auto-suspend for sandboxes (`suspendIdleHours` is stored on project settings / plans and merged into create, but reconcile currently advances warning/expiry/purge only; suspend/resume are explicit user actions).
 
 ## Conventions And Constraints
 
 - Prefer the live mounted path over adjacent placeholder components.
-- Docker labels are the runtime source of truth and daemon reconcile matters on startup (including service-link networks).
+- Docker labels are the runtime source of truth and daemon reconcile matters on startup (including service-link networks and sandbox lifecycle).
 - Prefer event-driven updates (SSE / Docker events) over polling.
 - Keep Windows compatibility in mind; the repo is intentionally using pure-Go SQLite to avoid CGO on Windows.
 - macOS still requires CGO for the Wails/WebKit build.
@@ -386,5 +439,7 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
   - ignore semantics: Draft filters vs `.dockerignore` / `.gitignore`
   - deploy path: build vs image-pull vs git-sourced build
   - environment scope: which environment’s network/hostname/volume namespace is in play
+  - sandbox vs durable env: `sand` hostname label + `sand-{slug}` Docker segment
   - link mode: root container vs alias (linked) node
   - config layer: applied vs staged vs immediate settings
+  - sandbox plan layer: profile defaults vs request overrides vs frozen `PlanJSON`
