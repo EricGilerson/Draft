@@ -314,6 +314,10 @@ export function ListSandboxProfiles(arg1) {
   return window['go']['main']['App']['ListSandboxProfiles'](arg1);
 }
 
+export function ListSandboxSourceRepos(arg1) {
+  return window['go']['main']['App']['ListSandboxSourceRepos'](arg1);
+}
+
 export function ListSandboxTestRuns(arg1, arg2) {
   return window['go']['main']['App']['ListSandboxTestRuns'](arg1, arg2);
 }
@@ -398,6 +402,10 @@ export function RefreshLocalDomainStatus() {
   return window['go']['main']['App']['RefreshLocalDomainStatus']();
 }
 
+export function RefreshSandbox(arg1, arg2) {
+  return window['go']['main']['App']['RefreshSandbox'](arg1, arg2);
+}
+
 export function RemoveDockerContainer(arg1, arg2) {
   return window['go']['main']['App']['RemoveDockerContainer'](arg1, arg2);
 }
@@ -416,6 +424,10 @@ export function RemoveDockerVolume(arg1, arg2) {
 
 export function RenameEnvironment(arg1, arg2) {
   return window['go']['main']['App']['RenameEnvironment'](arg1, arg2);
+}
+
+export function ResolveSandboxRef(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResolveSandboxRef'](arg1, arg2, arg3);
 }
 
 export function RestartDockerContainer(arg1) {

@@ -158,6 +158,41 @@ func (s *Store) ListSandboxRepositorySources(sandboxID uint) ([]SandboxRepositor
 	err := s.DB.Where("sandbox_id = ?", sandboxID).Order("repo_root asc").Find(&rows).Error
 	return rows, err
 }
+
+// ReplaceSandboxRepositorySources rewrites the frozen repo pins for a sandbox
+// (used by refresh-to-tip). Links and the sandbox row itself are left alone.
+func (s *Store) ReplaceSandboxRepositorySources(sandboxID uint, repositories []SandboxRepositorySource) error {
+	if sandboxID == 0 {
+		return errors.New("sandbox id required")
+	}
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("sandbox_id = ?", sandboxID).Delete(&SandboxRepositorySource{}).Error; err != nil {
+			return err
+		}
+		for i := range repositories {
+			repositories[i].ID = 0
+			repositories[i].SandboxID = sandboxID
+			repositories[i].RepoRoot = strings.TrimSpace(repositories[i].RepoRoot)
+			if repositories[i].RepoRoot == "" {
+				return errors.New("sandbox repository source requires repo root")
+			}
+			if err := tx.Create(&repositories[i]).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// UpdateSandboxPlanJSON replaces the immutable-at-create plan snapshot after a
+// source refresh rewrites repository refs inside the plan.
+func (s *Store) UpdateSandboxPlanJSON(sandboxID uint, planJSON string) error {
+	planJSON = strings.TrimSpace(planJSON)
+	if sandboxID == 0 || planJSON == "" {
+		return errors.New("invalid sandbox plan update")
+	}
+	return s.DB.Model(&Sandbox{}).Where("id = ?", sandboxID).Update("plan_json", planJSON).Error
+}
 func (s *Store) UpdateSandboxStatus(id uint, status string, suspendedAt *time.Time) error {
 	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{"status": status, "suspended_at": suspendedAt}).Error
 }

@@ -42,10 +42,11 @@ func TestSandboxPreviewAndCreateUseIsolatedCopyDefaults(t *testing.T) {
 		t.Fatalf("copy default = %+v", preview.Services[0])
 	}
 
-	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{Name: "feature-123", SourceEnvironmentID: source.ID, Links: []store.SandboxLink{{Kind: "pr", Value: "123"}, {Kind: "ticket", Value: "ENG-1"}}})
+	created, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{Name: "feature-123", SourceEnvironmentID: source.ID, Links: []store.SandboxLink{{Kind: "pr", Value: "123"}, {Kind: "ticket", Value: "ENG-1"}}})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
+	sandbox := created.Sandbox
 	if sandbox.Status != "active" || sandbox.EnvironmentID == source.ID {
 		t.Fatalf("unexpected sandbox: %+v", sandbox)
 	}
@@ -118,13 +119,14 @@ func TestCreateSandboxOmitsServicesWithoutDuplicating(t *testing.T) {
 	}
 
 	e := New(s, nil, t.TempDir(), func(string, any) {})
-	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+	created, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
 		Name:                "omit-demo",
 		SourceEnvironmentID: source.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
+	sandbox := created.Sandbox
 	targets, err := s.ListNodesByEnvironment(sandbox.EnvironmentID)
 	if err != nil {
 		t.Fatal(err)
@@ -344,7 +346,7 @@ func TestTestingSandboxPlanDefaultsAndStepValidation(t *testing.T) {
 		t.Fatalf("steps = %+v", preview.Plan.Steps)
 	}
 
-	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+	created, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
 		Name:                "api-integration",
 		SourceEnvironmentID: source.ID,
 		Plan: SandboxPlan{
@@ -355,8 +357,8 @@ func TestTestingSandboxPlanDefaultsAndStepValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
-	if sandbox.Purpose != string(SandboxPurposeTest) {
-		t.Fatalf("sandbox.Purpose = %q", sandbox.Purpose)
+	if created.Sandbox.Purpose != string(SandboxPurposeTest) {
+		t.Fatalf("sandbox.Purpose = %q", created.Sandbox.Purpose)
 	}
 }
 
@@ -396,7 +398,7 @@ func TestRunTestingSandboxStepsRecordsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	e := New(s, nil, t.TempDir(), func(string, any) {})
-	sandbox, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
+	created, err := e.CreateSandbox(context.Background(), SandboxCreateRequest{
 		Name:                "suite",
 		SourceEnvironmentID: source.ID,
 		Plan: SandboxPlan{
@@ -410,7 +412,7 @@ func TestRunTestingSandboxStepsRecordsHistory(t *testing.T) {
 	}
 	// Steps mode against a non-running service should fail the step and record a run.
 	result, err := e.RunTestingSandbox(context.Background(), SandboxTestRunRequest{
-		SandboxID: sandbox.ID,
+		SandboxID: created.Sandbox.ID,
 		Mode:      SandboxTestRunSteps,
 	})
 	if err != nil {

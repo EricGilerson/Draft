@@ -174,6 +174,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sandbox/detail", s.handleSandboxDetail)
 	mux.HandleFunc("/sandbox/suspend", s.handleSuspendSandbox)
 	mux.HandleFunc("/sandbox/resume", s.handleResumeSandbox)
+	mux.HandleFunc("/sandbox/source-repos", s.handleListSandboxSourceRepos)
+	mux.HandleFunc("/sandbox/resolve-ref", s.handleResolveSandboxRef)
+	mux.HandleFunc("/sandbox/refresh", s.handleRefreshSandbox)
 	mux.HandleFunc("/sandbox/test/run", s.handleRunTestingSandbox)
 	mux.HandleFunc("/sandbox/test/runs", s.handleListSandboxTestRuns)
 	mux.HandleFunc("/sandbox/test/run/get", s.handleGetSandboxTestRun)
@@ -434,6 +437,51 @@ func (s *Server) handleCreateSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := s.engine.CreateSandbox(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleListSandboxSourceRepos(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SourceEnvironmentID uint `json:"sourceEnvironmentId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ListSandboxSourceRepos(r.Context(), req.SourceEnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleResolveSandboxRef(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RepoRoot  string `json:"repoRoot"`
+		Ref       string `json:"ref"`
+		CommitSHA string `json:"commitSha"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.ResolveSandboxRef(r.Context(), req.RepoRoot, req.Ref, req.CommitSHA)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleRefreshSandbox(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SandboxRefreshRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.RefreshSandbox(r.Context(), req)
 	if err != nil {
 		writeError(w, err)
 		return

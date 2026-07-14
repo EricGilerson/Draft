@@ -80,8 +80,9 @@ internal/
     environment_stack.go   # Start/stop/redeploy all services in an environment
     environment_delete.go  # DeleteEnvironment teardown
     project_delete.go      # DeleteProject teardown
-    sandbox.go             # Preview/create/extend/suspend/resume/delete + lifecycle reconcile
+    sandbox.go             # Preview/create/extend/suspend/resume/delete + source repos + refresh + lifecycle
     sandbox_test_run.go    # Testing sandbox step suites (fresh | steps)
+    sandbox_source_test.go # Branch pin + refresh tip/same tests
     rollback.go            # RollbackDeployment + RollbackEligibility
     config_sync.go         # PreviewSync / ApplySync between environments
     import.go / export.go  # Cloud-config import/export bridge
@@ -295,10 +296,16 @@ Important model details:
   - `preview` — human-driven PR/feature copies (default longer TTL from project settings).
   - `test` — recipe + commands; shorter default TTL; optional `onComplete` = `leave` | `delete` | `suspend`.
 - **Service plan rules** (keyed by source node ID): `copy` | `share` | `omit`, with copy data modes `fresh` | `share` | `clone` (+ `consistent` | `quick`).
-- **Per-repository refs**: plan can pin each repo root to a ref; create resolves to commit SHA and pins copied git-backed services (no single global branch assumption).
+- **Source code at create** (does not mutate durable env settings):
+  - `ListSandboxSourceRepos` discovers git repos used by source services, local branches, and (when available) open GitHub PRs via `gh`.
+  - Create dialog can keep source pins, pick a **branch/ref**, or pick a **PR** (gated per-repo: `gh` on PATH + `gh repo view` succeeds).
+  - `plan.repositories` pins each repo root to a human ref; create resolves to commit SHA and sets copied services’ `git_branch` to that SHA.
+  - PR selection also records a structured `pr:N` sandbox link; freeform links remain available.
+  - Preview create uses **Create & start** (`startOnCreate`) so the sandbox deploys immediately after materialize.
+- **Refresh**: `RefreshSandbox` mode `tip` re-resolves human refs and redeploys; mode `same` redeploys at frozen SHAs (sandbox-native rebuild-from-SHA).
 - **Profiles**: reusable project (or source-env-scoped) plans; create can merge profile + request overrides; resolved plan is frozen on the sandbox row.
 - **Lifecycle**: project defaults (`sandbox_project_settings`) for TTL / warning / grace / idle-suspend hours; statuses `active` → `warning` → `expired` → purge after grace; `suspended` still expires on schedule; `cleanup_failed` is retriable on reconcile.
-- **Actions**: preview plan (no Docker), create, extend (relative hours or absolute expiry), suspend (stop stack, keep volumes), resume (start stack), delete (destructive: services + Draft-managed volumes + sandbox network).
+- **Actions**: preview plan (no Docker), create (+ optional start), extend, suspend/resume, refresh tip/same SHA, delete (destructive: services + Draft-managed volumes + sandbox network).
 - **Testing runs**: `RunTestingSandbox` with mode `fresh` (new sandbox + steps) or `steps` (re-run on live testing sandbox); step results and suite pass/fail stored in `sandbox_test_runs` (history survives sandbox delete).
 - **Links**: optional PR/ticket/URL-style context rows on the sandbox.
 - Daemon **ReconcileSandboxLifecycle** on startup and every minute while running.
@@ -410,12 +417,16 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 
 ## Sandbox Behavior
 
-- Create always goes through **PreviewSandbox → CreateSandbox**: resolve profile/defaults into an immutable plan, create the environment + sandbox row first (so identity helpers know the env is a sandbox), then duplicate selected services with copy/share/omit rules.
+- Create always goes through **PreviewSandbox → CreateSandbox**: resolve profile/defaults into an immutable plan, create the environment + sandbox row first (so identity helpers know the env is a sandbox), then duplicate selected services with copy/share/omit rules, then pin git-backed copies from `plan.repositories`.
+- **StartOnCreate** (preview UI default) runs environment stack start after materialize; materialize success is returned even if start fails (`SandboxCreateResult.startError`). Testing sandboxes start via their own suite path instead.
 - Failed mid-create cleanup disconnects shared-root attaches, removes the sandbox Docker network, and deletes the environment.
 - **DeleteSandbox** is more destructive than normal environment delete: it removes Draft-managed volumes as well as containers/routes/network. Bind mounts and non-Draft volumes are not selected by this path. Test-run history rows are retained (live `sandbox_id` pointer cleared).
 - **Extend** recalculates warning/grace from the sandbox’s frozen plan, not from a profile that may have changed since create.
+- **Refresh tip / same SHA** rewrites repository pins and redeploys sandbox copies only; durable source environments are never modified.
+- GitHub PR listing is local-only via `gh` and is hidden per repository when the CLI/auth/remote check fails (branch/ref mode always available).
 - Testing steps run inside sandbox service containers (by service label in the sandbox env). Suite pass/fail is on the test-run record; sandbox lifecycle status is separate.
 - Suspended sandboxes still expire and purge after grace so stopped previews are not left forever.
+- Source pins use committed git objects (`git archive` / SHA); dirty working-tree changes are not included unless committed.
 
 ## Not Yet Implemented
 

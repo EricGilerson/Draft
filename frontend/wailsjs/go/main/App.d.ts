@@ -24,7 +24,7 @@ export function CreateNodeFromTemplate(arg1:deploy.CreateNodeFromTemplateRequest
 
 export function CreateProject(arg1:string,arg2:string,arg3:string):Promise<store.Project>;
 
-export function CreateSandbox(arg1:deploy.SandboxCreateRequest):Promise<store.Sandbox>;
+export function CreateSandbox(arg1:deploy.SandboxCreateRequest):Promise<deploy.SandboxCreateResult>;
 
 export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.ServiceTemplate>;
 
@@ -164,6 +164,8 @@ export function ListRoutes(arg1:any):Promise<Array<main.RouteRow>>;
 
 export function ListSandboxProfiles(arg1:number):Promise<Array<store.SandboxProfile>>;
 
+export function ListSandboxSourceRepos(arg1:number):Promise<deploy.SandboxSourceRepos>;
+
 export function ListSandboxTestRuns(arg1:number,arg2:number):Promise<Array<store.SandboxTestRun>>;
 
 export function ListSandboxes(arg1:number):Promise<Array<store.Sandbox>>;
@@ -206,6 +208,8 @@ export function RefreshEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
 export function RefreshLocalDomainStatus():Promise<networking.LocalDomainStatus>;
 
+export function RefreshSandbox(arg1:number,arg2:string):Promise<deploy.SandboxRefreshResult>;
+
 export function RemoveDockerContainer(arg1:string,arg2:boolean):Promise<void>;
 
 export function RemoveDockerImage(arg1:string,arg2:boolean):Promise<void>;
@@ -215,6 +219,8 @@ export function RemoveDockerNetwork(arg1:string):Promise<void>;
 export function RemoveDockerVolume(arg1:string,arg2:boolean):Promise<void>;
 
 export function RenameEnvironment(arg1:number,arg2:string):Promise<void>;
+
+export function ResolveSandboxRef(arg1:string,arg2:string,arg3:string):Promise<store.SandboxRepositorySource>;
 
 export function RestartDockerContainer(arg1:string):Promise<void>;
 

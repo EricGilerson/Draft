@@ -142,9 +142,37 @@ func (c *Client) PreviewSandbox(ctx context.Context, req deploy.SandboxCreateReq
 	return &out, nil
 }
 
-func (c *Client) CreateSandbox(ctx context.Context, req deploy.SandboxCreateRequest) (*store.Sandbox, error) {
-	var out store.Sandbox
+func (c *Client) CreateSandbox(ctx context.Context, req deploy.SandboxCreateRequest) (*deploy.SandboxCreateResult, error) {
+	var out deploy.SandboxCreateResult
 	if err := c.postJSON(ctx, "/sandbox/create", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListSandboxSourceRepos(ctx context.Context, sourceEnvironmentID uint) (*deploy.SandboxSourceRepos, error) {
+	var out deploy.SandboxSourceRepos
+	if err := c.postJSON(ctx, "/sandbox/source-repos", map[string]uint{"sourceEnvironmentId": sourceEnvironmentID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ResolveSandboxRef(ctx context.Context, repoRoot, ref, commitSHA string) (*store.SandboxRepositorySource, error) {
+	var out store.SandboxRepositorySource
+	if err := c.postJSON(ctx, "/sandbox/resolve-ref", map[string]string{
+		"repoRoot":  repoRoot,
+		"ref":       ref,
+		"commitSha": commitSHA,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) RefreshSandbox(ctx context.Context, req deploy.SandboxRefreshRequest) (*deploy.SandboxRefreshResult, error) {
+	var out deploy.SandboxRefreshResult
+	if err := c.postJSON(ctx, "/sandbox/refresh", req, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

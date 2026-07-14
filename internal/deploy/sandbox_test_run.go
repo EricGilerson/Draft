@@ -143,11 +143,14 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 
 	// Replace previous live instance when rerunning a known sandbox id.
 	previousID := req.SandboxID
-	sandbox, err := e.CreateSandbox(ctx, createReq)
+	// Testing path starts the stack inside executeTestingSandbox; do not double-start.
+	createReq.StartOnCreate = false
+	created, err := e.CreateSandbox(ctx, createReq)
 	if err != nil {
 		e.finishTestRun(run, "failed", nil, err.Error())
 		return &SandboxTestRunResult{Run: *run}, err
 	}
+	sandbox := created.Sandbox
 	run.SandboxID = sandbox.ID
 	_ = e.store.UpdateSandboxTestRun(run)
 

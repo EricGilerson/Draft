@@ -1244,6 +1244,7 @@ export namespace deploy {
 	export class SandboxRepositoryRef {
 	    repoRoot: string;
 	    ref: string;
+	    commitSha?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SandboxRepositoryRef(source);
@@ -1253,6 +1254,7 @@ export namespace deploy {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.repoRoot = source["repoRoot"];
 	        this.ref = source["ref"];
+	        this.commitSha = source["commitSha"];
 	    }
 	}
 	export class SandboxServiceRule {
@@ -1343,6 +1345,7 @@ export namespace deploy {
 	    profileId?: number;
 	    plan: SandboxPlan;
 	    links?: store.SandboxLink[];
+	    startOnCreate?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SandboxCreateRequest(source);
@@ -1355,6 +1358,43 @@ export namespace deploy {
 	        this.profileId = source["profileId"];
 	        this.plan = this.convertValues(source["plan"], SandboxPlan);
 	        this.links = this.convertValues(source["links"], store.SandboxLink);
+	        this.startOnCreate = source["startOnCreate"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxCreateResult {
+	    sandbox?: store.Sandbox;
+	    stack?: EnvironmentStackResult;
+	    started: boolean;
+	    startError?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxCreateResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sandbox = this.convertValues(source["sandbox"], store.Sandbox);
+	        this.stack = this.convertValues(source["stack"], EnvironmentStackResult);
+	        this.started = source["started"];
+	        this.startError = source["startError"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1465,8 +1505,120 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class SandboxRefreshResult {
+	    sandbox?: store.Sandbox;
+	    repositories: store.SandboxRepositorySource[];
+	    stack?: EnvironmentStackResult;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxRefreshResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sandbox = this.convertValues(source["sandbox"], store.Sandbox);
+	        this.repositories = this.convertValues(source["repositories"], store.SandboxRepositorySource);
+	        this.stack = this.convertValues(source["stack"], EnvironmentStackResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	
+	export class SandboxSourceRepo {
+	    repoRoot: string;
+	    defaultRef: string;
+	    serviceLabels: string[];
+	    nodeIds: string[];
+	    branches?: string[];
+	    pullRequestsAvailable: boolean;
+	    pullRequestsError?: string;
+	    pullRequests?: gitsrc.PullRequest[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxSourceRepo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repoRoot = source["repoRoot"];
+	        this.defaultRef = source["defaultRef"];
+	        this.serviceLabels = source["serviceLabels"];
+	        this.nodeIds = source["nodeIds"];
+	        this.branches = source["branches"];
+	        this.pullRequestsAvailable = source["pullRequestsAvailable"];
+	        this.pullRequestsError = source["pullRequestsError"];
+	        this.pullRequests = this.convertValues(source["pullRequests"], gitsrc.PullRequest);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxSourceRepos {
+	    projectId: number;
+	    sourceEnvironmentId: number;
+	    repositories: SandboxSourceRepo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxSourceRepos(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.sourceEnvironmentId = source["sourceEnvironmentId"];
+	        this.repositories = this.convertValues(source["repositories"], SandboxSourceRepo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class SandboxTestRunRequest {
 	    name: string;
@@ -2113,6 +2265,33 @@ export namespace dockerwatch {
 	        this.state = source["state"];
 	        this.apiVersion = source["apiVersion"];
 	        this.error = source["error"];
+	    }
+	}
+
+}
+
+export namespace gitsrc {
+	
+	export class PullRequest {
+	    number: number;
+	    title: string;
+	    headRef: string;
+	    headSha?: string;
+	    url?: string;
+	    author?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PullRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.number = source["number"];
+	        this.title = source["title"];
+	        this.headRef = source["headRef"];
+	        this.headSha = source["headSha"];
+	        this.url = source["url"];
+	        this.author = source["author"];
 	    }
 	}
 

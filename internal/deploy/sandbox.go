@@ -35,10 +35,13 @@ type SandboxServiceRule struct {
 
 // SandboxRepositoryRef makes branch/ref selection explicitly per repository.
 // Ref is resolved to CommitSHA before creation, and the resolved value is what
-// is applied to copied Git-backed services.
+// is applied to copied Git-backed services. CommitSHA may be supplied when the
+// caller already knows the tip (for example a GitHub PR head from `gh`) and the
+// local object store may not have fetched that commit yet.
 type SandboxRepositoryRef struct {
-	RepoRoot string `json:"repoRoot"`
-	Ref      string `json:"ref"`
+	RepoRoot  string `json:"repoRoot"`
+	Ref       string `json:"ref"`
+	CommitSHA string `json:"commitSha,omitempty"`
 }
 
 // SandboxPurpose distinguishes preview sandboxes (human-driven PR/feature
@@ -95,6 +98,65 @@ type SandboxCreateRequest struct {
 	ProfileID           uint                `json:"profileId,omitempty"`
 	Plan                SandboxPlan         `json:"plan"`
 	Links               []store.SandboxLink `json:"links,omitempty"`
+	// StartOnCreate deploys every service in the new sandbox after materialize.
+	// Preview sandboxes default to true in the UI; testing runs start via their
+	// own path. Create still returns when start fails — see SandboxCreateResult.
+	StartOnCreate bool `json:"startOnCreate,omitempty"`
+}
+
+// SandboxCreateResult is returned by CreateSandbox so the UI can open the new
+// environment and surface stack start outcomes without a second round-trip.
+type SandboxCreateResult struct {
+	Sandbox *store.Sandbox           `json:"sandbox"`
+	Stack   *EnvironmentStackResult  `json:"stack,omitempty"`
+	Started bool                     `json:"started"`
+	// StartError is set when materialize succeeded but stack start failed.
+	StartError string `json:"startError,omitempty"`
+}
+
+// SandboxSourceRepo describes one git repository used by services in a source
+// environment, for the create-sandbox source picker.
+type SandboxSourceRepo struct {
+	RepoRoot              string                `json:"repoRoot"`
+	DefaultRef            string                `json:"defaultRef"`
+	ServiceLabels         []string              `json:"serviceLabels"`
+	NodeIDs               []string              `json:"nodeIds"`
+	Branches              []string              `json:"branches,omitempty"`
+	PullRequestsAvailable bool                  `json:"pullRequestsAvailable"`
+	PullRequestsError     string                `json:"pullRequestsError,omitempty"`
+	PullRequests          []gitsrc.PullRequest  `json:"pullRequests,omitempty"`
+}
+
+// SandboxSourceRepos is the create-dialog payload for branch/PR selection.
+type SandboxSourceRepos struct {
+	ProjectID           uint               `json:"projectId"`
+	SourceEnvironmentID uint               `json:"sourceEnvironmentId"`
+	Repositories        []SandboxSourceRepo `json:"repositories"`
+}
+
+// SandboxRefreshMode controls how an existing sandbox's source pins are updated.
+type SandboxRefreshMode string
+
+const (
+	// SandboxRefreshTip re-resolves each stored human ref (branch/PR head) to
+	// the current tip and redeploys copied services.
+	SandboxRefreshTip SandboxRefreshMode = "tip"
+	// SandboxRefreshSame redeploys at the frozen commit SHAs already recorded
+	// on the sandbox (true rebuild-from-SHA for sandbox copies).
+	SandboxRefreshSame SandboxRefreshMode = "same"
+)
+
+// SandboxRefreshRequest rebuilds sandbox service source pins and redeploys.
+type SandboxRefreshRequest struct {
+	SandboxID uint               `json:"sandboxId"`
+	Mode      SandboxRefreshMode `json:"mode"`
+}
+
+// SandboxRefreshResult reports the new pins and stack redeploy outcome.
+type SandboxRefreshResult struct {
+	Sandbox      *store.Sandbox                  `json:"sandbox"`
+	Repositories []store.SandboxRepositorySource `json:"repositories"`
+	Stack        *EnvironmentStackResult         `json:"stack,omitempty"`
 }
 
 type SandboxPreview struct {
@@ -185,7 +247,11 @@ func (e *Engine) PreviewSandbox(ctx context.Context, req SandboxCreateRequest) (
 // identity generation can insert the sand marker during {{draft.*}} re-resolve
 // and shared-service network attach. Omitted source services are never
 // duplicated (avoids create-then-delete and leftover shared-network attaches).
-func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*store.Sandbox, error) {
+//
+// When StartOnCreate is true, copied services are deployed after pin (async
+// per-node, same as environment stack start). Materialize success is always
+// returned; start failures land on SandboxCreateResult.StartError.
+func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*SandboxCreateResult, error) {
 	preview, err := e.PreviewSandbox(ctx, req)
 	if err != nil {
 		return nil, err
@@ -215,7 +281,18 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 	}
 	cleanup := func() { e.cleanupFailedSandbox(ctx, env) }
 
-	planJSON, err := json.Marshal(preview.Plan)
+	// Persist resolved repository refs (including human branch/PR names) on the
+	// plan so detail/refresh UIs do not only see raw SHAs on node settings.
+	plan := preview.Plan
+	plan.Repositories = make([]SandboxRepositoryRef, 0, len(preview.Repositories))
+	for _, repo := range preview.Repositories {
+		plan.Repositories = append(plan.Repositories, SandboxRepositoryRef{
+			RepoRoot:  repo.RepoRoot,
+			Ref:       repo.Ref,
+			CommitSHA: repo.CommitSHA,
+		})
+	}
+	planJSON, err := json.Marshal(plan)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -282,7 +359,266 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 			return nil, err
 		}
 	}
-	return sandbox, nil
+
+	out := &SandboxCreateResult{Sandbox: sandbox}
+	if req.StartOnCreate {
+		stack, startErr := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackStart)
+		out.Stack = stack
+		if startErr != nil {
+			out.StartError = startErr.Error()
+		} else {
+			out.Started = true
+		}
+	}
+	return out, nil
+}
+
+// ListSandboxSourceRepos discovers git repositories used by services in a
+// source environment and, when available, open PRs via the GitHub CLI.
+func (e *Engine) ListSandboxSourceRepos(ctx context.Context, sourceEnvironmentID uint) (*SandboxSourceRepos, error) {
+	source, err := e.store.GetEnvironment(sourceEnvironmentID)
+	if err != nil {
+		return nil, fmt.Errorf("source environment not found: %w", err)
+	}
+	nodes, err := e.store.ListNodesByEnvironment(source.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	type accum struct {
+		repo     SandboxSourceRepo
+		labelSet map[string]struct{}
+	}
+	byRoot := map[string]*accum{}
+	for _, node := range nodes {
+		// Shared alias nodes still resolve a repo root; include them so the
+		// dialog can show which services are affected, even if the user later
+		// chooses share/omit (pin only applies to copies).
+		root, err := e.store.ResolveGitRepoRoot(ctx, node.ID, source.ProjectID)
+		if err != nil || strings.TrimSpace(root) == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		entry, ok := byRoot[root]
+		if !ok {
+			defaultRef := "HEAD"
+			if settings, err := e.store.GetNodeSettings(node.ID); err == nil {
+				if branch := strings.TrimSpace(settings["git_branch"]); branch != "" {
+					defaultRef = branch
+				}
+			}
+			entry = &accum{
+				repo: SandboxSourceRepo{
+					RepoRoot:   root,
+					DefaultRef: defaultRef,
+				},
+				labelSet: map[string]struct{}{},
+			}
+			byRoot[root] = entry
+		}
+		entry.repo.NodeIDs = append(entry.repo.NodeIDs, node.ID)
+		if _, seen := entry.labelSet[node.Label]; !seen {
+			entry.labelSet[node.Label] = struct{}{}
+			entry.repo.ServiceLabels = append(entry.repo.ServiceLabels, node.Label)
+		}
+	}
+
+	out := &SandboxSourceRepos{
+		ProjectID:           source.ProjectID,
+		SourceEnvironmentID: source.ID,
+		Repositories:        make([]SandboxSourceRepo, 0, len(byRoot)),
+	}
+	for _, entry := range byRoot {
+		repo := entry.repo
+		sort.Strings(repo.ServiceLabels)
+		sort.Strings(repo.NodeIDs)
+		if branches, err := gitsrc.ListBranches(ctx, repo.RepoRoot); err == nil {
+			repo.Branches = branches
+		}
+		status := gitsrc.CheckPullRequestsAvailable(ctx, repo.RepoRoot)
+		repo.PullRequestsAvailable = status.Available
+		repo.PullRequestsError = status.Reason
+		if status.Available {
+			if prs, err := gitsrc.ListPullRequests(ctx, repo.RepoRoot, 30); err == nil {
+				repo.PullRequests = prs
+			} else {
+				// Probe passed but list failed (network/auth flake) — keep UI
+				// on branch/ref mode and surface the reason.
+				repo.PullRequestsAvailable = false
+				repo.PullRequestsError = err.Error()
+				repo.PullRequests = nil
+			}
+		}
+		out.Repositories = append(out.Repositories, repo)
+	}
+	sort.Slice(out.Repositories, func(i, j int) bool {
+		return out.Repositories[i].RepoRoot < out.Repositories[j].RepoRoot
+	})
+	return out, nil
+}
+
+// ResolveSandboxRef resolves a human ref (or explicit SHA) for a repo root.
+// When commitSHA is provided and the ref cannot be resolved locally (common
+// for PR heads not fetched yet), the provided SHA is returned as-is if it
+// looks like a full or abbreviated git object id.
+func (e *Engine) ResolveSandboxRef(ctx context.Context, repoRoot, ref, commitSHA string) (*store.SandboxRepositorySource, error) {
+	repoRoot = filepath.Clean(strings.TrimSpace(repoRoot))
+	ref = strings.TrimSpace(ref)
+	commitSHA = strings.TrimSpace(commitSHA)
+	if repoRoot == "" {
+		return nil, fmt.Errorf("repo root is required")
+	}
+	if ref == "" && commitSHA == "" {
+		return nil, fmt.Errorf("ref or commit SHA is required")
+	}
+	if ref == "" {
+		ref = commitSHA
+	}
+	if !gitsrc.IsRepo(repoRoot) {
+		return nil, fmt.Errorf("%s is not a git repository", repoRoot)
+	}
+	sha, err := gitsrc.ResolveSHA(ctx, repoRoot, ref)
+	if err != nil && commitSHA != "" {
+		// Prefer verifying the explicit SHA when the human ref is missing locally.
+		if verified, vErr := gitsrc.ResolveSHA(ctx, repoRoot, commitSHA); vErr == nil {
+			sha = verified
+			err = nil
+		} else if looksLikeGitObjectID(commitSHA) {
+			// Accept remote tip SHAs (e.g. from gh) so create can still pin;
+			// deploy will fail later if the object is not fetchable.
+			sha = commitSHA
+			err = nil
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &store.SandboxRepositorySource{RepoRoot: repoRoot, Ref: ref, CommitSHA: sha}, nil
+}
+
+// RefreshSandbox re-pins sandbox copies and redeploys them.
+// Mode tip re-resolves human refs; mode same redeploys at frozen SHAs.
+func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) (*SandboxRefreshResult, error) {
+	mode := req.Mode
+	if mode == "" {
+		mode = SandboxRefreshTip
+	}
+	if mode != SandboxRefreshTip && mode != SandboxRefreshSame {
+		return nil, fmt.Errorf("invalid sandbox refresh mode %q", mode)
+	}
+	sandbox, err := e.store.GetSandbox(req.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	if sandbox.Status == "expired" || sandbox.Status == "cleanup_failed" {
+		return nil, fmt.Errorf("sandbox %q is not live (status %s)", sandbox.Name, sandbox.Status)
+	}
+	repos, err := e.store.ListSandboxRepositorySources(sandbox.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(repos) == 0 {
+		return nil, fmt.Errorf("sandbox %q has no repository pins to refresh", sandbox.Name)
+	}
+
+	updated := make([]store.SandboxRepositorySource, 0, len(repos))
+	for _, repo := range repos {
+		ref := strings.TrimSpace(repo.Ref)
+		sha := strings.TrimSpace(repo.CommitSHA)
+		switch mode {
+		case SandboxRefreshSame:
+			if sha == "" {
+				return nil, fmt.Errorf("sandbox pin for %s has no commit SHA", repo.RepoRoot)
+			}
+			// Prefer verifying the frozen SHA still exists; fall back to stored value.
+			if verified, err := gitsrc.ResolveSHA(ctx, repo.RepoRoot, sha); err == nil {
+				sha = verified
+			}
+			if ref == "" {
+				ref = sha
+			}
+		case SandboxRefreshTip:
+			if ref == "" {
+				ref = sha
+			}
+			if ref == "" {
+				return nil, fmt.Errorf("sandbox pin for %s has no ref to re-resolve", repo.RepoRoot)
+			}
+			resolved, err := e.ResolveSandboxRef(ctx, repo.RepoRoot, ref, "")
+			if err != nil {
+				return nil, fmt.Errorf("refresh %s: %w", repo.RepoRoot, err)
+			}
+			ref = resolved.Ref
+			sha = resolved.CommitSHA
+		}
+		updated = append(updated, store.SandboxRepositorySource{
+			RepoRoot:  repo.RepoRoot,
+			Ref:       ref,
+			CommitSHA: sha,
+		})
+	}
+
+	if err := e.store.ReplaceSandboxRepositorySources(sandbox.ID, updated); err != nil {
+		return nil, err
+	}
+	// Keep PlanJSON repositories in sync so detail views stay accurate.
+	var plan SandboxPlan
+	if err := json.Unmarshal([]byte(sandbox.PlanJSON), &plan); err == nil {
+		plan.Repositories = make([]SandboxRepositoryRef, 0, len(updated))
+		for _, repo := range updated {
+			plan.Repositories = append(plan.Repositories, SandboxRepositoryRef{
+				RepoRoot:  repo.RepoRoot,
+				Ref:       repo.Ref,
+				CommitSHA: repo.CommitSHA,
+			})
+		}
+		if planJSON, err := json.Marshal(plan); err == nil {
+			_ = e.store.UpdateSandboxPlanJSON(sandbox.ID, string(planJSON))
+		}
+	}
+
+	nodes, err := e.store.ListNodesByEnvironment(sandbox.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		// Skip shared aliases — their root lives in another env and must not
+		// receive sandbox source pins.
+		if link, _ := e.GetServiceLink(node.ID); link != nil {
+			continue
+		}
+		root, err := e.store.ResolveGitRepoRoot(ctx, node.ID, sandbox.ProjectID)
+		if err != nil || root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		for _, repo := range updated {
+			if filepath.Clean(repo.RepoRoot) == root {
+				if err := e.store.SetNodeSetting(node.ID, "git_branch", repo.CommitSHA); err != nil {
+					return nil, err
+				}
+				break
+			}
+		}
+	}
+
+	if sandbox.Status == "suspended" {
+		if _, err := e.ResumeSandbox(ctx, sandbox.ID); err != nil {
+			return nil, err
+		}
+	}
+	// Re-pin success is the primary outcome; stack redeploy is best-effort so
+	// offline / non-deployable services still leave pins updated for the next start.
+	stack, stackErr := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackRedeploy)
+	fresh, err := e.store.GetSandbox(sandbox.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := &SandboxRefreshResult{Sandbox: fresh, Repositories: updated, Stack: stack}
+	if stackErr != nil {
+		return out, stackErr
+	}
+	return out, nil
 }
 
 // cleanupFailedSandbox tears down a partially created sandbox: disconnect any
@@ -616,9 +952,17 @@ func resolveSandboxServiceRules(nodes []store.CanvasNode, supplied []SandboxServ
 }
 
 func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint, nodes []store.CanvasNode, overrides []SandboxRepositoryRef) ([]store.SandboxRepositorySource, error) {
-	refs := map[string]string{}
+	type override struct {
+		ref string
+		sha string
+	}
+	refs := map[string]override{}
 	for _, r := range overrides {
-		refs[filepath.Clean(strings.TrimSpace(r.RepoRoot))] = strings.TrimSpace(r.Ref)
+		root := filepath.Clean(strings.TrimSpace(r.RepoRoot))
+		if root == "" || root == "." {
+			continue
+		}
+		refs[root] = override{ref: strings.TrimSpace(r.Ref), sha: strings.TrimSpace(r.CommitSHA)}
 	}
 	seen := map[string]store.SandboxRepositorySource{}
 	for _, node := range nodes {
@@ -627,19 +971,24 @@ func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint,
 			continue
 		}
 		root = filepath.Clean(root)
-		ref := refs[root]
+		ov := refs[root]
+		ref := ov.ref
 		if ref == "" {
 			settings, _ := e.store.GetNodeSettings(node.ID)
 			ref = strings.TrimSpace(settings["git_branch"])
 		}
 		if ref == "" {
-			ref = "HEAD"
+			if ov.sha != "" {
+				ref = ov.sha
+			} else {
+				ref = "HEAD"
+			}
 		}
-		sha, err := gitsrc.ResolveSHA(ctx, root, ref)
+		resolved, err := e.ResolveSandboxRef(ctx, root, ref, ov.sha)
 		if err != nil {
 			return nil, fmt.Errorf("resolve sandbox source for %s: %w", root, err)
 		}
-		seen[root] = store.SandboxRepositorySource{RepoRoot: root, Ref: ref, CommitSHA: sha}
+		seen[root] = *resolved
 	}
 	out := make([]store.SandboxRepositorySource, 0, len(seen))
 	for _, source := range seen {
@@ -647,6 +996,18 @@ func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint,
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RepoRoot < out[j].RepoRoot })
 	return out, nil
+}
+
+func looksLikeGitObjectID(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func (e *Engine) pinSandboxNodeToRepository(ctx context.Context, targetNodeID, sourceNodeID string, repositories []store.SandboxRepositorySource) error {

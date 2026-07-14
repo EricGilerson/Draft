@@ -311,7 +311,7 @@ func (a *App) PreviewSandbox(req deploy.SandboxCreateRequest) (*deploy.SandboxPr
 	return c.PreviewSandbox(a.ctx, req)
 }
 
-func (a *App) CreateSandbox(req deploy.SandboxCreateRequest) (*store.Sandbox, error) {
+func (a *App) CreateSandbox(req deploy.SandboxCreateRequest) (*deploy.SandboxCreateResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -320,6 +320,47 @@ func (a *App) CreateSandbox(req deploy.SandboxCreateRequest) (*store.Sandbox, er
 		return nil, errNoStore
 	}
 	return c.CreateSandbox(a.ctx, req)
+}
+
+// ListSandboxSourceRepos returns git repos, branches, and (when gh works)
+// open PRs for services in a source environment — used by the create dialog.
+func (a *App) ListSandboxSourceRepos(sourceEnvironmentID uint) (*deploy.SandboxSourceRepos, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ListSandboxSourceRepos(a.ctx, sourceEnvironmentID)
+}
+
+// ResolveSandboxRef resolves a branch/ref/SHA for a repository root.
+func (a *App) ResolveSandboxRef(repoRoot, ref, commitSHA string) (*store.SandboxRepositorySource, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ResolveSandboxRef(a.ctx, repoRoot, ref, commitSHA)
+}
+
+// RefreshSandbox re-pins sandbox services and redeploys.
+// mode is "tip" (re-resolve human refs) or "same" (frozen SHAs).
+func (a *App) RefreshSandbox(sandboxID uint, mode string) (*deploy.SandboxRefreshResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.RefreshSandbox(a.ctx, deploy.SandboxRefreshRequest{
+		SandboxID: sandboxID,
+		Mode:      deploy.SandboxRefreshMode(mode),
+	})
 }
 
 // ExtendSandbox adds ttlHours to the sandbox's remaining lifetime (or from now

@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import {CheckCircle2, Clock3, FlaskConical, GitBranch, Pause, Play, Plus, RotateCcw, SlidersHorizontal, Trash2, XCircle} from 'lucide-react';
+import {CheckCircle2, Clock3, FlaskConical, GitBranch, Pause, Play, Plus, RefreshCw, RotateCcw, SlidersHorizontal, Trash2, XCircle} from 'lucide-react';
 import {
     CreateSandbox,
     DeleteSandbox,
@@ -9,9 +9,11 @@ import {
     ListEnvironments,
     ListNodes,
     ListSandboxProfiles,
+    ListSandboxSourceRepos,
     ListSandboxes,
     ListSandboxTestRuns,
     PreviewSandbox,
+    RefreshSandbox,
     ResumeSandbox,
     RunTestingSandbox,
     SaveSandboxProfile,
@@ -38,6 +40,16 @@ type StepDraft = {
     serviceLabel: string;
     cmd: string;
     workDir: string;
+};
+
+/** Per-repo source picker state for the create dialog. */
+type RepoSourceDraft = {
+    repoRoot: string;
+    mode: 'keep' | 'branch' | 'pr';
+    ref: string;
+    commitSha: string;
+    prNumber: number;
+    prTitle: string;
 };
 
 function dateLabel(value: any): string {
@@ -92,6 +104,42 @@ function purposeLabel(purpose?: string): string {
     return purpose === 'test' ? 'test' : 'preview';
 }
 
+function shortSha(sha?: string): string {
+    const value = (sha ?? '').trim();
+    return value ? value.slice(0, 12) : '—';
+}
+
+function slugifyRef(value: string): string {
+    return value
+        .trim()
+        .toLowerCase()
+        .replace(/^origin\//, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 48);
+}
+
+function repoLeaf(path: string): string {
+    const cleaned = path.replace(/[\\/]+$/, '');
+    const parts = cleaned.split(/[\\/]/);
+    return parts[parts.length - 1] || path;
+}
+
+function draftsFromSourceRepos(repos: deploy.SandboxSourceRepos | null): Record<string, RepoSourceDraft> {
+    const next: Record<string, RepoSourceDraft> = {};
+    for (const repo of repos?.repositories ?? []) {
+        next[repo.repoRoot] = {
+            repoRoot: repo.repoRoot,
+            mode: 'keep',
+            ref: repo.defaultRef || 'HEAD',
+            commitSha: '',
+            prNumber: 0,
+            prTitle: '',
+        };
+    }
+    return next;
+}
+
 export default function SandboxesView({projects, initialSource, onOpenSandbox, onReturnToSource, dialogOnly = false}: Props) {
     const [sandboxes, setSandboxes] = useState<store.Sandbox[]>([]);
     const [testRuns, setTestRuns] = useState<store.SandboxTestRun[]>([]);
@@ -107,6 +155,9 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [profiles, setProfiles] = useState<store.SandboxProfile[]>([]);
     const [profileId, setProfileId] = useState(0);
     const [sourceNodes, setSourceNodes] = useState<store.CanvasNode[]>([]);
+    const [sourceRepos, setSourceRepos] = useState<deploy.SandboxSourceRepos | null>(null);
+    const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoSourceDraft>>({});
+    const [sourceReposLoading, setSourceReposLoading] = useState(false);
     const [rules, setRules] = useState<Record<string, deploy.SandboxServiceRule>>({});
     const [preview, setPreview] = useState<deploy.SandboxPreview | null>(null);
     const [detail, setDetail] = useState<deploy.SandboxDetail | null>(null);
@@ -165,6 +216,28 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         setRules({}); setPreview(null);
     }, [sourceId]);
     useEffect(() => {
+        if (!sourceId || (!open && !dialogOnly)) {
+            return;
+        }
+        let cancelled = false;
+        setSourceReposLoading(true);
+        ListSandboxSourceRepos(sourceId)
+            .then((repos) => {
+                if (cancelled) return;
+                setSourceRepos(repos);
+                setRepoDrafts(draftsFromSourceRepos(repos));
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setSourceRepos(null);
+                setRepoDrafts({});
+            })
+            .finally(() => {
+                if (!cancelled) setSourceReposLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [sourceId, open, dialogOnly]);
+    useEffect(() => {
         if (!initialSource) return;
         setProjectId(initialSource.projectId);
         setSourceId(initialSource.environmentId);
@@ -174,6 +247,15 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const selectedProject = projects.find((p) => p.id === projectId);
     const source = environments.find((env) => env.id === sourceId);
     const defaultServiceLabel = sourceNodes[0]?.label ?? '';
+    const repositoryPlan = useMemo(() => {
+        return Object.values(repoDrafts)
+            .filter((draft) => draft.mode !== 'keep' && (draft.ref.trim() || draft.commitSha.trim()))
+            .map((draft) => deploy.SandboxRepositoryRef.createFrom({
+                repoRoot: draft.repoRoot,
+                ref: draft.ref.trim() || draft.commitSha.trim(),
+                commitSha: draft.commitSha.trim() || undefined,
+            }));
+    }, [repoDrafts]);
 
     const testingProfiles = useMemo(
         () => profiles.filter((profile) => {
@@ -243,11 +325,36 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         } catch (e) { setError(String(e)); } finally { setBusy(false); }
     };
 
+    const buildLinks = () => {
+        const parsed = links.split(',').map((item) => item.trim()).filter(Boolean).map((value) => {
+            const [kind, ...rest] = value.split(':');
+            return store.SandboxLink.createFrom({
+                kind: rest.length ? kind.trim() : 'reference',
+                value: (rest.length ? rest.join(':') : kind).trim(),
+            });
+        });
+        // Ensure PR selections appear as structured links even if the freeform field is empty.
+        for (const draft of Object.values(repoDrafts)) {
+            if (draft.mode === 'pr' && draft.prNumber > 0) {
+                const value = String(draft.prNumber);
+                if (!parsed.some((link) => link.kind === 'pr' && link.value === value)) {
+                    parsed.push(store.SandboxLink.createFrom({
+                        kind: 'pr',
+                        value,
+                        label: draft.prTitle || undefined,
+                    }));
+                }
+            }
+        }
+        return parsed;
+    };
+
     const buildPlan = () => {
         const plan = deploy.SandboxPlan.createFrom({
             ttlHours,
             purpose,
             services: Object.values(rules),
+            repositories: repositoryPlan.length ? repositoryPlan : undefined,
         });
         if (purpose === 'test') {
             plan.onComplete = onComplete;
@@ -256,21 +363,64 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         return plan;
     };
 
-    const buildRequest = () => deploy.SandboxCreateRequest.createFrom({
+    const buildRequest = (startOnCreate = purpose === 'preview') => deploy.SandboxCreateRequest.createFrom({
         name: name.trim() || (purpose === 'test' ? 'test-run' : 'sandbox-preview'),
         sourceEnvironmentId: sourceId,
         profileId: profileId || undefined,
         plan: buildPlan(),
-        links: links.split(',').map((item) => item.trim()).filter(Boolean).map((value) => {
-            const [kind, ...rest] = value.split(':');
-            return store.SandboxLink.createFrom({kind: rest.length ? kind.trim() : 'reference', value: (rest.length ? rest.join(':') : kind).trim()});
-        }),
+        links: buildLinks(),
+        startOnCreate: startOnCreate && purpose === 'preview',
     });
+
+    const updateRepoDraft = (repoRoot: string, patch: Partial<RepoSourceDraft>) => {
+        setRepoDrafts((current) => {
+            const base = current[repoRoot] ?? {
+                repoRoot,
+                mode: 'keep' as const,
+                ref: '',
+                commitSha: '',
+                prNumber: 0,
+                prTitle: '',
+            };
+            return {...current, [repoRoot]: {...base, ...patch, repoRoot}};
+        });
+        setPreview(null);
+    };
+
+    const applyPrToDraft = (repo: deploy.SandboxSourceRepo, prNumber: number) => {
+        const pr = (repo.pullRequests ?? []).find((item) => item.number === prNumber);
+        if (!pr) {
+            updateRepoDraft(repo.repoRoot, {mode: 'pr', prNumber: 0, prTitle: '', ref: '', commitSha: ''});
+            return;
+        }
+        updateRepoDraft(repo.repoRoot, {
+            mode: 'pr',
+            prNumber: pr.number,
+            prTitle: pr.title,
+            ref: pr.headRef,
+            commitSha: pr.headSha || '',
+        });
+        if (!name.trim()) {
+            setName(`pr-${pr.number}`);
+        }
+        const prToken = `pr:${pr.number}`;
+        setLinks((current) => {
+            const parts = current.split(',').map((p) => p.trim()).filter(Boolean);
+            if (parts.some((p) => p === prToken || p.startsWith(`pr:${pr.number}`))) return current;
+            return [...parts, prToken].join(', ');
+        });
+    };
+
+    const suggestNameFromBranch = (ref: string) => {
+        if (name.trim()) return;
+        const slug = slugifyRef(ref);
+        if (slug) setName(slug);
+    };
 
     const review = async () => {
         if (!sourceId) return;
         setBusy(true); setError('');
-        try { setPreview(await PreviewSandbox(buildRequest())); } catch (e) { setError(String(e)); } finally { setBusy(false); }
+        try { setPreview(await PreviewSandbox(buildRequest(false))); } catch (e) { setError(String(e)); } finally { setBusy(false); }
     };
 
     const create = async () => {
@@ -283,7 +433,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     sourceEnvironmentId: sourceId,
                     profileId: profileId || undefined,
                     plan: buildPlan(),
-                    links: buildRequest().links,
+                    links: buildLinks(),
                     mode: 'fresh',
                 }));
                 setOpen(false);
@@ -296,14 +446,40 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     onReturnToSource?.(result.sandbox.projectId, result.sandbox.environmentId);
                 }
             } else {
-                const sandbox = await CreateSandbox(buildRequest());
+                const result = await CreateSandbox(buildRequest(true));
                 setOpen(false); setName(''); setLinks(''); await refresh();
-                if (sandbox) {
-                    onOpenSandbox(sandbox.projectId, sandbox.environmentId);
-                    onReturnToSource?.(sandbox.projectId, sandbox.environmentId);
+                if (result.startError) {
+                    void alert({
+                        title: 'Sandbox created, start incomplete',
+                        message: result.startError,
+                        detail: 'The sandbox environment exists. Open it and deploy individual services if needed.',
+                    });
+                }
+                if (result.sandbox) {
+                    onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
+                    onReturnToSource?.(result.sandbox.projectId, result.sandbox.environmentId);
                 }
             }
         } catch (e) { setError(String(e)); } finally { setBusy(false); }
+    };
+
+    const refreshSandboxSource = async (sandbox: store.Sandbox, mode: 'tip' | 'same') => {
+        setBusy(true);
+        try {
+            const result = await RefreshSandbox(sandbox.id, mode);
+            await refresh();
+            if (detail?.sandbox.id === sandbox.id && result.sandbox) {
+                const next = await GetSandboxDetail(sandbox.id);
+                setDetail(next);
+            }
+        } catch (e) {
+            void alert({
+                title: mode === 'tip' ? 'Could not refresh to branch tip' : 'Could not redeploy at pinned SHA',
+                message: String(e),
+            });
+        } finally {
+            setBusy(false);
+        }
     };
 
     const runFreshFromProfile = async (profile: store.SandboxProfile) => {
@@ -554,6 +730,16 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                                         <div className="sandbox-actions">
                                             <button className="btn btn-ghost" onClick={() => void GetSandboxDetail(sandbox.id).then(setDetail)}>Details</button>
                                             <button className="btn btn-ghost" onClick={() => onOpenSandbox(sandbox.projectId, sandbox.environmentId)}>Open</button>
+                                            {!isTest && (
+                                                <>
+                                                    <button className="btn btn-ghost" disabled={busy} title="Re-resolve branch/PR refs and redeploy" onClick={() => void refreshSandboxSource(sandbox, 'tip')}>
+                                                        <RefreshCw size={14}/> Refresh tip
+                                                    </button>
+                                                    <button className="btn btn-ghost" disabled={busy} title="Redeploy at the frozen commit SHAs" onClick={() => void refreshSandboxSource(sandbox, 'same')}>
+                                                        <RotateCcw size={14}/> Same SHA
+                                                    </button>
+                                                </>
+                                            )}
                                             {isTest && (
                                                 <>
                                                     <button className="btn btn-ghost" disabled={busy} title="Re-run steps on this stack" onClick={() => void rerunSandbox(sandbox, 'steps')}>
@@ -628,7 +814,9 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                             <SlidersHorizontal size={14}/> Review plan
                         </button>
                         <button className="btn btn-primary" disabled={!sourceId || !name.trim() || busy} onClick={() => void create()}>
-                            {busy ? (purpose === 'test' ? 'Running…' : 'Creating…') : (purpose === 'test' ? 'Create & run' : 'Create sandbox')}
+                            {busy
+                                ? (purpose === 'test' ? 'Running…' : 'Creating…')
+                                : (purpose === 'test' ? 'Create & run' : 'Create & start')}
                         </button>
                     </>
                 }
@@ -662,7 +850,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                 </div>
                 <div className="form-field">
                     <label className="form-label">Sandbox name</label>
-                    <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={purpose === 'test' ? 'api-integration' : 'checkout-validation'}/>
+                    <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={purpose === 'test' ? 'api-integration' : 'pr-412-checkout'}/>
                 </div>
                 <SandboxHoursInput label="Lifetime (hours)" value={ttlHours} min={1} onChange={setTtlHours} variant="field"/>
                 {purpose === 'test' && (
@@ -675,13 +863,155 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                         </select>
                     </div>
                 )}
-                {purpose === 'preview' && (
-                    <div className="form-field">
-                        <label className="form-label">Links (optional)</label>
-                        <input className="input" value={links} onChange={(e) => setLinks(e.target.value)} placeholder="pr:412, ticket:ENG-933"/>
-                        <p className="environment-source-hint">Links are manual metadata only.</p>
-                    </div>
-                )}
+                <div className="form-field">
+                    <label className="form-label">Links (optional)</label>
+                    <input className="input" value={links} onChange={(e) => setLinks(e.target.value)} placeholder="pr:412, ticket:ENG-933"/>
+                    <p className="environment-source-hint">
+                        Metadata only (PR/ticket/URL). Choosing a GitHub PR below adds <code>pr:N</code> automatically.
+                    </p>
+                </div>
+
+                <section className="sandbox-plan-editor">
+                    <h3 className="project-settings-section-title">Source code</h3>
+                    <p className="environment-source-hint">
+                        Pin sandbox <strong>copies</strong> to a branch, ref, or PR without changing the durable environment.
+                        Shared services keep the source environment&apos;s code. Only committed git objects are used (not the dirty working tree).
+                    </p>
+                    {sourceReposLoading ? (
+                        <p className="settings-hint">Discovering repositories…</p>
+                    ) : !(sourceRepos?.repositories?.length) ? (
+                        <p className="settings-hint">
+                            No git repositories found for services in this environment. Image-only services skip this section.
+                        </p>
+                    ) : (
+                        (sourceRepos.repositories ?? []).map((repo) => {
+                            const draft = repoDrafts[repo.repoRoot] ?? {
+                                repoRoot: repo.repoRoot,
+                                mode: 'keep' as const,
+                                ref: repo.defaultRef || 'HEAD',
+                                commitSha: '',
+                                prNumber: 0,
+                                prTitle: '',
+                            };
+                            const branches = repo.branches ?? [];
+                            const prs = repo.pullRequests ?? [];
+                            return (
+                                <div className="sandbox-source-repo" key={repo.repoRoot}>
+                                    <div className="sandbox-source-repo-head">
+                                        <GitBranch size={14}/>
+                                        <strong title={repo.repoRoot}>{repoLeaf(repo.repoRoot)}</strong>
+                                        <span className="sandbox-source-repo-path" title={repo.repoRoot}>{repo.repoRoot}</span>
+                                    </div>
+                                    <p className="environment-source-hint">
+                                        Services: {(repo.serviceLabels ?? []).join(', ') || '—'}
+                                        {repo.defaultRef ? ` · source pin ${repo.defaultRef}` : ''}
+                                    </p>
+                                    <div className="sandbox-source-modes">
+                                        <label className="sandbox-source-mode">
+                                            <input
+                                                type="radio"
+                                                name={`src-mode-${repo.repoRoot}`}
+                                                checked={draft.mode === 'keep'}
+                                                onChange={() => updateRepoDraft(repo.repoRoot, {
+                                                    mode: 'keep',
+                                                    ref: repo.defaultRef || 'HEAD',
+                                                    commitSha: '',
+                                                    prNumber: 0,
+                                                    prTitle: '',
+                                                })}
+                                            />
+                                            Keep source pins
+                                        </label>
+                                        <label className="sandbox-source-mode">
+                                            <input
+                                                type="radio"
+                                                name={`src-mode-${repo.repoRoot}`}
+                                                checked={draft.mode === 'branch'}
+                                                onChange={() => updateRepoDraft(repo.repoRoot, {
+                                                    mode: 'branch',
+                                                    prNumber: 0,
+                                                    prTitle: '',
+                                                    ref: draft.ref || repo.defaultRef || 'HEAD',
+                                                })}
+                                            />
+                                            Branch / ref
+                                        </label>
+                                        {repo.pullRequestsAvailable ? (
+                                            <label className="sandbox-source-mode">
+                                                <input
+                                                    type="radio"
+                                                    name={`src-mode-${repo.repoRoot}`}
+                                                    checked={draft.mode === 'pr'}
+                                                    onChange={() => updateRepoDraft(repo.repoRoot, {mode: 'pr'})}
+                                                />
+                                                Pull request
+                                            </label>
+                                        ) : (
+                                            <span className="sandbox-source-mode sandbox-source-mode--disabled" title={repo.pullRequestsError || 'GitHub CLI unavailable'}>
+                                                PRs unavailable
+                                            </span>
+                                        )}
+                                    </div>
+                                    {draft.mode === 'branch' && (
+                                        <div className="sandbox-source-controls">
+                                            <select
+                                                className="input settings-select"
+                                                value={branches.includes(draft.ref) ? draft.ref : ''}
+                                                onChange={(e) => {
+                                                    const ref = e.target.value;
+                                                    updateRepoDraft(repo.repoRoot, {ref, commitSha: ''});
+                                                    suggestNameFromBranch(ref);
+                                                }}
+                                            >
+                                                <option value="">Select branch…</option>
+                                                {branches.map((branch) => (
+                                                    <option key={branch} value={branch}>{branch}</option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                className="input"
+                                                value={draft.ref}
+                                                onChange={(e) => updateRepoDraft(repo.repoRoot, {ref: e.target.value, commitSha: ''})}
+                                                onBlur={(e) => suggestNameFromBranch(e.target.value)}
+                                                placeholder="branch, tag, or SHA"
+                                            />
+                                        </div>
+                                    )}
+                                    {draft.mode === 'pr' && repo.pullRequestsAvailable && (
+                                        <div className="sandbox-source-controls">
+                                            <select
+                                                className="input settings-select"
+                                                value={draft.prNumber || ''}
+                                                onChange={(e) => applyPrToDraft(repo, Number(e.target.value) || 0)}
+                                            >
+                                                <option value="">Select open PR…</option>
+                                                {prs.map((pr) => (
+                                                    <option key={pr.number} value={pr.number}>
+                                                        #{pr.number} {pr.title}{pr.headRef ? ` (${pr.headRef})` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {draft.prNumber > 0 && (
+                                                <p className="environment-source-hint">
+                                                    Head {draft.ref || '—'}
+                                                    {draft.commitSha ? ` · ${shortSha(draft.commitSha)}` : ''}
+                                                    {draft.prTitle ? ` · ${draft.prTitle}` : ''}
+                                                </p>
+                                            )}
+                                            {!prs.length && (
+                                                <p className="settings-hint">No open pull requests found for this repository.</p>
+                                            )}
+                                        </div>
+                                    )}
+                                    {!repo.pullRequestsAvailable && repo.pullRequestsError && (
+                                        <p className="settings-hint">PRs: {repo.pullRequestsError}</p>
+                                    )}
+                                </div>
+                            );
+                        })
+                    )}
+                </section>
+
                 <section className="sandbox-plan-editor">
                     <h3 className="project-settings-section-title">Service plan</h3>
                     <p className="environment-source-hint">
@@ -726,20 +1056,25 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                                 ))}
                             </ul>
                         )}
-                        {preview.repositories.length > 0 && (
-                            <ul>
-                                {preview.repositories.map((repo) => (
-                                    <li key={repo.repoRoot}>{repo.repoRoot} · {repo.commitSha.slice(0, 12)}</li>
-                                ))}
-                            </ul>
+                        {(preview.repositories?.length ?? 0) > 0 && (
+                            <>
+                                <h3 className="project-settings-section-title">Repositories</h3>
+                                <ul>
+                                    {preview.repositories.map((repo) => (
+                                        <li key={repo.repoRoot}>
+                                            {repoLeaf(repo.repoRoot)} · {repo.ref || 'HEAD'} · {shortSha(repo.commitSha)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
                         )}
                     </section>
                 )}
                 {selectedProject && source && (
                     <p className="environment-source-hint">
                         {purpose === 'test'
-                            ? `Creates a testing sandbox from ${selectedProject.name} / ${source.name}, starts services, and runs steps.`
-                            : `Creates an isolated sandbox from ${selectedProject.name} / ${source.name}.`}
+                            ? `Creates a testing sandbox from ${selectedProject.name} / ${source.name}, starts services, and runs steps. Durable env settings are not changed.`
+                            : `Creates an isolated sandbox from ${selectedProject.name} / ${source.name}, pins selected sources, and starts services. Durable env settings are not changed.`}
                     </p>
                 )}
             </Dialog>
@@ -752,10 +1087,19 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                 footer={
                     <>
                         <button className="btn btn-ghost" onClick={() => setDetail(null)}>Close</button>
-                        {detail.sandbox.purpose === 'test' && (
+                        {detail.sandbox.purpose === 'test' ? (
                             <>
                                 <button className="btn btn-ghost" disabled={busy} onClick={() => void rerunSandbox(detail.sandbox, 'steps')}>Re-run steps</button>
                                 <button className="btn btn-primary" disabled={busy} onClick={() => void rerunSandbox(detail.sandbox, 'fresh')}>Rerun fresh</button>
+                            </>
+                        ) : (
+                            <>
+                                <button className="btn btn-ghost" disabled={busy} onClick={() => void refreshSandboxSource(detail.sandbox, 'tip')}>
+                                    <RefreshCw size={14}/> Refresh tip
+                                </button>
+                                <button className="btn btn-ghost" disabled={busy} onClick={() => void refreshSandboxSource(detail.sandbox, 'same')}>
+                                    <RotateCcw size={14}/> Same SHA
+                                </button>
                             </>
                         )}
                         {detail.sandbox.status === 'suspended' ? (
@@ -807,14 +1151,28 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                         </>
                     )}
                     <h3 className="project-settings-section-title">Repositories</h3>
-                    <ul>
-                        {detail.repositories.map((repo) => (
-                            <li key={repo.repoRoot}>{repo.repoRoot} · {repo.ref} · {repo.commitSha.slice(0, 12)}</li>
-                        ))}
-                    </ul>
-                    <h3 className="project-settings-section-title">Manual links</h3>
+                    {(detail.repositories?.length ?? 0) === 0 ? (
+                        <p className="settings-hint">No repository pins (image-only or keep-source create).</p>
+                    ) : (
+                        <ul>
+                            {detail.repositories.map((repo) => (
+                                <li key={repo.repoRoot}>
+                                    <strong>{repoLeaf(repo.repoRoot)}</strong>
+                                    {' · '}
+                                    <span title={repo.ref}>{repo.ref || 'HEAD'}</span>
+                                    {' · '}
+                                    <code title={repo.commitSha}>{shortSha(repo.commitSha)}</code>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    <h3 className="project-settings-section-title">Links</h3>
                     {detail.links.length ? (
-                        <ul>{detail.links.map((link) => <li key={link.id}>{link.kind}: {link.value}</li>)}</ul>
+                        <ul>{detail.links.map((link) => (
+                            <li key={link.id}>
+                                {link.kind}: {link.value}{link.label ? ` · ${link.label}` : ''}
+                            </li>
+                        ))}</ul>
                     ) : (
                         <p className="settings-hint">No links attached.</p>
                     )}
