@@ -395,17 +395,18 @@ func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Reque
 		SourceEnvironmentID uint                       `json:"sourceEnvironmentId"`
 		NewName             string                     `json:"newName"`
 		Choices             []deploy.ServiceDataChoice `json:"choices"`
+		StartAfter          bool                       `json:"startAfter"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	// Detach from the request context so clone-data choices can finish after a client timeout.
-	env, err := s.engine.DuplicateEnvironmentWithChoices(context.Background(), req.SourceEnvironmentID, req.NewName, req.Choices)
+	out, err := s.engine.DuplicateEnvironmentWithChoices(context.Background(), req.SourceEnvironmentID, req.NewName, req.Choices, req.StartAfter)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, env)
+	writeJSON(w, out)
 }
 
 func (s *Server) handlePreviewEnvironmentDuplicate(w http.ResponseWriter, r *http.Request) {

@@ -98,8 +98,8 @@ export function DiscardStagedChanges(arg1) {
   return window['go']['main']['App']['DiscardStagedChanges'](arg1);
 }
 
-export function DuplicateEnvironment(arg1, arg2, arg3) {
-  return window['go']['main']['App']['DuplicateEnvironment'](arg1, arg2, arg3);
+export function DuplicateEnvironment(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['DuplicateEnvironment'](arg1, arg2, arg3, arg4);
 }
 
 export function ExportConfig(arg1, arg2) {

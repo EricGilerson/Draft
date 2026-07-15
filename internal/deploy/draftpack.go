@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,13 +94,20 @@ func (e *Engine) PreviewDraftPackImport(path string, opts draftpack.PreviewOptio
 }
 
 // ImportDraftPack applies a pack from path with the given options.
+// When opts.StartAfter is true, each imported environment is started after
+// materialize; import still succeeds when start fails (see StartError).
 func (e *Engine) ImportDraftPack(path string, opts DraftPackImportOptions) (*DraftPackImportResult, error) {
 	pack, err := readPackFile(path)
 	if err != nil {
 		return nil, err
 	}
 	imp := &draftpack.Importer{Store: e.store}
-	return imp.Import(pack, opts)
+	res, err := imp.Import(pack, opts)
+	if err != nil {
+		return nil, err
+	}
+	e.applyImportStartAfter(context.Background(), res, opts.StartAfter)
+	return res, nil
 }
 
 // PreviewDraftPackJSON parses pack JSON (clipboard paste / no file) and returns a dry-run preview.
@@ -113,13 +121,56 @@ func (e *Engine) PreviewDraftPackJSON(data []byte, opts draftpack.PreviewOptions
 }
 
 // ImportDraftPackJSON applies pack JSON (clipboard paste / no file).
+// When opts.StartAfter is true, each imported environment is started after
+// materialize; import still succeeds when start fails (see StartError).
 func (e *Engine) ImportDraftPackJSON(data []byte, opts DraftPackImportOptions) (*DraftPackImportResult, error) {
 	pack, err := draftpack.UnmarshalPack(data)
 	if err != nil {
 		return nil, err
 	}
 	imp := &draftpack.Importer{Store: e.store}
-	return imp.Import(pack, opts)
+	res, err := imp.Import(pack, opts)
+	if err != nil {
+		return nil, err
+	}
+	e.applyImportStartAfter(context.Background(), res, opts.StartAfter)
+	return res, nil
+}
+
+// applyImportStartAfter runs StackStart for every imported environment when
+// startAfter is set. Failures are recorded on the result; they do not undo import.
+func (e *Engine) applyImportStartAfter(ctx context.Context, res *DraftPackImportResult, startAfter bool) {
+	if !startAfter || res == nil || len(res.EnvironmentIDs) == 0 {
+		return
+	}
+	var errs []string
+	allOK := true
+	anyKickoff := false
+	for _, envID := range res.EnvironmentIDs {
+		stack, startErr := e.RunEnvironmentStack(ctx, envID, StackStart)
+		if startErr != nil {
+			allOK = false
+			errs = append(errs, startErr.Error())
+			continue
+		}
+		if stack != nil && stack.Succeeded > 0 {
+			anyKickoff = true
+		}
+		if stack != nil && stack.Failed > 0 {
+			allOK = false
+			errs = append(errs, formatStackStartError(stack))
+		}
+	}
+	res.Started = allOK && anyKickoff
+	if !allOK {
+		res.StartError = strings.Join(errs, "; ")
+		if anyKickoff {
+			res.Started = true // partial: some kickoffs succeeded
+		}
+	} else if len(res.EnvironmentIDs) > 0 && !anyKickoff {
+		// Empty environments — treat as started with nothing to do.
+		res.Started = true
+	}
 }
 
 func mergeExportOpts(opts DraftPackExportOptions) DraftPackExportOptions {

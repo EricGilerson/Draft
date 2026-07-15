@@ -107,8 +107,45 @@ function buildServiceVolumes(
     });
 }
 
-function CanvasControls() {
-    const {zoomIn, zoomOut, fitView} = useReactFlow();
+function CanvasControls({environmentId, serviceCount}: {environmentId: number; serviceCount: number}) {
+    const {zoomIn, zoomOut, fitView, getNodes} = useReactFlow();
+    const fittedForEnv = useRef<number | null>(null);
+
+    const showAllServices = useCallback((animate: boolean) => {
+        const nodes = getNodes().filter((n) => n.type === 'service' || !n.type);
+        if (nodes.length === 0) return;
+        // Zoom out just enough to frame every service, with extra room around
+        // the cluster so nothing sits under the chrome or flush to the edge.
+        void fitView({
+            nodes,
+            padding: 0.28,
+            duration: animate ? 280 : 0,
+            minZoom: 0.1,
+            maxZoom: 1.2,
+        });
+    }, [fitView, getNodes]);
+
+    // Nodes load async after mount / env switch, so the ReactFlow `fitView`
+    // prop often runs on an empty graph. Re-frame once services are present.
+    useEffect(() => {
+        if (environmentId <= 0 || serviceCount === 0) {
+            if (serviceCount === 0) fittedForEnv.current = null;
+            return;
+        }
+        if (fittedForEnv.current === environmentId) return;
+        fittedForEnv.current = environmentId;
+        // Wait until React Flow has painted + measured nodes before framing.
+        let cancelled = false;
+        const id = requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!cancelled) showAllServices(false);
+            });
+        });
+        return () => {
+            cancelled = true;
+            cancelAnimationFrame(id);
+        };
+    }, [environmentId, serviceCount, showAllServices]);
 
     return (
         <Controls
@@ -118,13 +155,18 @@ function CanvasControls() {
             showInteractive={false}
             className="canvas-controls"
         >
-            <ControlButton className="canvas-control-button" onClick={() => zoomIn()}>
+            <ControlButton className="canvas-control-button" title="Zoom in" aria-label="Zoom in" onClick={() => zoomIn()}>
                 <Plus size={15}/>
             </ControlButton>
-            <ControlButton className="canvas-control-button" onClick={() => zoomOut()}>
+            <ControlButton className="canvas-control-button" title="Zoom out" aria-label="Zoom out" onClick={() => zoomOut()}>
                 <Minus size={15}/>
             </ControlButton>
-            <ControlButton className="canvas-control-button" onClick={() => fitView({padding: 0.2})}>
+            <ControlButton
+                className="canvas-control-button"
+                title="Show all services"
+                aria-label="Show all services"
+                onClick={() => showAllServices(true)}
+            >
                 <Maximize2 size={15}/>
             </ControlButton>
         </Controls>
@@ -789,12 +831,13 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     nodeTypes={nodeTypes}
                     edgeTypes={edgeTypes}
                     fitView
-                    minZoom={0.4}
+                    fitViewOptions={{padding: 0.28}}
+                    minZoom={0.1}
                     maxZoom={1.6}
                     proOptions={{hideAttribution: true}}
                 >
                     <Background variant={BackgroundVariant.Dots} gap={22} size={1}/>
-                    <CanvasControls/>
+                    <CanvasControls environmentId={environmentId} serviceCount={serviceNodes.length}/>
                 </ReactFlow>
                 </CanvasSelectionContext.Provider>
             </div>

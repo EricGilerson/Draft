@@ -221,6 +221,14 @@
     cursor: pointer;
 }
 
+.draftpack-start-after {
+    margin: 4px 0 2px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(140, 150, 144, 0.06);
+}
+
 .draftpack-report h4 {
     margin: 0 0 8px;
     font-size: 12.5px;

@@ -355,6 +355,38 @@ select.input.settings-select.environment-select {
     font-weight: 700;
 }
 
+.environment-start-after {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: rgba(140, 150, 144, 0.06);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.environment-start-after input {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+
+.environment-start-after strong {
+    display: block;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.environment-start-after-hint {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
 .environment-data-empty {
     margin: 0;
     padding: 18px 12px;

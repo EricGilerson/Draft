@@ -313,7 +313,8 @@ type ImportOptions struct {
 	// ImportAppSecrets writes pack.AppSecrets (when values present) into app_secrets.
 	ImportAppSecrets bool `json:"importAppSecrets"`
 
-	// Open / deploy hints for the UI (engine ignores deploy unless StartAfter is true).
+	// StartAfter deploys every imported environment's services after materialize
+	// (handled by the deploy engine wrapper; importer itself is store-only).
 	StartAfter bool `json:"startAfter"`
 }
 
@@ -372,6 +373,12 @@ type ImportResult struct {
 	EnvironmentIDs []uint   `json:"environmentIds,omitempty"`
 	NodeIDs        []string `json:"nodeIds,omitempty"`
 	Report         Report   `json:"report"`
+	// Started is true when StartAfter ran and every environment stack kickoff
+	// succeeded (filled by the deploy engine, not the pack importer itself).
+	Started bool `json:"started,omitempty"`
+	// StartError is set when import succeeded but optional StartAfter failed
+	// for one or more environments.
+	StartError string `json:"startError,omitempty"`
 }
 
 // ExportResult is returned after building a pack (in-memory or written to path).

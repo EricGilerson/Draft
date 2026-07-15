@@ -9,6 +9,18 @@ import (
 	"Draft/internal/store"
 )
 
+// DuplicateEnvironmentResult is returned by DuplicateEnvironmentWithChoices so
+// the UI can open the new environment and surface optional stack-start outcomes
+// without a second round-trip (same shape as SandboxCreateResult).
+type DuplicateEnvironmentResult struct {
+	Environment *store.Environment      `json:"environment"`
+	Stack       *EnvironmentStackResult `json:"stack,omitempty"`
+	Started     bool                    `json:"started"`
+	// StartError is set when duplication succeeded but stack start failed
+	// (hard error or one or more services failed to kick off).
+	StartError string `json:"startError,omitempty"`
+}
+
 // DuplicateEnvironment clones every node in sourceEnvironmentID into a brand
 // new environment named newName: same labels/positions/TemplateID, a fresh
 // UID per node, and every NodeSetting + EnvVar copied verbatim. {{draft.*}}
@@ -20,17 +32,25 @@ import (
 //
 // choices control per-stateful-service data handling (fresh / share / clone).
 // Nodes without a choice default to fresh. Deployment history, routes, and
-// port leases are never copied.
+// port leases are never copied. Does not start services (see
+// DuplicateEnvironmentWithChoices with startAfter).
 //
 // If duplication fails partway, the newly created environment (and whatever
 // nodes were created under it) is deleted so no half-duplicated environment
 // is left behind.
 func (e *Engine) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices ...ServiceDataChoice) (*store.Environment, error) {
-	return e.DuplicateEnvironmentWithChoices(context.Background(), sourceEnvironmentID, newName, choices)
+	res, err := e.DuplicateEnvironmentWithChoices(context.Background(), sourceEnvironmentID, newName, choices, false)
+	if err != nil {
+		return nil, err
+	}
+	return res.Environment, nil
 }
 
 // DuplicateEnvironmentWithChoices is the full API with context for clone I/O.
-func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvironmentID uint, newName string, choices []ServiceDataChoice) (*store.Environment, error) {
+// When startAfter is true, copied services are deployed after materialize
+// (async kickoff per node). Duplication still succeeds when start fails —
+// see DuplicateEnvironmentResult.StartError.
+func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvironmentID uint, newName string, choices []ServiceDataChoice, startAfter bool) (*DuplicateEnvironmentResult, error) {
 	sourceEnv, err := e.store.GetEnvironment(sourceEnvironmentID)
 	if err != nil {
 		return nil, fmt.Errorf("source environment not found: %w", err)
@@ -63,7 +83,54 @@ func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvi
 		_ = e.store.DeleteEnvironment(newEnv.ID)
 		return nil, err
 	}
-	return newEnv, nil
+
+	out := &DuplicateEnvironmentResult{Environment: newEnv}
+	if startAfter {
+		stack, startErr := e.RunEnvironmentStack(ctx, newEnv.ID, StackStart)
+		applyStackStartResult(out, stack, startErr)
+	}
+	return out, nil
+}
+
+// applyStackStartResult fills Started / StartError / Stack on a duplicate
+// result from RunEnvironmentStack. Materialize already succeeded.
+func applyStackStartResult(out *DuplicateEnvironmentResult, stack *EnvironmentStackResult, startErr error) {
+	out.Stack = stack
+	if startErr != nil {
+		out.StartError = startErr.Error()
+		return
+	}
+	if stack != nil && stack.Failed > 0 {
+		out.StartError = formatStackStartError(stack)
+		out.Started = stack.Succeeded > 0
+		return
+	}
+	out.Started = true
+}
+
+func formatStackStartError(stack *EnvironmentStackResult) string {
+	if stack == nil {
+		return "start failed"
+	}
+	lines := make([]string, 0, 4)
+	for _, r := range stack.Results {
+		if r.Error == "" {
+			continue
+		}
+		label := r.Label
+		if label == "" {
+			label = r.NodeID
+		}
+		lines = append(lines, label+": "+r.Error)
+		if len(lines) >= 4 {
+			break
+		}
+	}
+	head := fmt.Sprintf("%d of %d services failed to start", stack.Failed, stack.Total)
+	if len(lines) == 0 {
+		return head
+	}
+	return head + " — " + strings.Join(lines, "; ")
 }
 
 // duplicateNodesInto clones sourceNodes into newEnv, applying share/clone/fresh,

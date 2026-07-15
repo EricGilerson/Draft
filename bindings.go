@@ -231,8 +231,10 @@ func (a *App) DeleteEnvironment(environmentID uint) error {
 // DuplicateEnvironment clones every node (settings + env vars, fresh UIDs) in
 // sourceEnvironmentID into a brand new environment named newName. choices
 // control per-stateful-service data mode (fresh / share / clone); nil or empty
-// means all fresh. Deployment history, routes, and port leases are not copied.
-func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice) (*store.Environment, error) {
+// means all fresh. When startAfter is true, services are started after
+// materialize; duplication still succeeds when start fails (see StartError).
+// Deployment history, routes, and port leases are not copied.
+func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice, startAfter bool) (*deploy.DuplicateEnvironmentResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -240,7 +242,7 @@ func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, cho
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices)
+	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices, startAfter)
 }
 
 // PreviewEnvironmentDuplicate lists services for the new-env data wizard

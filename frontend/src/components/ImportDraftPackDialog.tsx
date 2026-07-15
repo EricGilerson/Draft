@@ -2,6 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {ClipboardPaste, FileUp, FolderOpen, Loader2, Package} from 'lucide-react';
 import Dialog from './Dialog';
 import ConfigReport from './ConfigReport';
+import {useAppDialog} from './AppDialogProvider';
 import {
     ImportDraftPack,
     ImportDraftPackJSON,
@@ -43,11 +44,13 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     const [secretValues, setSecretValues] = useState<Record<string, string>>({});
     const [appSecretValues, setAppSecretValues] = useState<Record<string, string>>({});
     const [importAppSecrets, setImportAppSecrets] = useState(false);
+    const [startAfter, setStartAfter] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [resultReport, setResultReport] = useState<draftpack.Report | null>(null);
     const [importedProjectId, setImportedProjectId] = useState<number | null>(null);
     const [importedEnvId, setImportedEnvId] = useState<number | undefined>(undefined);
+    const {alert} = useAppDialog();
 
     const hasSource = sourceMode === 'file' ? !!path : !!activeJSON;
 
@@ -263,7 +266,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                 secretValues,
                 appSecretValues,
                 importAppSecrets,
-                startAfter: false,
+                startAfter,
             });
 
             const res = sourceMode === 'paste' && activeJSON
@@ -272,6 +275,13 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
             setResultReport(res.report);
             setImportedProjectId(res.projectId);
             setImportedEnvId(res.environmentIds?.[0]);
+            if (res.startError) {
+                void alert({
+                    title: 'Pack imported, start incomplete',
+                    message: res.startError,
+                    detail: 'The import succeeded. Open the project and deploy individual services if needed.',
+                });
+            }
         } catch (e: any) {
             setError(String(e?.message ?? e));
             try {
@@ -305,7 +315,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
             {!resultReport && (
                 <button className="btn btn-primary" onClick={doImport} disabled={!canImport}>
                     {busy ? <Loader2 size={14} className="spin"/> : <Package size={14}/>}
-                    Import pack
+                    {startAfter ? 'Import & start' : 'Import pack'}
                 </button>
             )}
         </div>
@@ -598,6 +608,16 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                                 ))}
                             </div>
                         )}
+
+                        <label className="draftpack-check draftpack-start-after">
+                            <input
+                                type="checkbox"
+                                checked={startAfter}
+                                onChange={(e) => setStartAfter(e.target.checked)}
+                                disabled={busy}
+                            />
+                            <span>Start services after import</span>
+                        </label>
 
                         <div className="draftpack-report">
                             <h4>Pack report</h4>

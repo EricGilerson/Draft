@@ -120,6 +120,8 @@ export default function EnvironmentSwitcher({
     const [sourceId, setSourceId] = useState(SOURCE_BLANK);
     const [stateful, setStateful] = useState<deploy.StatefulServiceSummary[]>([]);
     const [choices, setChoices] = useState<Record<string, ChoiceState>>({});
+    /** Opt-in start after duplicate (off by default — durable envs can be heavy). */
+    const [startAfter, setStartAfter] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [menuEnvId, setMenuEnvId] = useState<number | null>(null);
@@ -157,6 +159,7 @@ export default function EnvironmentSwitcher({
         setStep(1);
         setStateful([]);
         setChoices({});
+        setStartAfter(false);
         setSourceId(
             selectedEnvironmentId != null ? String(selectedEnvironmentId) : SOURCE_BLANK,
         );
@@ -172,6 +175,7 @@ export default function EnvironmentSwitcher({
         setStep(1);
         setStateful([]);
         setChoices({});
+        setStartAfter(false);
     };
 
     const loadStateful = (envId: number) => {
@@ -220,15 +224,37 @@ export default function EnvironmentSwitcher({
             })
             : [];
 
-        const request = isDuplicate
-            ? DuplicateEnvironment(Number(sourceId), name.trim(), dataChoices)
-            : CreateEnvironment(projectId, name.trim());
-
         if (isDuplicate) onDuplicating?.(true);
-        request
+
+        if (isDuplicate) {
+            DuplicateEnvironment(Number(sourceId), name.trim(), dataChoices, startAfter)
+                .then((result) => {
+                    const env = result.environment;
+                    closeDialog();
+                    onDuplicating?.(false);
+                    refresh();
+                    onEnvironmentsChanged?.();
+                    onStackActionDone?.();
+                    if (env) onSelect(env.id);
+                    if (result.startError) {
+                        void alert({
+                            title: 'Environment created, start incomplete',
+                            message: result.startError,
+                            detail: 'The environment exists. Open it and deploy individual services if needed.',
+                        });
+                    }
+                })
+                .catch((e) => {
+                    setError(String(e));
+                    setSubmitting(false);
+                    onDuplicating?.(false);
+                });
+            return;
+        }
+
+        CreateEnvironment(projectId, name.trim())
             .then((env) => {
                 closeDialog();
-                onDuplicating?.(false);
                 refresh();
                 onEnvironmentsChanged?.();
                 onSelect(env.id);
@@ -236,7 +262,6 @@ export default function EnvironmentSwitcher({
             .catch((e) => {
                 setError(String(e));
                 setSubmitting(false);
-                onDuplicating?.(false);
             });
     };
 
@@ -573,7 +598,7 @@ export default function EnvironmentSwitcher({
                                     : step === 1 && sourceId !== SOURCE_BLANK
                                         ? 'Next'
                                         : sourceId !== SOURCE_BLANK
-                                            ? 'Duplicate'
+                                            ? (startAfter ? 'Duplicate & start' : 'Duplicate')
                                             : 'Create'}
                             </button>
                         </>
@@ -629,6 +654,20 @@ export default function EnvironmentSwitcher({
                                 (prefer this over public hostnames).
                                 {' '}<strong>Clone</strong> copies volume data once when mounts exist.
                             </p>
+                            <label className="environment-start-after">
+                                <input
+                                    type="checkbox"
+                                    checked={startAfter}
+                                    onChange={(e) => setStartAfter(e.target.checked)}
+                                    disabled={submitting}
+                                />
+                                <span>
+                                    <strong>Start services after create</strong>
+                                    <span className="environment-start-after-hint">
+                                        Deploys every service in the new environment. Leave off if you only need the copy for now.
+                                    </span>
+                                </span>
+                            </label>
                             {stateful.length === 0 ? (
                                 <p className="environment-data-empty">No services in the source environment.</p>
                             ) : (

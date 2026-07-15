@@ -374,6 +374,9 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 		out.Stack = stack
 		if startErr != nil {
 			out.StartError = startErr.Error()
+		} else if stack != nil && stack.Failed > 0 {
+			out.StartError = formatStackStartError(stack)
+			out.Started = stack.Succeeded > 0
 		} else {
 			out.Started = true
 		}

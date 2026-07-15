@@ -57,7 +57,7 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
-export function DuplicateEnvironment(arg1:number,arg2:string,arg3:Array<deploy.ServiceDataChoice>):Promise<store.Environment>;
+export function DuplicateEnvironment(arg1:number,arg2:string,arg3:Array<deploy.ServiceDataChoice>,arg4:boolean):Promise<deploy.DuplicateEnvironmentResult>;
 
 export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;
 
