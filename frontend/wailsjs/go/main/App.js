@@ -378,8 +378,8 @@ export function PreviewDeleteService(arg1) {
   return window['go']['main']['App']['PreviewDeleteService'](arg1);
 }
 
-export function PreviewDraftPackImport(arg1) {
-  return window['go']['main']['App']['PreviewDraftPackImport'](arg1);
+export function PreviewDraftPackImport(arg1, arg2) {
+  return window['go']['main']['App']['PreviewDraftPackImport'](arg1, arg2);
 }
 
 export function PreviewEnvVars(arg1) {

@@ -16,7 +16,8 @@ type Importer struct {
 }
 
 // Preview builds an ImportPreview without writing anything.
-func (e *Importer) Preview(pack *Pack) (*ImportPreview, error) {
+// Pass PreviewOptions with mode/target so unique-field collisions are detected.
+func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, error) {
 	if pack == nil {
 		return nil, fmt.Errorf("nil pack")
 	}
@@ -32,6 +33,19 @@ func (e *Importer) Preview(pack *Pack) (*ImportPreview, error) {
 	if pack.Project != nil {
 		prev.ProjectName = pack.Project.Name
 	}
+	// Suggested free project name when the pack name is taken.
+	nameForSuggest := strings.TrimSpace(opts.ProjectName)
+	if nameForSuggest == "" {
+		nameForSuggest = prev.ProjectName
+	}
+	if nameForSuggest != "" {
+		if taken, _ := e.projectNameTaken(nameForSuggest); taken {
+			prev.SuggestedProjectName = e.uniqueProjectName(nameForSuggest)
+		} else {
+			prev.SuggestedProjectName = nameForSuggest
+		}
+	}
+
 	for _, svc := range pack.Services {
 		mode := "build"
 		image := ""
@@ -91,6 +105,18 @@ func (e *Importer) Preview(pack *Pack) (*ImportPreview, error) {
 			prev.NeedsAppSecrets = append(prev.NeedsAppSecrets, s.Key)
 		}
 	}
+
+	prev.Collisions = e.detectCollisions(pack, opts)
+	for _, c := range prev.Collisions {
+		if c.Blocking {
+			prev.HasBlockingCollision = true
+		}
+		kind := KindManual
+		if !c.Blocking {
+			kind = KindInfo
+		}
+		prev.Report.Add(kind, c.Kind, c.Field, c.Message)
+	}
 	return prev, nil
 }
 
@@ -105,6 +131,27 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 	mode := opts.Mode
 	if mode == "" {
 		mode = ImportAsNewProject
+	}
+	opts.Mode = mode
+
+	// Auto-fix renamable collisions (labels, project name, host ports) when
+	// the user left them blank; blocking path collisions still error below.
+	e.applyCollisionDefaults(pack, &opts)
+
+	// Final blocking check (e.g. project path already registered).
+	for _, c := range e.detectCollisions(pack, PreviewOptions{
+		Mode:                     opts.Mode,
+		ProjectID:                opts.ProjectID,
+		EnvironmentID:            opts.EnvironmentID,
+		ProjectName:              opts.ProjectName,
+		ProjectPath:              opts.ProjectPath,
+		ServiceLabelOverrides:    opts.ServiceLabelOverrides,
+		EnvironmentNameOverrides: opts.EnvironmentNameOverrides,
+		HostPortOverrides:        opts.HostPortOverrides,
+	}) {
+		if c.Blocking {
+			return nil, fmt.Errorf("%s", c.Message)
+		}
 	}
 
 	var project *store.Project
@@ -121,6 +168,13 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		if name == "" {
 			name = "imported"
 		}
+		// If name still collides (race), bump once more.
+		if taken, _ := e.projectNameTaken(name); taken {
+			fixed := e.uniqueProjectName(name)
+			rep.Add(KindInfo, "project_renamed", "project",
+				fmt.Sprintf("Project name %q was taken; created as %q.", name, fixed))
+			name = fixed
+		}
 		path := strings.TrimSpace(opts.ProjectPath)
 		if path == "" {
 			return nil, fmt.Errorf("project folder is required")
@@ -132,9 +186,19 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		if st, err := os.Stat(abs); err != nil || !st.IsDir() {
 			return nil, fmt.Errorf("project folder does not exist: %s", abs)
 		}
+		if existing, err := e.Store.GetProjectByPath(abs); err == nil && existing != nil {
+			return nil, fmt.Errorf("folder is already registered as project %q; choose a different project folder", existing.Name)
+		}
 		project, err = e.Store.CreateProject(name, abs, projectDesc(pack))
 		if err != nil {
-			return nil, fmt.Errorf("create project: %w", err)
+			// Unique name race: retry with suffix once.
+			if taken, _ := e.projectNameTaken(name); taken {
+				name = e.uniqueProjectName(name)
+				project, err = e.Store.CreateProject(name, abs, projectDesc(pack))
+			}
+			if err != nil {
+				return nil, fmt.Errorf("create project: %w", err)
+			}
 		}
 		// Create environments from pack (or use default for service/env scope).
 		envIDs, envIDByKey, err = e.ensureEnvironments(project.ID, pack, &rep)
@@ -254,10 +318,23 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 			}
 			envID = envIDs[0]
 		}
-		label := e.uniqueLabel(envID, svc.Label)
-		if label != svc.Label {
-			rep.Add(KindInfo, "renamed", svc.Label, fmt.Sprintf("Service %q already existed; imported as %q.", svc.Label, label))
+		// Prefer explicit override (user fix or applyCollisionDefaults).
+		label := strings.TrimSpace(svc.Label)
+		if opts.ServiceLabelOverrides != nil {
+			if o := strings.TrimSpace(opts.ServiceLabelOverrides[svc.Key]); o != "" {
+				label = o
+			}
 		}
+		// Always ensure uniqueness in the target env (handles races / missed preview).
+		finalLabel := e.uniqueLabel(envID, label)
+		if finalLabel != svc.Label {
+			rep.Add(KindInfo, "renamed", svc.Label,
+				fmt.Sprintf("Service %q imported as %q to avoid a name collision.", svc.Label, finalLabel))
+		} else if finalLabel != label {
+			rep.Add(KindInfo, "renamed", label,
+				fmt.Sprintf("Service renamed to %q to avoid a name collision.", finalLabel))
+		}
+		label = finalLabel
 		node, err := e.Store.CreateNode(&store.CanvasNode{
 			ID:            genNodeID(),
 			Label:         label,
@@ -267,8 +344,22 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 			Y:             svc.Y,
 		})
 		if err != nil {
-			rep.Add(KindManual, "create_failed", svc.Label, err.Error())
-			continue
+			// Last-resort retry with a fresh unique label.
+			retry := e.uniqueLabel(envID, label+"-import")
+			node, err = e.Store.CreateNode(&store.CanvasNode{
+				ID:            genNodeID(),
+				Label:         retry,
+				ProjectID:     project.ID,
+				EnvironmentID: envID,
+				X:             svc.X,
+				Y:             svc.Y,
+			})
+			if err != nil {
+				rep.Add(KindManual, "create_failed", svc.Label, err.Error())
+				continue
+			}
+			label = retry
+			rep.Add(KindInfo, "renamed", svc.Label, fmt.Sprintf("Service imported as %q after create retry.", label))
 		}
 		if _, err := e.Store.EnsureNodeUID(node.ID); err != nil {
 			rep.Add(KindManual, "uid_failed", svc.Label, err.Error())
@@ -283,6 +374,18 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 
 		// Settings
 		settings := cloneSettings(svc.Settings)
+		// Host port override (empty string clears a colliding fixed port)
+		if opts.HostPortOverrides != nil {
+			if v, ok := opts.HostPortOverrides[svc.Key]; ok {
+				if strings.TrimSpace(v) == "" {
+					delete(settings, "host_port")
+					rep.Add(KindInfo, "host_port_cleared", label,
+						"Fixed host port was cleared because it collided; Draft will assign a port on deploy.")
+				} else {
+					settings["host_port"] = strings.TrimSpace(v)
+				}
+			}
+		}
 		// Service root
 		if root, ok := opts.ServiceRootOverrides[svc.Key]; ok && strings.TrimSpace(root) != "" {
 			if err := e.applyServiceRoot(node.ID, project, root, &rep, label); err != nil {

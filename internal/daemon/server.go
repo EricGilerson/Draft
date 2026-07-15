@@ -933,12 +933,13 @@ func (s *Server) handleDraftPackExportToPath(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleDraftPackImportPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path string `json:"path"`
+		Path    string                      `json:"path"`
+		Options deploy.DraftPackPreviewOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := s.engine.PreviewDraftPackImport(req.Path)
+	result, err := s.engine.PreviewDraftPackImport(req.Path, req.Options)
 	if err != nil {
 		writeError(w, err)
 		return

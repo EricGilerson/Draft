@@ -197,7 +197,7 @@ export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
-export function PreviewDraftPackImport(arg1:string):Promise<draftpack.ImportPreview>;
+export function PreviewDraftPackImport(arg1:string,arg2:draftpack.PreviewOptions):Promise<draftpack.ImportPreview>;
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 

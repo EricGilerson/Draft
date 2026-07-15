@@ -230,6 +230,51 @@ const (
 	ImportIntoProject    = "intoProject"
 )
 
+// PreviewOptions scopes collision detection for import preview.
+// Zero value still produces a pack summary; pass mode/target to detect unique-field clashes.
+type PreviewOptions struct {
+	Mode          string `json:"mode,omitempty"` // newProject | intoProject
+	ProjectID     uint   `json:"projectId,omitempty"`
+	EnvironmentID uint   `json:"environmentId,omitempty"`
+	// Proposed new-project identity (defaults to pack project name when empty).
+	ProjectName string `json:"projectName,omitempty"`
+	ProjectPath string `json:"projectPath,omitempty"`
+	// Optional proposed renames when re-previewing after the user edits collisions.
+	ServiceLabelOverrides    map[string]string `json:"serviceLabelOverrides,omitempty"`
+	EnvironmentNameOverrides map[string]string `json:"environmentNameOverrides,omitempty"`
+	// HostPortOverrides maps pack service key → proposed host port.
+	// Empty string means "clear fixed port" (no collision). Used for live re-preview.
+	HostPortOverrides map[string]string `json:"hostPortOverrides,omitempty"`
+}
+
+// Collision kinds for unique / identity fields.
+const (
+	CollisionProjectName     = "project_name"
+	CollisionProjectPath     = "project_path"
+	CollisionServiceLabel    = "service_label"
+	CollisionEnvironmentName = "environment_name"
+	CollisionHostPort        = "host_port"
+	CollisionSandboxProfile  = "sandbox_profile"
+)
+
+// Collision is one unique-field clash the user can fix before import.
+type Collision struct {
+	// Kind is one of the Collision* constants.
+	Kind string `json:"kind"`
+	// Field is a stable key for overrides (e.g. service pack key, env key, "project").
+	Field string `json:"field"`
+	// Label is a human-readable subject (service name, project, …).
+	Label string `json:"label"`
+	// Current is the value from the pack / proposal that collides.
+	Current string `json:"current"`
+	// Suggested is a free unique alternative (empty when the user must pick, e.g. path).
+	Suggested string `json:"suggested,omitempty"`
+	// Message explains the clash.
+	Message string `json:"message"`
+	// Blocking: import should not proceed until fixed (path) vs auto-renamable.
+	Blocking bool `json:"blocking"`
+}
+
 // ImportOptions controls how a pack is applied.
 type ImportOptions struct {
 	Mode string `json:"mode"` // newProject | intoProject
@@ -242,11 +287,21 @@ type ImportOptions struct {
 	ProjectID     uint `json:"projectId,omitempty"`
 	EnvironmentID uint `json:"environmentId,omitempty"`
 
+	// ServiceLabelOverrides maps pack service key → final canvas label.
+	// When omitted, colliding labels are auto-suffixed (api → api-2).
+	ServiceLabelOverrides map[string]string `json:"serviceLabelOverrides,omitempty"`
+
+	// EnvironmentNameOverrides maps pack environment key → display name (new project).
+	EnvironmentNameOverrides map[string]string `json:"environmentNameOverrides,omitempty"`
+
 	// ServiceRootOverrides maps pack service key → absolute or project-relative path.
 	ServiceRootOverrides map[string]string `json:"serviceRootOverrides,omitempty"`
 
 	// BindPathOverrides maps "serviceKey|containerPath" → host path.
 	BindPathOverrides map[string]string `json:"bindPathOverrides,omitempty"`
+
+	// HostPortOverrides maps pack service key → host port string (empty clears fixed port).
+	HostPortOverrides map[string]string `json:"hostPortOverrides,omitempty"`
 
 	// SecretValues maps secret env key → value for services (and project vars).
 	// Prefer explicit fills for omitted secrets.
@@ -264,19 +319,24 @@ type ImportOptions struct {
 
 // ImportPreview is a dry-run of pack application.
 type ImportPreview struct {
-	PackScope        string              `json:"packScope"`
-	ProjectName      string              `json:"projectName"`
-	Environments     []EnvironmentPayload `json:"environments"`
-	Services         []ServiceSummary    `json:"services"`
-	ProjectEnvVars   int                 `json:"projectEnvVarCount"`
-	SandboxProfiles  int                 `json:"sandboxProfileCount"`
-	AppSecrets       int                 `json:"appSecretCount"`
-	NeedsProjectPath bool                `json:"needsProjectPath"`
-	NeedsServiceRoots []ServiceRootNeed  `json:"needsServiceRoots,omitempty"`
-	NeedsBinds        []BindNeed         `json:"needsBinds,omitempty"`
-	NeedsSecrets      []string           `json:"needsSecrets,omitempty"`
-	NeedsAppSecrets   []string           `json:"needsAppSecrets,omitempty"`
-	Report            Report             `json:"report"`
+	PackScope         string               `json:"packScope"`
+	ProjectName       string               `json:"projectName"`
+	SuggestedProjectName string            `json:"suggestedProjectName,omitempty"`
+	Environments      []EnvironmentPayload `json:"environments"`
+	Services          []ServiceSummary     `json:"services"`
+	ProjectEnvVars    int                  `json:"projectEnvVarCount"`
+	SandboxProfiles   int                  `json:"sandboxProfileCount"`
+	AppSecrets        int                  `json:"appSecretCount"`
+	NeedsProjectPath  bool                 `json:"needsProjectPath"`
+	NeedsServiceRoots []ServiceRootNeed    `json:"needsServiceRoots,omitempty"`
+	NeedsBinds        []BindNeed           `json:"needsBinds,omitempty"`
+	NeedsSecrets      []string             `json:"needsSecrets,omitempty"`
+	NeedsAppSecrets   []string             `json:"needsAppSecrets,omitempty"`
+	// Collisions lists unique-field clashes with suggested renames.
+	Collisions []Collision `json:"collisions,omitempty"`
+	// HasBlockingCollision is true when import cannot auto-fix (e.g. path taken).
+	HasBlockingCollision bool `json:"hasBlockingCollision"`
+	Report               Report `json:"report"`
 }
 
 // ServiceSummary is a one-line service preview.

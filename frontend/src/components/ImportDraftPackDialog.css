@@ -157,3 +157,32 @@
     font-size: 12.5px;
     font-weight: 600;
 }
+
+.draftpack-collisions {
+    border-color: rgba(212, 162, 76, 0.45);
+}
+
+.draftpack-collision {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border-radius: 6px;
+    background: rgba(212, 162, 76, 0.08);
+    border: 1px solid rgba(212, 162, 76, 0.25);
+}
+
+.draftpack-collision.is-blocking {
+    background: rgba(239, 111, 104, 0.1);
+    border-color: rgba(239, 111, 104, 0.35);
+}
+
+.draftpack-collision-msg {
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text, #e6e8eb);
+}
+
+.draftpack-collision + .draftpack-collision {
+    margin-top: 4px;
+}

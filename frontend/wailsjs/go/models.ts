@@ -2326,6 +2326,30 @@ export namespace draftpack {
 	        this.readOnly = source["readOnly"];
 	    }
 	}
+	export class Collision {
+	    kind: string;
+	    field: string;
+	    label: string;
+	    current: string;
+	    suggested?: string;
+	    message: string;
+	    blocking: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Collision(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.field = source["field"];
+	        this.label = source["label"];
+	        this.current = source["current"];
+	        this.suggested = source["suggested"];
+	        this.message = source["message"];
+	        this.blocking = source["blocking"];
+	    }
+	}
 	export class EnvVarPayload {
 	    key: string;
 	    value?: string;
@@ -2739,8 +2763,11 @@ export namespace draftpack {
 	    projectPath?: string;
 	    projectId?: number;
 	    environmentId?: number;
+	    serviceLabelOverrides?: Record<string, string>;
+	    environmentNameOverrides?: Record<string, string>;
 	    serviceRootOverrides?: Record<string, string>;
 	    bindPathOverrides?: Record<string, string>;
+	    hostPortOverrides?: Record<string, string>;
 	    secretValues?: Record<string, string>;
 	    appSecretValues?: Record<string, string>;
 	    importAppSecrets: boolean;
@@ -2757,8 +2784,11 @@ export namespace draftpack {
 	        this.projectPath = source["projectPath"];
 	        this.projectId = source["projectId"];
 	        this.environmentId = source["environmentId"];
+	        this.serviceLabelOverrides = source["serviceLabelOverrides"];
+	        this.environmentNameOverrides = source["environmentNameOverrides"];
 	        this.serviceRootOverrides = source["serviceRootOverrides"];
 	        this.bindPathOverrides = source["bindPathOverrides"];
+	        this.hostPortOverrides = source["hostPortOverrides"];
 	        this.secretValues = source["secretValues"];
 	        this.appSecretValues = source["appSecretValues"];
 	        this.importAppSecrets = source["importAppSecrets"];
@@ -2810,6 +2840,7 @@ export namespace draftpack {
 	export class ImportPreview {
 	    packScope: string;
 	    projectName: string;
+	    suggestedProjectName?: string;
 	    environments: EnvironmentPayload[];
 	    services: ServiceSummary[];
 	    projectEnvVarCount: number;
@@ -2820,6 +2851,8 @@ export namespace draftpack {
 	    needsBinds?: BindNeed[];
 	    needsSecrets?: string[];
 	    needsAppSecrets?: string[];
+	    collisions?: Collision[];
+	    hasBlockingCollision: boolean;
 	    report: Report;
 	
 	    static createFrom(source: any = {}) {
@@ -2830,6 +2863,7 @@ export namespace draftpack {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.packScope = source["packScope"];
 	        this.projectName = source["projectName"];
+	        this.suggestedProjectName = source["suggestedProjectName"];
 	        this.environments = this.convertValues(source["environments"], EnvironmentPayload);
 	        this.services = this.convertValues(source["services"], ServiceSummary);
 	        this.projectEnvVarCount = source["projectEnvVarCount"];
@@ -2840,6 +2874,8 @@ export namespace draftpack {
 	        this.needsBinds = this.convertValues(source["needsBinds"], BindNeed);
 	        this.needsSecrets = source["needsSecrets"];
 	        this.needsAppSecrets = source["needsAppSecrets"];
+	        this.collisions = this.convertValues(source["collisions"], Collision);
+	        this.hasBlockingCollision = source["hasBlockingCollision"];
 	        this.report = this.convertValues(source["report"], Report);
 	    }
 	
@@ -2899,6 +2935,32 @@ export namespace draftpack {
 	}
 	
 	
+	export class PreviewOptions {
+	    mode?: string;
+	    projectId?: number;
+	    environmentId?: number;
+	    projectName?: string;
+	    projectPath?: string;
+	    serviceLabelOverrides?: Record<string, string>;
+	    environmentNameOverrides?: Record<string, string>;
+	    hostPortOverrides?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreviewOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
+	        this.projectName = source["projectName"];
+	        this.projectPath = source["projectPath"];
+	        this.serviceLabelOverrides = source["serviceLabelOverrides"];
+	        this.environmentNameOverrides = source["environmentNameOverrides"];
+	        this.hostPortOverrides = source["hostPortOverrides"];
+	    }
+	}
 	
 	
 	

@@ -731,8 +731,9 @@ func (a *App) ExportDraftPackToPath(scope, nodeID string, projectID, environment
 	return c.ExportDraftPackToPath(a.ctx, scope, nodeID, projectID, environmentID, opts, destPath)
 }
 
-// PreviewDraftPackImport dry-runs importing a .draftpack file.
-func (a *App) PreviewDraftPackImport(path string) (*deploy.DraftPackImportPreview, error) {
+// PreviewDraftPackImport dry-runs importing a .draftpack file, including
+// unique-field collision detection for the chosen mode/target.
+func (a *App) PreviewDraftPackImport(path string, opts deploy.DraftPackPreviewOptions) (*deploy.DraftPackImportPreview, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -740,7 +741,7 @@ func (a *App) PreviewDraftPackImport(path string) (*deploy.DraftPackImportPrevie
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.PreviewDraftPackImport(a.ctx, path)
+	return c.PreviewDraftPackImport(a.ctx, path, opts)
 }
 
 // ImportDraftPack applies a .draftpack file with remap options.

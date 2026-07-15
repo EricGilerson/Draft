@@ -557,9 +557,9 @@ func (c *Client) ExportDraftPackToPath(ctx context.Context, scope, nodeID string
 	return &out, nil
 }
 
-func (c *Client) PreviewDraftPackImport(ctx context.Context, path string) (*deploy.DraftPackImportPreview, error) {
+func (c *Client) PreviewDraftPackImport(ctx context.Context, path string, opts deploy.DraftPackPreviewOptions) (*deploy.DraftPackImportPreview, error) {
 	var out deploy.DraftPackImportPreview
-	if err := c.postJSON(ctx, "/draftpack/import-preview", map[string]string{"path": path}, &out); err != nil {
+	if err := c.postJSON(ctx, "/draftpack/import-preview", map[string]any{"path": path, "options": opts}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -11,12 +11,13 @@ import (
 
 // Re-export draftpack types for Wails / daemon JSON surface.
 type (
-	DraftPackExportOptions = draftpack.ExportOptions
-	DraftPackImportOptions = draftpack.ImportOptions
-	DraftPackExportResult  = draftpack.ExportResult
-	DraftPackImportPreview = draftpack.ImportPreview
-	DraftPackImportResult  = draftpack.ImportResult
-	DraftPack              = draftpack.Pack
+	DraftPackExportOptions  = draftpack.ExportOptions
+	DraftPackImportOptions  = draftpack.ImportOptions
+	DraftPackPreviewOptions = draftpack.PreviewOptions
+	DraftPackExportResult   = draftpack.ExportResult
+	DraftPackImportPreview  = draftpack.ImportPreview
+	DraftPackImportResult   = draftpack.ImportResult
+	DraftPack               = draftpack.Pack
 )
 
 // DefaultDraftPackExportOptions returns safe cross-machine export defaults.
@@ -81,13 +82,14 @@ func (e *Engine) ExportDraftPackToPath(scope string, id string, projectID, envir
 }
 
 // PreviewDraftPackImport parses a .draftpack file and returns a dry-run preview.
-func (e *Engine) PreviewDraftPackImport(path string) (*DraftPackImportPreview, error) {
+// opts scopes collision detection (mode, target project/env, proposed renames).
+func (e *Engine) PreviewDraftPackImport(path string, opts draftpack.PreviewOptions) (*DraftPackImportPreview, error) {
 	pack, err := readPackFile(path)
 	if err != nil {
 		return nil, err
 	}
 	imp := &draftpack.Importer{Store: e.store}
-	return imp.Preview(pack)
+	return imp.Preview(pack, opts)
 }
 
 // ImportDraftPack applies a pack from path with the given options.
@@ -101,13 +103,13 @@ func (e *Engine) ImportDraftPack(path string, opts DraftPackImportOptions) (*Dra
 }
 
 // PreviewDraftPackJSON parses pack JSON bytes (for tests / advanced UI).
-func (e *Engine) PreviewDraftPackJSON(data []byte) (*DraftPackImportPreview, error) {
+func (e *Engine) PreviewDraftPackJSON(data []byte, opts draftpack.PreviewOptions) (*DraftPackImportPreview, error) {
 	pack, err := draftpack.UnmarshalPack(data)
 	if err != nil {
 		return nil, err
 	}
 	imp := &draftpack.Importer{Store: e.store}
-	return imp.Preview(pack)
+	return imp.Preview(pack, opts)
 }
 
 // ImportDraftPackJSON applies pack JSON (for tests).
