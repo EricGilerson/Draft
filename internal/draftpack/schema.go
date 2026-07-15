@@ -79,6 +79,10 @@ type Pack struct {
 	ExportedAt time.Time `json:"exportedAt"`
 	Scope      string    `json:"scope"`
 
+	// ContentHash is a sha256 hex digest of the pack body (excluding this field).
+	// Set on export; verified on import when present.
+	ContentHash string `json:"contentHash,omitempty"`
+
 	// Options records what the exporter included (for import UI defaults).
 	Options ExportOptions `json:"options"`
 
@@ -226,8 +230,27 @@ type BindRemap struct {
 
 // ImportMode values.
 const (
-	ImportAsNewProject   = "newProject"
-	ImportIntoProject    = "intoProject"
+	ImportAsNewProject = "newProject"
+	ImportIntoProject  = "intoProject"
+)
+
+// EnvImportMode values (intoProject only).
+const (
+	// EnvImportFlatten puts every selected service into EnvironmentID.
+	EnvImportFlatten = "flatten"
+	// EnvImportRecreate recreates pack environments (or maps by name) on the project.
+	EnvImportRecreate = "recreate"
+)
+
+// LayoutMode values control canvas placement on import.
+const (
+	// LayoutAuto offsets pack nodes away from existing canvas content when needed,
+	// and lays out a grid when the pack has no coordinates.
+	LayoutAuto = "auto"
+	// LayoutPreserve keeps pack x/y as-is (may overlap existing nodes).
+	LayoutPreserve = "preserve"
+	// LayoutGrid ignores pack coordinates and places services in a free grid.
+	LayoutGrid = "grid"
 )
 
 // PreviewOptions scopes collision detection for import preview.
@@ -245,6 +268,12 @@ type PreviewOptions struct {
 	// HostPortOverrides maps pack service key → proposed host port.
 	// Empty string means "clear fixed port" (no collision). Used for live re-preview.
 	HostPortOverrides map[string]string `json:"hostPortOverrides,omitempty"`
+	// ServiceKeys limits which pack services are considered (empty = all).
+	ServiceKeys []string `json:"serviceKeys,omitempty"`
+	// EnvImportMode is flatten | recreate (intoProject). Empty = flatten.
+	EnvImportMode string `json:"envImportMode,omitempty"`
+	// LayoutMode is auto | preserve | grid for the placement preview. Empty = auto.
+	LayoutMode string `json:"layoutMode,omitempty"`
 }
 
 // Collision kinds for unique / identity fields.
@@ -287,11 +316,20 @@ type ImportOptions struct {
 	ProjectID     uint `json:"projectId,omitempty"`
 	EnvironmentID uint `json:"environmentId,omitempty"`
 
+	// EnvImportMode is flatten | recreate for intoProject. Empty = flatten.
+	EnvImportMode string `json:"envImportMode,omitempty"`
+
+	// LayoutMode is auto | preserve | grid. Empty = auto.
+	LayoutMode string `json:"layoutMode,omitempty"`
+
+	// ServiceKeys limits which pack services to import (empty = all).
+	ServiceKeys []string `json:"serviceKeys,omitempty"`
+
 	// ServiceLabelOverrides maps pack service key → final canvas label.
 	// When omitted, colliding labels are auto-suffixed (api → api-2).
 	ServiceLabelOverrides map[string]string `json:"serviceLabelOverrides,omitempty"`
 
-	// EnvironmentNameOverrides maps pack environment key → display name (new project).
+	// EnvironmentNameOverrides maps pack environment key → display name.
 	EnvironmentNameOverrides map[string]string `json:"environmentNameOverrides,omitempty"`
 
 	// ServiceRootOverrides maps pack service key → absolute or project-relative path.
@@ -307,11 +345,23 @@ type ImportOptions struct {
 	// Prefer explicit fills for omitted secrets.
 	SecretValues map[string]string `json:"secretValues,omitempty"`
 
+	// SecretAppLinks maps secret env key → existing local app-secret key.
+	// Sets the env value to {{secret.KEY}} instead of a plaintext fill.
+	SecretAppLinks map[string]string `json:"secretAppLinks,omitempty"`
+
 	// AppSecretValues maps app secret key → value to create on import.
 	AppSecretValues map[string]string `json:"appSecretValues,omitempty"`
 
 	// ImportAppSecrets writes pack.AppSecrets (when values present) into app_secrets.
 	ImportAppSecrets bool `json:"importAppSecrets"`
+
+	// LinkExistingAppSecrets skips writing app secrets that already exist locally
+	// (same key) and records them as linked. Default true when not creating values.
+	LinkExistingAppSecrets bool `json:"linkExistingAppSecrets"`
+
+	// RequireIntegrity fails import when the pack has a contentHash that does not match.
+	// Packs without a hash still import (legacy / hand-edited).
+	RequireIntegrity bool `json:"requireIntegrity"`
 
 	// StartAfter deploys every imported environment's services after materialize
 	// (handled by the deploy engine wrapper; importer itself is store-only).
@@ -320,36 +370,97 @@ type ImportOptions struct {
 
 // ImportPreview is a dry-run of pack application.
 type ImportPreview struct {
-	PackScope         string               `json:"packScope"`
-	ProjectName       string               `json:"projectName"`
-	SuggestedProjectName string            `json:"suggestedProjectName,omitempty"`
-	Environments      []EnvironmentPayload `json:"environments"`
-	Services          []ServiceSummary     `json:"services"`
-	ProjectEnvVars    int                  `json:"projectEnvVarCount"`
-	SandboxProfiles   int                  `json:"sandboxProfileCount"`
-	AppSecrets        int                  `json:"appSecretCount"`
-	NeedsProjectPath  bool                 `json:"needsProjectPath"`
-	NeedsServiceRoots []ServiceRootNeed    `json:"needsServiceRoots,omitempty"`
-	NeedsBinds        []BindNeed           `json:"needsBinds,omitempty"`
-	NeedsSecrets      []string             `json:"needsSecrets,omitempty"`
-	NeedsAppSecrets   []string             `json:"needsAppSecrets,omitempty"`
+	PackScope            string               `json:"packScope"`
+	ProjectName          string               `json:"projectName"`
+	SuggestedProjectName string               `json:"suggestedProjectName,omitempty"`
+	Environments         []EnvironmentPayload `json:"environments"`
+	Services             []ServiceSummary     `json:"services"`
+	ProjectEnvVars       int                  `json:"projectEnvVarCount"`
+	SandboxProfiles      int                  `json:"sandboxProfileCount"`
+	AppSecrets           int                  `json:"appSecretCount"`
+	NeedsProjectPath     bool                 `json:"needsProjectPath"`
+	NeedsServiceRoots    []ServiceRootNeed    `json:"needsServiceRoots,omitempty"`
+	NeedsBinds           []BindNeed           `json:"needsBinds,omitempty"`
+	NeedsSecrets         []string             `json:"needsSecrets,omitempty"`
+	NeedsAppSecrets      []string             `json:"needsAppSecrets,omitempty"`
+	// ExistingAppSecrets lists local app-secret keys that match pack needs (same name).
+	ExistingAppSecrets []string `json:"existingAppSecrets,omitempty"`
+	// ContentHash is the pack's declared integrity hash (if any).
+	ContentHash string `json:"contentHash,omitempty"`
+	// ContentHashOK is true/false when a hash is present and was checked; nil when absent.
+	ContentHashOK *bool `json:"contentHashOk,omitempty"`
+	// MultiEnv is true when the pack has more than one environment.
+	MultiEnv bool `json:"multiEnv"`
+	// CanRecreateEnvs is true when into-project can recreate pack environments.
+	CanRecreateEnvs bool `json:"canRecreateEnvs"`
+	// HasLayout is true when at least one selected service has non-zero canvas coords.
+	HasLayout bool `json:"hasLayout"`
+	// Layout is a dry-run of canvas placement (existing nodes + proposed pack positions).
+	Layout *LayoutPreview `json:"layout,omitempty"`
 	// Collisions lists unique-field clashes with suggested renames.
 	Collisions []Collision `json:"collisions,omitempty"`
 	// HasBlockingCollision is true when import cannot auto-fix (e.g. path taken).
-	HasBlockingCollision bool `json:"hasBlockingCollision"`
+	HasBlockingCollision bool   `json:"hasBlockingCollision"`
 	Report               Report `json:"report"`
+}
+
+// LayoutPreview describes where selected services will land relative to existing canvas nodes.
+type LayoutPreview struct {
+	// Mode is the layout mode used for this preview (auto|preserve|grid).
+	Mode string `json:"mode"`
+	// NodeWidth / NodeHeight are the footprint used for overlap checks (canvas units).
+	NodeWidth  float64 `json:"nodeWidth"`
+	NodeHeight float64 `json:"nodeHeight"`
+	// Existing nodes already on the destination canvas (into-project flatten target, or empty for new project).
+	Existing []LayoutNode `json:"existing,omitempty"`
+	// Incoming proposed positions for selected pack services after layoutPlan.
+	Incoming []LayoutNode `json:"incoming,omitempty"`
+	// OverlapCount is how many incoming nodes overlap an existing node (or another incoming).
+	OverlapCount int `json:"overlapCount"`
+	// WouldOverlapWithoutShift is true when preserve/raw pack coords would stack on existing nodes.
+	WouldOverlapWithoutShift bool `json:"wouldOverlapWithoutShift"`
+	// Shifted is true when auto mode moved the pack group away from existing content.
+	Shifted bool `json:"shifted"`
+	// Bounds of the mini-map content (union of existing + incoming).
+	MinX float64 `json:"minX"`
+	MinY float64 `json:"minY"`
+	MaxX float64 `json:"maxX"`
+	MaxY float64 `json:"maxY"`
+}
+
+// LayoutNode is one rectangle on the layout mini-map.
+type LayoutNode struct {
+	// Key is pack service key for incoming, or store node id for existing.
+	Key   string  `json:"key"`
+	Label string  `json:"label"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	// PackX / PackY are original pack coordinates (incoming only).
+	PackX float64 `json:"packX,omitempty"`
+	PackY float64 `json:"packY,omitempty"`
+	// Overlaps is true when this incoming node intersects an existing (or peer) node.
+	Overlaps bool `json:"overlaps,omitempty"`
+	// OverlapsLabels names what this node sits on (existing service labels).
+	OverlapsLabels []string `json:"overlapsLabels,omitempty"`
+	// Kind is "existing" | "incoming".
+	Kind string `json:"kind"`
+	// EnvironmentKey is the pack env key (incoming) or empty for existing.
+	EnvironmentKey string `json:"environmentKey,omitempty"`
 }
 
 // ServiceSummary is a one-line service preview.
 type ServiceSummary struct {
-	Key            string `json:"key"`
-	Label          string `json:"label"`
-	EnvironmentKey string `json:"environmentKey"`
-	Mode           string `json:"mode"` // image | build
-	Image          string `json:"image,omitempty"`
-	Port           string `json:"port,omitempty"`
-	NeedsServiceRoot bool `json:"needsServiceRoot,omitempty"`
-	BindRemapCount int    `json:"bindRemapCount,omitempty"`
+	Key              string  `json:"key"`
+	Label            string  `json:"label"`
+	EnvironmentKey   string  `json:"environmentKey"`
+	Mode             string  `json:"mode"` // image | build
+	Image            string  `json:"image,omitempty"`
+	Port             string  `json:"port,omitempty"`
+	NeedsServiceRoot bool    `json:"needsServiceRoot,omitempty"`
+	BindRemapCount   int     `json:"bindRemapCount,omitempty"`
+	// X / Y are pack coordinates (pre-layout); final placement is in Layout.Incoming.
+	X float64 `json:"x,omitempty"`
+	Y float64 `json:"y,omitempty"`
 }
 
 // ServiceRootNeed is a service that needs a service_root on import.

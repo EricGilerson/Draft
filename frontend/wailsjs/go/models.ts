@@ -2710,6 +2710,7 @@ export namespace draftpack {
 	    // Go type: time
 	    exportedAt: any;
 	    scope: string;
+	    contentHash?: string;
 	    options: ExportOptions;
 	    project?: ProjectPayload;
 	    environments?: EnvironmentPayload[];
@@ -2729,6 +2730,7 @@ export namespace draftpack {
 	        this.version = source["version"];
 	        this.exportedAt = this.convertValues(source["exportedAt"], null);
 	        this.scope = source["scope"];
+	        this.contentHash = source["contentHash"];
 	        this.options = this.convertValues(source["options"], ExportOptions);
 	        this.project = this.convertValues(source["project"], ProjectPayload);
 	        this.environments = this.convertValues(source["environments"], EnvironmentPayload);
@@ -2801,14 +2803,20 @@ export namespace draftpack {
 	    projectPath?: string;
 	    projectId?: number;
 	    environmentId?: number;
+	    envImportMode?: string;
+	    layoutMode?: string;
+	    serviceKeys?: string[];
 	    serviceLabelOverrides?: Record<string, string>;
 	    environmentNameOverrides?: Record<string, string>;
 	    serviceRootOverrides?: Record<string, string>;
 	    bindPathOverrides?: Record<string, string>;
 	    hostPortOverrides?: Record<string, string>;
 	    secretValues?: Record<string, string>;
+	    secretAppLinks?: Record<string, string>;
 	    appSecretValues?: Record<string, string>;
 	    importAppSecrets: boolean;
+	    linkExistingAppSecrets: boolean;
+	    requireIntegrity: boolean;
 	    startAfter: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -2822,16 +2830,104 @@ export namespace draftpack {
 	        this.projectPath = source["projectPath"];
 	        this.projectId = source["projectId"];
 	        this.environmentId = source["environmentId"];
+	        this.envImportMode = source["envImportMode"];
+	        this.layoutMode = source["layoutMode"];
+	        this.serviceKeys = source["serviceKeys"];
 	        this.serviceLabelOverrides = source["serviceLabelOverrides"];
 	        this.environmentNameOverrides = source["environmentNameOverrides"];
 	        this.serviceRootOverrides = source["serviceRootOverrides"];
 	        this.bindPathOverrides = source["bindPathOverrides"];
 	        this.hostPortOverrides = source["hostPortOverrides"];
 	        this.secretValues = source["secretValues"];
+	        this.secretAppLinks = source["secretAppLinks"];
 	        this.appSecretValues = source["appSecretValues"];
 	        this.importAppSecrets = source["importAppSecrets"];
+	        this.linkExistingAppSecrets = source["linkExistingAppSecrets"];
+	        this.requireIntegrity = source["requireIntegrity"];
 	        this.startAfter = source["startAfter"];
 	    }
+	}
+	export class LayoutNode {
+	    key: string;
+	    label: string;
+	    x: number;
+	    y: number;
+	    packX?: number;
+	    packY?: number;
+	    overlaps?: boolean;
+	    overlapsLabels?: string[];
+	    kind: string;
+	    environmentKey?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayoutNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.packX = source["packX"];
+	        this.packY = source["packY"];
+	        this.overlaps = source["overlaps"];
+	        this.overlapsLabels = source["overlapsLabels"];
+	        this.kind = source["kind"];
+	        this.environmentKey = source["environmentKey"];
+	    }
+	}
+	export class LayoutPreview {
+	    mode: string;
+	    nodeWidth: number;
+	    nodeHeight: number;
+	    existing?: LayoutNode[];
+	    incoming?: LayoutNode[];
+	    overlapCount: number;
+	    wouldOverlapWithoutShift: boolean;
+	    shifted: boolean;
+	    minX: number;
+	    minY: number;
+	    maxX: number;
+	    maxY: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayoutPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.nodeWidth = source["nodeWidth"];
+	        this.nodeHeight = source["nodeHeight"];
+	        this.existing = this.convertValues(source["existing"], LayoutNode);
+	        this.incoming = this.convertValues(source["incoming"], LayoutNode);
+	        this.overlapCount = source["overlapCount"];
+	        this.wouldOverlapWithoutShift = source["wouldOverlapWithoutShift"];
+	        this.shifted = source["shifted"];
+	        this.minX = source["minX"];
+	        this.minY = source["minY"];
+	        this.maxX = source["maxX"];
+	        this.maxY = source["maxY"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ServiceRootNeed {
 	    serviceKey: string;
@@ -2858,6 +2954,8 @@ export namespace draftpack {
 	    port?: string;
 	    needsServiceRoot?: boolean;
 	    bindRemapCount?: number;
+	    x?: number;
+	    y?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServiceSummary(source);
@@ -2873,6 +2971,8 @@ export namespace draftpack {
 	        this.port = source["port"];
 	        this.needsServiceRoot = source["needsServiceRoot"];
 	        this.bindRemapCount = source["bindRemapCount"];
+	        this.x = source["x"];
+	        this.y = source["y"];
 	    }
 	}
 	export class ImportPreview {
@@ -2889,6 +2989,13 @@ export namespace draftpack {
 	    needsBinds?: BindNeed[];
 	    needsSecrets?: string[];
 	    needsAppSecrets?: string[];
+	    existingAppSecrets?: string[];
+	    contentHash?: string;
+	    contentHashOk?: boolean;
+	    multiEnv: boolean;
+	    canRecreateEnvs: boolean;
+	    hasLayout: boolean;
+	    layout?: LayoutPreview;
 	    collisions?: Collision[];
 	    hasBlockingCollision: boolean;
 	    report: Report;
@@ -2912,6 +3019,13 @@ export namespace draftpack {
 	        this.needsBinds = this.convertValues(source["needsBinds"], BindNeed);
 	        this.needsSecrets = source["needsSecrets"];
 	        this.needsAppSecrets = source["needsAppSecrets"];
+	        this.existingAppSecrets = source["existingAppSecrets"];
+	        this.contentHash = source["contentHash"];
+	        this.contentHashOk = source["contentHashOk"];
+	        this.multiEnv = source["multiEnv"];
+	        this.canRecreateEnvs = source["canRecreateEnvs"];
+	        this.hasLayout = source["hasLayout"];
+	        this.layout = this.convertValues(source["layout"], LayoutPreview);
 	        this.collisions = this.convertValues(source["collisions"], Collision);
 	        this.hasBlockingCollision = source["hasBlockingCollision"];
 	        this.report = this.convertValues(source["report"], Report);
@@ -2977,6 +3091,8 @@ export namespace draftpack {
 	}
 	
 	
+	
+	
 	export class PreviewOptions {
 	    mode?: string;
 	    projectId?: number;
@@ -2986,6 +3102,9 @@ export namespace draftpack {
 	    serviceLabelOverrides?: Record<string, string>;
 	    environmentNameOverrides?: Record<string, string>;
 	    hostPortOverrides?: Record<string, string>;
+	    serviceKeys?: string[];
+	    envImportMode?: string;
+	    layoutMode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PreviewOptions(source);
@@ -3001,6 +3120,9 @@ export namespace draftpack {
 	        this.serviceLabelOverrides = source["serviceLabelOverrides"];
 	        this.environmentNameOverrides = source["environmentNameOverrides"];
 	        this.hostPortOverrides = source["hostPortOverrides"];
+	        this.serviceKeys = source["serviceKeys"];
+	        this.envImportMode = source["envImportMode"];
+	        this.layoutMode = source["layoutMode"];
 	    }
 	}
 	

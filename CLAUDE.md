@@ -340,7 +340,12 @@ Important model details:
 - Config only: settings, env vars, project values, canvas layout, optional git settings / source_config / sandbox profiles. No Docker runtime state, routes, port leases, or deployment history.
 - **Export omit defaults** (safe cross-machine): strip absolute project path, `git_repo_root`, secret values, app-secret values, bind-mount host paths; keep project-relative `service_root`; Draft volumes export as container-path intent only.
 - **Optional include**: secret values, app secrets, bind host paths, sandbox profiles (project scope).
-- **Import**: new project (folder picker) or into existing project/environment; remap service roots and binds; fill omitted secrets; regenerate node IDs/UIDs; restore `service_link` by label when both sides are in the pack; fidelity report of skipped/needs-attention items.
+- **Integrity**: export seals a `contentHash` (sha256 of the pack body); import verifies when present (tamper/corruption fails parse).
+- **Import**: new project (folder picker) or into existing project/environment; paste JSON or choose file; partial service selection; remap service roots and binds; fill omitted secrets or **link to existing app secrets** (`{{secret.KEY}}`); regenerate node IDs/UIDs; restore `service_link` by label when both sides are in the pack; fidelity report of skipped/needs-attention items.
+- **Placement**: layout modes `auto` (offset pack group away from existing nodes; grid when no coords), `preserve`, `grid`. Import UI shows a **canvas mini-map** (existing vs incoming nodes; translucent hatch when stacked) driven by a server-side layout preview so Auto matches what import will do.
+- **Multi-env into project**: `flatten` (one target env) or `recreate` (map/create pack environments on the destination project).
+- **Start after import**: optional stack start per imported environment (import still succeeds if start fails).
+- Unique-field collisions (project name, service labels, host ports, path) are fixable in the import UI with auto-rename defaults (path remains blocking).
 - UI: Projects **Import pack**; canvas **Import pack** / **Export pack**; environment switcher **Pack**; service drawer **Pack**.
 
 ### Workspace admin views

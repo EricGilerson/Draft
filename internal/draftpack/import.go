@@ -21,6 +21,7 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 	if pack == nil {
 		return nil, fmt.Errorf("nil pack")
 	}
+	services := selectedServices(pack, opts.ServiceKeys)
 	prev := &ImportPreview{
 		PackScope:        pack.Scope,
 		Report:           pack.Report, // include export notes
@@ -29,9 +30,20 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 		AppSecrets:       len(pack.AppSecrets),
 		NeedsProjectPath: true,
 		Environments:     pack.Environments,
+		ContentHash:      strings.TrimSpace(pack.ContentHash),
+		MultiEnv:         len(pack.Environments) > 1,
+		CanRecreateEnvs:  len(pack.Environments) > 0,
 	}
 	if pack.Project != nil {
 		prev.ProjectName = pack.Project.Name
+	}
+	if ok, has, err := VerifyContentHash(pack); err == nil && has {
+		v := ok
+		prev.ContentHashOK = &v
+		if !ok {
+			prev.Report.Add(KindManual, "integrity", "contentHash",
+				"Pack content hash does not match; the file may be corrupted or edited.")
+		}
 	}
 	// Suggested free project name when the pack name is taken.
 	nameForSuggest := strings.TrimSpace(opts.ProjectName)
@@ -46,7 +58,10 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 		}
 	}
 
-	for _, svc := range pack.Services {
+	for _, svc := range services {
+		if svc.X != 0 || svc.Y != 0 {
+			prev.HasLayout = true
+		}
 		mode := "build"
 		image := ""
 		if img := strings.TrimSpace(svc.Settings["image"]); img != "" && strings.TrimSpace(svc.Settings["dockerfile"]) == "" {
@@ -62,6 +77,8 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 			Port:             strings.TrimSpace(svc.Settings["service_port"]),
 			NeedsServiceRoot: svc.NeedsServiceRoot || (mode == "build" && strings.TrimSpace(svc.Settings["service_root"]) == "" && strings.TrimSpace(svc.Settings["dockerfile"]) != ""),
 			BindRemapCount:   len(svc.BindRemaps),
+			X:                svc.X,
+			Y:                svc.Y,
 		}
 		// Auto: if relative service_root present, not needed unless path missing (checked at import).
 		if !svc.NeedsServiceRoot && strings.TrimSpace(svc.Settings["service_root"]) != "" {
@@ -85,7 +102,7 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 		prev.Services = append(prev.Services, sum)
 	}
 	secretKeys := map[string]bool{}
-	for _, svc := range pack.Services {
+	for _, svc := range services {
 		for _, ev := range svc.Env {
 			if ev.Secret && ev.ValueOmitted {
 				secretKeys[ev.Key] = true
@@ -100,12 +117,37 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 	for k := range secretKeys {
 		prev.NeedsSecrets = append(prev.NeedsSecrets, k)
 	}
+	existingSet := map[string]bool{}
+	if keys, err := e.Store.ListAppSecretKeys(); err == nil {
+		for _, k := range keys {
+			existingSet[k] = true
+		}
+	}
 	for _, s := range pack.AppSecrets {
 		if s.ValueOmitted || s.Value == "" {
 			prev.NeedsAppSecrets = append(prev.NeedsAppSecrets, s.Key)
 		}
+		if existingSet[s.Key] {
+			prev.ExistingAppSecrets = append(prev.ExistingAppSecrets, s.Key)
+		}
+	}
+	// Also surface secret env keys that already exist as app secrets (vault link).
+	for k := range secretKeys {
+		if existingSet[k] {
+			found := false
+			for _, ek := range prev.ExistingAppSecrets {
+				if ek == k {
+					found = true
+					break
+				}
+			}
+			if !found {
+				prev.ExistingAppSecrets = append(prev.ExistingAppSecrets, k)
+			}
+		}
 	}
 
+	// Collision detection uses selected services only via ServiceKeys on opts.
 	prev.Collisions = e.detectCollisions(pack, opts)
 	for _, c := range prev.Collisions {
 		if c.Blocking {
@@ -116,6 +158,16 @@ func (e *Importer) Preview(pack *Pack, opts PreviewOptions) (*ImportPreview, err
 			kind = KindInfo
 		}
 		prev.Report.Add(kind, c.Kind, c.Field, c.Message)
+	}
+
+	// Canvas placement preview for the import mini-map.
+	prev.Layout = e.buildLayoutPreview(pack, services, opts)
+	if prev.Layout != nil && prev.Layout.OverlapCount > 0 {
+		prev.Report.Add(KindInfo, "layout_overlap", "canvas",
+			fmt.Sprintf("%d imported service(s) would sit on top of existing canvas nodes with the current placement mode.", prev.Layout.OverlapCount))
+	} else if prev.Layout != nil && prev.Layout.WouldOverlapWithoutShift && prev.Layout.Shifted {
+		prev.Report.Add(KindInfo, "layout_shifted", "canvas",
+			"Pack coordinates overlapped existing services; auto placement moved the group clear.")
 	}
 	return prev, nil
 }
@@ -128,11 +180,32 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 	var rep Report
 	rep.Merge(pack.Report)
 
+	if ok, has, err := VerifyContentHash(pack); err != nil {
+		return nil, err
+	} else if has && !ok {
+		if opts.RequireIntegrity {
+			return nil, fmt.Errorf("pack content hash mismatch (file may be corrupted or edited)")
+		}
+		rep.Add(KindManual, "integrity", "contentHash",
+			"Pack content hash does not match; imported anyway (integrity not required).")
+	}
+
 	mode := opts.Mode
 	if mode == "" {
 		mode = ImportAsNewProject
 	}
 	opts.Mode = mode
+	if strings.TrimSpace(opts.LayoutMode) == "" {
+		opts.LayoutMode = LayoutAuto
+	}
+	if strings.TrimSpace(opts.EnvImportMode) == "" {
+		opts.EnvImportMode = EnvImportFlatten
+	}
+
+	services := selectedServices(pack, opts.ServiceKeys)
+	if len(services) == 0 {
+		return nil, fmt.Errorf("no services selected for import")
+	}
 
 	// Auto-fix renamable collisions (labels, project name, host ports) when
 	// the user left them blank; blocking path collisions still error below.
@@ -148,6 +221,8 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		ServiceLabelOverrides:    opts.ServiceLabelOverrides,
 		EnvironmentNameOverrides: opts.EnvironmentNameOverrides,
 		HostPortOverrides:        opts.HostPortOverrides,
+		ServiceKeys:              opts.ServiceKeys,
+		EnvImportMode:            opts.EnvImportMode,
 	}) {
 		if c.Blocking {
 			return nil, fmt.Errorf("%s", c.Message)
@@ -201,7 +276,7 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 			}
 		}
 		// Create environments from pack (or use default for service/env scope).
-		envIDs, envIDByKey, err = e.ensureEnvironments(project.ID, pack, &rep)
+		envIDs, envIDByKey, err = e.ensureEnvironments(project.ID, pack, opts, &rep)
 		if err != nil {
 			return nil, err
 		}
@@ -211,24 +286,37 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		if err != nil {
 			return nil, fmt.Errorf("project not found: %w", err)
 		}
-		if opts.EnvironmentID == 0 {
-			return nil, fmt.Errorf("target environment is required")
+		if opts.EnvImportMode == EnvImportRecreate && len(pack.Environments) > 0 {
+			envIDs, envIDByKey, err = e.recreateEnvironments(project.ID, pack, opts, &rep)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if opts.EnvironmentID == 0 {
+				return nil, fmt.Errorf("target environment is required")
+			}
+			env, err := e.Store.GetEnvironment(opts.EnvironmentID)
+			if err != nil {
+				return nil, fmt.Errorf("environment not found: %w", err)
+			}
+			if env.ProjectID != project.ID {
+				return nil, fmt.Errorf("environment does not belong to project")
+			}
+			// Flatten: all pack services land in the selected environment.
+			for _, pe := range pack.Environments {
+				envIDByKey[pe.Key] = env.ID
+			}
+			if len(envIDByKey) == 0 {
+				envIDByKey["default"] = env.ID
+			}
+			// Services without env keys still map to target.
+			for _, svc := range services {
+				if _, ok := envIDByKey[svc.EnvironmentKey]; !ok {
+					envIDByKey[svc.EnvironmentKey] = env.ID
+				}
+			}
+			envIDs = []uint{env.ID}
 		}
-		env, err := e.Store.GetEnvironment(opts.EnvironmentID)
-		if err != nil {
-			return nil, fmt.Errorf("environment not found: %w", err)
-		}
-		if env.ProjectID != project.ID {
-			return nil, fmt.Errorf("environment does not belong to project")
-		}
-		// All pack services land in the selected environment.
-		for _, pe := range pack.Environments {
-			envIDByKey[pe.Key] = env.ID
-		}
-		if len(envIDByKey) == 0 {
-			envIDByKey["default"] = env.ID
-		}
-		envIDs = []uint{env.ID}
 
 	default:
 		return nil, fmt.Errorf("unknown import mode %q", mode)
@@ -238,7 +326,9 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 	for _, pv := range pack.ProjectEnvVars {
 		val := pv.Value
 		if pv.ValueOmitted || (pv.Secret && val == "") {
-			if opts.SecretValues != nil {
+			if link := secretLink(opts, pv.Key); link != "" {
+				val = "{{secret." + link + "}}"
+			} else if opts.SecretValues != nil {
 				if v, ok := opts.SecretValues[pv.Key]; ok {
 					val = v
 				}
@@ -253,24 +343,31 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		}
 	}
 
-	// App secrets
-	if opts.ImportAppSecrets {
-		for _, s := range pack.AppSecrets {
-			val := s.Value
-			if opts.AppSecretValues != nil {
-				if v, ok := opts.AppSecretValues[s.Key]; ok && v != "" {
-					val = v
-				}
+	// App secrets: write new values and/or acknowledge existing vault keys.
+	for _, s := range pack.AppSecrets {
+		exists, _ := e.Store.AppSecretExists(s.Key)
+		if exists && (opts.LinkExistingAppSecrets || !opts.ImportAppSecrets) {
+			rep.Add(KindInfo, "app_secret_linked", s.Key,
+				"App secret "+s.Key+" already exists on this install; left as-is.")
+			continue
+		}
+		if !opts.ImportAppSecrets {
+			continue
+		}
+		val := s.Value
+		if opts.AppSecretValues != nil {
+			if v, ok := opts.AppSecretValues[s.Key]; ok && v != "" {
+				val = v
 			}
-			if val == "" {
-				rep.Add(KindManual, "app_secret_empty", s.Key, "App secret "+s.Key+" not imported (no value).")
-				continue
-			}
-			if err := e.Store.SetAppSecret(s.Key, val, s.Description); err != nil {
-				rep.Add(KindManual, "app_secret_failed", s.Key, err.Error())
-			} else {
-				rep.Add(KindInfo, "app_secret_imported", s.Key, "App secret "+s.Key+" was written.")
-			}
+		}
+		if val == "" {
+			rep.Add(KindManual, "app_secret_empty", s.Key, "App secret "+s.Key+" not imported (no value).")
+			continue
+		}
+		if err := e.Store.SetAppSecret(s.Key, val, s.Description); err != nil {
+			rep.Add(KindManual, "app_secret_failed", s.Key, err.Error())
+		} else {
+			rep.Add(KindInfo, "app_secret_imported", s.Key, "App secret "+s.Key+" was written.")
 		}
 	}
 
@@ -304,11 +401,17 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		link    *ServiceLinkPayload
 	}
 	var createdNodes []created
-	nodeIDs := make([]string, 0, len(pack.Services))
+	nodeIDs := make([]string, 0, len(services))
 	// Map envKey+label → nodeID for service_link second pass
 	labelIndex := map[string]string{} // envKey+"\x00"+label → nodeID
 
-	for _, svc := range pack.Services {
+	coords := e.layoutPlan(pack, services, opts, envIDByKey)
+	if opts.LayoutMode == LayoutAuto || opts.LayoutMode == LayoutGrid {
+		rep.Add(KindInfo, "layout", "canvas",
+			fmt.Sprintf("Canvas placement mode: %s.", opts.LayoutMode))
+	}
+
+	for _, svc := range services {
 		envID, ok := envIDByKey[svc.EnvironmentKey]
 		if !ok {
 			// Fallback: first env
@@ -335,13 +438,14 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 				fmt.Sprintf("Service renamed to %q to avoid a name collision.", finalLabel))
 		}
 		label = finalLabel
+		xy := coords[svc.Key]
 		node, err := e.Store.CreateNode(&store.CanvasNode{
 			ID:            genNodeID(),
 			Label:         label,
 			ProjectID:     project.ID,
 			EnvironmentID: envID,
-			X:             svc.X,
-			Y:             svc.Y,
+			X:             xy[0],
+			Y:             xy[1],
 		})
 		if err != nil {
 			// Last-resort retry with a fresh unique label.
@@ -351,8 +455,8 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 				Label:         retry,
 				ProjectID:     project.ID,
 				EnvironmentID: envID,
-				X:             svc.X,
-				Y:             svc.Y,
+				X:             xy[0],
+				Y:             xy[1],
 			})
 			if err != nil {
 				rep.Add(KindManual, "create_failed", svc.Label, err.Error())
@@ -426,7 +530,11 @@ func (e *Importer) Import(pack *Pack, opts ImportOptions) (*ImportResult, error)
 		for _, ev := range svc.Env {
 			val := ev.Value
 			if ev.ValueOmitted || (ev.Secret && val == "") {
-				if opts.SecretValues != nil {
+				if link := secretLink(opts, ev.Key); link != "" {
+					val = "{{secret." + link + "}}"
+					rep.Add(KindInfo, "secret_linked", ev.Key,
+						fmt.Sprintf("%s linked to app secret %s.", ev.Key, link))
+				} else if opts.SecretValues != nil {
 					if v, ok := opts.SecretValues[ev.Key]; ok {
 						val = v
 					}
@@ -500,7 +608,26 @@ func projectDesc(pack *Pack) string {
 	return "Imported from Draft pack"
 }
 
-func (e *Importer) ensureEnvironments(projectID uint, pack *Pack, rep *Report) ([]uint, map[string]uint, error) {
+func secretLink(opts ImportOptions, key string) string {
+	if opts.SecretAppLinks == nil {
+		return ""
+	}
+	return strings.TrimSpace(opts.SecretAppLinks[key])
+}
+
+func envDisplayName(pe EnvironmentPayload, opts ImportOptions) string {
+	if opts.EnvironmentNameOverrides != nil {
+		if o := strings.TrimSpace(opts.EnvironmentNameOverrides[pe.Key]); o != "" {
+			return o
+		}
+	}
+	if pe.Name != "" {
+		return pe.Name
+	}
+	return pe.Key
+}
+
+func (e *Importer) ensureEnvironments(projectID uint, pack *Pack, opts ImportOptions, rep *Report) ([]uint, map[string]uint, error) {
 	envIDByKey := map[string]uint{}
 	var envIDs []uint
 
@@ -529,8 +656,9 @@ func (e *Importer) ensureEnvironments(projectID uint, pack *Pack, rep *Report) (
 	}
 
 	// Rename default env to match pack default name (slug stays as created).
-	if defaultPack.Name != "" && defaultPack.Name != def.Name {
-		_ = e.Store.RenameEnvironment(def.ID, defaultPack.Name)
+	defName := envDisplayName(*defaultPack, opts)
+	if defName != "" && defName != def.Name {
+		_ = e.Store.RenameEnvironment(def.ID, defName)
 	}
 	envIDByKey[defaultPack.Key] = def.ID
 	envIDs = append(envIDs, def.ID)
@@ -540,10 +668,11 @@ func (e *Importer) ensureEnvironments(projectID uint, pack *Pack, rep *Report) (
 		if pe.Key == defaultPack.Key {
 			continue
 		}
+		name := envDisplayName(pe, opts)
 		// CreateEnvironment generates its own slug from name.
-		env, err := e.Store.CreateEnvironment(projectID, pe.Name)
+		env, err := e.Store.CreateEnvironment(projectID, name)
 		if err != nil {
-			rep.Add(KindManual, "env_create_failed", pe.Name, err.Error())
+			rep.Add(KindManual, "env_create_failed", name, err.Error())
 			// Fall back to default env for services
 			envIDByKey[pe.Key] = def.ID
 			continue
@@ -552,6 +681,90 @@ func (e *Importer) ensureEnvironments(projectID uint, pack *Pack, rep *Report) (
 		envIDs = append(envIDs, env.ID)
 	}
 	return envIDs, envIDByKey, nil
+}
+
+// recreateEnvironments maps pack environments onto an existing project:
+// match by display name when possible, otherwise create.
+func (e *Importer) recreateEnvironments(projectID uint, pack *Pack, opts ImportOptions, rep *Report) ([]uint, map[string]uint, error) {
+	envIDByKey := map[string]uint{}
+	var envIDs []uint
+	existing, err := e.Store.ListEnvironments(projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	byName := map[string]store.Environment{}
+	for _, env := range existing {
+		byName[strings.ToLower(strings.TrimSpace(env.Name))] = env
+	}
+	seenIDs := map[uint]bool{}
+	for _, pe := range pack.Environments {
+		name := envDisplayName(pe, opts)
+		if name == "" {
+			name = pe.Key
+		}
+		nk := strings.ToLower(strings.TrimSpace(name))
+		if env, ok := byName[nk]; ok {
+			envIDByKey[pe.Key] = env.ID
+			if !seenIDs[env.ID] {
+				envIDs = append(envIDs, env.ID)
+				seenIDs[env.ID] = true
+			}
+			rep.Add(KindInfo, "env_mapped", pe.Key,
+				fmt.Sprintf("Pack environment %q mapped to existing %q.", pe.Name, env.Name))
+			continue
+		}
+		created, err := e.Store.CreateEnvironment(projectID, name)
+		if err != nil {
+			// Unique-ish race: try a free name.
+			free := e.uniqueEnvironmentName(projectID, name)
+			created, err = e.Store.CreateEnvironment(projectID, free)
+			if err != nil {
+				rep.Add(KindManual, "env_create_failed", name, err.Error())
+				continue
+			}
+			if free != name {
+				rep.Add(KindInfo, "env_renamed", pe.Key,
+					fmt.Sprintf("Environment %q created as %q.", name, free))
+			}
+		}
+		envIDByKey[pe.Key] = created.ID
+		envIDs = append(envIDs, created.ID)
+		seenIDs[created.ID] = true
+		byName[strings.ToLower(strings.TrimSpace(created.Name))] = *created
+	}
+	if len(envIDs) == 0 {
+		def, err := e.Store.GetDefaultEnvironment(projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return []uint{def.ID}, map[string]uint{"default": def.ID}, nil
+	}
+	return envIDs, envIDByKey, nil
+}
+
+func (e *Importer) uniqueEnvironmentName(projectID uint, base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "Environment"
+	}
+	existing, err := e.Store.ListEnvironments(projectID)
+	if err != nil {
+		return base
+	}
+	taken := map[string]bool{}
+	for _, env := range existing {
+		taken[strings.ToLower(strings.TrimSpace(env.Name))] = true
+	}
+	if !taken[strings.ToLower(base)] {
+		return base
+	}
+	for i := 2; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s-%d", base, i)
+		if !taken[strings.ToLower(candidate)] {
+			return candidate
+		}
+	}
+	return base + "-import"
 }
 
 func (e *Importer) uniqueLabel(environmentID uint, name string) string {

@@ -1,0 +1,191 @@
+.draftpack-layout-map {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.draftpack-layout-map.has-overlap {
+    border-color: rgba(212, 162, 76, 0.45);
+    background: rgba(212, 162, 76, 0.06);
+}
+
+.draftpack-layout-map-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.draftpack-layout-map-header h4 {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.draftpack-layout-mode-select {
+    max-width: 220px;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.draftpack-layout-status {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.4;
+}
+
+.draftpack-layout-status.is-ok {
+    color: #7ac87a;
+}
+
+.draftpack-layout-status.is-info {
+    color: #56a3f5;
+}
+
+.draftpack-layout-status.is-warn {
+    color: #e0b35a;
+}
+
+.draftpack-layout-legend {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-secondary, #8a8f98);
+    flex-wrap: wrap;
+}
+
+.draftpack-layout-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 4px;
+    vertical-align: middle;
+    border: 1px solid transparent;
+}
+
+.draftpack-layout-swatch.is-existing {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.draftpack-layout-swatch.is-incoming {
+    background: rgba(86, 163, 245, 0.45);
+    border-color: rgba(86, 163, 245, 0.7);
+}
+
+.draftpack-layout-swatch.is-overlap {
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(239, 111, 104, 0.55),
+        rgba(239, 111, 104, 0.55) 3px,
+        rgba(86, 163, 245, 0.35) 3px,
+        rgba(86, 163, 245, 0.35) 6px
+    );
+    border-color: rgba(239, 111, 104, 0.7);
+}
+
+.draftpack-layout-viewport {
+    position: relative;
+    max-width: 100%;
+    margin: 0 auto;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        rgba(12, 14, 18, 0.85);
+    background-size: 16px 16px, 16px 16px, auto;
+    overflow: hidden;
+}
+
+.draftpack-layout-node {
+    position: absolute;
+    box-sizing: border-box;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 4px 6px;
+    overflow: hidden;
+    pointer-events: auto;
+    min-width: 24px;
+    min-height: 16px;
+}
+
+.draftpack-layout-node.is-existing {
+    z-index: 1;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    color: rgba(230, 232, 235, 0.55);
+}
+
+.draftpack-layout-node.is-incoming {
+    z-index: 2;
+    background: rgba(86, 163, 245, 0.42);
+    border: 1px solid rgba(86, 163, 245, 0.85);
+    color: #e8f2fc;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* Translucent hatch so the existing node underneath remains visible */
+.draftpack-layout-node.is-incoming.is-overlap {
+    z-index: 3;
+    background: repeating-linear-gradient(
+        -45deg,
+        rgba(239, 111, 104, 0.5),
+        rgba(239, 111, 104, 0.5) 4px,
+        rgba(86, 163, 245, 0.32) 4px,
+        rgba(86, 163, 245, 0.32) 8px
+    );
+    border-color: rgba(239, 111, 104, 0.9);
+    color: #fff;
+}
+
+.draftpack-layout-node-label {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
+.draftpack-layout-node-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    opacity: 0.9;
+    margin-top: 2px;
+}
+
+.draftpack-layout-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-layout-overlap-list {
+    margin: 0;
+    padding: 0 0 0 16px;
+    font-size: 12px;
+    color: #e0b35a;
+    line-height: 1.45;
+}
+
+.draftpack-layout-overlap-list strong {
+    color: #f0c870;
+}

@@ -89,6 +89,38 @@
     color: #56a3f5;
 }
 
+.draftpack-source-badge.is-bad {
+    background: rgba(239, 111, 104, 0.15);
+    color: #ef6f68;
+}
+
+.draftpack-services-select li {
+    flex-wrap: wrap;
+}
+
+.draftpack-svc-check {
+    margin: 0;
+    gap: 8px;
+}
+
+.draftpack-secret-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.draftpack-secret-row:last-child {
+    border-bottom: none;
+}
+
+.draftpack-secret-key {
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .draftpack-path {
     font-size: 11.5px;
     max-width: 360px;

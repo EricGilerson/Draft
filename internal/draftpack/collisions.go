@@ -63,9 +63,12 @@ func (e *Importer) detectCollisions(pack *Pack, opts PreviewOptions) []Collision
 		return strings.TrimSpace(svc.Label)
 	}
 
+	services := selectedServices(pack, opts.ServiceKeys)
+	flatten := mode == ImportIntoProject && strings.TrimSpace(opts.EnvImportMode) != EnvImportRecreate
+
 	// Build env grouping key for label uniqueness.
 	envGroup := func(svc ServicePayload) string {
-		if mode == ImportIntoProject {
+		if flatten {
 			return "*"
 		}
 		if svc.EnvironmentKey == "" {
@@ -81,20 +84,56 @@ func (e *Importer) detectCollisions(pack *Pack, opts PreviewOptions) []Collision
 	}
 	claimed := map[string]map[string]claim{} // envGroup → normLabel → claim
 
-	// Seed store labels for into-project target env.
-	if mode == ImportIntoProject && opts.EnvironmentID != 0 {
+	// Seed store labels for into-project target env (flatten mode).
+	if flatten && opts.EnvironmentID != 0 {
 		claimed["*"] = map[string]claim{}
 		for nk := range e.labelsInEnvironment(opts.EnvironmentID) {
 			claimed["*"][nk] = claim{serviceKey: "__store__", label: nk}
 		}
 	}
+	// Seed store labels when recreating: match by environment name when possible.
+	if mode == ImportIntoProject && !flatten && opts.ProjectID != 0 {
+		existing, _ := e.Store.ListEnvironments(opts.ProjectID)
+		byName := map[string]uint{}
+		for _, env := range existing {
+			byName[strings.ToLower(strings.TrimSpace(env.Name))] = env.ID
+			claimed[fmt.Sprintf("id:%d", env.ID)] = map[string]claim{}
+			for nk := range e.labelsInEnvironment(env.ID) {
+				claimed[fmt.Sprintf("id:%d", env.ID)][nk] = claim{serviceKey: "__store__", label: nk}
+			}
+		}
+		// Remap envGroup for pack env keys that match existing names.
+		_ = byName
+	}
 
-	for _, svc := range pack.Services {
+	for _, svc := range services {
 		label := effectiveLabel(svc)
 		if label == "" {
 			continue
 		}
 		eg := envGroup(svc)
+		// When recreating, also check against an existing env of the same name.
+		if mode == ImportIntoProject && !flatten && opts.ProjectID != 0 {
+			name := svc.EnvironmentKey
+			for _, pe := range pack.Environments {
+				if pe.Key == svc.EnvironmentKey {
+					if o := opts.EnvironmentNameOverrides[pe.Key]; strings.TrimSpace(o) != "" {
+						name = o
+					} else if pe.Name != "" {
+						name = pe.Name
+					}
+					break
+				}
+			}
+			if existing, err := e.Store.ListEnvironments(opts.ProjectID); err == nil {
+				for _, env := range existing {
+					if strings.EqualFold(env.Name, name) {
+						eg = fmt.Sprintf("id:%d", env.ID)
+						break
+					}
+				}
+			}
+		}
 		if claimed[eg] == nil {
 			claimed[eg] = map[string]claim{}
 		}
@@ -107,7 +146,7 @@ func (e *Importer) detectCollisions(pack *Pack, opts PreviewOptions) []Collision
 				taken[k] = true
 			}
 			// Also reserve other effective labels we'll assign
-			for _, other := range pack.Services {
+			for _, other := range services {
 				if other.Key == svc.Key {
 					continue
 				}
@@ -168,7 +207,7 @@ func (e *Importer) detectCollisions(pack *Pack, opts PreviewOptions) []Collision
 		}
 	}
 
-	for _, svc := range pack.Services {
+	for _, svc := range services {
 		port, cleared := effectivePort(svc)
 		if cleared || port == "" {
 			continue
@@ -299,6 +338,8 @@ func (e *Importer) applyCollisionDefaults(pack *Pack, opts *ImportOptions) {
 		ServiceLabelOverrides:    opts.ServiceLabelOverrides,
 		EnvironmentNameOverrides: opts.EnvironmentNameOverrides,
 		HostPortOverrides:        opts.HostPortOverrides,
+		ServiceKeys:              opts.ServiceKeys,
+		EnvImportMode:            opts.EnvImportMode,
 	}
 	for _, c := range e.detectCollisions(pack, prev) {
 		switch c.Kind {

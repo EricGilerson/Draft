@@ -2,6 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {ClipboardPaste, FileUp, FolderOpen, Loader2, Package} from 'lucide-react';
 import Dialog from './Dialog';
 import ConfigReport from './ConfigReport';
+import DraftPackLayoutMap from './DraftPackLayoutMap';
 import {useAppDialog} from './AppDialogProvider';
 import {
     ImportDraftPack,
@@ -42,9 +43,14 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     const [serviceLabels, setServiceLabels] = useState<Record<string, string>>({});
     const [hostPorts, setHostPorts] = useState<Record<string, string>>({});
     const [secretValues, setSecretValues] = useState<Record<string, string>>({});
+    const [secretAppLinks, setSecretAppLinks] = useState<Record<string, string>>({});
     const [appSecretValues, setAppSecretValues] = useState<Record<string, string>>({});
     const [importAppSecrets, setImportAppSecrets] = useState(false);
+    const [linkExistingAppSecrets, setLinkExistingAppSecrets] = useState(true);
     const [startAfter, setStartAfter] = useState(false);
+    const [layoutMode, setLayoutMode] = useState<'auto' | 'preserve' | 'grid'>('auto');
+    const [envImportMode, setEnvImportMode] = useState<'flatten' | 'recreate'>('flatten');
+    const [selectedKeys, setSelectedKeys] = useState<Record<string, boolean>>({});
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [resultReport, setResultReport] = useState<draftpack.Report | null>(null);
@@ -54,6 +60,15 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
 
     const hasSource = sourceMode === 'file' ? !!path : !!activeJSON;
 
+    const selectedServiceKeys = useCallback((): string[] => {
+        const all = preview?.services ?? [];
+        if (all.length === 0) return [];
+        const keys = all.map((s) => s.key).filter((k) => selectedKeys[k] !== false);
+        // If nothing explicitly selected, treat as all (initial state before seed).
+        if (Object.keys(selectedKeys).length === 0) return all.map((s) => s.key);
+        return keys;
+    }, [preview, selectedKeys]);
+
     const finish = () => {
         if (importedProjectId != null) {
             onImported(importedProjectId, importedEnvId);
@@ -62,6 +77,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     const buildPreviewOptions = useCallback((): draftpack.PreviewOptions => {
+        const keys = selectedServiceKeys();
         return draftpack.PreviewOptions.createFrom({
             mode,
             projectId: projectId || 0,
@@ -70,8 +86,11 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
             projectPath: projectPath.trim(),
             serviceLabelOverrides: serviceLabels,
             hostPortOverrides: hostPorts,
+            serviceKeys: keys,
+            envImportMode: mode === 'intoProject' ? envImportMode : undefined,
+            layoutMode,
         });
-    }, [mode, projectId, targetEnvId, environmentId, projectName, projectPath, serviceLabels, hostPorts]);
+    }, [mode, projectId, targetEnvId, environmentId, projectName, projectPath, serviceLabels, hostPorts, envImportMode, layoutMode, selectedServiceKeys]);
 
     const runPreview = useCallback(async (opts: draftpack.PreviewOptions, filePath?: string, jsonText?: string) => {
         if (jsonText != null && jsonText.trim() !== '') {
@@ -83,10 +102,23 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         throw new Error('No pack source');
     }, []);
 
-    const applyPreviewSeed = async (pv: draftpack.ImportPreview) => {
+    const applyPreviewSeed = async (pv: draftpack.ImportPreview, keepSelection = false) => {
         setPreview(pv);
         const name = pv.suggestedProjectName || pv.projectName || 'imported';
         setProjectName(name);
+
+        if (!keepSelection) {
+            const sel: Record<string, boolean> = {};
+            for (const s of pv.services ?? []) {
+                sel[s.key] = true;
+            }
+            setSelectedKeys(sel);
+        }
+
+        // Default recreate for multi-env packs into a project.
+        if (pv.multiEnv && projectId && mode === 'intoProject') {
+            setEnvImportMode((prev) => (prev === 'flatten' ? 'recreate' : prev));
+        }
 
         const roots: Record<string, string> = {};
         for (const n of pv.needsServiceRoots ?? []) {
@@ -109,6 +141,16 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         }
         setServiceLabels(labels);
         setHostPorts(ports);
+
+        // Auto-link secret keys that already exist as app secrets.
+        const links: Record<string, string> = {};
+        const existing = new Set(pv.existingAppSecrets ?? []);
+        for (const key of pv.needsSecrets ?? []) {
+            if (existing.has(key)) {
+                links[key] = key;
+            }
+        }
+        setSecretAppLinks(links);
 
         if (projectId) {
             const list = await ListEnvironments(projectId);
@@ -253,19 +295,31 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                 }
             }
 
+            const keys = selectedServiceKeys();
+            if (keys.length === 0) {
+                setError('Select at least one service to import.');
+                setBusy(false);
+                return;
+            }
+
             const opts = draftpack.ImportOptions.createFrom({
                 mode,
                 projectName: name,
                 projectPath: projectPath.trim(),
                 projectId: projectId || 0,
                 environmentId: targetEnvId || environmentId || 0,
+                envImportMode: mode === 'intoProject' ? envImportMode : undefined,
+                layoutMode,
+                serviceKeys: keys,
                 serviceLabelOverrides: labels,
                 serviceRootOverrides: serviceRoots,
                 bindPathOverrides: bindPaths,
                 hostPortOverrides: ports,
                 secretValues,
+                secretAppLinks,
                 appSecretValues,
                 importAppSecrets,
+                linkExistingAppSecrets,
                 startAfter,
             });
 
@@ -299,11 +353,20 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     const hasBlocking = !!preview?.hasBlockingCollision;
-    const canImport = !!preview && !busy && !resultReport && !hasBlocking && hasSource && (
+    const anyServiceSelected = selectedServiceKeys().length > 0;
+    const canImport = !!preview && !busy && !resultReport && !hasBlocking && hasSource && anyServiceSelected && (
         mode === 'newProject'
             ? projectName.trim() !== '' && projectPath.trim() !== ''
-            : !!(projectId && (targetEnvId || environmentId))
+            : mode === 'intoProject' && envImportMode === 'recreate'
+                ? !!projectId
+                : !!(projectId && (targetEnvId || environmentId))
     );
+
+    const toggleService = (key: string) => {
+        setSelectedKeys((prev) => ({...prev, [key]: prev[key] === false}));
+    };
+
+    const existingSecretSet = new Set(preview?.existingAppSecrets ?? []);
 
     const collisions = preview?.collisions ?? [];
 
@@ -396,20 +459,39 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                                 <span>{preview.environments.length} environment{(preview.environments.length === 1) ? '' : 's'}</span>
                             )}
                             {sourceMode === 'paste' && <span className="draftpack-source-badge">from clipboard</span>}
+                            {preview.contentHash && (
+                                <span
+                                    className={`draftpack-source-badge${preview.contentHashOk === false ? ' is-bad' : ''}`}
+                                    title={preview.contentHash}
+                                >
+                                    {preview.contentHashOk === false ? 'hash mismatch' : 'integrity ok'}
+                                </span>
+                            )}
                         </div>
 
-                        <ul className="draftpack-services">
-                            {(preview.services ?? []).map((s) => (
-                                <li key={s.key}>
-                                    <span className="draftpack-svc-name">
-                                        {serviceLabels[s.key] || s.label}
-                                    </span>
-                                    <span className={`draftpack-badge badge-${s.mode}`}>{s.mode}</span>
-                                    {s.port && <span className="draftpack-svc-detail">:{s.port}</span>}
-                                    {s.image && <code className="draftpack-svc-detail">{s.image}</code>}
-                                </li>
-                            ))}
-                        </ul>
+                        <div className="draftpack-remap">
+                            <h4>Services to import</h4>
+                            <p className="draftpack-remap-hint">Uncheck services you do not want on this machine.</p>
+                            <ul className="draftpack-services draftpack-services-select">
+                                {(preview.services ?? []).map((s) => (
+                                    <li key={s.key}>
+                                        <label className="draftpack-check draftpack-svc-check">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedKeys[s.key] !== false}
+                                                onChange={() => toggleService(s.key)}
+                                            />
+                                            <span className="draftpack-svc-name">
+                                                {serviceLabels[s.key] || s.label}
+                                            </span>
+                                        </label>
+                                        <span className={`draftpack-badge badge-${s.mode}`}>{s.mode}</span>
+                                        {s.port && <span className="draftpack-svc-detail">:{s.port}</span>}
+                                        {s.image && <code className="draftpack-svc-detail">{s.image}</code>}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
 
                         {projectId ? (
                             <div className="draftpack-mode">
@@ -443,18 +525,50 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                         )}
 
                         {mode === 'intoProject' && projectId && (
-                            <label className="draftpack-field">
-                                <span>Target environment</span>
-                                <select
-                                    className="input"
-                                    value={targetEnvId}
-                                    onChange={(e) => setTargetEnvId(Number(e.target.value))}
-                                >
-                                    {envs.map((env) => (
-                                        <option key={env.id} value={env.id}>{env.name}</option>
-                                    ))}
-                                </select>
-                            </label>
+                            <div className="draftpack-fields">
+                                {preview.multiEnv && preview.canRecreateEnvs && (
+                                    <div className="draftpack-mode">
+                                        <label className="draftpack-radio">
+                                            <input
+                                                type="radio"
+                                                checked={envImportMode === 'flatten'}
+                                                onChange={() => setEnvImportMode('flatten')}
+                                            />
+                                            Flatten into one environment
+                                        </label>
+                                        <label className="draftpack-radio">
+                                            <input
+                                                type="radio"
+                                                checked={envImportMode === 'recreate'}
+                                                onChange={() => setEnvImportMode('recreate')}
+                                            />
+                                            Recreate pack environments
+                                        </label>
+                                    </div>
+                                )}
+                                {envImportMode === 'flatten' && (
+                                    <label className="draftpack-field">
+                                        <span>Target environment</span>
+                                        <select
+                                            className="input"
+                                            value={targetEnvId}
+                                            onChange={(e) => setTargetEnvId(Number(e.target.value))}
+                                        >
+                                            {envs.map((env) => (
+                                                <option key={env.id} value={env.id}>{env.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                )}
+                            </div>
+                        )}
+
+                        {preview.layout && (
+                            <DraftPackLayoutMap
+                                layout={preview.layout}
+                                layoutMode={layoutMode}
+                                onLayoutModeChange={setLayoutMode}
+                            />
                         )}
 
                         {collisions.length > 0 && (
@@ -569,43 +683,92 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                         {(preview.needsSecrets?.length ?? 0) > 0 && (
                             <div className="draftpack-remap">
                                 <h4>Secrets</h4>
-                                <p className="draftpack-remap-hint">Values were omitted from the pack. Fill now or later in Variables.</p>
-                                {preview.needsSecrets!.map((key) => (
-                                    <label key={key} className="draftpack-field">
-                                        <span>{key}</span>
-                                        <input
-                                            className="input"
-                                            type="password"
-                                            value={secretValues[key] || ''}
-                                            onChange={(e) => setSecretValues((p) => ({...p, [key]: e.target.value}))}
-                                            placeholder="Optional"
-                                            autoComplete="off"
-                                        />
-                                    </label>
-                                ))}
+                                <p className="draftpack-remap-hint">
+                                    Values were omitted from the pack. Link to an existing app secret or paste a value.
+                                </p>
+                                {preview.needsSecrets!.map((key) => {
+                                    const canLink = existingSecretSet.has(key);
+                                    const linked = !!secretAppLinks[key];
+                                    return (
+                                        <div key={key} className="draftpack-secret-row">
+                                            <div className="draftpack-secret-key">{key}</div>
+                                            {canLink && (
+                                                <label className="draftpack-check">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={linked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setSecretAppLinks((p) => ({...p, [key]: key}));
+                                                                setSecretValues((p) => {
+                                                                    const next = {...p};
+                                                                    delete next[key];
+                                                                    return next;
+                                                                });
+                                                            } else {
+                                                                setSecretAppLinks((p) => {
+                                                                    const next = {...p};
+                                                                    delete next[key];
+                                                                    return next;
+                                                                });
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span>Use existing app secret <code>{key}</code></span>
+                                                </label>
+                                            )}
+                                            {!linked && (
+                                                <input
+                                                    className="input"
+                                                    type="password"
+                                                    value={secretValues[key] || ''}
+                                                    onChange={(e) => setSecretValues((p) => ({...p, [key]: e.target.value}))}
+                                                    placeholder={canLink ? 'Or paste a value…' : 'Optional'}
+                                                    autoComplete="off"
+                                                />
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
 
-                        {(preview.needsAppSecrets?.length ?? 0) > 0 && (
+                        {((preview.needsAppSecrets?.length ?? 0) > 0 || (preview.existingAppSecrets?.length ?? 0) > 0) && (
                             <div className="draftpack-remap">
                                 <h4>App secrets</h4>
-                                <label className="draftpack-check">
-                                    <input type="checkbox" checked={importAppSecrets} onChange={(e) => setImportAppSecrets(e.target.checked)}/>
-                                    <span>Write app secrets into this Draft install</span>
-                                </label>
-                                {importAppSecrets && preview.needsAppSecrets!.map((key) => (
-                                    <label key={key} className="draftpack-field">
-                                        <span>{key}</span>
+                                {(preview.existingAppSecrets?.length ?? 0) > 0 && (
+                                    <label className="draftpack-check">
                                         <input
-                                            className="input"
-                                            type="password"
-                                            value={appSecretValues[key] || ''}
-                                            onChange={(e) => setAppSecretValues((p) => ({...p, [key]: e.target.value}))}
-                                            placeholder="Value"
-                                            autoComplete="off"
+                                            type="checkbox"
+                                            checked={linkExistingAppSecrets}
+                                            onChange={(e) => setLinkExistingAppSecrets(e.target.checked)}
                                         />
+                                        <span>
+                                            Keep existing app secrets ({preview.existingAppSecrets!.join(', ')})
+                                        </span>
                                     </label>
-                                ))}
+                                )}
+                                {(preview.needsAppSecrets?.length ?? 0) > 0 && (
+                                    <>
+                                        <label className="draftpack-check">
+                                            <input type="checkbox" checked={importAppSecrets} onChange={(e) => setImportAppSecrets(e.target.checked)}/>
+                                            <span>Write missing app secrets into this Draft install</span>
+                                        </label>
+                                        {importAppSecrets && preview.needsAppSecrets!.map((key) => (
+                                            <label key={key} className="draftpack-field">
+                                                <span>{key}{existingSecretSet.has(key) ? ' (exists)' : ''}</span>
+                                                <input
+                                                    className="input"
+                                                    type="password"
+                                                    value={appSecretValues[key] || ''}
+                                                    onChange={(e) => setAppSecretValues((p) => ({...p, [key]: e.target.value}))}
+                                                    placeholder="Value"
+                                                    autoComplete="off"
+                                                />
+                                            </label>
+                                        ))}
+                                    </>
+                                )}
                             </div>
                         )}
 

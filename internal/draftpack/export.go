@@ -555,16 +555,46 @@ func (e *Exporter) attachAppSecrets(pack *Pack, opts ExportOptions) {
 	}
 }
 
-// MarshalPack encodes a pack as pretty JSON.
+// MarshalPack seals a content hash and encodes a pack as pretty JSON.
 func MarshalPack(pack *Pack) ([]byte, error) {
 	if pack == nil {
 		return nil, fmt.Errorf("nil pack")
+	}
+	if err := SealContentHash(pack); err != nil {
+		return nil, err
 	}
 	return json.MarshalIndent(pack, "", "  ")
 }
 
 // UnmarshalPack decodes and validates a pack document.
+// When a contentHash is present and does not match, returns an error.
+// Packs without a hash still load (legacy / hand-edited paste).
 func UnmarshalPack(data []byte) (*Pack, error) {
+	var pack Pack
+	if err := json.Unmarshal(data, &pack); err != nil {
+		return nil, fmt.Errorf("parse draft pack: %w", err)
+	}
+	if pack.Format != FormatID {
+		return nil, fmt.Errorf("not a Draft pack (format %q)", pack.Format)
+	}
+	if pack.Version < 1 || pack.Version > CurrentVersion {
+		return nil, fmt.Errorf("unsupported draft pack version %d", pack.Version)
+	}
+	if pack.Scope != ScopeService && pack.Scope != ScopeEnvironment && pack.Scope != ScopeProject {
+		return nil, fmt.Errorf("unknown pack scope %q", pack.Scope)
+	}
+	if ok, has, err := VerifyContentHash(&pack); err != nil {
+		return nil, err
+	} else if has && !ok {
+		return nil, fmt.Errorf("pack content hash mismatch (file may be corrupted or edited)")
+	}
+	return &pack, nil
+}
+
+// UnmarshalPackLenient is like UnmarshalPack but only warns via the pack report
+// when the hash mismatches (used when RequireIntegrity is false after a soft load).
+// Prefer UnmarshalPack for normal paths.
+func UnmarshalPackLenient(data []byte) (*Pack, error) {
 	var pack Pack
 	if err := json.Unmarshal(data, &pack); err != nil {
 		return nil, fmt.Errorf("parse draft pack: %w", err)
