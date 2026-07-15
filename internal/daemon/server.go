@@ -205,6 +205,12 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/config/export", s.handleConfigExport)
 	mux.HandleFunc("/config/export-project", s.handleConfigExportProject)
 	mux.HandleFunc("/config/export-to-path", s.handleConfigExportToPath)
+	mux.HandleFunc("/draftpack/export-service", s.handleDraftPackExportService)
+	mux.HandleFunc("/draftpack/export-environment", s.handleDraftPackExportEnvironment)
+	mux.HandleFunc("/draftpack/export-project", s.handleDraftPackExportProject)
+	mux.HandleFunc("/draftpack/export-to-path", s.handleDraftPackExportToPath)
+	mux.HandleFunc("/draftpack/import-preview", s.handleDraftPackImportPreview)
+	mux.HandleFunc("/draftpack/import", s.handleDraftPackImport)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -850,6 +856,105 @@ func (s *Server) handleConfigExportToPath(w http.ResponseWriter, r *http.Request
 		return
 	}
 	result, err := s.engine.ExportConfigToPath(req.NodeID, req.Format, req.DestDir)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackExportService(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		NodeID  string                      `json:"nodeId"`
+		Options deploy.DraftPackExportOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportDraftPackService(req.NodeID, req.Options)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackExportEnvironment(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EnvironmentID uint                        `json:"environmentId"`
+		Options       deploy.DraftPackExportOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportDraftPackEnvironment(req.EnvironmentID, req.Options)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackExportProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectID uint                        `json:"projectId"`
+		Options   deploy.DraftPackExportOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportDraftPackProject(req.ProjectID, req.Options)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackExportToPath(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Scope         string                      `json:"scope"`
+		NodeID        string                      `json:"nodeId"`
+		ProjectID     uint                        `json:"projectId"`
+		EnvironmentID uint                        `json:"environmentId"`
+		Options       deploy.DraftPackExportOptions `json:"options"`
+		DestPath      string                      `json:"destPath"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ExportDraftPackToPath(req.Scope, req.NodeID, req.ProjectID, req.EnvironmentID, req.Options, req.DestPath)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackImportPreview(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.PreviewDraftPackImport(req.Path)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackImport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path    string                      `json:"path"`
+		Options deploy.DraftPackImportOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ImportDraftPack(req.Path, req.Options)
 	if err != nil {
 		writeError(w, err)
 		return

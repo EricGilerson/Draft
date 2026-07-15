@@ -12,7 +12,7 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {FileUp, Maximize2, Minus, Plus, PlusCircle, Settings} from 'lucide-react';
+import {FileUp, Maximize2, Minus, MoreHorizontal, Package, Plus, PlusCircle, Settings} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
@@ -35,7 +35,9 @@ import NodeDetailPanel from './NodeDetailPanel';
 import VolumeDetailPanel from './VolumeDetailPanel';
 import ResizablePanel from './ResizablePanel';
 import CreateServiceDialog from './CreateServiceDialog';
+import ExportDraftPackDialog from './ExportDraftPackDialog';
 import ImportConfigDialog from './ImportConfigDialog';
+import ImportDraftPackDialog from './ImportDraftPackDialog';
 import {parseVolumeEntries, type VolumeEntry} from './VolumeEditor';
 import {
     CanvasSelectionContext,
@@ -157,10 +159,28 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     const [managedVolumesByNode, setManagedVolumesByNode] = useState<Record<string, deploy.ManagedVolume[]>>({});
     const [showCreate, setShowCreate] = useState(false);
     const [showImport, setShowImport] = useState(false);
+    const [showDraftPackImport, setShowDraftPackImport] = useState(false);
+    const [showDraftPackExport, setShowDraftPackExport] = useState(false);
+    const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
     const nodeClickRef = useRef(false);
+    const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!toolbarMenuOpen) return;
+        const onDoc = (e: globalThis.MouseEvent) => {
+            // Avoid `as Node` — @xyflow/react's Node type shadows the DOM Node.
+            const target = e.target;
+            if (!(target instanceof Element)) return;
+            if (toolbarMenuRef.current && !toolbarMenuRef.current.contains(target)) {
+                setToolbarMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, [toolbarMenuOpen]);
 
     const nodeTypes = useMemo(() => ({service: ServiceNode}), []);
     const edgeTypes = useMemo(() => ({envReference: EnvReferenceEdge}), []);
@@ -358,82 +378,88 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
 
     const edges = connectionEdges;
 
-    useEffect(() => {
-        ListNodes(environmentId).then(async (saved) => {
-            if (!saved || saved.length === 0) return;
-            // Make sure templates are loaded so we can attach icon metadata to
-            // nodes created from a template. If the templates list isn't ready
-            // yet, fetch it once more so the first paint has icons.
-            let tpls = templates;
-            if (tpls.length === 0) {
+    const reloadCanvasNodes = useCallback(async () => {
+        const saved = await ListNodes(environmentId);
+        if (!saved || saved.length === 0) {
+            setServiceNodes([]);
+            return;
+        }
+        // Make sure templates are loaded so we can attach icon metadata to
+        // nodes created from a template. If the templates list isn't ready
+        // yet, fetch it once more so the first paint has icons.
+        let tpls = templates;
+        if (tpls.length === 0) {
+            try {
+                tpls = await ListServiceTemplates();
+                setTemplates(tpls ?? []);
+            } catch { /* leave icons blank */ }
+        }
+        const tplMap = new Map<number, store.ServiceTemplate>();
+        for (const t of tpls) tplMap.set(t.id, t);
+        const flowNodes = await Promise.all(
+            saved.map(async (n) => {
+                let status = 'stopped';
+                let deploymentId: number | undefined;
+                let linkedFromEnv: string | undefined;
+                let linkedRootNodeId: string | undefined;
+                let hostPort: number | undefined;
+                let publicUrl: string | undefined;
+                let health: string | undefined;
                 try {
-                    tpls = await ListServiceTemplates();
-                    setTemplates(tpls ?? []);
-                } catch { /* leave icons blank */ }
-            }
-            const tplMap = new Map<number, store.ServiceTemplate>();
-            for (const t of tpls) tplMap.set(t.id, t);
-            const flowNodes = await Promise.all(
-                saved.map(async (n) => {
-                    let status = 'stopped';
-                    let deploymentId: number | undefined;
-                    let linkedFromEnv: string | undefined;
-                    let linkedRootNodeId: string | undefined;
-                    let hostPort: number | undefined;
-                    let publicUrl: string | undefined;
-                    let health: string | undefined;
-                    try {
-                        const link = await GetLinkedServiceInfo(n.id);
-                        if (link?.isLinked) {
-                            linkedFromEnv = link.rootEnvName || link.rootLabel || 'linked';
-                            linkedRootNodeId = link.rootNodeId || undefined;
-                        }
-                    } catch { /* not linked */ }
-                    // Resolve live status before first paint. GetDeployments[0] is the
-                    // newest row (can be failed/stopped while an older deploy still
-                    // runs); GetNodeHealth picks the active one and mirrors linked roots.
-                    try {
-                        const h = await GetNodeHealth(n.id);
-                        if (h?.status) {
-                            status = serviceStatusFromDeployment(h.status);
-                        }
-                        if (h?.hostPort) hostPort = h.hostPort;
-                        if (h?.publicUrl) publicUrl = h.publicUrl;
-                        if (h?.dockerHealth) health = h.dockerHealth;
-                    } catch { /* leave defaults */ }
-                    if (!linkedRootNodeId) {
-                        try {
-                            const dep = await GetActiveDeployment(n.id);
-                            if (dep?.id) deploymentId = dep.id;
-                        } catch { /* no active deployment */ }
+                    const link = await GetLinkedServiceInfo(n.id);
+                    if (link?.isLinked) {
+                        linkedFromEnv = link.rootEnvName || link.rootLabel || 'linked';
+                        linkedRootNodeId = link.rootNodeId || undefined;
                     }
-                    const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
-                    return {
-                        id: n.id,
-                        type: 'service' as const,
-                        position: {x: n.x, y: n.y},
-                        data: {
-                            label: n.label,
-                            status,
-                            deploymentId,
-                            templateId: n.templateId || undefined,
-                            icon: tpl?.icon,
-                            iconColor: tpl?.color,
-                            linkedFromEnv,
-                            linkedRootNodeId,
-                            hostPort,
-                            publicUrl,
-                            health,
-                        },
-                    };
-                }),
-            );
-            setServiceNodes(flowNodes);
-            refreshVolumeMounts(flowNodes.map((n) => n.id));
-            refreshNodeHealth(flowNodes.map((n) => n.id));
-            refreshReferenceIssueNodes();
-        });
+                } catch { /* not linked */ }
+                // Resolve live status before first paint. GetDeployments[0] is the
+                // newest row (can be failed/stopped while an older deploy still
+                // runs); GetNodeHealth picks the active one and mirrors linked roots.
+                try {
+                    const h = await GetNodeHealth(n.id);
+                    if (h?.status) {
+                        status = serviceStatusFromDeployment(h.status);
+                    }
+                    if (h?.hostPort) hostPort = h.hostPort;
+                    if (h?.publicUrl) publicUrl = h.publicUrl;
+                    if (h?.dockerHealth) health = h.dockerHealth;
+                } catch { /* leave defaults */ }
+                if (!linkedRootNodeId) {
+                    try {
+                        const dep = await GetActiveDeployment(n.id);
+                        if (dep?.id) deploymentId = dep.id;
+                    } catch { /* no active deployment */ }
+                }
+                const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
+                return {
+                    id: n.id,
+                    type: 'service' as const,
+                    position: {x: n.x, y: n.y},
+                    data: {
+                        label: n.label,
+                        status,
+                        deploymentId,
+                        templateId: n.templateId || undefined,
+                        icon: tpl?.icon,
+                        iconColor: tpl?.color,
+                        linkedFromEnv,
+                        linkedRootNodeId,
+                        hostPort,
+                        publicUrl,
+                        health,
+                    },
+                };
+            }),
+        );
+        setServiceNodes(flowNodes);
+        refreshVolumeMounts(flowNodes.map((n) => n.id));
+        refreshNodeHealth(flowNodes.map((n) => n.id));
+        refreshReferenceIssueNodes();
     }, [environmentId, setServiceNodes, templates, refreshVolumeMounts, refreshNodeHealth, refreshReferenceIssueNodes]);
+
+    useEffect(() => {
+        void reloadCanvasNodes();
+    }, [reloadCanvasNodes]);
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
@@ -694,12 +720,57 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                             onClick={onOpenProjectSettings}
                             title="Project settings"
                         >
-                            <Settings size={15}/> Project settings
+                            <Settings size={15}/>
+                            <span className="canvas-btn-label">Settings</span>
                         </button>
                     )}
-                    <button className="btn btn-ghost canvas-settings-btn" onClick={() => setShowImport(true)} title="Import services from a cloud config file">
-                        <FileUp size={15}/> Import config
-                    </button>
+                    <div className="canvas-toolbar-menu-wrap" ref={toolbarMenuRef}>
+                        <button
+                            type="button"
+                            className="btn btn-ghost canvas-settings-btn canvas-toolbar-more"
+                            onClick={() => setToolbarMenuOpen((open) => !open)}
+                            title="Import & export"
+                            aria-expanded={toolbarMenuOpen}
+                            aria-haspopup="menu"
+                        >
+                            <MoreHorizontal size={15}/>
+                            <span className="canvas-btn-label">More</span>
+                        </button>
+                        {toolbarMenuOpen && (
+                            <div className="canvas-toolbar-menu" role="menu">
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                        setToolbarMenuOpen(false);
+                                        setShowDraftPackImport(true);
+                                    }}
+                                >
+                                    <Package size={14}/> Import Draft pack…
+                                </button>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                        setToolbarMenuOpen(false);
+                                        setShowDraftPackExport(true);
+                                    }}
+                                >
+                                    <Package size={14}/> Export Draft pack…
+                                </button>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                        setToolbarMenuOpen(false);
+                                        setShowImport(true);
+                                    }}
+                                >
+                                    <FileUp size={14}/> Import cloud config…
+                                </button>
+                            </div>
+                        )}
+                    </div>
                     <button className="btn btn-primary canvas-add-btn" onClick={openCreate}>
                         <PlusCircle size={15}/> Add Service
                     </button>
@@ -780,6 +851,28 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     position={{x: 120 + Math.random() * 300, y: 140 + Math.random() * 200}}
                     onClose={() => setShowImport(false)}
                     onImported={handleImported}
+                />
+            )}
+
+            {showDraftPackImport && (
+                <ImportDraftPackDialog
+                    projectId={project.id}
+                    environmentId={environmentId}
+                    onClose={() => setShowDraftPackImport(false)}
+                    onImported={() => {
+                        setShowDraftPackImport(false);
+                        void reloadCanvasNodes();
+                        notifyServicesChanged();
+                    }}
+                />
+            )}
+
+            {showDraftPackExport && (
+                <ExportDraftPackDialog
+                    scope="project"
+                    label={project.name}
+                    projectId={project.id}
+                    onClose={() => setShowDraftPackExport(false)}
                 />
             )}
         </div>

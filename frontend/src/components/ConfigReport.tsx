@@ -1,10 +1,20 @@
 import {AlertTriangle, ArrowLeftRight, Info, KeyRound} from 'lucide-react';
-import {cloudconfig} from '../../wailsjs/go/models';
 import './ConfigReport.css';
 
-// ConfigReport renders a cloudconfig.Report (the fidelity report) grouped by
+// ConfigReport renders a fidelity report (cloudconfig or draftpack) grouped by
 // note kind, so a user can see what mapped cleanly, what was ignored, what was
-// transformed, and what needs a manual decision before deploying.
+// transformed, and what needs a manual decision.
+
+type ReportNote = {
+    kind: string;
+    code?: string;
+    field?: string;
+    message: string;
+};
+
+type ReportLike = {
+    notes?: ReportNote[];
+};
 
 const KIND_META: Record<string, {label: string; icon: JSX.Element; className: string}> = {
     manual: {label: 'Needs your attention', icon: <KeyRound size={13}/>, className: 'config-note-manual'},
@@ -15,7 +25,7 @@ const KIND_META: Record<string, {label: string; icon: JSX.Element; className: st
 
 const ORDER = ['manual', 'transformed', 'ignored', 'info'];
 
-export default function ConfigReport({report}: {report?: cloudconfig.Report}) {
+export default function ConfigReport({report}: {report?: ReportLike}) {
     const notes = report?.notes ?? [];
     if (notes.length === 0) {
         return <p className="config-report-empty">Everything mapped cleanly — no fidelity notes.</p>;

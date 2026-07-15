@@ -46,6 +46,10 @@ export function DaemonConnection() {
   return window['go']['main']['App']['DaemonConnection']();
 }
 
+export function DefaultDraftPackExportOptions() {
+  return window['go']['main']['App']['DefaultDraftPackExportOptions']();
+}
+
 export function DeleteAppSecret(arg1) {
   return window['go']['main']['App']['DeleteAppSecret'](arg1);
 }
@@ -104,6 +108,22 @@ export function ExportConfig(arg1, arg2) {
 
 export function ExportConfigToPath(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportConfigToPath'](arg1, arg2, arg3);
+}
+
+export function ExportDraftPackEnvironment(arg1, arg2) {
+  return window['go']['main']['App']['ExportDraftPackEnvironment'](arg1, arg2);
+}
+
+export function ExportDraftPackProject(arg1, arg2) {
+  return window['go']['main']['App']['ExportDraftPackProject'](arg1, arg2);
+}
+
+export function ExportDraftPackService(arg1, arg2) {
+  return window['go']['main']['App']['ExportDraftPackService'](arg1, arg2);
+}
+
+export function ExportDraftPackToPath(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['ExportDraftPackToPath'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ExportEnvFile(arg1) {
@@ -216,6 +236,10 @@ export function ImportConfigIntoProject(arg1, arg2, arg3, arg4, arg5) {
 
 export function ImportConfigPreview(arg1) {
   return window['go']['main']['App']['ImportConfigPreview'](arg1);
+}
+
+export function ImportDraftPack(arg1, arg2) {
+  return window['go']['main']['App']['ImportDraftPack'](arg1, arg2);
 }
 
 export function ImportEnvFile(arg1, arg2) {
@@ -354,6 +378,10 @@ export function PreviewDeleteService(arg1) {
   return window['go']['main']['App']['PreviewDeleteService'](arg1);
 }
 
+export function PreviewDraftPackImport(arg1) {
+  return window['go']['main']['App']['PreviewDraftPackImport'](arg1);
+}
+
 export function PreviewEnvVars(arg1) {
   return window['go']['main']['App']['PreviewEnvVars'](arg1);
 }
@@ -458,12 +486,20 @@ export function RunTestingSandbox(arg1) {
   return window['go']['main']['App']['RunTestingSandbox'](arg1);
 }
 
+export function SaveDraftPackFile(arg1) {
+  return window['go']['main']['App']['SaveDraftPackFile'](arg1);
+}
+
 export function SaveSandboxProfile(arg1) {
   return window['go']['main']['App']['SaveSandboxProfile'](arg1);
 }
 
 export function SaveSandboxProjectSettings(arg1) {
   return window['go']['main']['App']['SaveSandboxProjectSettings'](arg1);
+}
+
+export function SelectDraftPackFile() {
+  return window['go']['main']['App']['SelectDraftPackFile']();
 }
 
 export function SelectFile(arg1, arg2) {

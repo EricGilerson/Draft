@@ -1,7 +1,8 @@
-import {X, Box, GitCompare, RefreshCw, Upload} from 'lucide-react';
+import {X, Box, GitCompare, Package, RefreshCw, Upload} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetNode, ReapplyTemplate} from '../../wailsjs/go/main/App';
 import ExportConfigDialog from './ExportConfigDialog';
+import ExportDraftPackDialog from './ExportDraftPackDialog';
 import {store} from '../../wailsjs/go/models';
 import OverviewTab from './OverviewTab';
 import DeploymentsTab from './DeploymentsTab';
@@ -64,6 +65,7 @@ function NodeDetailPanelBody({
     const [nodeEnvironmentId, setNodeEnvironmentId] = useState<number | null>(environmentId ?? null);
     const [reapplying, setReapplying] = useState(false);
     const [showExport, setShowExport] = useState(false);
+    const [showDraftPackExport, setShowDraftPackExport] = useState(false);
     const [showSync, setShowSync] = useState(false);
     const [reapplyError, setReapplyError] = useState<string | null>(null);
     const editRef = useRef<HTMLInputElement>(null);
@@ -193,6 +195,14 @@ function NodeDetailPanelBody({
                     </button>
                     <button
                         className="btn btn-ghost node-detail-reapply"
+                        onClick={() => setShowDraftPackExport(true)}
+                        title="Export a portable Draft pack for another machine"
+                    >
+                        <Package size={13}/>
+                        Pack
+                    </button>
+                    <button
+                        className="btn btn-ghost node-detail-reapply"
                         onClick={() => setShowExport(true)}
                         title="Export this service to a cloud config format"
                     >
@@ -263,6 +273,14 @@ function NodeDetailPanelBody({
             <ServiceDraftBar onStaged={onServicesChanged} onDeploy={onServicesChanged} />
             {showExport && (
                 <ExportConfigDialog nodeId={nodeId} label={nodeLabel} onClose={() => setShowExport(false)}/>
+            )}
+            {showDraftPackExport && (
+                <ExportDraftPackDialog
+                    scope="service"
+                    label={nodeLabel}
+                    nodeId={nodeId}
+                    onClose={() => setShowDraftPackExport(false)}
+                />
             )}
         </div>
     );

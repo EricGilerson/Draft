@@ -678,6 +678,83 @@ func (a *App) ExportConfigToPath(nodeID, format, destDir string) (*deploy.Export
 	return c.ExportConfigToPath(a.ctx, nodeID, format, destDir)
 }
 
+// DefaultDraftPackExportOptions returns safe cross-machine Draft pack defaults.
+func (a *App) DefaultDraftPackExportOptions() deploy.DraftPackExportOptions {
+	return deploy.DefaultDraftPackExportOptions()
+}
+
+// ExportDraftPackService builds a Draft-native pack for one service.
+func (a *App) ExportDraftPackService(nodeID string, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportDraftPackService(a.ctx, nodeID, opts)
+}
+
+// ExportDraftPackEnvironment builds a Draft-native pack for one environment.
+func (a *App) ExportDraftPackEnvironment(environmentID uint, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportDraftPackEnvironment(a.ctx, environmentID, opts)
+}
+
+// ExportDraftPackProject builds a Draft-native pack for a project.
+func (a *App) ExportDraftPackProject(projectID uint, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportDraftPackProject(a.ctx, projectID, opts)
+}
+
+// ExportDraftPackToPath writes a Draft pack to destPath (file or directory).
+func (a *App) ExportDraftPackToPath(scope, nodeID string, projectID, environmentID uint, opts deploy.DraftPackExportOptions, destPath string) (*deploy.DraftPackExportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ExportDraftPackToPath(a.ctx, scope, nodeID, projectID, environmentID, opts, destPath)
+}
+
+// PreviewDraftPackImport dry-runs importing a .draftpack file.
+func (a *App) PreviewDraftPackImport(path string) (*deploy.DraftPackImportPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewDraftPackImport(a.ctx, path)
+}
+
+// ImportDraftPack applies a .draftpack file with remap options.
+func (a *App) ImportDraftPack(path string, opts deploy.DraftPackImportOptions) (*deploy.DraftPackImportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ImportDraftPack(a.ctx, path, opts)
+}
+
 func (a *App) UpdateNode(id string, x, y float64, label string) error {
 	if a.store == nil {
 		return errNoStore

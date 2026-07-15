@@ -1,0 +1,159 @@
+.draftpack-import {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 520px;
+    max-width: 680px;
+}
+
+.draftpack-import-intro {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-import-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.draftpack-path {
+    font-size: 11.5px;
+    max-width: 360px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-summary {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 12.5px;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-scope {
+    font-weight: 600;
+    color: #56a3f5;
+    text-transform: capitalize;
+}
+
+.draftpack-services {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 160px;
+    overflow: auto;
+}
+
+.draftpack-services li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.draftpack-svc-name {
+    font-weight: 500;
+}
+
+.draftpack-badge {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-badge.badge-image {
+    color: #7ac87a;
+}
+
+.draftpack-badge.badge-build {
+    color: #56a3f5;
+}
+
+.draftpack-svc-detail {
+    font-size: 11.5px;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-mode {
+    display: flex;
+    gap: 16px;
+}
+
+.draftpack-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.draftpack-fields,
+.draftpack-remap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border, #2a2d34);
+    background: var(--surface-2, #131518);
+}
+
+.draftpack-remap h4 {
+    margin: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+.draftpack-remap-hint {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12.5px;
+}
+
+.draftpack-field > span {
+    color: var(--text-secondary, #8a8f98);
+}
+
+.draftpack-path-row {
+    display: flex;
+    gap: 6px;
+}
+
+.draftpack-path-row .input {
+    flex: 1;
+}
+
+.draftpack-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.draftpack-report h4 {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+}

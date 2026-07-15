@@ -2272,6 +2272,645 @@ export namespace dockerwatch {
 
 }
 
+export namespace draftpack {
+	
+	export class AppSecretPayload {
+	    key: string;
+	    value?: string;
+	    description?: string;
+	    valueOmitted?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppSecretPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.description = source["description"];
+	        this.valueOmitted = source["valueOmitted"];
+	    }
+	}
+	export class BindNeed {
+	    serviceKey: string;
+	    label: string;
+	    containerPath: string;
+	    originalHost?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BindNeed(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.serviceKey = source["serviceKey"];
+	        this.label = source["label"];
+	        this.containerPath = source["containerPath"];
+	        this.originalHost = source["originalHost"];
+	    }
+	}
+	export class BindRemap {
+	    containerPath: string;
+	    originalHost?: string;
+	    readOnly?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new BindRemap(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.containerPath = source["containerPath"];
+	        this.originalHost = source["originalHost"];
+	        this.readOnly = source["readOnly"];
+	    }
+	}
+	export class EnvVarPayload {
+	    key: string;
+	    value?: string;
+	    scope?: string;
+	    secret?: boolean;
+	    source?: string;
+	    valueOmitted?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvVarPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.scope = source["scope"];
+	        this.secret = source["secret"];
+	        this.source = source["source"];
+	        this.valueOmitted = source["valueOmitted"];
+	    }
+	}
+	export class EnvironmentPayload {
+	    key: string;
+	    name: string;
+	    slug: string;
+	    isDefault: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnvironmentPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.isDefault = source["isDefault"];
+	    }
+	}
+	export class ExportOptions {
+	    includeSecretValues: boolean;
+	    includeAppSecrets: boolean;
+	    includeBindHostPaths: boolean;
+	    includeServiceRoots: boolean;
+	    includeProjectEnvVars: boolean;
+	    includeSandboxProfiles: boolean;
+	    includeCanvasLayout: boolean;
+	    includeGitSettings: boolean;
+	    includeSourceConfig: boolean;
+	    environmentIds?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.includeSecretValues = source["includeSecretValues"];
+	        this.includeAppSecrets = source["includeAppSecrets"];
+	        this.includeBindHostPaths = source["includeBindHostPaths"];
+	        this.includeServiceRoots = source["includeServiceRoots"];
+	        this.includeProjectEnvVars = source["includeProjectEnvVars"];
+	        this.includeSandboxProfiles = source["includeSandboxProfiles"];
+	        this.includeCanvasLayout = source["includeCanvasLayout"];
+	        this.includeGitSettings = source["includeGitSettings"];
+	        this.includeSourceConfig = source["includeSourceConfig"];
+	        this.environmentIds = source["environmentIds"];
+	    }
+	}
+	export class Note {
+	    kind: string;
+	    code: string;
+	    field?: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Note(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.code = source["code"];
+	        this.field = source["field"];
+	        this.message = source["message"];
+	    }
+	}
+	export class Report {
+	    notes: Note[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Report(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.notes = this.convertValues(source["notes"], Note);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SandboxProfilePayload {
+	    name: string;
+	    description?: string;
+	    planJson: string;
+	    isDefault?: boolean;
+	    sourceEnvironmentKey?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxProfilePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.planJson = source["planJson"];
+	        this.isDefault = source["isDefault"];
+	        this.sourceEnvironmentKey = source["sourceEnvironmentKey"];
+	    }
+	}
+	export class ProjectVarPayload {
+	    key: string;
+	    value?: string;
+	    secret?: boolean;
+	    valueOmitted?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectVarPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.value = source["value"];
+	        this.secret = source["secret"];
+	        this.valueOmitted = source["valueOmitted"];
+	    }
+	}
+	export class ServiceLinkPayload {
+	    rootEnvironmentKey: string;
+	    rootServiceLabel: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceLinkPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rootEnvironmentKey = source["rootEnvironmentKey"];
+	        this.rootServiceLabel = source["rootServiceLabel"];
+	    }
+	}
+	export class UserTemplatePayload {
+	    name: string;
+	    description?: string;
+	    category?: string;
+	    icon?: string;
+	    color?: string;
+	    mode?: string;
+	    image?: string;
+	    imageTags?: string;
+	    port?: number;
+	    dockerfile?: string;
+	    cmdOverride?: string;
+	    entrypoint?: string;
+	    workingDir?: string;
+	    envVars?: string;
+	    labels?: string;
+	    volumes?: string;
+	    schema?: string;
+	    defaultSettings?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UserTemplatePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.category = source["category"];
+	        this.icon = source["icon"];
+	        this.color = source["color"];
+	        this.mode = source["mode"];
+	        this.image = source["image"];
+	        this.imageTags = source["imageTags"];
+	        this.port = source["port"];
+	        this.dockerfile = source["dockerfile"];
+	        this.cmdOverride = source["cmdOverride"];
+	        this.entrypoint = source["entrypoint"];
+	        this.workingDir = source["workingDir"];
+	        this.envVars = source["envVars"];
+	        this.labels = source["labels"];
+	        this.volumes = source["volumes"];
+	        this.schema = source["schema"];
+	        this.defaultSettings = source["defaultSettings"];
+	    }
+	}
+	export class TemplateRef {
+	    builtinName?: string;
+	    user?: UserTemplatePayload;
+	
+	    static createFrom(source: any = {}) {
+	        return new TemplateRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.builtinName = source["builtinName"];
+	        this.user = this.convertValues(source["user"], UserTemplatePayload);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ServicePayload {
+	    key: string;
+	    environmentKey: string;
+	    label: string;
+	    x?: number;
+	    y?: number;
+	    template?: TemplateRef;
+	    settings?: Record<string, string>;
+	    env?: EnvVarPayload[];
+	    serviceLink?: ServiceLinkPayload;
+	    needsServiceRoot?: boolean;
+	    serviceRootHint?: string;
+	    bindRemaps?: BindRemap[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ServicePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.environmentKey = source["environmentKey"];
+	        this.label = source["label"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.template = this.convertValues(source["template"], TemplateRef);
+	        this.settings = source["settings"];
+	        this.env = this.convertValues(source["env"], EnvVarPayload);
+	        this.serviceLink = this.convertValues(source["serviceLink"], ServiceLinkPayload);
+	        this.needsServiceRoot = source["needsServiceRoot"];
+	        this.serviceRootHint = source["serviceRootHint"];
+	        this.bindRemaps = this.convertValues(source["bindRemaps"], BindRemap);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProjectPayload {
+	    name: string;
+	    description?: string;
+	    pathHint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProjectPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.pathHint = source["pathHint"];
+	    }
+	}
+	export class Pack {
+	    format: string;
+	    version: number;
+	    // Go type: time
+	    exportedAt: any;
+	    scope: string;
+	    options: ExportOptions;
+	    project?: ProjectPayload;
+	    environments?: EnvironmentPayload[];
+	    services?: ServicePayload[];
+	    projectEnvVars?: ProjectVarPayload[];
+	    sandboxProfiles?: SandboxProfilePayload[];
+	    appSecrets?: AppSecretPayload[];
+	    report: Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new Pack(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.version = source["version"];
+	        this.exportedAt = this.convertValues(source["exportedAt"], null);
+	        this.scope = source["scope"];
+	        this.options = this.convertValues(source["options"], ExportOptions);
+	        this.project = this.convertValues(source["project"], ProjectPayload);
+	        this.environments = this.convertValues(source["environments"], EnvironmentPayload);
+	        this.services = this.convertValues(source["services"], ServicePayload);
+	        this.projectEnvVars = this.convertValues(source["projectEnvVars"], ProjectVarPayload);
+	        this.sandboxProfiles = this.convertValues(source["sandboxProfiles"], SandboxProfilePayload);
+	        this.appSecrets = this.convertValues(source["appSecrets"], AppSecretPayload);
+	        this.report = this.convertValues(source["report"], Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExportResult {
+	    pack?: Pack;
+	    json: string;
+	    path?: string;
+	    fileName?: string;
+	    report: Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pack = this.convertValues(source["pack"], Pack);
+	        this.json = source["json"];
+	        this.path = source["path"];
+	        this.fileName = source["fileName"];
+	        this.report = this.convertValues(source["report"], Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportOptions {
+	    mode: string;
+	    projectName?: string;
+	    projectPath?: string;
+	    projectId?: number;
+	    environmentId?: number;
+	    serviceRootOverrides?: Record<string, string>;
+	    bindPathOverrides?: Record<string, string>;
+	    secretValues?: Record<string, string>;
+	    appSecretValues?: Record<string, string>;
+	    importAppSecrets: boolean;
+	    startAfter: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.projectName = source["projectName"];
+	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
+	        this.environmentId = source["environmentId"];
+	        this.serviceRootOverrides = source["serviceRootOverrides"];
+	        this.bindPathOverrides = source["bindPathOverrides"];
+	        this.secretValues = source["secretValues"];
+	        this.appSecretValues = source["appSecretValues"];
+	        this.importAppSecrets = source["importAppSecrets"];
+	        this.startAfter = source["startAfter"];
+	    }
+	}
+	export class ServiceRootNeed {
+	    serviceKey: string;
+	    label: string;
+	    hint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceRootNeed(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.serviceKey = source["serviceKey"];
+	        this.label = source["label"];
+	        this.hint = source["hint"];
+	    }
+	}
+	export class ServiceSummary {
+	    key: string;
+	    label: string;
+	    environmentKey: string;
+	    mode: string;
+	    image?: string;
+	    port?: string;
+	    needsServiceRoot?: boolean;
+	    bindRemapCount?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ServiceSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.environmentKey = source["environmentKey"];
+	        this.mode = source["mode"];
+	        this.image = source["image"];
+	        this.port = source["port"];
+	        this.needsServiceRoot = source["needsServiceRoot"];
+	        this.bindRemapCount = source["bindRemapCount"];
+	    }
+	}
+	export class ImportPreview {
+	    packScope: string;
+	    projectName: string;
+	    environments: EnvironmentPayload[];
+	    services: ServiceSummary[];
+	    projectEnvVarCount: number;
+	    sandboxProfileCount: number;
+	    appSecretCount: number;
+	    needsProjectPath: boolean;
+	    needsServiceRoots?: ServiceRootNeed[];
+	    needsBinds?: BindNeed[];
+	    needsSecrets?: string[];
+	    needsAppSecrets?: string[];
+	    report: Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.packScope = source["packScope"];
+	        this.projectName = source["projectName"];
+	        this.environments = this.convertValues(source["environments"], EnvironmentPayload);
+	        this.services = this.convertValues(source["services"], ServiceSummary);
+	        this.projectEnvVarCount = source["projectEnvVarCount"];
+	        this.sandboxProfileCount = source["sandboxProfileCount"];
+	        this.appSecretCount = source["appSecretCount"];
+	        this.needsProjectPath = source["needsProjectPath"];
+	        this.needsServiceRoots = this.convertValues(source["needsServiceRoots"], ServiceRootNeed);
+	        this.needsBinds = this.convertValues(source["needsBinds"], BindNeed);
+	        this.needsSecrets = source["needsSecrets"];
+	        this.needsAppSecrets = source["needsAppSecrets"];
+	        this.report = this.convertValues(source["report"], Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ImportResult {
+	    projectId: number;
+	    environmentIds?: number[];
+	    nodeIds?: string[];
+	    report: Report;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.environmentIds = source["environmentIds"];
+	        this.nodeIds = source["nodeIds"];
+	        this.report = this.convertValues(source["report"], Report);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+
+}
+
 export namespace gitsrc {
 	
 	export class PullRequest {

@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Play, Plus, Power, RefreshCw, Trash2} from 'lucide-react';
+import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Package, Play, Plus, Power, RefreshCw, Trash2} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
@@ -17,6 +17,7 @@ import {
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import ExportDraftPackDialog from './ExportDraftPackDialog';
 import SandboxExtendControl from './SandboxExtendControl';
 import SyncConfigDialog from './SyncConfigDialog';
 import './EnvironmentSwitcher.css';
@@ -112,6 +113,7 @@ export default function EnvironmentSwitcher({
     const [sandboxes, setSandboxes] = useState<store.Sandbox[]>([]);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [syncOpen, setSyncOpen] = useState(false);
+    const [exportPackOpen, setExportPackOpen] = useState(false);
     const [step, setStep] = useState<1 | 2>(1);
     const [name, setName] = useState('');
     /** Empty string = blank env; otherwise the source environment id. */
@@ -420,6 +422,11 @@ export default function EnvironmentSwitcher({
                                     <button type="button" onClick={() => openRename(selectedEnv)}>Rename…</button>
                                     {!selectedEnv.isDefault && !selectedSandbox && <button type="button" onClick={() => void setAsDefault(selectedEnv)}>Set as default</button>}
                                     <button type="button" onClick={() => { setMenuEnvId(null); setSyncOpen(true); }}>Sync config…</button>
+                                    {!selectedSandbox && (
+                                        <button type="button" onClick={() => { setMenuEnvId(null); setExportPackOpen(true); }}>
+                                            Export Draft pack…
+                                        </button>
+                                    )}
                                     {!selectedEnv.isDefault && <button type="button" className="environment-switcher-menu-danger" onClick={() => void removeEnvironment(selectedEnv)}>Delete…</button>}
                                 </div>
                             )}
@@ -449,6 +456,16 @@ export default function EnvironmentSwitcher({
                         >
                             <GitCompare size={13}/> Sync
                         </button>
+                        {!selectedSandbox && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost environment-stack-btn"
+                                onClick={() => setExportPackOpen(true)}
+                                title="Export this environment as a portable Draft pack"
+                            >
+                                <Package size={13}/> Pack
+                            </button>
+                        )}
                         <button
                             type="button"
                             className="btn btn-ghost environment-stack-btn"
@@ -718,6 +735,16 @@ export default function EnvironmentSwitcher({
                         onServicesChanged?.();
                         onStackActionDone?.();
                     }}
+                />
+            )}
+
+            {exportPackOpen && selectedEnvironmentId != null && selectedEnv && (
+                <ExportDraftPackDialog
+                    scope="environment"
+                    label={selectedEnv.name}
+                    environmentId={selectedEnvironmentId}
+                    projectId={projectId}
+                    onClose={() => setExportPackOpen(false)}
                 />
             )}
 

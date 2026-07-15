@@ -4,6 +4,7 @@ import {deploy} from '../models';
 import {dockerwatch} from '../models';
 import {store} from '../models';
 import {main} from '../models';
+import {draftpack} from '../models';
 import {types} from '../models';
 import {networking} from '../models';
 import {dockerfile} from '../models';
@@ -29,6 +30,8 @@ export function CreateSandbox(arg1:deploy.SandboxCreateRequest):Promise<deploy.S
 export function CreateServiceTemplate(arg1:store.ServiceTemplate):Promise<store.ServiceTemplate>;
 
 export function DaemonConnection():Promise<main.DaemonConnectionInfo>;
+
+export function DefaultDraftPackExportOptions():Promise<draftpack.ExportOptions>;
 
 export function DeleteAppSecret(arg1:string):Promise<void>;
 
@@ -59,6 +62,14 @@ export function DuplicateEnvironment(arg1:number,arg2:string,arg3:Array<deploy.S
 export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;
 
 export function ExportConfigToPath(arg1:string,arg2:string,arg3:string):Promise<deploy.ExportResult>;
+
+export function ExportDraftPackEnvironment(arg1:number,arg2:draftpack.ExportOptions):Promise<draftpack.ExportResult>;
+
+export function ExportDraftPackProject(arg1:number,arg2:draftpack.ExportOptions):Promise<draftpack.ExportResult>;
+
+export function ExportDraftPackService(arg1:string,arg2:draftpack.ExportOptions):Promise<draftpack.ExportResult>;
+
+export function ExportDraftPackToPath(arg1:string,arg2:string,arg3:number,arg4:number,arg5:draftpack.ExportOptions,arg6:string):Promise<draftpack.ExportResult>;
 
 export function ExportEnvFile(arg1:string):Promise<store.EnvFileSyncResult>;
 
@@ -115,6 +126,8 @@ export function ImportConfigAsProject(arg1:string,arg2:string):Promise<deploy.Im
 export function ImportConfigIntoProject(arg1:number,arg2:number,arg3:string,arg4:number,arg5:number):Promise<deploy.ImportResult>;
 
 export function ImportConfigPreview(arg1:string):Promise<deploy.ImportPreview>;
+
+export function ImportDraftPack(arg1:string,arg2:draftpack.ImportOptions):Promise<draftpack.ImportResult>;
 
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
@@ -184,6 +197,8 @@ export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<
 
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
+export function PreviewDraftPackImport(arg1:string):Promise<draftpack.ImportPreview>;
+
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 
 export function PreviewEnvironmentDuplicate(arg1:number):Promise<Array<deploy.StatefulServiceSummary>>;
@@ -236,9 +251,13 @@ export function RunCommand(arg1:string,arg2:Array<string>,arg3:string):Promise<d
 
 export function RunTestingSandbox(arg1:deploy.SandboxTestRunRequest):Promise<deploy.SandboxTestRunResult>;
 
+export function SaveDraftPackFile(arg1:string):Promise<string>;
+
 export function SaveSandboxProfile(arg1:store.SandboxProfile):Promise<store.SandboxProfile>;
 
 export function SaveSandboxProjectSettings(arg1:store.SandboxProjectSettings):Promise<store.SandboxProjectSettings>;
+
+export function SelectDraftPackFile():Promise<string>;
 
 export function SelectFile(arg1:string,arg2:string):Promise<string>;
 

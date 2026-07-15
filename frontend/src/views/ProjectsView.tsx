@@ -1,4 +1,4 @@
-import {ArrowRight, Boxes, ChevronRight, FileUp, FolderPlus, Settings} from 'lucide-react';
+import {ArrowRight, Boxes, ChevronRight, FileUp, FolderPlus, Package, Settings} from 'lucide-react';
 import {useState} from 'react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
@@ -11,6 +11,7 @@ type ProjectsViewProps = {
     projects: ProjectSummary[];
     onCreateProject: () => void;
     onImportProject?: () => void;
+    onImportDraftPack?: () => void;
     onOpenProject: (project: store.Project, environmentId?: number) => void;
     onOpenProjectSettings?: (project: store.Project) => void;
 };
@@ -25,7 +26,7 @@ function envStatusLine(env: EnvironmentSummary): string {
     return parts.join(' · ');
 }
 
-export default function ProjectsView({loading, projects, onCreateProject, onImportProject, onOpenProject, onOpenProjectSettings}: ProjectsViewProps) {
+export default function ProjectsView({loading, projects, onCreateProject, onImportProject, onImportDraftPack, onOpenProject, onOpenProjectSettings}: ProjectsViewProps) {
     const [expanded, setExpanded] = useState<number | null>(projects[0]?.project.id ?? null);
 
     return (
@@ -35,6 +36,11 @@ export default function ProjectsView({loading, projects, onCreateProject, onImpo
                 description="Manage your local Docker environments."
                 action={
                     <div className="projects-header-actions">
+                        {onImportDraftPack && (
+                            <button className="btn btn-ghost" onClick={onImportDraftPack}>
+                                <Package size={15}/> Import pack
+                            </button>
+                        )}
                         {onImportProject && (
                             <button className="btn btn-ghost" onClick={onImportProject}>
                                 <FileUp size={15}/> Import config

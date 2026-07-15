@@ -521,6 +521,58 @@ func (c *Client) ExportConfigToPath(ctx context.Context, nodeID, format, destDir
 	return &out, nil
 }
 
+func (c *Client) ExportDraftPackService(ctx context.Context, nodeID string, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	var out deploy.DraftPackExportResult
+	if err := c.postJSON(ctx, "/draftpack/export-service", map[string]any{"nodeId": nodeID, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportDraftPackEnvironment(ctx context.Context, environmentID uint, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	var out deploy.DraftPackExportResult
+	if err := c.postJSON(ctx, "/draftpack/export-environment", map[string]any{"environmentId": environmentID, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportDraftPackProject(ctx context.Context, projectID uint, opts deploy.DraftPackExportOptions) (*deploy.DraftPackExportResult, error) {
+	var out deploy.DraftPackExportResult
+	if err := c.postJSON(ctx, "/draftpack/export-project", map[string]any{"projectId": projectID, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ExportDraftPackToPath(ctx context.Context, scope, nodeID string, projectID, environmentID uint, opts deploy.DraftPackExportOptions, destPath string) (*deploy.DraftPackExportResult, error) {
+	var out deploy.DraftPackExportResult
+	body := map[string]any{
+		"scope": scope, "nodeId": nodeID, "projectId": projectID, "environmentId": environmentID,
+		"options": opts, "destPath": destPath,
+	}
+	if err := c.postJSON(ctx, "/draftpack/export-to-path", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) PreviewDraftPackImport(ctx context.Context, path string) (*deploy.DraftPackImportPreview, error) {
+	var out deploy.DraftPackImportPreview
+	if err := c.postJSON(ctx, "/draftpack/import-preview", map[string]string{"path": path}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ImportDraftPack(ctx context.Context, path string, opts deploy.DraftPackImportOptions) (*deploy.DraftPackImportResult, error) {
+	var out deploy.DraftPackImportResult
+	if err := c.postJSON(ctx, "/draftpack/import", map[string]any{"path": path, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) RollbackDeployment(ctx context.Context, deploymentID uint) error {
 	return c.postJSON(ctx, "/rollback", map[string]any{"deploymentId": deploymentID}, nil)
 }

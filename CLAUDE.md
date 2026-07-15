@@ -49,7 +49,8 @@ scripts/
   kill-daemon.ps1          # Windows equivalent
 
 internal/
-  cloudconfig/             # Import/export adapters (compose, cloudrun, ecs, containerapps)
+  cloudconfig/             # Cloud-format adapters (compose, cloudrun, ecs, containerapps)
+  draftpack/               # Draft-native portable packs (share project/env/service across machines)
   daemon/                  # HTTP API, SSE hub, daemon lifecycle, git-trigger reconcile
     paths.go               # Config dir + daemon.json state path
     gittrigger.go          # Hook fire + /hooks/recheck
@@ -144,6 +145,7 @@ frontend/src/
     CreateProjectDialog.tsx
     CreateServiceDialog.tsx  # Template picker + multi-step wizard
     ImportConfigDialog.tsx / ExportConfigDialog.tsx / ConfigReport.tsx
+    ImportDraftPackDialog.tsx / ExportDraftPackDialog.tsx  # Draft-native .draftpack share
     SyncConfigDialog.tsx   # Cross-environment config sync
     ProjectSettingsDialog.tsx  # Project metadata + project env vars
     EnvironmentSwitcher.tsx    # Multi-env switcher + create/duplicate/stack ops
@@ -332,6 +334,15 @@ Important model details:
   - Cloud-target runtime profile env injected when running locally as Cloud Run / Container Apps.
 - **Config sync** between environments (or single matched services): preview diffs for settings/env; apply as `stage` or `stageAndRedeploy`.
 
+### Draft packs (native share)
+
+- **Draft-native `.draftpack`** files for sharing a service, environment, or whole project across machines (not cloud formats).
+- Config only: settings, env vars, project values, canvas layout, optional git settings / source_config / sandbox profiles. No Docker runtime state, routes, port leases, or deployment history.
+- **Export omit defaults** (safe cross-machine): strip absolute project path, `git_repo_root`, secret values, app-secret values, bind-mount host paths; keep project-relative `service_root`; Draft volumes export as container-path intent only.
+- **Optional include**: secret values, app secrets, bind host paths, sandbox profiles (project scope).
+- **Import**: new project (folder picker) or into existing project/environment; remap service roots and binds; fill omitted secrets; regenerate node IDs/UIDs; restore `service_link` by label when both sides are in the pack; fidelity report of skipped/needs-attention items.
+- UI: Projects **Import pack**; canvas **Import pack** / **Export pack**; environment switcher **Pack**; service drawer **Pack**.
+
 ### Workspace admin views
 
 - **Overview**: live dashboard of projects + activity (mounted).
@@ -414,6 +425,7 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 - Canvas nodes render template icons via `templateId` + `ListServiceTemplates`; volume mounts render as selectable chips; env-reference edges group by node pair.
 - Environment chrome: `EnvironmentSwitcher` (switch, create, duplicate “based on”, stack start/stop/redeploy, sync config, create sandbox, delete).
 - Import cloud config is available from the app chrome; export from project/service UI.
+- Draft packs: import from Projects or canvas; export from canvas (project), environment switcher, or service drawer.
 
 ## Sandbox Behavior
 

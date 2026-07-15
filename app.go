@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"Draft/internal/daemon"
@@ -130,5 +131,31 @@ func (a *App) SelectFile(title string, defaultDir string) (string, error) {
 	return wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
 		Title:            title,
 		DefaultDirectory: defaultDir,
+	})
+}
+
+// SelectDraftPackFile opens a file picker filtered for .draftpack files.
+func (a *App) SelectDraftPackFile() (string, error) {
+	return wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
+		Title: "Select a Draft pack",
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "Draft pack (*.draftpack)", Pattern: "*.draftpack"},
+			{DisplayName: "JSON (*.json)", Pattern: "*.json"},
+			{DisplayName: "All files", Pattern: "*.*"},
+		},
+	})
+}
+
+// SaveDraftPackFile opens a save dialog for a .draftpack file and returns the path.
+func (a *App) SaveDraftPackFile(defaultFilename string) (string, error) {
+	if strings.TrimSpace(defaultFilename) == "" {
+		defaultFilename = "pack.draftpack"
+	}
+	return wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
+		Title:           "Save Draft pack",
+		DefaultFilename: defaultFilename,
+		Filters: []wruntime.FileFilter{
+			{DisplayName: "Draft pack (*.draftpack)", Pattern: "*.draftpack"},
+		},
 	})
 }

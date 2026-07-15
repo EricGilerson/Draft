@@ -9,6 +9,7 @@ import {AppDialogProvider} from './components/AppDialogProvider';
 import {BuildLogProvider} from './components/BuildLogProvider';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import ImportConfigDialog from './components/ImportConfigDialog';
+import ImportDraftPackDialog from './components/ImportDraftPackDialog';
 import ProjectSettingsDialog from './components/ProjectSettingsDialog';
 import {decorateProjectSummaries} from './lib/dashboardData';
 import {useActivityLog} from './lib/useActivityLog';
@@ -35,6 +36,7 @@ function App() {
     const [loading, setLoading] = useState(true);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
+    const [draftPackImportOpen, setDraftPackImportOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<store.Project | null>(null);
     const [selectedEnvironmentId, setSelectedEnvironmentId] = useState<number | null>(null);
     const [environmentBusy, setEnvironmentBusy] = useState(false);
@@ -302,6 +304,7 @@ function App() {
                                 projects={summaries}
                                 onCreateProject={() => setDialogOpen(true)}
                                 onImportProject={() => setImportOpen(true)}
+                                onImportDraftPack={() => setDraftPackImportOpen(true)}
                                 onOpenProject={openProject}
                                 onOpenProjectSettings={openProjectSettings}
                             />
@@ -362,6 +365,26 @@ function App() {
                                 refreshProjects().then(() => {
                                     const project = projectsRef.current.find((p) => p.id === projectId);
                                     if (project) {
+                                        setSelectedProject(project);
+                                        setView('projects');
+                                    }
+                                });
+                            }}
+                        />
+                    )}
+
+                    {draftPackImportOpen && (
+                        <ImportDraftPackDialog
+                            onClose={() => setDraftPackImportOpen(false)}
+                            onImported={(projectId, environmentId) => {
+                                setDraftPackImportOpen(false);
+                                refreshProjects().then(() => {
+                                    const project = projectsRef.current.find((p) => p.id === projectId);
+                                    if (project) {
+                                        if (environmentId) {
+                                            requestedEnvironmentRef.current = {projectId, environmentId};
+                                            setSelectedEnvironmentId(environmentId);
+                                        }
                                         setSelectedProject(project);
                                         setView('projects');
                                     }
