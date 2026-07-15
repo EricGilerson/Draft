@@ -1,11 +1,13 @@
 import {useCallback, useEffect, useState} from 'react';
-import {FileUp, FolderOpen, Loader2, Package} from 'lucide-react';
+import {ClipboardPaste, FileUp, FolderOpen, Loader2, Package} from 'lucide-react';
 import Dialog from './Dialog';
 import ConfigReport from './ConfigReport';
 import {
     ImportDraftPack,
+    ImportDraftPackJSON,
     ListEnvironments,
     PreviewDraftPackImport,
+    PreviewDraftPackJSON,
     SelectDraftPackFile,
     SelectFolder,
 } from '../../wailsjs/go/main/App';
@@ -20,8 +22,14 @@ type Props = {
     onImported: (projectId: number, environmentId?: number) => void;
 };
 
+type SourceMode = 'file' | 'paste';
+
 export default function ImportDraftPackDialog({projectId, environmentId, onClose, onImported}: Props) {
+    const [sourceMode, setSourceMode] = useState<SourceMode>('file');
     const [path, setPath] = useState('');
+    const [pasteJSON, setPasteJSON] = useState('');
+    /** Last JSON text that successfully produced a preview (file path or paste body). */
+    const [activeJSON, setActiveJSON] = useState<string | null>(null);
     const [preview, setPreview] = useState<draftpack.ImportPreview | null>(null);
     const [mode, setMode] = useState<'newProject' | 'intoProject'>(projectId ? 'intoProject' : 'newProject');
     const [projectName, setProjectName] = useState('');
@@ -40,6 +48,8 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     const [resultReport, setResultReport] = useState<draftpack.Report | null>(null);
     const [importedProjectId, setImportedProjectId] = useState<number | null>(null);
     const [importedEnvId, setImportedEnvId] = useState<number | undefined>(undefined);
+
+    const hasSource = sourceMode === 'file' ? !!path : !!activeJSON;
 
     const finish = () => {
         if (importedProjectId != null) {
@@ -60,26 +70,86 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         });
     }, [mode, projectId, targetEnvId, environmentId, projectName, projectPath, serviceLabels, hostPorts]);
 
-    const refreshPreview = useCallback(async (packPath: string) => {
-        const pv = await PreviewDraftPackImport(packPath, buildPreviewOptions());
+    const runPreview = useCallback(async (opts: draftpack.PreviewOptions, filePath?: string, jsonText?: string) => {
+        if (jsonText != null && jsonText.trim() !== '') {
+            return PreviewDraftPackJSON(jsonText, opts);
+        }
+        if (filePath) {
+            return PreviewDraftPackImport(filePath, opts);
+        }
+        throw new Error('No pack source');
+    }, []);
+
+    const applyPreviewSeed = async (pv: draftpack.ImportPreview) => {
         setPreview(pv);
-        return pv;
-    }, [buildPreviewOptions]);
+        const name = pv.suggestedProjectName || pv.projectName || 'imported';
+        setProjectName(name);
+
+        const roots: Record<string, string> = {};
+        for (const n of pv.needsServiceRoots ?? []) {
+            if (n.hint) roots[n.serviceKey] = n.hint;
+        }
+        setServiceRoots(roots);
+
+        const labels: Record<string, string> = {};
+        const ports: Record<string, string> = {};
+        for (const c of pv.collisions ?? []) {
+            if (c.kind === 'service_label' && c.suggested) {
+                labels[c.field] = c.suggested;
+            }
+            if (c.kind === 'host_port') {
+                ports[c.field] = '';
+            }
+            if (c.kind === 'project_name' && c.suggested) {
+                setProjectName(c.suggested);
+            }
+        }
+        setServiceLabels(labels);
+        setHostPorts(ports);
+
+        if (projectId) {
+            const list = await ListEnvironments(projectId);
+            setEnvs(list || []);
+            if (!targetEnvId && list?.length) {
+                const def = list.find((e) => e.isDefault) || list[0];
+                setTargetEnvId(def.id);
+            }
+        }
+    };
 
     // Re-check collisions when mode / target / identity fields change.
     useEffect(() => {
-        if (!path || resultReport) return;
+        if (!hasSource || resultReport) return;
         let cancelled = false;
         (async () => {
             try {
-                const pv = await PreviewDraftPackImport(path, buildPreviewOptions());
+                const opts = buildPreviewOptions();
+                const pv = await runPreview(
+                    opts,
+                    sourceMode === 'file' ? path : undefined,
+                    sourceMode === 'paste' ? (activeJSON ?? undefined) : undefined,
+                );
                 if (!cancelled) setPreview(pv);
             } catch {
                 /* keep last preview */
             }
         })();
         return () => { cancelled = true; };
-    }, [path, mode, targetEnvId, projectName, projectPath, serviceLabels, hostPorts, buildPreviewOptions, resultReport]);
+    }, [hasSource, path, activeJSON, sourceMode, mode, targetEnvId, projectName, projectPath, serviceLabels, hostPorts, buildPreviewOptions, resultReport, runPreview]);
+
+    const switchSourceMode = (next: SourceMode) => {
+        if (next === sourceMode) return;
+        setSourceMode(next);
+        setError(null);
+        setResultReport(null);
+        setPreview(null);
+        setPath('');
+        setActiveJSON(null);
+        // Keep pasteJSON when switching so users don't lose clipboard content.
+        if (next === 'file') {
+            // leave paste text; path is empty until pick
+        }
+    };
 
     const pickFile = async () => {
         setError(null);
@@ -88,6 +158,8 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
             const p = await SelectDraftPackFile();
             if (!p) return;
             setPath(p);
+            setActiveJSON(null);
+            setSourceMode('file');
             setBusy(true);
             const opts = draftpack.PreviewOptions.createFrom({
                 mode,
@@ -95,45 +167,44 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                 environmentId: targetEnvId || environmentId || 0,
             });
             const pv = await PreviewDraftPackImport(p, opts);
-            setPreview(pv);
-            const name = pv.suggestedProjectName || pv.projectName || 'imported';
-            setProjectName(name);
-
-            // Prefill service root hints
-            const roots: Record<string, string> = {};
-            for (const n of pv.needsServiceRoots ?? []) {
-                if (n.hint) roots[n.serviceKey] = n.hint;
-            }
-            setServiceRoots(roots);
-
-            // Prefill collision fixes with suggestions
-            const labels: Record<string, string> = {};
-            const ports: Record<string, string> = {};
-            for (const c of pv.collisions ?? []) {
-                if (c.kind === 'service_label' && c.suggested) {
-                    labels[c.field] = c.suggested;
-                }
-                if (c.kind === 'host_port') {
-                    ports[c.field] = ''; // clear by default
-                }
-                if (c.kind === 'project_name' && c.suggested) {
-                    setProjectName(c.suggested);
-                }
-            }
-            setServiceLabels(labels);
-            setHostPorts(ports);
-
-            if (projectId) {
-                const list = await ListEnvironments(projectId);
-                setEnvs(list || []);
-                if (!targetEnvId && list?.length) {
-                    const def = list.find((e) => e.isDefault) || list[0];
-                    setTargetEnvId(def.id);
-                }
-            }
+            await applyPreviewSeed(pv);
         } catch (e: any) {
             setPreview(null);
             setError(String(e?.message ?? e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const parsePastedJSON = async () => {
+        setError(null);
+        setResultReport(null);
+        const text = pasteJSON.trim();
+        if (!text) {
+            setError('Paste draft pack JSON first.');
+            return;
+        }
+        setBusy(true);
+        try {
+            // Fast local sanity check so bad paste fails with a clear message.
+            JSON.parse(text);
+            const opts = draftpack.PreviewOptions.createFrom({
+                mode,
+                projectId: projectId || 0,
+                environmentId: targetEnvId || environmentId || 0,
+            });
+            const pv = await PreviewDraftPackJSON(text, opts);
+            setPath('');
+            setActiveJSON(text);
+            setSourceMode('paste');
+            await applyPreviewSeed(pv);
+        } catch (e: any) {
+            setPreview(null);
+            setActiveJSON(null);
+            const msg = String(e?.message ?? e);
+            setError(msg.includes('JSON') || msg.includes('json') || msg.includes('Unexpected')
+                ? `Invalid JSON: ${msg}`
+                : msg);
         } finally {
             setBusy(false);
         }
@@ -160,11 +231,10 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     const doImport = async () => {
-        if (!path || !preview) return;
+        if (!preview || !hasSource) return;
         setBusy(true);
         setError(null);
         try {
-            // Seed any still-open collisions with suggestions so import can proceed.
             const labels = {...serviceLabels};
             const ports = {...hostPorts};
             let name = projectName.trim();
@@ -195,15 +265,23 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                 importAppSecrets,
                 startAfter: false,
             });
-            const res = await ImportDraftPack(path, opts);
+
+            const res = sourceMode === 'paste' && activeJSON
+                ? await ImportDraftPackJSON(activeJSON, opts)
+                : await ImportDraftPack(path, opts);
             setResultReport(res.report);
             setImportedProjectId(res.projectId);
             setImportedEnvId(res.environmentIds?.[0]);
         } catch (e: any) {
             setError(String(e?.message ?? e));
-            // Refresh collisions after a failed import (e.g. path still taken).
             try {
-                await refreshPreview(path);
+                const opts = buildPreviewOptions();
+                const pv = await runPreview(
+                    opts,
+                    sourceMode === 'file' ? path : undefined,
+                    sourceMode === 'paste' ? (activeJSON ?? undefined) : undefined,
+                );
+                setPreview(pv);
             } catch { /* ignore */ }
         } finally {
             setBusy(false);
@@ -211,7 +289,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     const hasBlocking = !!preview?.hasBlockingCollision;
-    const canImport = !!preview && !busy && !resultReport && !hasBlocking && (
+    const canImport = !!preview && !busy && !resultReport && !hasBlocking && hasSource && (
         mode === 'newProject'
             ? projectName.trim() !== '' && projectPath.trim() !== ''
             : !!(projectId && (targetEnvId || environmentId))
@@ -237,16 +315,65 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         <Dialog title="Import Draft pack" onClose={resultReport ? finish : onClose} footer={footer} wide>
             <div className="draftpack-import">
                 <p className="draftpack-import-intro">
-                    Open a <strong>.draftpack</strong> shared from another Draft install. Fix any name or path
-                    collisions below, then import — Draft will not reject the pack for renamable clashes.
+                    Open a <strong>.draftpack</strong> file or paste the JSON you copied from export.
+                    Fix any name or path collisions below, then import — Draft will not reject the pack for renamable clashes.
                 </p>
 
-                <div className="draftpack-import-file">
-                    <button className="btn btn-secondary" onClick={pickFile} disabled={busy}>
-                        <FileUp size={14}/> Choose pack…
+                <div className="draftpack-source-tabs">
+                    <button
+                        type="button"
+                        className={`draftpack-source-tab${sourceMode === 'file' ? ' is-active' : ''}`}
+                        onClick={() => switchSourceMode('file')}
+                        disabled={busy || !!resultReport}
+                    >
+                        <FileUp size={14}/> From file
                     </button>
-                    {path && <code className="draftpack-path" title={path}>{path}</code>}
+                    <button
+                        type="button"
+                        className={`draftpack-source-tab${sourceMode === 'paste' ? ' is-active' : ''}`}
+                        onClick={() => switchSourceMode('paste')}
+                        disabled={busy || !!resultReport}
+                    >
+                        <ClipboardPaste size={14}/> Paste JSON
+                    </button>
                 </div>
+
+                {sourceMode === 'file' && (
+                    <div className="draftpack-import-file">
+                        <button className="btn btn-secondary" onClick={pickFile} disabled={busy || !!resultReport}>
+                            <FileUp size={14}/> Choose pack…
+                        </button>
+                        {path && <code className="draftpack-path" title={path}>{path}</code>}
+                    </div>
+                )}
+
+                {sourceMode === 'paste' && !resultReport && (
+                    <div className="draftpack-paste">
+                        <textarea
+                            className="input draftpack-paste-area"
+                            value={pasteJSON}
+                            onChange={(e) => setPasteJSON(e.target.value)}
+                            placeholder='Paste draft pack JSON here… (same content as “Copy JSON” on export)'
+                            spellCheck={false}
+                            disabled={busy}
+                            rows={10}
+                        />
+                        <div className="draftpack-paste-actions">
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={parsePastedJSON}
+                                disabled={busy || !pasteJSON.trim()}
+                            >
+                                {busy ? <Loader2 size={14} className="spin"/> : <ClipboardPaste size={14}/>}
+                                Parse pack
+                            </button>
+                            {activeJSON && (
+                                <span className="draftpack-paste-ready">JSON ready · {preview?.services?.length ?? 0} service{(preview?.services?.length ?? 0) === 1 ? '' : 's'}</span>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {error && <p className="form-error">{error}</p>}
 
@@ -258,6 +385,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                             {(preview.environments?.length ?? 0) > 0 && (
                                 <span>{preview.environments.length} environment{(preview.environments.length === 1) ? '' : 's'}</span>
                             )}
+                            {sourceMode === 'paste' && <span className="draftpack-source-badge">from clipboard</span>}
                         </div>
 
                         <ul className="draftpack-services">

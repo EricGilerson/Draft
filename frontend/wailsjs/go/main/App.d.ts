@@ -129,6 +129,8 @@ export function ImportConfigPreview(arg1:string):Promise<deploy.ImportPreview>;
 
 export function ImportDraftPack(arg1:string,arg2:draftpack.ImportOptions):Promise<draftpack.ImportResult>;
 
+export function ImportDraftPackJSON(arg1:string,arg2:draftpack.ImportOptions):Promise<draftpack.ImportResult>;
+
 export function ImportEnvFile(arg1:string,arg2:string):Promise<store.EnvFileSyncResult>;
 
 export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.DockerfileBuildInfo>;
@@ -198,6 +200,8 @@ export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<
 export function PreviewDeleteService(arg1:string):Promise<deploy.DeleteServicePreview>;
 
 export function PreviewDraftPackImport(arg1:string,arg2:draftpack.PreviewOptions):Promise<draftpack.ImportPreview>;
+
+export function PreviewDraftPackJSON(arg1:string,arg2:draftpack.PreviewOptions):Promise<draftpack.ImportPreview>;
 
 export function PreviewEnvVars(arg1:string):Promise<Record<string, deploy.EnvPreview>>;
 

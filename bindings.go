@@ -756,6 +756,30 @@ func (a *App) ImportDraftPack(path string, opts deploy.DraftPackImportOptions) (
 	return c.ImportDraftPack(a.ctx, path, opts)
 }
 
+// PreviewDraftPackJSON dry-runs importing pack JSON pasted from the clipboard.
+func (a *App) PreviewDraftPackJSON(jsonText string, opts deploy.DraftPackPreviewOptions) (*deploy.DraftPackImportPreview, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewDraftPackJSON(a.ctx, jsonText, opts)
+}
+
+// ImportDraftPackJSON applies pack JSON pasted from the clipboard.
+func (a *App) ImportDraftPackJSON(jsonText string, opts deploy.DraftPackImportOptions) (*deploy.DraftPackImportResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.ImportDraftPackJSON(a.ctx, jsonText, opts)
+}
+
 func (a *App) UpdateNode(id string, x, y float64, label string) error {
 	if a.store == nil {
 		return errNoStore

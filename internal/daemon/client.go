@@ -573,6 +573,22 @@ func (c *Client) ImportDraftPack(ctx context.Context, path string, opts deploy.D
 	return &out, nil
 }
 
+func (c *Client) PreviewDraftPackJSON(ctx context.Context, jsonText string, opts deploy.DraftPackPreviewOptions) (*deploy.DraftPackImportPreview, error) {
+	var out deploy.DraftPackImportPreview
+	if err := c.postJSON(ctx, "/draftpack/import-preview-json", map[string]any{"json": jsonText, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ImportDraftPackJSON(ctx context.Context, jsonText string, opts deploy.DraftPackImportOptions) (*deploy.DraftPackImportResult, error) {
+	var out deploy.DraftPackImportResult
+	if err := c.postJSON(ctx, "/draftpack/import-json", map[string]any{"json": jsonText, "options": opts}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) RollbackDeployment(ctx context.Context, deploymentID uint) error {
 	return c.postJSON(ctx, "/rollback", map[string]any{"deploymentId": deploymentID}, nil)
 }

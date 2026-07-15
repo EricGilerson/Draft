@@ -242,6 +242,10 @@ export function ImportDraftPack(arg1, arg2) {
   return window['go']['main']['App']['ImportDraftPack'](arg1, arg2);
 }
 
+export function ImportDraftPackJSON(arg1, arg2) {
+  return window['go']['main']['App']['ImportDraftPackJSON'](arg1, arg2);
+}
+
 export function ImportEnvFile(arg1, arg2) {
   return window['go']['main']['App']['ImportEnvFile'](arg1, arg2);
 }
@@ -380,6 +384,10 @@ export function PreviewDeleteService(arg1) {
 
 export function PreviewDraftPackImport(arg1, arg2) {
   return window['go']['main']['App']['PreviewDraftPackImport'](arg1, arg2);
+}
+
+export function PreviewDraftPackJSON(arg1, arg2) {
+  return window['go']['main']['App']['PreviewDraftPackJSON'](arg1, arg2);
 }
 
 export function PreviewEnvVars(arg1) {

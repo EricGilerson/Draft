@@ -102,7 +102,7 @@ func (e *Engine) ImportDraftPack(path string, opts DraftPackImportOptions) (*Dra
 	return imp.Import(pack, opts)
 }
 
-// PreviewDraftPackJSON parses pack JSON bytes (for tests / advanced UI).
+// PreviewDraftPackJSON parses pack JSON (clipboard paste / no file) and returns a dry-run preview.
 func (e *Engine) PreviewDraftPackJSON(data []byte, opts draftpack.PreviewOptions) (*DraftPackImportPreview, error) {
 	pack, err := draftpack.UnmarshalPack(data)
 	if err != nil {
@@ -112,7 +112,7 @@ func (e *Engine) PreviewDraftPackJSON(data []byte, opts draftpack.PreviewOptions
 	return imp.Preview(pack, opts)
 }
 
-// ImportDraftPackJSON applies pack JSON (for tests).
+// ImportDraftPackJSON applies pack JSON (clipboard paste / no file).
 func (e *Engine) ImportDraftPackJSON(data []byte, opts DraftPackImportOptions) (*DraftPackImportResult, error) {
 	pack, err := draftpack.UnmarshalPack(data)
 	if err != nil {

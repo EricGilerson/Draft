@@ -211,6 +211,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/draftpack/export-to-path", s.handleDraftPackExportToPath)
 	mux.HandleFunc("/draftpack/import-preview", s.handleDraftPackImportPreview)
 	mux.HandleFunc("/draftpack/import", s.handleDraftPackImport)
+	mux.HandleFunc("/draftpack/import-preview-json", s.handleDraftPackImportPreviewJSON)
+	mux.HandleFunc("/draftpack/import-json", s.handleDraftPackImportJSON)
 	mux.HandleFunc("/stop", s.handleStop)
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
@@ -956,6 +958,38 @@ func (s *Server) handleDraftPackImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.engine.ImportDraftPack(req.Path, req.Options)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackImportPreviewJSON(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		JSON    string                        `json:"json"`
+		Options deploy.DraftPackPreviewOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.PreviewDraftPackJSON([]byte(req.JSON), req.Options)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, result)
+}
+
+func (s *Server) handleDraftPackImportJSON(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		JSON    string                       `json:"json"`
+		Options deploy.DraftPackImportOptions `json:"options"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := s.engine.ImportDraftPackJSON([]byte(req.JSON), req.Options)
 	if err != nil {
 		writeError(w, err)
 		return
