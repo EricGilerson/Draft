@@ -299,7 +299,7 @@ Important model details:
 - **Source code at create** (does not mutate durable env settings):
   - `ListSandboxSourceRepos` discovers git repos used by source services, local branches, and (when available) open GitHub PRs via `gh`.
   - Create dialog can keep source pins, pick a **branch/ref**, or pick a **PR** (gated per-repo: `gh` on PATH + `gh repo view` succeeds).
-  - `plan.repositories` pins each repo root to a human ref; create resolves to commit SHA and sets copied services’ `git_branch` to that SHA.
+  - `plan.repositories` pins each repo root to a **deployable** git ref: PreferDeployableRef rewrites bare PR head names to `origin/<branch>` when needed; fork PRs fetch `pull/<n>/head` into `origin/pr/<n>`. Copied services’ `git_branch` stores that tip-following ref (not a raw SHA), so Settings is readable and redeploys follow tip. “Same SHA” refresh freezes `git_branch` to the recorded commit for a one-shot rebuild.
   - PR selection also records a structured `pr:N` sandbox link; freeform links remain available.
   - Preview create uses **Create & start** (`startOnCreate`) so the sandbox deploys immediately after materialize.
 - **Refresh**: `RefreshSandbox` mode `tip` re-resolves human refs and redeploys; mode `same` redeploys at frozen SHAs (sandbox-native rebuild-from-SHA).

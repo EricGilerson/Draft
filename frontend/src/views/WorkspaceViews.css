@@ -522,6 +522,11 @@
     font-size: 0.78rem;
 }
 
+/* Services without managed volumes only need copy/share/omit. */
+.sandbox-plan-row--no-data {
+    grid-template-columns: minmax(110px, 1fr) minmax(150px, 1fr);
+}
+
 .sandbox-source-repo {
     padding: 12px 0;
     border-top: 1px solid var(--border);

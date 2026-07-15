@@ -12,6 +12,7 @@ import {
     ListSandboxSourceRepos,
     ListSandboxes,
     ListSandboxTestRuns,
+    PreviewEnvironmentDuplicate,
     PreviewSandbox,
     RefreshSandbox,
     ResumeSandbox,
@@ -155,6 +156,8 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [profiles, setProfiles] = useState<store.SandboxProfile[]>([]);
     const [profileId, setProfileId] = useState(0);
     const [sourceNodes, setSourceNodes] = useState<store.CanvasNode[]>([]);
+    /** Node IDs in the source env that have managed volume mounts (clone-capable). */
+    const [nodesWithVolumes, setNodesWithVolumes] = useState<Record<string, boolean>>({});
     const [sourceRepos, setSourceRepos] = useState<deploy.SandboxSourceRepos | null>(null);
     const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoSourceDraft>>({});
     const [sourceReposLoading, setSourceReposLoading] = useState(false);
@@ -213,6 +216,17 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                 return current;
             });
         }).catch(() => setSourceNodes([]));
+        // Same volume detection as env-duplicate wizard: only managed volume
+        // mounts get a clone/fresh data dropdown.
+        PreviewEnvironmentDuplicate(sourceId)
+            .then((rows) => {
+                const next: Record<string, boolean> = {};
+                for (const svc of rows ?? []) {
+                    next[svc.nodeId] = (svc.volumes?.length ?? 0) > 0;
+                }
+                setNodesWithVolumes(next);
+            })
+            .catch(() => setNodesWithVolumes({}));
         setRules({}); setPreview(null);
     }, [sourceId]);
     useEffect(() => {
@@ -249,11 +263,14 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const defaultServiceLabel = sourceNodes[0]?.label ?? '';
     const repositoryPlan = useMemo(() => {
         return Object.values(repoDrafts)
-            .filter((draft) => draft.mode !== 'keep' && (draft.ref.trim() || draft.commitSha.trim()))
+            .filter((draft) => draft.mode !== 'keep' && (draft.ref.trim() || draft.commitSha.trim() || draft.prNumber > 0))
             .map((draft) => deploy.SandboxRepositoryRef.createFrom({
                 repoRoot: draft.repoRoot,
-                ref: draft.ref.trim() || draft.commitSha.trim(),
+                // Prefer the PR head branch name; backend rewrites to a deployable
+                // ref (origin/<branch> or origin/pr/<n> after fetch) when needed.
+                ref: draft.ref.trim() || (draft.prNumber > 0 ? `pr-${draft.prNumber}` : draft.commitSha.trim()),
                 commitSha: draft.commitSha.trim() || undefined,
+                prNumber: draft.mode === 'pr' && draft.prNumber > 0 ? draft.prNumber : undefined,
             }));
     }, [repoDrafts]);
 
@@ -1020,15 +1037,30 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     </p>
                     {sourceNodes.map((node) => {
                         const rule = rules[node.id];
+                        const mode = rule?.mode ?? 'copy';
+                        const hasVolumes = !!nodesWithVolumes[node.id];
                         return (
-                            <div className="sandbox-plan-row" key={node.id}>
+                            <div className={`sandbox-plan-row${hasVolumes ? '' : ' sandbox-plan-row--no-data'}`} key={node.id}>
                                 <strong>{node.label}</strong>
-                                <select className="input settings-select" value={rule?.mode ?? 'copy'} onChange={(e) => updateRule(node.id, {mode: e.target.value})}>
+                                <select
+                                    className="input settings-select"
+                                    value={mode}
+                                    onChange={(e) => {
+                                        const nextMode = e.target.value;
+                                        // Drop clone/fresh when switching away from copy, or when
+                                        // the service has no managed volumes to choose over.
+                                        if (nextMode !== 'copy' || !hasVolumes) {
+                                            updateRule(node.id, {mode: nextMode, dataMode: undefined, consistency: undefined});
+                                        } else {
+                                            updateRule(node.id, {mode: nextMode});
+                                        }
+                                    }}
+                                >
                                     <option value="copy">Copy</option>
                                     <option value="share">Share source service</option>
                                     <option value="omit">Omit</option>
                                 </select>
-                                {(rule?.mode ?? 'copy') === 'copy' && (
+                                {mode === 'copy' && hasVolumes && (
                                     <select className="input settings-select" value={rule?.dataMode ?? ''} onChange={(e) => updateRule(node.id, {dataMode: e.target.value || undefined})}>
                                         <option value="">Profile/default data plan</option>
                                         <option value="clone">Clone data</option>

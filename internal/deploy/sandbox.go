@@ -34,14 +34,21 @@ type SandboxServiceRule struct {
 }
 
 // SandboxRepositoryRef makes branch/ref selection explicitly per repository.
-// Ref is resolved to CommitSHA before creation, and the resolved value is what
-// is applied to copied Git-backed services. CommitSHA may be supplied when the
-// caller already knows the tip (for example a GitHub PR head from `gh`) and the
-// local object store may not have fetched that commit yet.
+// Ref is the human branch/PR head/tag stored on sandbox copies as git_branch so
+// Settings stays readable and redeploys can follow tip. CommitSHA is resolved
+// at create (and on refresh) for audit / "same SHA" rebuilds; it is not written
+// to git_branch unless the pin is intentionally frozen.
+// CommitSHA may also be supplied when the caller already knows the tip (for
+// example a GitHub PR head from `gh`) and the local object store may not have
+// fetched that commit yet.
+//
+// PRNumber, when set, lets Draft fetch refs/pull/<n>/head when the PR head
+// branch name is not present locally (common for fork PRs).
 type SandboxRepositoryRef struct {
 	RepoRoot  string `json:"repoRoot"`
 	Ref       string `json:"ref"`
 	CommitSHA string `json:"commitSha,omitempty"`
+	PRNumber  int    `json:"prNumber,omitempty"`
 }
 
 // SandboxPurpose distinguishes preview sandboxes (human-driven PR/feature
@@ -139,10 +146,11 @@ type SandboxRefreshMode string
 
 const (
 	// SandboxRefreshTip re-resolves each stored human ref (branch/PR head) to
-	// the current tip and redeploys copied services.
+	// the current tip, keeps git_branch on that ref, and redeploys.
 	SandboxRefreshTip SandboxRefreshMode = "tip"
-	// SandboxRefreshSame redeploys at the frozen commit SHAs already recorded
-	// on the sandbox (true rebuild-from-SHA for sandbox copies).
+	// SandboxRefreshSame freezes git_branch to the recorded commit SHA and
+	// redeploys that exact object (true rebuild-from-SHA for sandbox copies).
+	// The human ref is still kept on the pin record for display / later tip refresh.
 	SandboxRefreshSame SandboxRefreshMode = "same"
 )
 
@@ -457,47 +465,128 @@ func (e *Engine) ListSandboxSourceRepos(ctx context.Context, sourceEnvironmentID
 	return out, nil
 }
 
-// ResolveSandboxRef resolves a human ref (or explicit SHA) for a repo root.
-// When commitSHA is provided and the ref cannot be resolved locally (common
-// for PR heads not fetched yet), the provided SHA is returned as-is if it
-// looks like a full or abbreviated git object id.
+// ResolveSandboxRef resolves a human ref (or explicit SHA) for a repo root into
+// a deployable pin. PreferDeployableRef rewrites bare PR head names to
+// origin/<branch> when needed. prNumber triggers a fetch of pull/<n>/head into
+// origin/pr/<n> when the branch still cannot be resolved (fork PRs).
+//
+// When commitSHA is provided and the ref cannot be resolved locally, the
+// provided SHA is accepted if it looks like a git object id — but Ref is still
+// rewritten to a deployable tip-following name whenever possible so Settings
+// does not store a dead branch label.
 func (e *Engine) ResolveSandboxRef(ctx context.Context, repoRoot, ref, commitSHA string) (*store.SandboxRepositorySource, error) {
+	return e.resolveSandboxRef(ctx, repoRoot, ref, commitSHA, 0)
+}
+
+func (e *Engine) resolveSandboxRef(ctx context.Context, repoRoot, ref, commitSHA string, prNumber int) (*store.SandboxRepositorySource, error) {
 	repoRoot = filepath.Clean(strings.TrimSpace(repoRoot))
 	ref = strings.TrimSpace(ref)
 	commitSHA = strings.TrimSpace(commitSHA)
+	if prNumber <= 0 {
+		prNumber = gitsrc.ParsePRNumber(ref)
+	}
 	if repoRoot == "" {
 		return nil, fmt.Errorf("repo root is required")
 	}
-	if ref == "" && commitSHA == "" {
+	if ref == "" && commitSHA == "" && prNumber <= 0 {
 		return nil, fmt.Errorf("ref or commit SHA is required")
-	}
-	if ref == "" {
-		ref = commitSHA
 	}
 	if !gitsrc.IsRepo(repoRoot) {
 		return nil, fmt.Errorf("%s is not a git repository", repoRoot)
 	}
-	sha, err := gitsrc.ResolveSHA(ctx, repoRoot, ref)
+
+	// Prefer a ref that actually resolves in this clone (local branch or origin/*).
+	if ref != "" {
+		ref = gitsrc.PreferDeployableRef(ctx, repoRoot, ref)
+	}
+
+	var (
+		sha string
+		err error
+	)
+	if ref != "" {
+		sha, err = gitsrc.ResolveSHA(ctx, repoRoot, ref)
+	} else {
+		err = fmt.Errorf("ref is empty")
+	}
+	if err != nil && prNumber > 0 {
+		// Fork PR heads often are not present as local/remote branches. Fetch
+		// GitHub's synthetic pull/<n>/head into origin/pr/<n> and pin that.
+		if prRef, fetchErr := gitsrc.EnsurePullRequestRef(ctx, repoRoot, prNumber); fetchErr == nil {
+			ref = prRef
+			sha, err = gitsrc.ResolveSHA(ctx, repoRoot, ref)
+		} else if err == nil || strings.Contains(err.Error(), "empty") {
+			err = fetchErr
+		} else {
+			err = fmt.Errorf("%w; %v", err, fetchErr)
+		}
+	}
 	if err != nil && commitSHA != "" {
 		// Prefer verifying the explicit SHA when the human ref is missing locally.
 		if verified, vErr := gitsrc.ResolveSHA(ctx, repoRoot, commitSHA); vErr == nil {
 			sha = verified
 			err = nil
+			// Keep a tip-following name when we have a PR; otherwise leave ref
+			// as the (possibly still-unresolvable) branch label only if empty.
+			if ref == "" || looksLikeGitObjectID(ref) {
+				if prNumber > 0 {
+					if prRef, fetchErr := gitsrc.EnsurePullRequestRef(ctx, repoRoot, prNumber); fetchErr == nil {
+						ref = prRef
+					} else {
+						ref = commitSHA
+					}
+				} else {
+					ref = commitSHA
+				}
+			}
 		} else if looksLikeGitObjectID(commitSHA) {
-			// Accept remote tip SHAs (e.g. from gh) so create can still pin;
-			// deploy will fail later if the object is not fetchable.
+			// Last resort: pin the object id so create can proceed; deploy may
+			// still need a fetch later.
 			sha = commitSHA
 			err = nil
+			if ref == "" || looksLikeGitObjectID(ref) {
+				ref = commitSHA
+			}
 		}
 	}
 	if err != nil {
-		return nil, err
+		if ref == "" {
+			return nil, err
+		}
+		return nil, fmt.Errorf("ref %q not found in repository (try fetching the branch or open the PR with gh)", ref)
+	}
+	if ref == "" {
+		ref = sha
 	}
 	return &store.SandboxRepositorySource{RepoRoot: repoRoot, Ref: ref, CommitSHA: sha}, nil
 }
 
+// sandboxGitBranchValue is what we write to node_settings.git_branch.
+// Prefer the human ref (branch/PR head) so Settings is readable and ordinary
+// redeploys follow tip. Only fall back to the SHA when no human ref was stored
+// (or when freezing for "same SHA" rebuilds).
+func sandboxGitBranchValue(ref, commitSHA string, freezeToSHA bool) string {
+	ref = strings.TrimSpace(ref)
+	commitSHA = strings.TrimSpace(commitSHA)
+	if freezeToSHA {
+		if commitSHA != "" {
+			return commitSHA
+		}
+		return ref
+	}
+	if ref != "" && !looksLikeGitObjectID(ref) {
+		return ref
+	}
+	if ref != "" {
+		return ref
+	}
+	return commitSHA
+}
+
 // RefreshSandbox re-pins sandbox copies and redeploys them.
-// Mode tip re-resolves human refs; mode same redeploys at frozen SHAs.
+// Mode tip re-resolves human refs and keeps git_branch on the branch/ref so
+// future deploys follow tip; mode same freezes git_branch to the recorded SHA
+// and redeploys that exact commit.
 func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) (*SandboxRefreshResult, error) {
 	mode := req.Mode
 	if mode == "" {
@@ -521,6 +610,7 @@ func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) 
 		return nil, fmt.Errorf("sandbox %q has no repository pins to refresh", sandbox.Name)
 	}
 
+	freezeToSHA := mode == SandboxRefreshSame
 	updated := make([]store.SandboxRepositorySource, 0, len(repos))
 	for _, repo := range repos {
 		ref := strings.TrimSpace(repo.Ref)
@@ -534,6 +624,8 @@ func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) 
 			if verified, err := gitsrc.ResolveSHA(ctx, repo.RepoRoot, sha); err == nil {
 				sha = verified
 			}
+			// Keep the original human ref on the pin record for display; only
+			// git_branch is frozen to the SHA for this redeploy.
 			if ref == "" {
 				ref = sha
 			}
@@ -544,7 +636,8 @@ func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) 
 			if ref == "" {
 				return nil, fmt.Errorf("sandbox pin for %s has no ref to re-resolve", repo.RepoRoot)
 			}
-			resolved, err := e.ResolveSandboxRef(ctx, repo.RepoRoot, ref, "")
+			// Re-resolve with PR awareness (origin/<branch> or re-fetch origin/pr/N).
+			resolved, err := e.resolveSandboxRef(ctx, repo.RepoRoot, ref, "", gitsrc.ParsePRNumber(ref))
 			if err != nil {
 				return nil, fmt.Errorf("refresh %s: %w", repo.RepoRoot, err)
 			}
@@ -594,7 +687,8 @@ func (e *Engine) RefreshSandbox(ctx context.Context, req SandboxRefreshRequest) 
 		root = filepath.Clean(root)
 		for _, repo := range updated {
 			if filepath.Clean(repo.RepoRoot) == root {
-				if err := e.store.SetNodeSetting(node.ID, "git_branch", repo.CommitSHA); err != nil {
+				value := sandboxGitBranchValue(repo.Ref, repo.CommitSHA, freezeToSHA)
+				if err := e.store.SetNodeSetting(node.ID, "git_branch", value); err != nil {
 					return nil, err
 				}
 				break
@@ -953,8 +1047,9 @@ func resolveSandboxServiceRules(nodes []store.CanvasNode, supplied []SandboxServ
 
 func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint, nodes []store.CanvasNode, overrides []SandboxRepositoryRef) ([]store.SandboxRepositorySource, error) {
 	type override struct {
-		ref string
-		sha string
+		ref      string
+		sha      string
+		prNumber int
 	}
 	refs := map[string]override{}
 	for _, r := range overrides {
@@ -962,7 +1057,11 @@ func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint,
 		if root == "" || root == "." {
 			continue
 		}
-		refs[root] = override{ref: strings.TrimSpace(r.Ref), sha: strings.TrimSpace(r.CommitSHA)}
+		refs[root] = override{
+			ref:      strings.TrimSpace(r.Ref),
+			sha:      strings.TrimSpace(r.CommitSHA),
+			prNumber: r.PRNumber,
+		}
 	}
 	seen := map[string]store.SandboxRepositorySource{}
 	for _, node := range nodes {
@@ -980,11 +1079,13 @@ func (e *Engine) resolveSandboxRepositories(ctx context.Context, projectID uint,
 		if ref == "" {
 			if ov.sha != "" {
 				ref = ov.sha
+			} else if ov.prNumber > 0 {
+				ref = fmt.Sprintf("pr-%d", ov.prNumber)
 			} else {
 				ref = "HEAD"
 			}
 		}
-		resolved, err := e.ResolveSandboxRef(ctx, root, ref, ov.sha)
+		resolved, err := e.resolveSandboxRef(ctx, root, ref, ov.sha, ov.prNumber)
 		if err != nil {
 			return nil, fmt.Errorf("resolve sandbox source for %s: %w", root, err)
 		}
@@ -1021,7 +1122,14 @@ func (e *Engine) pinSandboxNodeToRepository(ctx context.Context, targetNodeID, s
 	}
 	for _, repo := range repositories {
 		if filepath.Clean(repo.RepoRoot) == filepath.Clean(root) {
-			return e.store.SetNodeSetting(targetNodeID, "git_branch", repo.CommitSHA)
+			// Prefer human ref (branch/PR head) so Settings shows the branch and
+			// ordinary redeploys follow tip. SHA remains on SandboxRepositorySource
+			// for detail UI + "same SHA" refresh.
+			value := sandboxGitBranchValue(repo.Ref, repo.CommitSHA, false)
+			if value == "" {
+				return nil
+			}
+			return e.store.SetNodeSetting(targetNodeID, "git_branch", value)
 		}
 	}
 	return nil

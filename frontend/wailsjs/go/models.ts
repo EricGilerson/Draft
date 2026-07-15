@@ -1245,6 +1245,7 @@ export namespace deploy {
 	    repoRoot: string;
 	    ref: string;
 	    commitSha?: string;
+	    prNumber?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new SandboxRepositoryRef(source);
@@ -1255,6 +1256,7 @@ export namespace deploy {
 	        this.repoRoot = source["repoRoot"];
 	        this.ref = source["ref"];
 	        this.commitSha = source["commitSha"];
+	        this.prNumber = source["prNumber"];
 	    }
 	}
 	export class SandboxServiceRule {

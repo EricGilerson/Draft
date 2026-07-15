@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -128,4 +129,117 @@ func compactGHError(msg string) string {
 		msg = msg[:240] + "…"
 	}
 	return msg
+}
+
+// PreferDeployableRef returns a git ref that resolves in the local object store
+// for the given human branch/PR head name. PR head branches from forks often
+// exist only on the remote (or only as pull/N/head), so a bare headRefName
+// fails `git rev-parse` even though the PR is valid.
+//
+// Order: bare ref → PreferLocalRef → <remote>/<branch> for each remote.
+// Returns the original ref unchanged when nothing resolves (caller may still
+// fall back to an explicit SHA or EnsurePullRequestRef).
+func PreferDeployableRef(ctx context.Context, path, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || !IsRepo(path) {
+		return ref
+	}
+	if _, err := ResolveSHA(ctx, path, ref); err == nil {
+		return PreferLocalRef(ctx, path, ref)
+	}
+	local := PreferLocalRef(ctx, path, ref)
+	if local != ref {
+		if _, err := ResolveSHA(ctx, path, local); err == nil {
+			return local
+		}
+	}
+	// Strip a leading remote/ if present so we can re-try under each remote.
+	branch := ref
+	for _, remote := range repoRemotes(ctx, path) {
+		prefix := remote + "/"
+		if strings.HasPrefix(ref, prefix) {
+			branch = strings.TrimPrefix(ref, prefix)
+			break
+		}
+	}
+	for _, remote := range repoRemotes(ctx, path) {
+		candidate := remote + "/" + branch
+		if _, err := ResolveSHA(ctx, path, candidate); err == nil {
+			return candidate
+		}
+	}
+	return ref
+}
+
+// EnsurePullRequestRef fetches refs/pull/<n>/head into
+// refs/remotes/<remote>/pr/<n> so sandbox services can pin a stable, tip-
+// following ref that works for fork PRs (where headRefName is not a local
+// branch). Returns the short ref name suitable for git_branch (e.g. origin/pr/12).
+func EnsurePullRequestRef(ctx context.Context, path string, prNumber int) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || !IsRepo(path) {
+		return "", ErrNotRepo
+	}
+	if prNumber <= 0 {
+		return "", fmt.Errorf("invalid pull request number %d", prNumber)
+	}
+	remotes := repoRemotes(ctx, path)
+	remote := "origin"
+	if len(remotes) > 0 {
+		remote = remotes[0]
+	}
+	shortRef := fmt.Sprintf("%s/pr/%d", remote, prNumber)
+	// Destination must be under refs/remotes so it behaves like a remote-tracking branch.
+	dest := fmt.Sprintf("refs/remotes/%s/pr/%d", remote, prNumber)
+	src := fmt.Sprintf("pull/%d/head", prNumber)
+
+	// Already have it?
+	if _, err := ResolveSHA(ctx, path, shortRef); err == nil {
+		return shortRef, nil
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "fetch", "--no-tags", remote, src+":"+dest)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("fetch pull/%d/head: %s", prNumber, compactGHError(msg))
+	}
+	if _, err := ResolveSHA(ctx, path, shortRef); err != nil {
+		return "", fmt.Errorf("fetch pull/%d/head succeeded but %s is not resolvable", prNumber, shortRef)
+	}
+	return shortRef, nil
+}
+
+// ParsePRNumber extracts a pull request number from common freeform tokens
+// ("412", "pr:412", "pr-412", "pull/412", "origin/pr/412"). Returns 0 when
+// not a PR token.
+func ParsePRNumber(value string) int {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return 0
+	}
+	// origin/pr/12 or remotes/origin/pr/12 (what EnsurePullRequestRef stores)
+	if i := strings.LastIndex(value, "/pr/"); i >= 0 {
+		value = value[i+len("/pr/"):]
+	} else {
+		for _, prefix := range []string{"pr:", "pr-", "pull/", "pull:"} {
+			if strings.HasPrefix(value, prefix) {
+				value = strings.TrimSpace(value[len(prefix):])
+				break
+			}
+		}
+	}
+	// Strip any trailing path junk.
+	if i := strings.IndexAny(value, "/\\ \t"); i >= 0 {
+		value = value[:i]
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }

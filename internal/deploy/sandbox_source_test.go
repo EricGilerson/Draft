@@ -118,8 +118,13 @@ func TestListSandboxSourceReposAndCreatePinsBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if branch != pins[0].CommitSHA {
-		t.Fatalf("sandbox node git_branch = %q, want pinned SHA %q", branch, pins[0].CommitSHA)
+	// git_branch keeps the human ref so Settings/redeploy follow the branch tip;
+	// the resolved SHA is recorded on the sandbox pin only.
+	if branch != "feature/sandbox-src" {
+		t.Fatalf("sandbox node git_branch = %q, want feature/sandbox-src", branch)
+	}
+	if pins[0].CommitSHA == "" || pins[0].CommitSHA == branch {
+		t.Fatalf("expected pin CommitSHA to be a resolved object id, got %+v", pins[0])
 	}
 
 	// Durable source node must remain unpinned.
