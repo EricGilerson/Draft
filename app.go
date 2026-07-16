@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"Draft/internal/agents"
 	"Draft/internal/daemon"
 	"Draft/internal/githooks"
 	"Draft/internal/store"
@@ -14,10 +15,11 @@ import (
 
 // App struct
 type App struct {
-	ctx        context.Context
-	eventsDone context.CancelFunc
-	store      *store.Store
-	daemon     *daemon.Client
+	ctx          context.Context
+	eventsDone   context.CancelFunc
+	store        *store.Store
+	daemon       *daemon.Client
+	agentManager *agents.Manager
 }
 
 // NewApp creates a new App application struct
@@ -49,12 +51,28 @@ func (a *App) startup(ctx context.Context) {
 			a.startDaemonEvents()
 		}
 	}
+
+	a.agentManager = agents.NewManager(
+		func(ev agents.OutputEvent) {
+			if a.ctx != nil {
+				wruntime.EventsEmit(a.ctx, "agent:session:output", ev)
+			}
+		},
+		func(ev agents.ExitEvent) {
+			if a.ctx != nil {
+				wruntime.EventsEmit(a.ctx, "agent:session:exit", ev)
+			}
+		},
+	)
 }
 
 // shutdown is called when the app closes; release the database connection.
 func (a *App) shutdown(ctx context.Context) {
 	if a.eventsDone != nil {
 		a.eventsDone()
+	}
+	if a.agentManager != nil {
+		a.agentManager.CloseAll()
 	}
 	if a.store != nil {
 		_ = a.store.Close()

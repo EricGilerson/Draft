@@ -1,3 +1,84 @@
+export namespace agents {
+	export class AgentInfo {
+	    id: string;
+	    name: string;
+	    binary: string;
+	    path: string;
+	    version: string;
+	    installed: boolean;
+	    supportsEphemeral: boolean;
+	    mcpConfigured: boolean;
+	    error: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.binary = source["binary"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.installed = source["installed"];
+	        this.supportsEphemeral = source["supportsEphemeral"];
+	        this.mcpConfigured = source["mcpConfigured"];
+	        this.error = source["error"];
+	    }
+	}
+	export class StartSessionRequest {
+	    agentId: string;
+	    cwd: string;
+	    ephemeral: boolean;
+	    cols: number;
+	    rows: number;
+
+	    static createFrom(source: any = {}) {
+	        return new StartSessionRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentId = source["agentId"];
+	        this.cwd = source["cwd"];
+	        this.ephemeral = source["ephemeral"];
+	        this.cols = source["cols"];
+	        this.rows = source["rows"];
+	    }
+	}
+	export class SessionInfo {
+	    id: string;
+	    agentId: string;
+	    agentName: string;
+	    cwd: string;
+	    ephemeral: boolean;
+	    startedAt: number;
+	    status: string;
+	    exitCode?: number;
+	    error: string;
+	    command: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SessionInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.agentId = source["agentId"];
+	        this.agentName = source["agentName"];
+	        this.cwd = source["cwd"];
+	        this.ephemeral = source["ephemeral"];
+	        this.startedAt = source["startedAt"];
+	        this.status = source["status"];
+	        this.exitCode = source["exitCode"];
+	        this.error = source["error"];
+	        this.command = source["command"];
+	    }
+	}
+}
+
 export namespace build {
 	
 	export class CacheRecord {

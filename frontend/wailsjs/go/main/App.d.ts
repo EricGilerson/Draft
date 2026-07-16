@@ -8,6 +8,7 @@ import {draftpack} from '../models';
 import {types} from '../models';
 import {networking} from '../models';
 import {dockerfile} from '../models';
+import {agents} from '../models';
 
 export function ApplySync(arg1:deploy.SyncRequest,arg2:string):Promise<deploy.SyncApplyResult>;
 
@@ -48,6 +49,18 @@ export function DeleteProject(arg1:number):Promise<void>;
 export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
 
 export function DeleteSandbox(arg1:number):Promise<void>;
+
+export function ListAgents():Promise<Array<agents.AgentInfo>>;
+
+export function ListAgentSessions():Promise<Array<agents.SessionInfo>>;
+
+export function StartAgentSession(arg1:agents.StartSessionRequest):Promise<agents.SessionInfo>;
+
+export function StopAgentSession(arg1:string):Promise<void>;
+
+export function WriteAgentSession(arg1:string,arg2:string):Promise<void>;
+
+export function ResizeAgentSession(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function DeleteSandboxProfile(arg1:number):Promise<void>;
 

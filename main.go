@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"Draft/internal/daemon"
+	"Draft/internal/draftmcp"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -32,6 +33,15 @@ func main() {
 		repo, event := daemon.ParseGitHookArgs(os.Args[2:])
 		if repo != "" && event != "" {
 			_ = daemon.FireHook(context.Background(), repo, event)
+		}
+		return
+	}
+
+	// `Draft mcp` (or `--mcp`) runs the stdio MCP server for agent CLIs.
+	if len(os.Args) > 1 && (os.Args[1] == "mcp" || os.Args[1] == "--mcp") {
+		if err := draftmcp.RunStdio(); err != nil {
+			println("MCP error:", err.Error())
+			os.Exit(1)
 		}
 		return
 	}

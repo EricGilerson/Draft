@@ -1,0 +1,254 @@
+.agents-view {
+    height: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.agents-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    padding: 0 24px 20px;
+    gap: 14px;
+}
+
+.agents-error {
+    color: var(--red);
+    font-size: 0.82rem;
+    margin: 0;
+}
+
+.agents-start {
+    flex-shrink: 0;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.agents-start-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+}
+
+.agents-start-row--actions {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.agents-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 180px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.agents-field--grow {
+    flex: 1;
+    min-width: 240px;
+}
+
+.agents-field select,
+.agents-field input,
+.agents-cwd select,
+.agents-cwd input {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 10px;
+}
+
+.agents-cwd {
+    display: flex;
+    gap: 8px;
+}
+
+.agents-cwd select {
+    max-width: 180px;
+}
+
+.agents-cwd input {
+    flex: 1;
+    min-width: 0;
+}
+
+.agents-ephemeral {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.82rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--text);
+    max-width: 52%;
+    cursor: pointer;
+}
+
+.agents-ephemeral input {
+    margin-top: 2px;
+}
+
+.agents-hint {
+    font-size: 0.78rem;
+    color: var(--text-faint);
+    flex: 1;
+}
+
+.agents-missing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.agents-sessions {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+}
+
+.agents-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 10px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+    min-height: 40px;
+    align-items: flex-end;
+}
+
+.agents-tabs-empty {
+    font-size: 0.8rem;
+    color: var(--text-faint);
+    padding: 8px 6px 12px;
+}
+
+.agents-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    padding: 7px 8px 8px 10px;
+    cursor: pointer;
+}
+
+.agents-tab:hover {
+    color: var(--text);
+    background: var(--bg);
+}
+
+.agents-tab.active {
+    color: var(--text);
+    background: var(--bg);
+    border-color: var(--border);
+}
+
+.agents-tab-label {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agents-tab-close {
+    display: inline-flex;
+    opacity: 0.55;
+    border-radius: 3px;
+    padding: 1px;
+}
+
+.agents-tab-close:hover {
+    opacity: 1;
+    background: var(--border);
+}
+
+.agents-term-wrap {
+    flex: 1;
+    min-height: 280px;
+    position: relative;
+    background: #0d1117;
+}
+
+.agents-term-host {
+    position: absolute;
+    inset: 0;
+    padding: 6px 8px;
+}
+
+.agents-term-host[hidden] {
+    display: none !important;
+}
+
+.agents-term-placeholder {
+    height: 100%;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-faint);
+    font-size: 0.85rem;
+}
+
+.agents-term-placeholder p {
+    margin: 0;
+}
+
+.agents-session-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    border-top: 1px solid var(--border);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    background: var(--bg-elevated);
+}
+
+.agents-session-meta code {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 55%;
+}
+
+.agents-meta-cwd {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.btn-sm {
+    padding: 3px 8px;
+    font-size: 0.75rem;
+}

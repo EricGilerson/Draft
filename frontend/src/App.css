@@ -49,6 +49,17 @@
     overflow: auto;
 }
 
+.app-content-scroll--fill {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-content-scroll--fill > .agents-view {
+    flex: 1;
+    min-height: 0;
+}
+
 /* Environment switcher + canvas must share one viewport-height column.
    Without this, the switcher sits above a height:100% canvas and the
    bottom of the node detail panel (staging draft bar) is clipped. */

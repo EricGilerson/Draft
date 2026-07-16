@@ -24,6 +24,7 @@ import VolumesView from './views/VolumesView';
 import DockerView from './views/DockerView';
 import RoutesView from './views/RoutesView';
 import SandboxesView from './views/SandboxesView';
+import AgentsView from './views/AgentsView';
 import {main, store} from '../wailsjs/go/models';
 
 type VolumeFocus = {nodeId: string; target: string};
@@ -244,7 +245,7 @@ function App() {
                         </header>
                         <main className="app-content">
                             <div className="app-content-glow"/>
-                            <div className="app-content-scroll">
+                            <div className={'app-content-scroll' + (view === 'agents' && !selectedProject ? ' app-content-scroll--fill' : '')}>
                         {selectedProject ? (
                             <div className="project-workspace">
                                 <EnvironmentSwitcher
@@ -340,6 +341,8 @@ function App() {
                                 projects={projects}
                                 onRevealNode={revealNode}
                             />
+                        ) : view === 'agents' ? (
+                            <AgentsView projects={projects} />
                         ) : (
                             <SettingsView
                                 onSettingsChanged={(settings) => setCompactSidebar(!!settings.compactSidebar)}
