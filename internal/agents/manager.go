@@ -11,6 +11,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	recentOutputCap   = 8 * 1024
+	maxAutoRestarts   = 3
+	restartWindow     = 2 * time.Minute
+	restartSettleDelay = 800 * time.Millisecond
+)
+
 // OutputHandler receives base64-encoded PTY output chunks.
 type OutputHandler func(OutputEvent)
 
@@ -32,8 +39,19 @@ type Session struct {
 	mu       sync.Mutex
 	pty      ptySession
 	closed   atomic.Bool
+	stopping atomic.Bool
 	lastCols uint16
 	lastRows uint16
+
+	req StartSessionRequest
+
+	recentMu sync.Mutex
+	recent   []byte
+
+	readerWG sync.WaitGroup
+
+	restartMu    sync.Mutex
+	restartTimes []time.Time
 }
 
 type ptySession interface {
@@ -66,6 +84,8 @@ func (m *Manager) Start(ctx context.Context, req StartSessionRequest) (*SessionI
 	if rows == 0 {
 		rows = 32
 	}
+	req.Cols = cols
+	req.Rows = rows
 
 	id := uuid.NewString()
 	sessInfo := SessionInfo{
@@ -85,18 +105,32 @@ func (m *Manager) Start(ctx context.Context, req StartSessionRequest) (*SessionI
 		return nil, fmt.Errorf("start PTY: %w", err)
 	}
 
-	s := &Session{Info: sessInfo, pty: pty, lastCols: cols, lastRows: rows}
+	s := &Session{
+		Info:     sessInfo,
+		pty:      pty,
+		lastCols: cols,
+		lastRows: rows,
+		req:      req,
+	}
 	s.Info.Status = "running"
 
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.mu.Unlock()
 
-	go m.readLoop(s)
-	go m.waitLoop(s)
+	m.startIO(s)
 
 	cp := s.Info
 	return &cp, nil
+}
+
+func (m *Manager) startIO(s *Session) {
+	s.readerWG.Add(1)
+	go func() {
+		defer s.readerWG.Done()
+		m.readLoop(s)
+	}()
+	go m.waitLoop(s)
 }
 
 func (m *Manager) readLoop(s *Session) {
@@ -134,12 +168,13 @@ func (m *Manager) readLoop(s *Session) {
 	}
 
 	for {
-		if s.closed.Load() {
+		if s.closed.Load() || s.stopping.Load() {
 			flush()
 			return
 		}
 		n, err := s.pty.Read(buf)
 		if n > 0 {
+			s.noteOutput(buf[:n])
 			mu.Lock()
 			pending = append(pending, buf[:n]...)
 			large := len(pending) >= 24*1024
@@ -157,10 +192,71 @@ func (m *Manager) readLoop(s *Session) {
 	}
 }
 
+func (s *Session) noteOutput(chunk []byte) {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+	s.recent = append(s.recent, chunk...)
+	if len(s.recent) > recentOutputCap {
+		s.recent = append([]byte(nil), s.recent[len(s.recent)-recentOutputCap:]...)
+	}
+}
+
+func (s *Session) recentOutput() []byte {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+	if len(s.recent) == 0 {
+		return nil
+	}
+	out := make([]byte, len(s.recent))
+	copy(out, s.recent)
+	return out
+}
+
+func (s *Session) clearRecent() {
+	s.recentMu.Lock()
+	s.recent = nil
+	s.recentMu.Unlock()
+}
+
+func (s *Session) canAutoRestart() bool {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	now := time.Now()
+	kept := s.restartTimes[:0]
+	for _, t := range s.restartTimes {
+		if now.Sub(t) < restartWindow {
+			kept = append(kept, t)
+		}
+	}
+	s.restartTimes = kept
+	return len(s.restartTimes) < maxAutoRestarts
+}
+
+func (s *Session) recordAutoRestart() {
+	s.restartMu.Lock()
+	s.restartTimes = append(s.restartTimes, time.Now())
+	s.restartMu.Unlock()
+}
+
 func (m *Manager) waitLoop(s *Session) {
 	code, err := s.pty.Wait()
+
+	stopping := s.stopping.Load()
+	recent := s.recentOutput()
+	wantRestart := !stopping &&
+		err == nil &&
+		shouldAutoRestart(s.Info.AgentID, code, recent) &&
+		s.canAutoRestart()
+
+	if wantRestart {
+		if m.tryRestart(s, code) {
+			return
+		}
+	}
+
 	s.closed.Store(true)
 	_ = s.pty.Close()
+	s.readerWG.Wait()
 
 	s.mu.Lock()
 	s.Info.Status = "exited"
@@ -175,6 +271,99 @@ func (m *Manager) waitLoop(s *Session) {
 	if m.onExit != nil {
 		m.onExit(ev)
 	}
+}
+
+func (m *Manager) tryRestart(s *Session, priorCode int) bool {
+	s.recordAutoRestart()
+
+	s.mu.Lock()
+	s.Info.Status = "restarting"
+	s.mu.Unlock()
+
+	if m.onExit != nil {
+		m.onExit(ExitEvent{
+			SessionID:  s.Info.ID,
+			ExitCode:   priorCode,
+			Restarting: true,
+		})
+	}
+	m.emitText(s, "\r\n\r\n── Draft: restarting after update ──\r\n\r\n")
+
+	s.closed.Store(true)
+	_ = s.pty.Close()
+	s.readerWG.Wait()
+
+	time.Sleep(restartSettleDelay)
+
+	if s.stopping.Load() {
+		s.mu.Lock()
+		s.Info.Status = "exited"
+		s.mu.Unlock()
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	req := s.req
+	req.Cols = s.lastCols
+	req.Rows = s.lastRows
+	plan, info, err := BuildLaunch(ctx, req)
+	if err != nil {
+		s.mu.Lock()
+		s.Info.Status = "error"
+		s.Info.Error = "restart after update failed: " + err.Error()
+		code := priorCode
+		s.Info.ExitCode = &code
+		ev := ExitEvent{SessionID: s.Info.ID, ExitCode: priorCode, Error: s.Info.Error}
+		s.mu.Unlock()
+		if m.onExit != nil {
+			m.onExit(ev)
+		}
+		return true // handled; do not fall through to duplicate exit
+	}
+
+	pty, err := startPTY(plan, req.Cols, req.Rows)
+	if err != nil {
+		s.mu.Lock()
+		s.Info.Status = "error"
+		s.Info.Error = "restart after update failed: " + err.Error()
+		code := priorCode
+		s.Info.ExitCode = &code
+		ev := ExitEvent{SessionID: s.Info.ID, ExitCode: priorCode, Error: s.Info.Error}
+		s.mu.Unlock()
+		if m.onExit != nil {
+			m.onExit(ev)
+		}
+		return true
+	}
+
+	s.clearRecent()
+	s.closed.Store(false)
+	s.mu.Lock()
+	s.pty = pty
+	s.Info.Status = "running"
+	s.Info.ExitCode = nil
+	s.Info.Error = ""
+	s.Info.Command = plan.Display
+	s.Info.AgentName = info.Name
+	s.Info.Ephemeral = plan.Ephemeral
+	s.Info.Plain = plan.Plain
+	s.Info.Cwd = plan.Cwd
+	s.mu.Unlock()
+
+	m.startIO(s)
+	return true
+}
+
+func (m *Manager) emitText(s *Session, text string) {
+	if m.onOutput == nil || text == "" {
+		return
+	}
+	m.onOutput(OutputEvent{
+		SessionID: s.Info.ID,
+		Data:      base64.StdEncoding.EncodeToString([]byte(text)),
+	})
 }
 
 // List returns a snapshot of sessions.
@@ -212,7 +401,7 @@ func (m *Manager) Write(id string, data []byte) error {
 	if !ok {
 		return fmt.Errorf("session not found")
 	}
-	if s.closed.Load() {
+	if s.closed.Load() || s.stopping.Load() {
 		return fmt.Errorf("session exited")
 	}
 	_, err := s.pty.Write(data)
@@ -227,7 +416,7 @@ func (m *Manager) Resize(id string, cols, rows uint16) error {
 	if !ok {
 		return fmt.Errorf("session not found")
 	}
-	if s.closed.Load() {
+	if s.closed.Load() || s.stopping.Load() {
 		return nil
 	}
 	if cols < 2 || rows < 2 {
@@ -255,6 +444,7 @@ func (m *Manager) Stop(id string) error {
 	if !ok {
 		return fmt.Errorf("session not found")
 	}
+	s.stopping.Store(true)
 	s.closed.Store(true)
 	return s.pty.Close()
 }

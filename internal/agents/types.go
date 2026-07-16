@@ -47,7 +47,7 @@ type SessionInfo struct {
 	Ephemeral bool    `json:"ephemeral"`
 	Plain     bool    `json:"plain"`
 	StartedAt int64   `json:"startedAt"`
-	Status    string  `json:"status"` // starting | running | exited | error
+	Status    string  `json:"status"` // starting | running | restarting | exited | error
 	ExitCode  *int    `json:"exitCode,omitempty"`
 	Error     string  `json:"error,omitempty"`
 	Command   string  `json:"command,omitempty"`
@@ -64,4 +64,8 @@ type ExitEvent struct {
 	SessionID string `json:"sessionId"`
 	ExitCode  int    `json:"exitCode"`
 	Error     string `json:"error,omitempty"`
+	// Restarting is true when Draft will relaunch this session in place
+	// (e.g. Codex exited after a self-update). The frontend should not treat
+	// this as a final exit (no "[session exited]" banner).
+	Restarting bool `json:"restarting,omitempty"`
 }

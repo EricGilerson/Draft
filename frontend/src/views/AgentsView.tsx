@@ -393,6 +393,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                 <div className="agents-tabs-list">
                                     {sessions.map((s) => {
                                         const exited = s.status === 'exited' || s.status === 'error';
+                                        const restarting = s.status === 'restarting';
                                         return (
                                             <button
                                                 key={s.id}
@@ -409,6 +410,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                                 <span className="agents-tab-label">{s.agentName}</span>
                                                 {s.plain && <span className="agents-tab-chip">plain</span>}
                                                 {!s.plain && s.ephemeral && <span className="agents-tab-chip">temp</span>}
+                                                {restarting && <span className="agents-tab-chip">update</span>}
                                                 {exited && <span className="agents-tab-chip agents-tab-chip--muted">exited</span>}
                                                 <span
                                                     className="agents-tab-close"
@@ -439,7 +441,9 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                                 {activeSession.cwd}
                                             </span>
                                         ) : null}
-                                        {(activeSession.status === 'running' || activeSession.status === 'starting') && (
+                                        {(activeSession.status === 'running' ||
+                                            activeSession.status === 'starting' ||
+                                            activeSession.status === 'restarting') && (
                                             <button
                                                 type="button"
                                                 className="btn btn-ghost agents-tabs-stop"

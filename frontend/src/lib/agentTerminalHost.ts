@@ -4,7 +4,7 @@ import {ResizeAgentSession, WriteAgentSession} from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 
 type OutputPayload = {sessionId: string; data: string};
-type ExitPayload = {sessionId: string; exitCode: number; error?: string};
+type ExitPayload = {sessionId: string; exitCode: number; error?: string; restarting?: boolean};
 
 type LiveTerminal = {
     sessionId: string;
@@ -142,6 +142,8 @@ function createLive(sessionId: string): LiveTerminal {
     });
     lt.unsubExit = EventsOn('agent:session:exit', (payload: ExitPayload) => {
         if (!payload || payload.sessionId !== sessionId || lt.disposed) return;
+        // Draft is relaunching in place after an update — keep the terminal attached.
+        if (payload.restarting) return;
         const code = payload.exitCode ?? 0;
         const err = payload.error ? ` (${payload.error})` : '';
         enqueueWrite(lt, new TextEncoder().encode(`\r\n\r\n[session exited: ${code}]${err}\r\n`));
