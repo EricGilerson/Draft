@@ -7,8 +7,8 @@ import {main} from '../models';
 import {draftpack} from '../models';
 import {types} from '../models';
 import {networking} from '../models';
-import {dockerfile} from '../models';
 import {agents} from '../models';
+import {dockerfile} from '../models';
 
 export function ApplySync(arg1:deploy.SyncRequest,arg2:string):Promise<deploy.SyncApplyResult>;
 
@@ -49,18 +49,6 @@ export function DeleteProject(arg1:number):Promise<void>;
 export function DeleteProjectEnvVar(arg1:number,arg2:string):Promise<void>;
 
 export function DeleteSandbox(arg1:number):Promise<void>;
-
-export function ListAgents():Promise<Array<agents.AgentInfo>>;
-
-export function ListAgentSessions():Promise<Array<agents.SessionInfo>>;
-
-export function StartAgentSession(arg1:agents.StartSessionRequest):Promise<agents.SessionInfo>;
-
-export function StopAgentSession(arg1:string):Promise<void>;
-
-export function WriteAgentSession(arg1:string,arg2:string):Promise<void>;
-
-export function ResizeAgentSession(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function DeleteSandboxProfile(arg1:number):Promise<void>;
 
@@ -151,6 +139,10 @@ export function InspectDockerfileBuildInfo(arg1:string):Promise<deploy.Dockerfil
 export function IsGitRepo(arg1:string,arg2:number):Promise<boolean>;
 
 export function LinkToSharedRoot(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function ListAgentSessions():Promise<Array<agents.SessionInfo>>;
+
+export function ListAgents():Promise<Array<agents.AgentInfo>>;
 
 export function ListAllDockerVolumes():Promise<Array<deploy.VolumeOverview>>;
 
@@ -252,6 +244,8 @@ export function RemoveDockerVolume(arg1:string,arg2:boolean):Promise<void>;
 
 export function RenameEnvironment(arg1:number,arg2:string):Promise<void>;
 
+export function ResizeAgentSession(arg1:string,arg2:number,arg3:number):Promise<void>;
+
 export function ResolveSandboxRef(arg1:string,arg2:string,arg3:string):Promise<store.SandboxRepositorySource>;
 
 export function RestartDockerContainer(arg1:string):Promise<void>;
@@ -308,6 +302,8 @@ export function StageEnvVarChanges(arg1:string,arg2:Array<store.EnvVarStageUpser
 
 export function StageNodeSettings(arg1:string,arg2:number,arg3:Record<string, string>):Promise<void>;
 
+export function StartAgentSession(arg1:agents.StartSessionRequest):Promise<agents.SessionInfo>;
+
 export function StartDocker():Promise<void>;
 
 export function StartDockerContainer(arg1:string):Promise<void>;
@@ -315,6 +311,8 @@ export function StartDockerContainer(arg1:string):Promise<void>;
 export function StartEnvironment(arg1:number):Promise<deploy.EnvironmentStackResult>;
 
 export function StartLogStream(arg1:string):Promise<void>;
+
+export function StopAgentSession(arg1:string):Promise<void>;
 
 export function StopDockerContainer(arg1:string):Promise<void>;
 
@@ -335,3 +333,5 @@ export function UpdateNode(arg1:string,arg2:number,arg3:number,arg4:string):Prom
 export function UpdateProject(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateServiceTemplate(arg1:store.ServiceTemplate):Promise<void>;
+
+export function WriteAgentSession(arg1:string,arg2:string):Promise<void>;

@@ -1,19 +1,20 @@
 export namespace agents {
+	
 	export class AgentInfo {
 	    id: string;
 	    name: string;
 	    binary: string;
 	    path: string;
-	    version: string;
+	    version?: string;
 	    installed: boolean;
 	    supportsEphemeral: boolean;
 	    mcpConfigured: boolean;
-	    error: string;
-
+	    error?: string;
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -27,26 +28,6 @@ export namespace agents {
 	        this.error = source["error"];
 	    }
 	}
-	export class StartSessionRequest {
-	    agentId: string;
-	    cwd: string;
-	    ephemeral: boolean;
-	    cols: number;
-	    rows: number;
-
-	    static createFrom(source: any = {}) {
-	        return new StartSessionRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentId = source["agentId"];
-	        this.cwd = source["cwd"];
-	        this.ephemeral = source["ephemeral"];
-	        this.cols = source["cols"];
-	        this.rows = source["rows"];
-	    }
-	}
 	export class SessionInfo {
 	    id: string;
 	    agentId: string;
@@ -56,13 +37,13 @@ export namespace agents {
 	    startedAt: number;
 	    status: string;
 	    exitCode?: number;
-	    error: string;
-	    command: string;
-
+	    error?: string;
+	    command?: string;
+	
 	    static createFrom(source: any = {}) {
 	        return new SessionInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -77,6 +58,27 @@ export namespace agents {
 	        this.command = source["command"];
 	    }
 	}
+	export class StartSessionRequest {
+	    agentId: string;
+	    cwd: string;
+	    ephemeral: boolean;
+	    cols: number;
+	    rows: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartSessionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentId = source["agentId"];
+	        this.cwd = source["cwd"];
+	        this.ephemeral = source["ephemeral"];
+	        this.cols = source["cols"];
+	        this.rows = source["rows"];
+	    }
+	}
+
 }
 
 export namespace build {

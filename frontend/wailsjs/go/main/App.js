@@ -262,6 +262,14 @@ export function LinkToSharedRoot(arg1, arg2, arg3) {
   return window['go']['main']['App']['LinkToSharedRoot'](arg1, arg2, arg3);
 }
 
+export function ListAgentSessions() {
+  return window['go']['main']['App']['ListAgentSessions']();
+}
+
+export function ListAgents() {
+  return window['go']['main']['App']['ListAgents']();
+}
+
 export function ListAllDockerVolumes() {
   return window['go']['main']['App']['ListAllDockerVolumes']();
 }
@@ -272,30 +280,6 @@ export function ListAppSecretUsages(arg1) {
 
 export function ListAppSecrets() {
   return window['go']['main']['App']['ListAppSecrets']();
-}
-
-export function ListAgents() {
-  return window['go']['main']['App']['ListAgents']();
-}
-
-export function ListAgentSessions() {
-  return window['go']['main']['App']['ListAgentSessions']();
-}
-
-export function StartAgentSession(arg1) {
-  return window['go']['main']['App']['StartAgentSession'](arg1);
-}
-
-export function StopAgentSession(arg1) {
-  return window['go']['main']['App']['StopAgentSession'](arg1);
-}
-
-export function WriteAgentSession(arg1, arg2) {
-  return window['go']['main']['App']['WriteAgentSession'](arg1, arg2);
-}
-
-export function ResizeAgentSession(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ResizeAgentSession'](arg1, arg2, arg3);
 }
 
 export function ListDockerContainers() {
@@ -486,6 +470,10 @@ export function RenameEnvironment(arg1, arg2) {
   return window['go']['main']['App']['RenameEnvironment'](arg1, arg2);
 }
 
+export function ResizeAgentSession(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeAgentSession'](arg1, arg2, arg3);
+}
+
 export function ResolveSandboxRef(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResolveSandboxRef'](arg1, arg2, arg3);
 }
@@ -598,6 +586,10 @@ export function StageNodeSettings(arg1, arg2, arg3) {
   return window['go']['main']['App']['StageNodeSettings'](arg1, arg2, arg3);
 }
 
+export function StartAgentSession(arg1) {
+  return window['go']['main']['App']['StartAgentSession'](arg1);
+}
+
 export function StartDocker() {
   return window['go']['main']['App']['StartDocker']();
 }
@@ -612,6 +604,10 @@ export function StartEnvironment(arg1) {
 
 export function StartLogStream(arg1) {
   return window['go']['main']['App']['StartLogStream'](arg1);
+}
+
+export function StopAgentSession(arg1) {
+  return window['go']['main']['App']['StopAgentSession'](arg1);
 }
 
 export function StopDockerContainer(arg1) {
@@ -652,4 +648,8 @@ export function UpdateProject(arg1, arg2, arg3) {
 
 export function UpdateServiceTemplate(arg1) {
   return window['go']['main']['App']['UpdateServiceTemplate'](arg1);
+}
+
+export function WriteAgentSession(arg1, arg2) {
+  return window['go']['main']['App']['WriteAgentSession'](arg1, arg2);
 }

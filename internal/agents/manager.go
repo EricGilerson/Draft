@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,9 +29,11 @@ type Manager struct {
 type Session struct {
 	Info SessionInfo
 
-	mu     sync.Mutex
-	pty    ptySession
-	closed atomic.Bool
+	mu       sync.Mutex
+	pty      ptySession
+	closed   atomic.Bool
+	lastCols uint16
+	lastRows uint16
 }
 
 type ptySession interface {
@@ -83,7 +84,7 @@ func (m *Manager) Start(ctx context.Context, req StartSessionRequest) (*SessionI
 		return nil, fmt.Errorf("start PTY: %w", err)
 	}
 
-	s := &Session{Info: sessInfo, pty: pty}
+	s := &Session{Info: sessInfo, pty: pty, lastCols: cols, lastRows: rows}
 	s.Info.Status = "running"
 
 	m.mu.Lock()
@@ -99,21 +100,57 @@ func (m *Manager) Start(ctx context.Context, req StartSessionRequest) (*SessionI
 
 func (m *Manager) readLoop(s *Session) {
 	buf := make([]byte, 32*1024)
+	var (
+		mu             sync.Mutex
+		pending        []byte
+		flushScheduled bool
+	)
+
+	flush := func() {
+		mu.Lock()
+		data := pending
+		pending = nil
+		flushScheduled = false
+		mu.Unlock()
+		if len(data) == 0 || m.onOutput == nil {
+			return
+		}
+		m.onOutput(OutputEvent{
+			SessionID: s.Info.ID,
+			Data:      base64.StdEncoding.EncodeToString(data),
+		})
+	}
+
+	scheduleFlush := func() {
+		mu.Lock()
+		if flushScheduled {
+			mu.Unlock()
+			return
+		}
+		flushScheduled = true
+		mu.Unlock()
+		time.AfterFunc(16*time.Millisecond, flush)
+	}
+
 	for {
 		if s.closed.Load() {
+			flush()
 			return
 		}
 		n, err := s.pty.Read(buf)
-		if n > 0 && m.onOutput != nil {
-			m.onOutput(OutputEvent{
-				SessionID: s.Info.ID,
-				Data:      base64.StdEncoding.EncodeToString(buf[:n]),
-			})
+		if n > 0 {
+			mu.Lock()
+			pending = append(pending, buf[:n]...)
+			large := len(pending) >= 24*1024
+			mu.Unlock()
+			if large {
+				flush()
+			} else {
+				scheduleFlush()
+			}
 		}
 		if err != nil {
-			if err != io.EOF && !s.closed.Load() {
-				// surface as exit error if wait hasn't fired yet
-			}
+			flush()
 			return
 		}
 	}
@@ -192,6 +229,17 @@ func (m *Manager) Resize(id string, cols, rows uint16) error {
 	if s.closed.Load() {
 		return nil
 	}
+	if cols < 2 || rows < 2 {
+		return nil
+	}
+	s.mu.Lock()
+	if s.lastCols == cols && s.lastRows == rows {
+		s.mu.Unlock()
+		return nil
+	}
+	s.lastCols = cols
+	s.lastRows = rows
+	s.mu.Unlock()
 	return s.pty.Resize(cols, rows)
 }
 

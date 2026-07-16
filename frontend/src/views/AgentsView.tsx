@@ -1,19 +1,18 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Bot, FolderOpen, Plus, RefreshCw, Square, X} from 'lucide-react';
-import {Terminal as XTerm} from '@xterm/xterm';
-import {FitAddon} from '@xterm/addon-fit';
+import {FolderOpen, Plus, RefreshCw, Square, SquareTerminal, X} from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import {
     ListAgents,
     ListAgentSessions,
-    ResizeAgentSession,
+    SelectFolder,
     StartAgentSession,
     StopAgentSession,
-    WriteAgentSession,
 } from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {agents, store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
+import {attachAgentTerminal, disposeAgentTerminal, focusAgentTerminal} from '../lib/agentTerminalHost';
+import {loadAgentsPrefs, saveAgentsPrefs} from '../lib/agentsPrefs';
 import './WorkspaceViews.css';
 import './AgentsView.css';
 
@@ -21,129 +20,49 @@ type AgentsViewProps = {
     projects: store.Project[];
 };
 
-type OutputPayload = {sessionId: string; data: string};
-type ExitPayload = {sessionId: string; exitCode: number; error?: string};
-
-function b64ToUint8(b64: string): Uint8Array {
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-}
-
-function uint8ToB64(bytes: Uint8Array): string {
-    let s = '';
-    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
-    return btoa(s);
-}
-
 function AgentSessionTerminal({
-    session,
+    sessionId,
     active,
 }: {
-    session: agents.SessionInfo;
+    sessionId: string;
     active: boolean;
 }) {
     const hostRef = useRef<HTMLDivElement>(null);
-    const termRef = useRef<XTerm | null>(null);
-    const fitRef = useRef<FitAddon | null>(null);
-    const sessionId = session.id;
 
     useEffect(() => {
-        if (!hostRef.current) return;
-        const term = new XTerm({
-            convertEol: true,
-            fontSize: 13,
-            fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
-            cursorBlink: true,
-            scrollback: 8000,
-        });
-        const fit = new FitAddon();
-        term.loadAddon(fit);
-        term.open(hostRef.current);
-        termRef.current = term;
-        fitRef.current = fit;
-        try {
-            fit.fit();
-        } catch {
-            /* not laid out */
-        }
-
-        const dataDisp = term.onData((d) => {
-            const bytes = new TextEncoder().encode(d);
-            WriteAgentSession(sessionId, uint8ToB64(bytes)).catch(() => undefined);
-        });
-        const resizeDisp = term.onResize(({cols, rows}) => {
-            ResizeAgentSession(sessionId, cols, rows).catch(() => undefined);
-        });
-
-        // Initial resize once fitted.
-        try {
-            const dims = fit.proposeDimensions();
-            if (dims) ResizeAgentSession(sessionId, dims.cols, dims.rows).catch(() => undefined);
-        } catch {
-            /* ignore */
-        }
-
-        const unsubOut = EventsOn('agent:session:output', (payload: OutputPayload) => {
-            if (!payload || payload.sessionId !== sessionId) return;
-            try {
-                term.write(b64ToUint8(payload.data));
-            } catch {
-                /* ignore decode errors */
-            }
-        });
-        const unsubExit = EventsOn('agent:session:exit', (payload: ExitPayload) => {
-            if (!payload || payload.sessionId !== sessionId) return;
-            const code = payload.exitCode ?? 0;
-            const err = payload.error ? ` (${payload.error})` : '';
-            term.write(`\r\n\r\n[session exited: ${code}]${err}\r\n`);
-        });
-
-        const ro = new ResizeObserver(() => {
-            try {
-                fit.fit();
-            } catch {
-                /* ignore */
-            }
-        });
-        ro.observe(hostRef.current);
-
-        return () => {
-            dataDisp.dispose();
-            resizeDisp.dispose();
-            unsubOut();
-            unsubExit();
-            ro.disconnect();
-            term.dispose();
-            termRef.current = null;
-            fitRef.current = null;
-        };
+        const host = hostRef.current;
+        if (!host) return;
+        return attachAgentTerminal(sessionId, host);
     }, [sessionId]);
 
     useEffect(() => {
         if (!active) return;
-        try {
-            fitRef.current?.fit();
-            termRef.current?.focus();
-        } catch {
-            /* ignore */
-        }
-    }, [active]);
+        // Defer one frame so layout (display/visibility) is settled before fit/focus.
+        const id = requestAnimationFrame(() => focusAgentTerminal(sessionId));
+        return () => cancelAnimationFrame(id);
+    }, [active, sessionId]);
 
-    return <div className="agents-term-host" ref={hostRef} hidden={!active} />;
+    return (
+        <div
+            className={'agents-term-host' + (active ? ' agents-term-host--active' : '')}
+            ref={hostRef}
+            aria-hidden={!active}
+        />
+    );
 }
 
 export default function AgentsView({projects}: AgentsViewProps) {
+    const savedPrefs = useMemo(() => loadAgentsPrefs(), []);
     const [agentList, setAgentList] = useState<agents.AgentInfo[]>([]);
     const [sessions, setSessions] = useState<agents.SessionInfo[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState('');
-    const [selectedAgent, setSelectedAgent] = useState<string>('claude');
-    const [cwd, setCwd] = useState('');
-    const [ephemeral, setEphemeral] = useState(true);
+    const [selectedAgent, setSelectedAgent] = useState<string>(savedPrefs.agentId || 'claude');
+    const [cwd, setCwd] = useState(savedPrefs.cwd ?? '');
+    const [ephemeral, setEphemeral] = useState(savedPrefs.ephemeral ?? true);
+    const appliedDefaultCwd = useRef(savedPrefs.cwd !== undefined);
 
     const selected = useMemo(
         () => agentList.find((a) => a.id === selectedAgent) ?? null,
@@ -157,7 +76,10 @@ export default function AgentsView({projects}: AgentsViewProps) {
             const list = await ListAgents();
             setAgentList(list ?? []);
             setSelectedAgent((cur) => {
-                if (list?.some((a) => a.id === cur && a.installed)) return cur;
+                // Keep the user's last choice even if temporarily missing from PATH.
+                if (list?.some((a) => a.id === cur)) return cur;
+                const preferred = loadAgentsPrefs().agentId;
+                if (preferred && list?.some((a) => a.id === preferred)) return preferred;
                 const first = list?.find((a) => a.installed);
                 return first?.id ?? cur;
             });
@@ -193,13 +115,36 @@ export default function AgentsView({projects}: AgentsViewProps) {
         return unsub;
     }, [refreshSessions]);
 
+    // Only auto-pick the sole project path when the user has never saved a cwd.
     useEffect(() => {
-        if (!cwd && projects.length === 1) {
-            setCwd(projects[0].path || '');
+        if (appliedDefaultCwd.current) return;
+        if (cwd) {
+            appliedDefaultCwd.current = true;
+            return;
+        }
+        if (projects.length === 1 && projects[0].path) {
+            setCwd(projects[0].path);
+            appliedDefaultCwd.current = true;
         }
     }, [projects, cwd]);
 
+    useEffect(() => {
+        saveAgentsPrefs({agentId: selectedAgent});
+    }, [selectedAgent]);
+
+    useEffect(() => {
+        saveAgentsPrefs({cwd});
+    }, [cwd]);
+
+    useEffect(() => {
+        saveAgentsPrefs({ephemeral});
+    }, [ephemeral]);
+
     const showEphemeralToggle = !!selected?.supportsEphemeral;
+    const activeSession = useMemo(
+        () => sessions.find((s) => s.id === activeId) ?? null,
+        [sessions, activeId],
+    );
 
     const handleStart = async () => {
         if (!selected?.installed) return;
@@ -220,7 +165,10 @@ export default function AgentsView({projects}: AgentsViewProps) {
                 return [info, ...next];
             });
             setActiveId(info.id);
-            await refreshAgents();
+            // Soft refresh — don't flip the toolbar into skeleton / loading.
+            ListAgents()
+                .then((list) => setAgentList(list ?? []))
+                .catch(() => undefined);
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Failed to start agent');
         } finally {
@@ -234,6 +182,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
         } catch {
             /* already gone */
         }
+        disposeAgentTerminal(id);
         setSessions((prev) => prev.filter((s) => s.id !== id));
         setActiveId((cur) => (cur === id ? null : cur));
     };
@@ -243,10 +192,10 @@ export default function AgentsView({projects}: AgentsViewProps) {
             <div className="agents-layout">
                 <PageHeader
                     title="Agents"
-                    description="Run your own coding agents inside Draft. Draft MCP is wired per session (ephemeral for Claude/Codex when enabled) or installed into the agent config when needed."
+                    description="Run Claude, Codex, and other CLIs here. Draft MCP is attached per session or installed into the agent config."
                     action={
                         <button type="button" className="btn btn-ghost" onClick={refreshAgents} disabled={loading}>
-                            <RefreshCw size={14} strokeWidth={2} />
+                            <RefreshCw size={14} strokeWidth={2} className={loading ? 'agents-spin' : undefined} />
                             Rescan
                         </button>
                     }
@@ -254,11 +203,40 @@ export default function AgentsView({projects}: AgentsViewProps) {
 
                 {error && <div className="agents-error">{error}</div>}
 
-                <div className="agents-start panel">
-                    <div className="agents-start-row">
-                        <label className="agents-field">
+                <div className={'agents-start panel' + (loading && agentList.length === 0 ? ' agents-start--loading' : '')} aria-busy={loading && agentList.length === 0}>
+                    {loading && agentList.length === 0 ? (
+                        <>
+                            <div className="agents-toolbar agents-toolbar--skeleton" aria-hidden="true">
+                                <div className="agents-field">
+                                    <span className="agents-skel agents-skel--label" />
+                                    <span className="agents-skel agents-skel--control" />
+                                </div>
+                                <div className="agents-field">
+                                    <span className="agents-skel agents-skel--label" />
+                                    <span className="agents-skel agents-skel--control" />
+                                </div>
+                                <div className="agents-field agents-field--path">
+                                    <span className="agents-skel agents-skel--label" />
+                                    <div className="agents-skel-path">
+                                        <span className="agents-skel agents-skel--control agents-skel--grow" />
+                                        <span className="agents-skel agents-skel--icon" />
+                                    </div>
+                                </div>
+                                <div className="agents-toolbar-end">
+                                    <span className="agents-skel agents-skel--btn" />
+                                </div>
+                            </div>
+                            <div className="agents-options" aria-hidden="true">
+                                <span className="agents-skel agents-skel--hint" />
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                    <div className="agents-toolbar">
+                        <label className="agents-field agents-field--agent">
                             <span>Agent</span>
                             <select
+                                className="input select-styled"
                                 value={selectedAgent}
                                 onChange={(e) => setSelectedAgent(e.target.value)}
                                 disabled={starting}
@@ -272,36 +250,69 @@ export default function AgentsView({projects}: AgentsViewProps) {
                             </select>
                         </label>
 
-                        <label className="agents-field agents-field--grow">
+                        <label className="agents-field agents-field--project">
+                            <span>Project</span>
+                            <select
+                                className="input select-styled"
+                                value={projects.some((p) => p.path === cwd) ? cwd : ''}
+                                onChange={(e) => {
+                                    if (e.target.value) setCwd(e.target.value);
+                                }}
+                                disabled={starting}
+                            >
+                                <option value="">Custom path</option>
+                                {projects.map((p) => (
+                                    <option key={p.id} value={p.path}>
+                                        {p.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+
+                        <label className="agents-field agents-field--path">
                             <span>Working directory</span>
-                            <div className="agents-cwd">
-                                <select
-                                    value={projects.some((p) => p.path === cwd) ? cwd : ''}
-                                    onChange={(e) => {
-                                        if (e.target.value) setCwd(e.target.value);
-                                    }}
-                                    disabled={starting}
-                                >
-                                    <option value="">Custom / none</option>
-                                    {projects.map((p) => (
-                                        <option key={p.id} value={p.path}>
-                                            {p.name}
-                                        </option>
-                                    ))}
-                                </select>
+                            <div className="input-with-action">
                                 <input
+                                    className="input"
                                     type="text"
                                     value={cwd}
                                     onChange={(e) => setCwd(e.target.value)}
-                                    placeholder="Project path"
+                                    placeholder="Folder for the agent session"
                                     disabled={starting}
                                 />
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost input-action-btn"
+                                    title="Browse for folder"
+                                    disabled={starting}
+                                    onClick={() => {
+                                        SelectFolder()
+                                            .then((p) => {
+                                                if (p) setCwd(p);
+                                            })
+                                            .catch(() => undefined);
+                                    }}
+                                >
+                                    <FolderOpen size={15} strokeWidth={2} />
+                                </button>
                             </div>
                         </label>
+
+                        <div className="agents-toolbar-end">
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={handleStart}
+                                disabled={starting || !selected?.installed}
+                            >
+                                <Plus size={14} strokeWidth={2} />
+                                {starting ? 'Starting…' : 'Start'}
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="agents-start-row agents-start-row--actions">
-                        {showEphemeralToggle && (
+                    <div className="agents-options">
+                        {showEphemeralToggle ? (
                             <label className="agents-ephemeral">
                                 <input
                                     type="checkbox"
@@ -311,45 +322,32 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                 />
                                 <span>
                                     Session-only Draft MCP
-                                    {selected?.id === 'claude'
-                                        ? ' (inline --mcp-config, no disk write)'
-                                        : selected?.id === 'codex'
-                                          ? ' (-c mcp_servers.draft…)'
-                                          : ''}
+                                    {!ephemeral
+                                        ? selected?.mcpConfigured
+                                            ? ' — using existing config'
+                                            : ' — will add to user config'
+                                        : selected?.id === 'claude'
+                                          ? ' — inline --mcp-config'
+                                          : selected?.id === 'codex'
+                                            ? ' — -c overrides'
+                                            : ''}
                                 </span>
                             </label>
-                        )}
-                        {!showEphemeralToggle && selected?.installed && (
+                        ) : selected?.installed ? (
                             <span className="agents-hint">
                                 {selected.mcpConfigured
-                                    ? 'Draft MCP already configured for this agent'
-                                    : 'Draft MCP will be added to this agent’s config, then the session starts'}
+                                    ? 'Draft MCP already configured'
+                                    : 'Draft MCP will be added to this agent’s config on start'}
                             </span>
-                        )}
-                        {showEphemeralToggle && !ephemeral && (
-                            <span className="agents-hint">
-                                {selected?.mcpConfigured
-                                    ? 'Using existing Draft MCP config'
-                                    : 'Will add Draft MCP to user config, then start'}
-                            </span>
-                        )}
+                        ) : null}
 
-                        <button
-                            type="button"
-                            className="btn btn-primary"
-                            onClick={handleStart}
-                            disabled={starting || !selected?.installed}
-                        >
-                            <Plus size={14} strokeWidth={2} />
-                            {starting ? 'Starting…' : 'Start session'}
-                        </button>
+                        {selected && !selected.installed && (
+                            <p className="agents-missing">
+                                <SquareTerminal size={14} /> {selected.name} not found on PATH — install it, then Rescan.
+                            </p>
+                        )}
                     </div>
-
-                    {selected && !selected.installed && (
-                        <p className="agents-missing">
-                            <Bot size={14} /> {selected.name} was not found on PATH. Install the CLI and click Rescan
-                            (no admin required — Draft only looks at user PATH).
-                        </p>
+                        </>
                     )}
                 </div>
 
@@ -358,78 +356,84 @@ export default function AgentsView({projects}: AgentsViewProps) {
                         {sessions.length === 0 ? (
                             <div className="agents-tabs-empty">No sessions yet — start an agent above.</div>
                         ) : (
-                            sessions.map((s) => (
-                                <button
-                                    key={s.id}
-                                    type="button"
-                                    className={'agents-tab' + (s.id === activeId ? ' active' : '')}
-                                    onClick={() => setActiveId(s.id)}
-                                >
-                                    <span className="agents-tab-label">
-                                        {s.agentName}
-                                        {s.ephemeral ? ' · temp MCP' : ''}
-                                        {s.status === 'exited' || s.status === 'error' ? ' · exited' : ''}
-                                    </span>
-                                    <span
-                                        className="agents-tab-close"
-                                        role="button"
-                                        tabIndex={0}
-                                        title="Close session"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleClose(s.id);
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                e.stopPropagation();
-                                                handleClose(s.id);
-                                            }
-                                        }}
-                                    >
-                                        <X size={12} />
-                                    </span>
-                                </button>
-                            ))
+                            <>
+                                <div className="agents-tabs-list">
+                                    {sessions.map((s) => {
+                                        const exited = s.status === 'exited' || s.status === 'error';
+                                        return (
+                                            <button
+                                                key={s.id}
+                                                type="button"
+                                                className={
+                                                    'agents-tab' +
+                                                    (s.id === activeId ? ' active' : '') +
+                                                    (exited ? ' agents-tab--exited' : '')
+                                                }
+                                                onClick={() => setActiveId(s.id)}
+                                                title={[s.agentName, s.cwd, s.command].filter(Boolean).join('\n')}
+                                            >
+                                                <span className={'agents-tab-dot' + (exited ? ' agents-tab-dot--off' : '')} />
+                                                <span className="agents-tab-label">{s.agentName}</span>
+                                                {s.ephemeral && <span className="agents-tab-chip">temp</span>}
+                                                {exited && <span className="agents-tab-chip agents-tab-chip--muted">exited</span>}
+                                                <span
+                                                    className="agents-tab-close"
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    title="Close session"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleClose(s.id);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.stopPropagation();
+                                                            handleClose(s.id);
+                                                        }
+                                                    }}
+                                                >
+                                                    <X size={11} strokeWidth={2.25} />
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {activeSession && (
+                                    <div className="agents-tabs-meta">
+                                        {activeSession.cwd ? (
+                                            <span className="agents-tabs-cwd" title={activeSession.cwd}>
+                                                {activeSession.cwd}
+                                            </span>
+                                        ) : null}
+                                        {(activeSession.status === 'running' || activeSession.status === 'starting') && (
+                                            <button
+                                                type="button"
+                                                className="btn btn-ghost agents-tabs-stop"
+                                                onClick={() => handleClose(activeSession.id)}
+                                                title="Stop session"
+                                            >
+                                                <Square size={11} strokeWidth={2.25} />
+                                                Stop
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
                     <div className="agents-term-wrap">
                         {sessions.length === 0 ? (
                             <div className="agents-term-placeholder">
-                                <FolderOpen size={28} strokeWidth={1.5} />
+                                <SquareTerminal size={22} strokeWidth={1.5} />
                                 <p>Your agent TUI runs here with Draft MCP available.</p>
                             </div>
                         ) : (
                             sessions.map((s) => (
-                                <AgentSessionTerminal key={s.id} session={s} active={s.id === activeId} />
+                                <AgentSessionTerminal key={s.id} sessionId={s.id} active={s.id === activeId} />
                             ))
                         )}
                     </div>
-
-                    {activeId && (
-                        <div className="agents-session-meta">
-                            {(() => {
-                                const s = sessions.find((x) => x.id === activeId);
-                                if (!s) return null;
-                                return (
-                                    <>
-                                        <code>{s.command || s.agentName}</code>
-                                        {s.cwd ? <span className="agents-meta-cwd">{s.cwd}</span> : null}
-                                        {(s.status === 'running' || s.status === 'starting') && (
-                                            <button
-                                                type="button"
-                                                className="btn btn-ghost btn-sm"
-                                                onClick={() => handleClose(s.id)}
-                                            >
-                                                <Square size={12} />
-                                                Stop
-                                            </button>
-                                        )}
-                                    </>
-                                );
-                            })()}
-                        </div>
-                    )}
                 </div>
             </div>
         </div>
