@@ -40,8 +40,16 @@ func redactNode(v any, secret bool) any {
 		return out
 	case map[string]any:
 		marked := false
-		if b, ok := n["secret"].(bool); ok && b {
-			marked = true
+		if b, ok := n["secret"].(bool); ok {
+			marked = b
+		} else if _, hasKey := n["key"]; hasKey {
+			if _, hasVal := n["value"]; hasVal {
+				// AppSecret JSON has key/value/description but no secret bool —
+				// treat the value as sensitive by default.
+				if _, hasDesc := n["description"]; hasDesc {
+					marked = true
+				}
+			}
 		}
 		out := make(map[string]any, len(n))
 		for k, val := range n {

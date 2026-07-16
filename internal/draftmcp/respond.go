@@ -6,15 +6,27 @@ import (
 	"math"
 )
 
-const maxToolTextBytes = 32 * 1024
+const maxToolTextBytes = 256 * 1024
+const maxEmbeddedStringBytes = 4 * 1024
 
 func toolOK(id any, v any) rpcResponse {
-	data, err := json.Marshal(v)
+	compact := compactForMCP(v)
+	data, err := json.Marshal(compact)
 	if err != nil {
 		return toolErr(id, err)
 	}
+	if len(data) > maxToolTextBytes {
+		data, err = json.Marshal(map[string]any{
+			"truncated": true,
+			"bytes":     len(data),
+			"message":   "response exceeded Draft MCP size limit after compacting large strings; request a narrower tool or single-resource get",
+		})
+		if err != nil {
+			return toolErr(id, err)
+		}
+	}
 	return rpcResponse{JSONRPC: "2.0", ID: id, Result: map[string]any{
-		"content": []map[string]any{{"type": "text", "text": truncate(string(data))}},
+		"content": []map[string]any{{"type": "text", "text": string(data)}},
 	}}
 }
 
@@ -32,6 +44,44 @@ func truncate(s string) string {
 		return s
 	}
 	return s[:maxToolTextBytes] + "\n… truncated by Draft MCP"
+}
+
+// compactForMCP deep-copies via JSON then shortens oversized string fields so
+// list/get payloads stay valid JSON under the MCP text budget.
+func compactForMCP(v any) any {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var node any
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return v
+	}
+	return truncateStrings(node)
+}
+
+func truncateStrings(v any) any {
+	switch n := v.(type) {
+	case string:
+		if len(n) > maxEmbeddedStringBytes {
+			return n[:maxEmbeddedStringBytes] + "…[truncated]"
+		}
+		return n
+	case []any:
+		out := make([]any, len(n))
+		for i, item := range n {
+			out[i] = truncateStrings(item)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(n))
+		for k, val := range n {
+			out[k] = truncateStrings(val)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func requireConfirm(args map[string]any) error {

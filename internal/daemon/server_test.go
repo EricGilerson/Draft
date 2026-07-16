@@ -6,50 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"Draft/internal/deploy"
-	"Draft/internal/dockerwatch"
 	"Draft/internal/networking"
 	"Draft/internal/store"
 )
-
-func newTestServer(t *testing.T) (*Server, *store.Store, string) {
-	t.Helper()
-	s, err := store.Open(store.FileDSN(filepath.Join(t.TempDir(), "draft.db")))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-
-	logDir := filepath.Join(t.TempDir(), "logs")
-	hub := newEventHub()
-	engine := deploy.New(s, networking.NewRouter(s, "127.0.0.1:0"), logDir, hub.publish)
-	srv := &Server{
-		store:         s,
-		engine:        engine,
-		hub:           hub,
-		watch:         dockerwatch.New(),
-		state:         State{Token: "test-token", PID: os.Getpid()},
-		disableDocker: true,
-		disableIdle:   true,
-	}
-	return srv, s, logDir
-}
-
-func clientForHTTPServer(t *testing.T, ts *httptest.Server, token string) *Client {
-	t.Helper()
-	addr := strings.TrimPrefix(ts.URL, "http://")
-	return &Client{
-		state: State{Addr: addr, Token: token, PID: os.Getpid()},
-		http:  ts.Client(),
-	}
-}
 
 func TestServerAuthAllowsHealthAndProtectsOtherRoutes(t *testing.T) {
 	srv, _, _ := newTestServer(t)
