@@ -236,8 +236,8 @@ function App() {
     return (
         <BuildLogProvider>
             <AppDialogProvider>
-                <div className="app-shell">
-                    <Sidebar active={view} onSelect={handleSelectView} compact={compactSidebar}/>
+                <div className={'app-shell' + (view === 'agents' ? ' app-shell--agents-focus' : '')}>
+                    <Sidebar active={view} onSelect={handleSelectView} compact={compactSidebar || view === 'agents'}/>
                     <div className="app-main">
                         <header className="topbar">
                             <ActivityTicker/>

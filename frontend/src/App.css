@@ -24,6 +24,17 @@
     border-bottom: 1px solid var(--border);
     background: var(--bg-elevated);
     overflow: hidden;
+    transition: height 0.14s ease, padding 0.14s ease, opacity 0.14s ease, border-width 0.14s ease;
+}
+
+/* Agents focus: reclaim topbar + force icon-only sidebar for terminal height/width. */
+.app-shell--agents-focus .topbar {
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+    opacity: 0;
+    pointer-events: none;
 }
 
 .topbar .activity-ticker {

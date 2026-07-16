@@ -1,5 +1,14 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {FolderOpen, Plus, RefreshCw, Square, SquareTerminal, X} from 'lucide-react';
+import {useCallback, useEffect, useMemo, useRef, useState, type WheelEvent} from 'react';
+import {
+    ChevronDown,
+    ChevronUp,
+    FolderOpen,
+    Plus,
+    RefreshCw,
+    Square,
+    SquareTerminal,
+    X,
+} from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import {
     ListAgents,
@@ -63,7 +72,10 @@ export default function AgentsView({projects}: AgentsViewProps) {
     const [cwd, setCwd] = useState(savedPrefs.cwd ?? '');
     const [ephemeral, setEphemeral] = useState(savedPrefs.ephemeral ?? true);
     const [plain, setPlain] = useState(savedPrefs.plain ?? false);
+    // Prefer collapsed chrome once the user has sessions / last chose focus mode.
+    const [launcherCollapsed, setLauncherCollapsed] = useState(savedPrefs.launcherCollapsed ?? false);
     const appliedDefaultCwd = useRef(savedPrefs.cwd !== undefined);
+    const tabsListRef = useRef<HTMLDivElement>(null);
 
     const selected = useMemo(
         () => agentList.find((a) => a.id === selectedAgent) ?? null,
@@ -145,6 +157,10 @@ export default function AgentsView({projects}: AgentsViewProps) {
         saveAgentsPrefs({plain});
     }, [plain]);
 
+    useEffect(() => {
+        saveAgentsPrefs({launcherCollapsed});
+    }, [launcherCollapsed]);
+
     const showEphemeralToggle = !plain && !!selected?.supportsEphemeral;
     const activeSession = useMemo(
         () => sessions.find((s) => s.id === activeId) ?? null,
@@ -171,6 +187,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                 return [info, ...next];
             });
             setActiveId(info.id);
+            setLauncherCollapsed(true);
             // Soft refresh — don't flip the toolbar into skeleton / loading.
             ListAgents()
                 .then((list) => setAgentList(list ?? []))
@@ -193,23 +210,96 @@ export default function AgentsView({projects}: AgentsViewProps) {
         setActiveId((cur) => (cur === id ? null : cur));
     };
 
+    const onTabsWheel = (e: WheelEvent<HTMLDivElement>) => {
+        const el = tabsListRef.current;
+        if (!el) return;
+        // Prefer horizontal scroll for overflow tabs (trackpad / shift+wheel / vertical wheel).
+        if (el.scrollWidth <= el.clientWidth) return;
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (delta === 0) return;
+        e.preventDefault();
+        el.scrollLeft += delta;
+    };
+
     return (
-        <div className="agents-view">
+        <div className={'agents-view' + (launcherCollapsed ? ' agents-view--focus' : '')}>
             <div className="agents-layout">
-                <PageHeader
-                    title="Agents"
-                    description="Run Claude, Codex, and other CLIs here. Draft MCP is attached per session or installed into the agent config."
-                    action={
-                        <button type="button" className="btn btn-ghost" onClick={refreshAgents} disabled={loading}>
-                            <RefreshCw size={14} strokeWidth={2} className={loading ? 'agents-spin' : undefined} />
-                            Rescan
+                {launcherCollapsed ? (
+                    <div className="agents-focus-bar">
+                        <button
+                            type="button"
+                            className="btn btn-ghost agents-focus-toggle"
+                            onClick={() => setLauncherCollapsed(false)}
+                            title="Show launcher"
+                        >
+                            <ChevronDown size={14} strokeWidth={2} />
+                            Launcher
                         </button>
-                    }
-                />
+                        <div className="agents-focus-bar-spacer" />
+                        <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={refreshAgents}
+                            disabled={loading}
+                            title="Rescan agents"
+                        >
+                            <RefreshCw size={13} strokeWidth={2} className={loading ? 'agents-spin' : undefined} />
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={handleStart}
+                            disabled={starting || !selected?.installed}
+                            title={selected?.installed ? `Start ${selected.name}` : 'No agent selected'}
+                        >
+                            <Plus size={13} strokeWidth={2} />
+                            {starting ? 'Starting…' : 'Start'}
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        <PageHeader
+                            title="Agents"
+                            description="Run Claude, Codex, and other CLIs here. Draft MCP is attached per session or installed into the agent config."
+                            action={
+                                <div className="agents-header-actions">
+                                    {sessions.length > 0 ? (
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            onClick={() => setLauncherCollapsed(true)}
+                                            title="Collapse launcher for more terminal space"
+                                        >
+                                            <ChevronUp size={14} strokeWidth={2} />
+                                            Focus
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        onClick={refreshAgents}
+                                        disabled={loading}
+                                    >
+                                        <RefreshCw
+                                            size={14}
+                                            strokeWidth={2}
+                                            className={loading ? 'agents-spin' : undefined}
+                                        />
+                                        Rescan
+                                    </button>
+                                </div>
+                            }
+                        />
 
-                {error && <div className="agents-error">{error}</div>}
+                        {error && <div className="agents-error">{error}</div>}
 
-                <div className={'agents-start panel' + (loading && agentList.length === 0 ? ' agents-start--loading' : '')} aria-busy={loading && agentList.length === 0}>
+                        <div
+                            className={
+                                'agents-start panel' +
+                                (loading && agentList.length === 0 ? ' agents-start--loading' : '')
+                            }
+                            aria-busy={loading && agentList.length === 0}
+                        >
                     {loading && agentList.length === 0 ? (
                         <>
                             <div className="agents-toolbar agents-toolbar--skeleton" aria-hidden="true">
@@ -383,14 +473,26 @@ export default function AgentsView({projects}: AgentsViewProps) {
                         </>
                     )}
                 </div>
+                    </>
+                )}
+
+                {launcherCollapsed && error ? <div className="agents-error agents-error--focus">{error}</div> : null}
 
                 <div className="agents-sessions panel">
                     <div className="agents-tabs">
                         {sessions.length === 0 ? (
-                            <div className="agents-tabs-empty">No sessions yet — start an agent above.</div>
+                            <div className="agents-tabs-empty">
+                                {launcherCollapsed
+                                    ? 'No sessions yet — expand Launcher or Start above.'
+                                    : 'No sessions yet — start an agent above.'}
+                            </div>
                         ) : (
                             <>
-                                <div className="agents-tabs-list">
+                                <div
+                                    className="agents-tabs-list"
+                                    ref={tabsListRef}
+                                    onWheel={onTabsWheel}
+                                >
                                     {sessions.map((s) => {
                                         const exited = s.status === 'exited' || s.status === 'error';
                                         const restarting = s.status === 'restarting';

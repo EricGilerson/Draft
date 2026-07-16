@@ -5,6 +5,8 @@ export type AgentsLauncherPrefs = {
     cwd?: string;
     ephemeral?: boolean;
     plain?: boolean;
+    /** When true, hide page header + start form so the terminal can use more space. */
+    launcherCollapsed?: boolean;
 };
 
 export function loadAgentsPrefs(): AgentsLauncherPrefs {
@@ -18,6 +20,8 @@ export function loadAgentsPrefs(): AgentsLauncherPrefs {
             cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined,
             ephemeral: typeof parsed.ephemeral === 'boolean' ? parsed.ephemeral : undefined,
             plain: typeof parsed.plain === 'boolean' ? parsed.plain : undefined,
+            launcherCollapsed:
+                typeof parsed.launcherCollapsed === 'boolean' ? parsed.launcherCollapsed : undefined,
         };
     } catch {
         return {};
@@ -32,6 +36,7 @@ export function saveAgentsPrefs(prefs: AgentsLauncherPrefs): void {
             cwd: prefs.cwd ?? prev.cwd,
             ephemeral: prefs.ephemeral ?? prev.ephemeral,
             plain: prefs.plain ?? prev.plain,
+            launcherCollapsed: prefs.launcherCollapsed ?? prev.launcherCollapsed,
         };
         // Allow explicit empty cwd to clear.
         if (Object.prototype.hasOwnProperty.call(prefs, 'cwd')) {
@@ -42,6 +47,9 @@ export function saveAgentsPrefs(prefs: AgentsLauncherPrefs): void {
         }
         if (Object.prototype.hasOwnProperty.call(prefs, 'ephemeral')) {
             next.ephemeral = prefs.ephemeral;
+        }
+        if (Object.prototype.hasOwnProperty.call(prefs, 'launcherCollapsed')) {
+            next.launcherCollapsed = prefs.launcherCollapsed;
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
