@@ -2,7 +2,10 @@ package agents
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -17,7 +20,8 @@ type agentSpec struct {
 var knownAgents = []agentSpec{
 	{ID: AgentClaude, Name: "Claude Code", Binaries: []string{"claude"}, SupportsEphemeral: true},
 	{ID: AgentCodex, Name: "Codex", Binaries: []string{"codex"}, SupportsEphemeral: true},
-	{ID: AgentCursor, Name: "Cursor Agent", Binaries: []string{"agent", "cursor-agent"}, SupportsEphemeral: false},
+	// Prefer cursor-agent: both Cursor and Grok ship an `agent` binary on PATH.
+	{ID: AgentCursor, Name: "Cursor Agent", Binaries: []string{"cursor-agent", "agent"}, SupportsEphemeral: false},
 	{ID: AgentGemini, Name: "Gemini CLI", Binaries: []string{"gemini"}, SupportsEphemeral: false},
 	{ID: AgentGrok, Name: "Grok", Binaries: []string{"grok"}, SupportsEphemeral: false},
 	{ID: AgentOpenCode, Name: "OpenCode", Binaries: []string{"opencode"}, SupportsEphemeral: false},
@@ -40,7 +44,7 @@ func ListAgents(ctx context.Context) ([]AgentInfo, error) {
 			Name:              spec.Name,
 			SupportsEphemeral: spec.SupportsEphemeral,
 		}
-		path, bin := resolveBinary(spec.Binaries)
+		path, bin := resolveBinary(ctx, spec)
 		if path == "" {
 			info.Binary = spec.Binaries[0]
 			info.Installed = false
@@ -63,14 +67,141 @@ func ListAgents(ctx context.Context) ([]AgentInfo, error) {
 	return out, nil
 }
 
-func resolveBinary(names []string) (path, used string) {
-	for _, name := range names {
-		p, err := LookPath(name)
-		if err == nil && p != "" {
-			return p, name
+func resolveBinary(ctx context.Context, spec agentSpec) (path, used string) {
+	for _, name := range spec.Binaries {
+		for _, candidate := range lookPathAll(name) {
+			if !binaryMatchesAgent(ctx, spec.ID, name, candidate) {
+				continue
+			}
+			return candidate, name
 		}
 	}
 	return "", ""
+}
+
+// binaryMatchesAgent rejects PATH collisions where another product owns the same
+// command name (notably Cursor vs Grok both exposing `agent`).
+func binaryMatchesAgent(ctx context.Context, id AgentID, binaryName, path string) bool {
+	switch id {
+	case AgentCursor:
+		return matchesCursorBinary(ctx, binaryName, path)
+	case AgentGrok:
+		return matchesGrokBinary(path)
+	default:
+		return true
+	}
+}
+
+func matchesCursorBinary(ctx context.Context, binaryName, path string) bool {
+	p := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+	base := agentBaseName(path)
+
+	// Grok Build installs ~/.grok/bin/agent — never treat it as Cursor.
+	if strings.Contains(p, "/.grok/") || strings.Contains(p, "/grok/bin/") {
+		return false
+	}
+
+	if base == "cursor-agent" || strings.Contains(p, "/cursor-agent/") {
+		return true
+	}
+
+	if binaryName == "agent" || base == "agent" {
+		ver := strings.ToLower(probeVersion(ctx, path))
+		if ver == "" {
+			return false
+		}
+		if strings.Contains(ver, "grok") {
+			return false
+		}
+		return true
+	}
+
+	return true
+}
+
+func matchesGrokBinary(path string) bool {
+	p := strings.ToLower(filepath.ToSlash(filepath.Clean(path)))
+	base := agentBaseName(path)
+	if strings.Contains(p, "/cursor-agent/") || strings.Contains(base, "cursor") {
+		return false
+	}
+	return base == "grok" || strings.Contains(p, "/.grok/") || strings.Contains(p, "/grok/bin/")
+}
+
+func agentBaseName(path string) string {
+	base := strings.ToLower(filepath.Base(path))
+	for _, ext := range []string{".exe", ".cmd", ".bat", ".ps1", ".com"} {
+		if strings.HasSuffix(base, ext) {
+			return strings.TrimSuffix(base, ext)
+		}
+	}
+	return base
+}
+
+// lookPathAll returns every augmented-PATH hit for name (not just the first),
+// so we can skip a colliding earlier shim (Grok's agent) and still find Cursor.
+func lookPathAll(name string) []string {
+	if name == "" {
+		return nil
+	}
+	aug := AugmentedPATH()
+	var exts []string
+	if runtime.GOOS == "windows" {
+		exts = windowsPathExts()
+		lower := strings.ToLower(name)
+		for _, ext := range exts {
+			if strings.HasSuffix(lower, ext) {
+				exts = []string{""}
+				break
+			}
+		}
+	} else {
+		exts = []string{""}
+	}
+
+	seen := map[string]bool{}
+	var out []string
+	for _, dir := range filepath.SplitList(aug) {
+		if dir == "" {
+			continue
+		}
+		for _, ext := range exts {
+			candidate := filepath.Join(dir, name+ext)
+			st, err := os.Stat(candidate)
+			if err != nil || st.IsDir() {
+				continue
+			}
+			key := strings.ToLower(filepath.Clean(candidate))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func windowsPathExts() []string {
+	raw := os.Getenv("PATHEXT")
+	if raw == "" {
+		return []string{".com", ".exe", ".bat", ".cmd"}
+	}
+	parts := filepath.SplitList(raw)
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, p := range parts {
+		ext := strings.ToLower(strings.TrimSpace(p))
+		if ext == "" || seen[ext] {
+			continue
+		}
+		seen[ext] = true
+		out = append(out, ext)
+	}
+	if len(out) == 0 {
+		return []string{".com", ".exe", ".bat", ".cmd"}
+	}
+	return out
 }
 
 func probeVersion(ctx context.Context, bin string) string {

@@ -27,7 +27,7 @@ func BuildLaunch(ctx context.Context, req StartSessionRequest) (*LaunchPlan, *Ag
 	if !ok {
 		return nil, nil, fmt.Errorf("unknown agent %q", req.AgentID)
 	}
-	path, bin := resolveBinary(spec.Binaries)
+	path, bin := resolveBinary(ctx, spec)
 	if path == "" {
 		return nil, nil, fmt.Errorf("%s is not installed (not found on PATH)", spec.Name)
 	}
