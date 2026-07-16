@@ -7,7 +7,7 @@ import (
 	"Draft/internal/agents"
 )
 
-// ListAgents probes PATH for Claude Code, Codex, Cursor Agent, Gemini, and Grok.
+// ListAgents probes PATH for Claude Code, Codex, Cursor Agent, Gemini, Grok, OpenCode, and Copilot.
 func (a *App) ListAgents() ([]agents.AgentInfo, error) {
 	return agents.ListAgents(a.ctx)
 }

@@ -4,11 +4,13 @@ package agents
 type AgentID string
 
 const (
-	AgentClaude AgentID = "claude"
-	AgentCodex  AgentID = "codex"
-	AgentCursor AgentID = "cursor"
-	AgentGemini AgentID = "gemini"
-	AgentGrok   AgentID = "grok"
+	AgentClaude   AgentID = "claude"
+	AgentCodex    AgentID = "codex"
+	AgentCursor   AgentID = "cursor"
+	AgentGemini   AgentID = "gemini"
+	AgentGrok     AgentID = "grok"
+	AgentOpenCode AgentID = "opencode"
+	AgentCopilot  AgentID = "copilot"
 )
 
 const DraftMCPServerName = "draft"

@@ -20,6 +20,8 @@ var knownAgents = []agentSpec{
 	{ID: AgentCursor, Name: "Cursor Agent", Binaries: []string{"agent", "cursor-agent"}, SupportsEphemeral: false},
 	{ID: AgentGemini, Name: "Gemini CLI", Binaries: []string{"gemini"}, SupportsEphemeral: false},
 	{ID: AgentGrok, Name: "Grok", Binaries: []string{"grok"}, SupportsEphemeral: false},
+	{ID: AgentOpenCode, Name: "OpenCode", Binaries: []string{"opencode"}, SupportsEphemeral: false},
+	{ID: AgentCopilot, Name: "GitHub Copilot", Binaries: []string{"copilot"}, SupportsEphemeral: false},
 }
 
 // ListAgents probes PATH for known agent CLIs and whether Draft MCP is configured.

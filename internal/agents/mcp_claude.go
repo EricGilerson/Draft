@@ -22,6 +22,10 @@ func IsDraftMCPConfigured(ctx context.Context, id AgentID, agentBin, draftCmd st
 		return geminiMCPConfigured(draftCmd, draftArgs)
 	case AgentGrok:
 		return grokMCPConfigured(ctx, agentBin, draftCmd, draftArgs)
+	case AgentOpenCode:
+		return openCodeMCPConfigured(draftCmd, draftArgs)
+	case AgentCopilot:
+		return copilotMCPConfigured(ctx, agentBin, draftCmd, draftArgs)
 	default:
 		return false, fmt.Errorf("unknown agent %s", id)
 	}
@@ -45,6 +49,10 @@ func EnsureDraftMCP(ctx context.Context, id AgentID, agentBin, draftCmd string, 
 		return geminiMCPAdd(draftCmd, draftArgs)
 	case AgentGrok:
 		return grokMCPAdd(ctx, agentBin, draftCmd, draftArgs)
+	case AgentOpenCode:
+		return openCodeMCPAdd(draftCmd, draftArgs)
+	case AgentCopilot:
+		return copilotMCPAdd(ctx, agentBin, draftCmd, draftArgs)
 	default:
 		return fmt.Errorf("unknown agent %s", id)
 	}

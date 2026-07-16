@@ -64,6 +64,8 @@ func candidateBinDirs() []string {
 			filepath.Join(home, "AppData", "Local", "Programs"),
 			filepath.Join(home, ".claude", "bin"),
 			filepath.Join(home, ".codex", "bin"),
+			filepath.Join(home, ".opencode", "bin"),
+			filepath.Join(home, ".local", "share", "opencode", "bin"),
 		)
 		// nvm / fnm style (best-effort: only top-level current)
 		dirs = append(dirs,

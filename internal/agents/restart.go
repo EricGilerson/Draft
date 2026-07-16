@@ -41,7 +41,7 @@ func shouldAutoRestart(agent AgentID, exitCode int, recent []byte) bool {
 	// Other CLIs that exit and ask for a manual restart after an update.
 	// Deliberately exclude Claude's "restart to apply" (session stays up).
 	switch agent {
-	case AgentCursor, AgentGrok, AgentGemini:
+	case AgentCursor, AgentGrok, AgentGemini, AgentOpenCode, AgentCopilot:
 		if strings.Contains(text, "please restart") &&
 			(strings.Contains(text, "update") || strings.Contains(text, "updated") || strings.Contains(text, "upgrade")) {
 			return true
