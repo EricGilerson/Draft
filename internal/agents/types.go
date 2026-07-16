@@ -31,8 +31,11 @@ type StartSessionRequest struct {
 	AgentID   AgentID `json:"agentId"`
 	Cwd       string  `json:"cwd"`
 	Ephemeral bool    `json:"ephemeral"`
-	Cols      uint16  `json:"cols"`
-	Rows      uint16  `json:"rows"`
+	// Plain skips Draft MCP inject/ensure entirely — run the agent like a normal terminal.
+	// Any MCP the user already configured outside Draft may still load; we just don't touch it.
+	Plain bool `json:"plain"`
+	Cols  uint16 `json:"cols"`
+	Rows  uint16 `json:"rows"`
 }
 
 // SessionInfo is a running (or recently exited) agent session.
@@ -42,6 +45,7 @@ type SessionInfo struct {
 	AgentName string  `json:"agentName"`
 	Cwd       string  `json:"cwd"`
 	Ephemeral bool    `json:"ephemeral"`
+	Plain     bool    `json:"plain"`
 	StartedAt int64   `json:"startedAt"`
 	Status    string  `json:"status"` // starting | running | exited | error
 	ExitCode  *int    `json:"exitCode,omitempty"`

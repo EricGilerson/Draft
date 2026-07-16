@@ -4,6 +4,7 @@ export type AgentsLauncherPrefs = {
     agentId?: string;
     cwd?: string;
     ephemeral?: boolean;
+    plain?: boolean;
 };
 
 export function loadAgentsPrefs(): AgentsLauncherPrefs {
@@ -16,6 +17,7 @@ export function loadAgentsPrefs(): AgentsLauncherPrefs {
             agentId: typeof parsed.agentId === 'string' ? parsed.agentId : undefined,
             cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined,
             ephemeral: typeof parsed.ephemeral === 'boolean' ? parsed.ephemeral : undefined,
+            plain: typeof parsed.plain === 'boolean' ? parsed.plain : undefined,
         };
     } catch {
         return {};
@@ -29,10 +31,17 @@ export function saveAgentsPrefs(prefs: AgentsLauncherPrefs): void {
             agentId: prefs.agentId ?? prev.agentId,
             cwd: prefs.cwd ?? prev.cwd,
             ephemeral: prefs.ephemeral ?? prev.ephemeral,
+            plain: prefs.plain ?? prev.plain,
         };
         // Allow explicit empty cwd to clear.
         if (Object.prototype.hasOwnProperty.call(prefs, 'cwd')) {
             next.cwd = prefs.cwd;
+        }
+        if (Object.prototype.hasOwnProperty.call(prefs, 'plain')) {
+            next.plain = prefs.plain;
+        }
+        if (Object.prototype.hasOwnProperty.call(prefs, 'ephemeral')) {
+            next.ephemeral = prefs.ephemeral;
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {

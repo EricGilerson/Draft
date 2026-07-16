@@ -74,6 +74,7 @@ func (m *Manager) Start(ctx context.Context, req StartSessionRequest) (*SessionI
 		AgentName: info.Name,
 		Cwd:       plan.Cwd,
 		Ephemeral: plan.Ephemeral,
+		Plain:     plan.Plain,
 		StartedAt: time.Now().Unix(),
 		Status:    "starting",
 		Command:   plan.Display,

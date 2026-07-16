@@ -175,6 +175,11 @@
     margin: 0;
 }
 
+.agents-option-detail {
+    color: var(--text-faint);
+    font-weight: 400;
+}
+
 .agents-hint {
     font-size: 0.78rem;
     color: var(--text-faint);

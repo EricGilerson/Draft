@@ -62,6 +62,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
     const [selectedAgent, setSelectedAgent] = useState<string>(savedPrefs.agentId || 'claude');
     const [cwd, setCwd] = useState(savedPrefs.cwd ?? '');
     const [ephemeral, setEphemeral] = useState(savedPrefs.ephemeral ?? true);
+    const [plain, setPlain] = useState(savedPrefs.plain ?? false);
     const appliedDefaultCwd = useRef(savedPrefs.cwd !== undefined);
 
     const selected = useMemo(
@@ -140,7 +141,11 @@ export default function AgentsView({projects}: AgentsViewProps) {
         saveAgentsPrefs({ephemeral});
     }, [ephemeral]);
 
-    const showEphemeralToggle = !!selected?.supportsEphemeral;
+    useEffect(() => {
+        saveAgentsPrefs({plain});
+    }, [plain]);
+
+    const showEphemeralToggle = !plain && !!selected?.supportsEphemeral;
     const activeSession = useMemo(
         () => sessions.find((s) => s.id === activeId) ?? null,
         [sessions, activeId],
@@ -156,6 +161,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                     agentId: selected.id,
                     cwd: cwd.trim(),
                     ephemeral: showEphemeralToggle ? ephemeral : false,
+                    plain,
                     cols: 120,
                     rows: 36,
                 }),
@@ -312,7 +318,23 @@ export default function AgentsView({projects}: AgentsViewProps) {
                     </div>
 
                     <div className="agents-options">
-                        {showEphemeralToggle ? (
+                        <label className="agents-ephemeral">
+                            <input
+                                type="checkbox"
+                                checked={plain}
+                                onChange={(e) => setPlain(e.target.checked)}
+                                disabled={starting}
+                            />
+                            <span>
+                                Plain session
+                                <span className="agents-option-detail">
+                                    {' '}
+                                    — no Draft MCP inject/install (normal terminal)
+                                </span>
+                            </span>
+                        </label>
+
+                        {!plain && showEphemeralToggle ? (
                             <label className="agents-ephemeral">
                                 <input
                                     type="checkbox"
@@ -322,22 +344,33 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                 />
                                 <span>
                                     Session-only Draft MCP
-                                    {!ephemeral
-                                        ? selected?.mcpConfigured
-                                            ? ' — using existing config'
-                                            : ' — will add to user config'
-                                        : selected?.id === 'claude'
-                                          ? ' — inline --mcp-config'
-                                          : selected?.id === 'codex'
-                                            ? ' — -c overrides'
-                                            : ''}
+                                    <span className="agents-option-detail">
+                                        {!ephemeral
+                                            ? selected?.mcpConfigured
+                                                ? ' — using existing config'
+                                                : ' — will add to user config'
+                                            : selected?.id === 'claude'
+                                              ? ' — inline --mcp-config'
+                                              : selected?.id === 'codex'
+                                                ? ' — -c overrides'
+                                                : ''}
+                                    </span>
                                 </span>
                             </label>
-                        ) : selected?.installed ? (
+                        ) : null}
+
+                        {!plain && !showEphemeralToggle && selected?.installed ? (
                             <span className="agents-hint">
                                 {selected.mcpConfigured
                                     ? 'Draft MCP already configured'
                                     : 'Draft MCP will be added to this agent’s config on start'}
+                            </span>
+                        ) : null}
+
+                        {plain && selected?.installed ? (
+                            <span className="agents-hint">
+                                Starts {selected.name} as-is
+                                {selected.mcpConfigured ? ' (any MCP already in its config may still load)' : ''}
                             </span>
                         ) : null}
 
@@ -374,7 +407,8 @@ export default function AgentsView({projects}: AgentsViewProps) {
                                             >
                                                 <span className={'agents-tab-dot' + (exited ? ' agents-tab-dot--off' : '')} />
                                                 <span className="agents-tab-label">{s.agentName}</span>
-                                                {s.ephemeral && <span className="agents-tab-chip">temp</span>}
+                                                {s.plain && <span className="agents-tab-chip">plain</span>}
+                                                {!s.plain && s.ephemeral && <span className="agents-tab-chip">temp</span>}
                                                 {exited && <span className="agents-tab-chip agents-tab-chip--muted">exited</span>}
                                                 <span
                                                     className="agents-tab-close"

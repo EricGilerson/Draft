@@ -15,11 +15,13 @@ type LaunchPlan struct {
 	Env       []string
 	Cwd       string
 	Ephemeral bool
+	Plain     bool
 	Display   string // human-readable command line for UI
 }
 
 // BuildLaunch prepares the process invocation, ensuring MCP as needed.
 // For Claude/Codex with ephemeral=true, Draft MCP is injected only for this process.
+// Plain=true skips all Draft MCP wiring (no inject, no ensure/install).
 func BuildLaunch(ctx context.Context, req StartSessionRequest) (*LaunchPlan, *AgentInfo, error) {
 	spec, ok := findSpec(req.AgentID)
 	if !ok {
@@ -38,32 +40,40 @@ func BuildLaunch(ctx context.Context, req StartSessionRequest) (*LaunchPlan, *Ag
 		SupportsEphemeral: spec.SupportsEphemeral,
 	}
 
-	draftCmd, draftArgs, err := DraftMCPCommand()
-	if err != nil {
-		return nil, info, fmt.Errorf("resolve Draft MCP command: %w", err)
-	}
-
-	ephemeral := req.Ephemeral && spec.SupportsEphemeral
-	if !ephemeral {
-		if err := EnsureDraftMCP(ctx, spec.ID, path, draftCmd, draftArgs); err != nil {
-			return nil, info, fmt.Errorf("ensure Draft MCP: %w", err)
-		}
-		info.MCPConfigured = true
-	}
-
+	plain := req.Plain
+	ephemeral := !plain && req.Ephemeral && spec.SupportsEphemeral
 	args := []string{}
-	switch spec.ID {
-	case AgentClaude:
-		if ephemeral {
-			cfg, err := claudeEphemeralMCPConfig(draftCmd, draftArgs)
-			if err != nil {
-				return nil, info, err
-			}
-			args = append(args, "--mcp-config", cfg)
+
+	if !plain {
+		draftCmd, draftArgs, err := DraftMCPCommand()
+		if err != nil {
+			return nil, info, fmt.Errorf("resolve Draft MCP command: %w", err)
 		}
-	case AgentCodex:
-		if ephemeral {
-			args = append(args, codexEphemeralFlags(draftCmd, draftArgs)...)
+
+		if !ephemeral {
+			// Persistent path: ensure Draft MCP is configured, then start.
+			if err := EnsureDraftMCP(ctx, spec.ID, path, draftCmd, draftArgs); err != nil {
+				return nil, info, fmt.Errorf("ensure Draft MCP: %w", err)
+			}
+			info.MCPConfigured = true
+		} else {
+			switch spec.ID {
+			case AgentClaude:
+				cfg, err := claudeEphemeralMCPConfig(draftCmd, draftArgs)
+				if err != nil {
+					return nil, info, err
+				}
+				args = append(args, "--mcp-config", cfg)
+			case AgentCodex:
+				args = append(args, codexEphemeralFlags(draftCmd, draftArgs)...)
+			}
+		}
+	} else {
+		// Plain: don't inject or install. Best-effort note if MCP already exists.
+		if draftCmd, draftArgs, err := DraftMCPCommand(); err == nil {
+			if ok, _ := IsDraftMCPConfigured(ctx, spec.ID, path, draftCmd, draftArgs); ok {
+				info.MCPConfigured = true
+			}
 		}
 	}
 
@@ -79,6 +89,7 @@ func BuildLaunch(ctx context.Context, req StartSessionRequest) (*LaunchPlan, *Ag
 		Env:       childEnv(),
 		Cwd:       cwd,
 		Ephemeral: ephemeral,
+		Plain:     plain,
 		Display:   display,
 	}, info, nil
 }

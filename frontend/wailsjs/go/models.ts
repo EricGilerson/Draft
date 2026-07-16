@@ -34,6 +34,7 @@ export namespace agents {
 	    agentName: string;
 	    cwd: string;
 	    ephemeral: boolean;
+	    plain: boolean;
 	    startedAt: number;
 	    status: string;
 	    exitCode?: number;
@@ -51,6 +52,7 @@ export namespace agents {
 	        this.agentName = source["agentName"];
 	        this.cwd = source["cwd"];
 	        this.ephemeral = source["ephemeral"];
+	        this.plain = source["plain"];
 	        this.startedAt = source["startedAt"];
 	        this.status = source["status"];
 	        this.exitCode = source["exitCode"];
@@ -62,6 +64,7 @@ export namespace agents {
 	    agentId: string;
 	    cwd: string;
 	    ephemeral: boolean;
+	    plain: boolean;
 	    cols: number;
 	    rows: number;
 	
@@ -74,6 +77,7 @@ export namespace agents {
 	        this.agentId = source["agentId"];
 	        this.cwd = source["cwd"];
 	        this.ephemeral = source["ephemeral"];
+	        this.plain = source["plain"];
 	        this.cols = source["cols"];
 	        this.rows = source["rows"];
 	    }
