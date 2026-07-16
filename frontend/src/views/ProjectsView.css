@@ -7,7 +7,6 @@
     padding: 0 32px 32px;
 }
 
-.projects-loading,
 .projects-empty {
     min-height: 220px;
     display: flex;
@@ -16,14 +15,6 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg-elevated);
-}
-
-.projects-loading {
-    color: var(--text-muted);
-    font-size: 0.84rem;
-}
-
-.projects-empty {
     gap: 12px;
     padding: 22px;
     color: var(--text-muted);

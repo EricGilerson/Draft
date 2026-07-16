@@ -1,6 +1,7 @@
 import {ArrowRight, Boxes, FolderPlus} from 'lucide-react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
+import {Skeleton, SkeletonBlock, SkeletonFeedRows, SkeletonListCards, SkeletonStats} from '../components/Skeleton';
 import ServicePill from '../components/ServicePill';
 import {ActivityPreview, ProjectSummary, SERVICE_COLORS, STATUS_COLORS} from '../lib/dashboardData';
 import './WorkspaceViews.css';
@@ -134,20 +135,55 @@ export default function OverviewView({
             />
 
             <div className="workspace-body">
+                {loading ? (
+                    <SkeletonBlock label="Loading overview">
+                        <SkeletonStats count={3} columns={3} />
+                        <div className="overview-grid" style={{marginTop: 14}}>
+                            <section className="panel panel-emphasis">
+                                <div className="panel-header">
+                                    <div className="skel-col" style={{flex: 1}}>
+                                        <Skeleton width={140} height={14} />
+                                        <Skeleton width="70%" height={11} />
+                                    </div>
+                                </div>
+                                <Skeleton height={220} style={{width: '100%', borderRadius: 6}} />
+                            </section>
+                            <section className="panel">
+                                <div className="panel-header">
+                                    <div className="skel-col" style={{flex: 1}}>
+                                        <Skeleton width={110} height={14} />
+                                        <Skeleton width="55%" height={11} />
+                                    </div>
+                                </div>
+                                <SkeletonListCards count={3} />
+                            </section>
+                        </div>
+                        <section className="panel overview-grid-bottom" style={{marginTop: 14}}>
+                            <div className="panel-header">
+                                <div className="skel-col" style={{flex: 1}}>
+                                    <Skeleton width={130} height={14} />
+                                    <Skeleton width="50%" height={11} />
+                                </div>
+                            </div>
+                            <SkeletonFeedRows count={5} />
+                        </section>
+                    </SkeletonBlock>
+                ) : (
+                    <>
                 <div className="stats-grid">
                     <div className="metric-card">
                         <div className="metric-label">Projects</div>
-                        <div className="metric-value">{loading ? '...' : projects.length}</div>
+                        <div className="metric-value">{projects.length}</div>
                         <div className="metric-subtle">{activeProjects} active right now</div>
                     </div>
                     <div className="metric-card">
                         <div className="metric-label">Environments</div>
-                        <div className="metric-value">{loading ? '...' : totalEnvironments}</div>
+                        <div className="metric-value">{totalEnvironments}</div>
                         <div className="metric-subtle">Across all projects</div>
                     </div>
                     <div className="metric-card">
                         <div className="metric-label">Services</div>
-                        <div className="metric-value">{loading ? '...' : totalServices}</div>
+                        <div className="metric-value">{totalServices}</div>
                         <div className="metric-subtle">{runningServices} running</div>
                     </div>
                 </div>
@@ -264,6 +300,8 @@ export default function OverviewView({
                         )}
                     </div>
                 </section>
+                    </>
+                )}
             </div>
         </div>
     );

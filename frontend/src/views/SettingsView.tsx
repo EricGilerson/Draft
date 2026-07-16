@@ -3,6 +3,7 @@ import {useEffect, useState} from 'react';
 import {GetAppSettings, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
+import {SkeletonSettings} from '../components/Skeleton';
 import './WorkspaceViews.css';
 
 const DEFAULT_PROXY_PORT = 38473;
@@ -187,7 +188,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
 
             <div className="workspace-body workspace-narrow">
                 {loading ? (
-                    <div className="panel-empty">Loading settings…</div>
+                    <SkeletonSettings sections={2} rowsPerSection={3} />
                 ) : (
                     <>
                         {error && (

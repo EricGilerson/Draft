@@ -4,7 +4,29 @@ import {GetServiceMetrics} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import StatusBadge from './StatusBadge';
 import {useLinkedServiceTarget} from '../lib/linkedService';
+import {Skeleton, SkeletonStats} from './Skeleton';
 import './MetricsTab.css';
+
+function MetricsSkeleton() {
+    return (
+        <div className="metrics-tab">
+            <div className="metrics-header">
+                <div className="metrics-header-copy">
+                    <div className="metrics-title-row">
+                        <Skeleton width={140} height={16} />
+                        <Skeleton width={64} height={20} variant="pill" />
+                    </div>
+                    <Skeleton width={200} height={11} style={{marginTop: 8}} />
+                </div>
+            </div>
+            <SkeletonStats count={6} columns={3} />
+            <div className="metrics-charts">
+                <Skeleton height={140} />
+                <Skeleton height={140} />
+            </div>
+        </div>
+    );
+}
 
 export default function MetricsTab({nodeId}: {nodeId: string}) {
     const [metrics, setMetrics] = useState<deploy.ServiceMetrics | null>(null);
@@ -47,7 +69,7 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
     }, [targetNodeId, linkLoading]);
 
     if (loading && !metrics) {
-        return <div className="metrics-tab metrics-tab--empty">Loading metrics…</div>;
+        return <MetricsSkeleton />;
     }
 
     if (error && !metrics) {

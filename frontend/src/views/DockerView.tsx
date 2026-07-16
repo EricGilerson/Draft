@@ -33,6 +33,7 @@ import {deploy, types} from '../../wailsjs/go/models';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import Dialog from '../components/Dialog';
 import PageHeader from '../components/PageHeader';
+import {Skeleton, SkeletonBlock, SkeletonStats, SkeletonTable} from '../components/Skeleton';
 import {formatBytes} from '../components/VolumeEditor';
 import './DockerView.css';
 
@@ -223,7 +224,6 @@ export default function DockerView() {
     const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const refresh = useCallback(() => {
-        setLoading(true);
         setError('');
         Promise.all([
             GetDockerDiskUsage(),
@@ -618,6 +618,27 @@ export default function DockerView() {
                     </p>
                 )}
 
+                {loading ? (
+                    <SkeletonBlock label="Loading Docker resources" className="docker-skel">
+                        <div className="docker-summary">
+                            <div className="docker-summary-total">
+                                <Skeleton width={120} height={28} />
+                                <Skeleton width={140} height={12} style={{marginTop: 8}} />
+                            </div>
+                            <SkeletonStats count={4} />
+                        </div>
+                        <div className="skel-row" style={{gap: 8, margin: '12px 0'}}>
+                            {Array.from({length: 4}, (_, i) => (
+                                <Skeleton key={i} width={110} height={32} variant="pill" />
+                            ))}
+                        </div>
+                        <SkeletonTable
+                            rows={8}
+                            columns={['28px', '1.2fr', '90px', '1fr', '72px', '100px', '88px']}
+                        />
+                    </SkeletonBlock>
+                ) : (
+                    <>
                 <div className="docker-summary">
                     <div className="docker-summary-total">
                         <span className="docker-summary-total-value">{summary ? formatBytes(summary.total) : '—'}</span>
@@ -771,9 +792,7 @@ export default function DockerView() {
                     </div>
                 )}
 
-                {loading ? (
-                    <div className="docker-empty">Loading…</div>
-                ) : tab === 'containers' ? (
+                {tab === 'containers' ? (
                     filteredContainers.length === 0 ? (
                         <div className="docker-empty">No containers found.</div>
                     ) : (
@@ -1126,6 +1145,8 @@ export default function DockerView() {
                             </tbody>
                         </table>
                     </div>
+                )}
+                    </>
                 )}
             </div>
 

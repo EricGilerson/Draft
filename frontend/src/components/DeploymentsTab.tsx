@@ -5,9 +5,33 @@ import {store, deploy} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
+import {Skeleton} from './Skeleton';
+
+function DeployHistorySkeleton() {
+    return (
+        <>
+            {Array.from({length: 4}, (_, i) => (
+                <div key={i} className="deploy-entry">
+                    <div className="deploy-entry-header">
+                        <div className="deploy-entry-leading">
+                            <Skeleton width={13} height={13} />
+                            <Skeleton width={64} height={20} variant="pill" />
+                            <Skeleton width={i % 2 === 0 ? 100 : 70} height={12} />
+                        </div>
+                        <div className="deploy-entry-actions">
+                            <Skeleton width={90} height={12} />
+                            <Skeleton width={84} height={26} variant="pill" />
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </>
+    );
+}
 
 export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     const [deployments, setDeployments] = useState<store.Deployment[]>([]);
+    const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [buildLog, setBuildLog] = useState('');
     const [eligibility, setEligibility] = useState<Record<number, deploy.RollbackEligibility>>({});
@@ -28,7 +52,11 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     };
 
     useEffect(() => {
-        GetDeployments(nodeId).then(d => setDeployments(d || []));
+        setLoading(true);
+        setDeployments([]);
+        GetDeployments(nodeId)
+            .then(d => setDeployments(d || []))
+            .finally(() => setLoading(false));
         refreshEligibility();
     }, [nodeId]);
 
@@ -95,7 +123,8 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                 {rollbackError && (
                     <div className="deploy-entry-error"><AlertCircle size={12}/> {rollbackError}</div>
                 )}
-                {deployments.length === 0 && (
+                {loading && deployments.length === 0 && <DeployHistorySkeleton />}
+                {!loading && deployments.length === 0 && (
                     <span className="deploy-empty">No deployments yet.</span>
                 )}
                 {deployments.map((dep) => {

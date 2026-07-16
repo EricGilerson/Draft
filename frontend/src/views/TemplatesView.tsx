@@ -6,8 +6,24 @@ import PageHeader from '../components/PageHeader';
 import TemplateIcon from '../components/TemplateIcon';
 import TemplateEditorDialog from '../components/TemplateEditorDialog';
 import {useAppDialog} from '../components/AppDialogProvider';
+import {Skeleton, SkeletonGridCards} from '../components/Skeleton';
 import {templateRouteProtocol, parseDefaultSettings} from '../utils/templateDefaults';
 import './TemplatesView.css';
+
+function TemplatesSkeleton() {
+    return (
+        <>
+            <section className="templates-section">
+                <Skeleton width={90} height={13} style={{marginBottom: 12}} />
+                <SkeletonGridCards count={8} />
+            </section>
+            <section className="templates-section">
+                <Skeleton width={110} height={13} style={{marginBottom: 12}} />
+                <SkeletonGridCards count={3} />
+            </section>
+        </>
+    );
+}
 
 type EditorState =
     | {mode: 'closed'}
@@ -45,7 +61,6 @@ export default function TemplatesView() {
     const {confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
-        setLoading(true);
         setError('');
         ListServiceTemplates()
             .then((list) => setTemplates(list ?? []))
@@ -184,7 +199,7 @@ export default function TemplatesView() {
                 )}
 
                 {loading ? (
-                    <div className="templates-loading">Loading templates…</div>
+                    <TemplatesSkeleton />
                 ) : templates.length === 0 ? (
                     <div className="templates-empty">
                         <LayoutTemplate size={20}/>

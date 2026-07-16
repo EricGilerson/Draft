@@ -26,6 +26,7 @@ import SandboxHoursInput from '../components/SandboxHoursInput';
 import {useAppDialog} from '../components/AppDialogProvider';
 import Dialog from '../components/Dialog';
 import PageHeader from '../components/PageHeader';
+import {Skeleton, SkeletonListCards} from '../components/Skeleton';
 import './WorkspaceViews.css';
 
 type Props = {
@@ -179,13 +180,18 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [open, setOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(true);
     const {confirm, alert} = useAppDialog();
 
     const refresh = async () => {
-        const rows = await Promise.all(projects.map((p) => ListSandboxes(p.id).catch(() => [])));
-        setSandboxes(rows.flat());
-        const runs = await Promise.all(projects.map((p) => ListSandboxTestRuns(p.id, 30).catch(() => [])));
-        setTestRuns(runs.flat().sort((a, b) => new Date(b.startedAt).valueOf() - new Date(a.startedAt).valueOf()));
+        try {
+            const rows = await Promise.all(projects.map((p) => ListSandboxes(p.id).catch(() => [])));
+            setSandboxes(rows.flat());
+            const runs = await Promise.all(projects.map((p) => ListSandboxTestRuns(p.id, 30).catch(() => [])));
+            setTestRuns(runs.flat().sort((a, b) => new Date(b.startedAt).valueOf() - new Date(a.startedAt).valueOf()));
+        } finally {
+            setLoading(false);
+        }
     };
     useEffect(() => { void refresh(); }, [projects]);
     useEffect(() => {
@@ -718,7 +724,9 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
 
                 <section className="sandbox-live-section">
                     <h3 className="project-settings-section-title">Live sandboxes</h3>
-                    {sandboxes.length === 0 ? (
+                    {loading ? (
+                        <SkeletonListCards count={3} withActions />
+                    ) : sandboxes.length === 0 ? (
                         <div className="panel panel-empty">
                             <FlaskConical size={18}/> No sandboxes yet. Create a preview copy, or a testing sandbox with steps to rerun.
                         </div>
@@ -895,7 +903,18 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                         Shared services keep the source environment&apos;s code. Only committed git objects are used (not the dirty working tree).
                     </p>
                     {sourceReposLoading ? (
-                        <p className="settings-hint">Discovering repositories…</p>
+                        <div className="sandbox-plan-editor" style={{gap: 10, display: 'flex', flexDirection: 'column'}}>
+                            {Array.from({length: 2}, (_, i) => (
+                                <div key={i} className="sandbox-source-repo">
+                                    <div className="sandbox-source-repo-head">
+                                        <GitBranch size={14}/>
+                                        <Skeleton width={i === 0 ? '30%' : '24%'} height={13} />
+                                    </div>
+                                    <Skeleton width="55%" height={10} style={{marginTop: 6}} />
+                                    <Skeleton width="70%" height={30} style={{marginTop: 10}} />
+                                </div>
+                            ))}
+                        </div>
                     ) : !(sourceRepos?.repositories?.length) ? (
                         <p className="settings-hint">
                             No git repositories found for services in this environment. Image-only services skip this section.

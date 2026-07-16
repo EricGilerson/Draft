@@ -20,6 +20,7 @@ import {
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {agents, store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
+import {Skeleton} from '../components/Skeleton';
 import {attachAgentTerminal, disposeAgentTerminal, focusAgentTerminal} from '../lib/agentTerminalHost';
 import {loadAgentsPrefs, saveAgentsPrefs} from '../lib/agentsPrefs';
 import './WorkspaceViews.css';
@@ -304,26 +305,26 @@ export default function AgentsView({projects}: AgentsViewProps) {
                         <>
                             <div className="agents-toolbar agents-toolbar--skeleton" aria-hidden="true">
                                 <div className="agents-field">
-                                    <span className="agents-skel agents-skel--label" />
-                                    <span className="agents-skel agents-skel--control" />
+                                    <Skeleton width={52} height={10} style={{marginBottom: 5}} />
+                                    <Skeleton height={36} />
                                 </div>
                                 <div className="agents-field">
-                                    <span className="agents-skel agents-skel--label" />
-                                    <span className="agents-skel agents-skel--control" />
+                                    <Skeleton width={52} height={10} style={{marginBottom: 5}} />
+                                    <Skeleton height={36} />
                                 </div>
                                 <div className="agents-field agents-field--path">
-                                    <span className="agents-skel agents-skel--label" />
+                                    <Skeleton width={52} height={10} style={{marginBottom: 5}} />
                                     <div className="agents-skel-path">
-                                        <span className="agents-skel agents-skel--control agents-skel--grow" />
-                                        <span className="agents-skel agents-skel--icon" />
+                                        <Skeleton className="skel-grow" height={36} />
+                                        <Skeleton width={36} height={36} />
                                     </div>
                                 </div>
                                 <div className="agents-toolbar-end">
-                                    <span className="agents-skel agents-skel--btn" />
+                                    <Skeleton width={88} height={36} />
                                 </div>
                             </div>
                             <div className="agents-options" aria-hidden="true">
-                                <span className="agents-skel agents-skel--hint" />
+                                <Skeleton width="min(280px, 55%)" height={12} />
                             </div>
                         </>
                     ) : (

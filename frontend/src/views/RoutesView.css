@@ -2,6 +2,12 @@
     min-height: 100%;
 }
 
+.routes-skel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
 .routes-layout {
     max-width: 1180px;
     padding: 0 32px 32px;

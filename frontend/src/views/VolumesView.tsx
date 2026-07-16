@@ -13,6 +13,7 @@ import {DeleteManagedVolume, ListVolumesOverview} from '../../wailsjs/go/main/Ap
 import {deploy} from '../../wailsjs/go/models';
 import {useAppDialog} from '../components/AppDialogProvider';
 import PageHeader from '../components/PageHeader';
+import {SkeletonBlock, SkeletonStats, SkeletonTable} from '../components/Skeleton';
 import {formatBytes} from '../components/VolumeEditor';
 import './VolumesView.css';
 
@@ -83,7 +84,6 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
     const {alert, confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
-        setLoading(true);
         setError('');
         ListVolumesOverview()
             .then((list) => setVolumes(list ?? []))
@@ -258,6 +258,17 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
             <div className="volumes-layout">
                 {error && <p className="form-error">{error}</p>}
 
+                {loading ? (
+                    <SkeletonBlock label="Loading volumes" className="volumes-skel">
+                        <SkeletonStats count={4} />
+                        <div style={{height: 4}} />
+                        <SkeletonTable
+                            rows={8}
+                            columns={['28px', '1.4fr', '1fr', '1fr', '72px', '80px', '72px', '88px']}
+                        />
+                    </SkeletonBlock>
+                ) : (
+                    <>
                 <div className="volumes-stats">
                     <div className="volumes-stat">
                         <span className="volumes-stat-value">{stats.count}</span>
@@ -325,9 +336,7 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
                     </button>
                 </div>
 
-                {loading ? (
-                    <div className="volumes-empty">Loading volumes…</div>
-                ) : volumes.length === 0 ? (
+                {volumes.length === 0 ? (
                     <div className="volumes-empty">
                         <HardDrive size={20}/>
                         <div className="volumes-empty-copy">
@@ -439,6 +448,8 @@ export default function VolumesView({onRevealVolume}: VolumesViewProps) {
                             </tbody>
                         </table>
                     </div>
+                )}
+                    </>
                 )}
             </div>
         </div>

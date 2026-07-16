@@ -9,6 +9,7 @@ import {useAppDialog} from '../components/AppDialogProvider';
 import PageHeader from '../components/PageHeader';
 import Dialog from '../components/Dialog';
 import ScopedValueUsages from '../components/ScopedValueUsages';
+import {SkeletonListCards} from '../components/Skeleton';
 import './SecretsView.css';
 
 type EditorMode =
@@ -24,7 +25,6 @@ export default function SecretsView() {
     const {confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
-        setLoading(true);
         setError('');
         ListAppSecrets()
             .then((app) => setAppSecrets(app ?? []))
@@ -69,7 +69,7 @@ export default function SecretsView() {
                     </div>
                     <p className="secrets-section-hint">Referenced from any service as <code>{'{{secret.KEY}}'}</code></p>
                     {loading ? (
-                        <div className="secrets-empty">Loading…</div>
+                        <SkeletonListCards count={5} withActions />
                     ) : appSecrets.length === 0 ? (
                         <div className="secrets-empty">No app secrets yet.</div>
                     ) : (

@@ -386,11 +386,6 @@
     width: 140px;
 }
 
-.variables-loading {
-    font-size: 0.72rem;
-    color: var(--text-faint);
-}
-
 .save-btn {
     margin-top: 12px;
     align-self: flex-start;

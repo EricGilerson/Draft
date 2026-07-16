@@ -13,6 +13,7 @@ import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
 import {computeReferenceIssues, computePublicReferenceWarnings} from '../lib/referenceIssues';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import {Skeleton} from './Skeleton';
 import './VariablesTab.css';
 
 // Defined locally rather than imported from the generated models: Wails only
@@ -233,7 +234,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
     const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
-    const [loadingProjectVars, setLoadingProjectVars] = useState(true);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
     const {alert, confirm} = useAppDialog();
 
@@ -326,7 +326,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     };
 
     useEffect(() => {
-        setLoadingProjectVars(true);
         void loadProjectVars();
         void loadAppSecrets();
         void loadPreviews();
@@ -686,7 +685,23 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const canLink = linkTargets.length > 0 || appSecrets.length > 0 || projectVars.length > 0;
 
     if (configLoading && appliedEnvVars.length === 0 && !isSessionDirty) {
-        return <div className="variables-loading">Loading...</div>;
+        return (
+            <div className="variables-tab">
+                <div className="variables-list">
+                    {Array.from({length: 5}, (_, i) => (
+                        <div key={i} className="var-row">
+                            <div className="var-key-cell">
+                                <Skeleton width={i % 2 === 0 ? '65%' : '48%'} height={13} />
+                                <Skeleton width={40} height={9} style={{marginTop: 6}} />
+                            </div>
+                            <div className="var-value-col">
+                                <Skeleton height={32} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
     }
 
     const renderLinkerPanel = () => (

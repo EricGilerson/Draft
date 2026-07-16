@@ -1,0 +1,168 @@
+/* Shared shimmer skeleton — social-feed style loading placeholders. */
+
+.skel {
+    display: block;
+    flex-shrink: 0;
+    border-radius: 4px;
+    background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.04) 0%,
+        rgba(255, 255, 255, 0.09) 45%,
+        rgba(255, 255, 255, 0.04) 90%
+    );
+    background-size: 200% 100%;
+    animation: skel-shimmer 1.35s ease-in-out infinite;
+}
+
+.skel--circle {
+    border-radius: 50%;
+}
+
+.skel--pill {
+    border-radius: 999px;
+}
+
+.skel-block {
+    pointer-events: none;
+    user-select: none;
+}
+
+.skel-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.skel-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.skel-col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+}
+
+.skel-grow {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Stats / metric tiles */
+.skel-stats {
+    display: grid;
+    gap: 14px;
+}
+
+.skel-stats--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.skel-stats--4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.skel-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+}
+
+/* List / card rows */
+.skel-list-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+}
+
+.skel-list-card--actions {
+    justify-content: space-between;
+}
+
+/* Table body shimmer */
+.skel-table {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.skel-table-row {
+    display: grid;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.skel-table-row:last-child {
+    border-bottom: none;
+}
+
+/* Template / picker grid */
+.skel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 6px;
+}
+
+.skel-grid-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-elevated);
+}
+
+/* Settings rows */
+.skel-settings-section {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.skel-settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.skel-settings-row:last-child {
+    border-bottom: none;
+}
+
+@keyframes skel-shimmer {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: -100% 0;
+    }
+}
+
+@media (max-width: 720px) {
+    .skel-stats--3,
+    .skel-stats--4 {
+        grid-template-columns: 1fr;
+    }
+}

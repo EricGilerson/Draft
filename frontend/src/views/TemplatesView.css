@@ -33,25 +33,16 @@
     color: var(--text-faint);
 }
 
-.templates-loading,
 .templates-empty {
     min-height: 220px;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 12px;
+    padding: 22px;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg-elevated);
-}
-
-.templates-loading {
-    color: var(--text-muted);
-    font-size: 0.84rem;
-}
-
-.templates-empty {
-    gap: 12px;
-    padding: 22px;
     color: var(--text-muted);
 }
 

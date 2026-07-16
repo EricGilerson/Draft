@@ -85,65 +85,10 @@
     align-items: end;
 }
 
-.agents-skel {
-    display: block;
-    border-radius: 4px;
-    background: linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0.04) 0%,
-        rgba(255, 255, 255, 0.09) 45%,
-        rgba(255, 255, 255, 0.04) 90%
-    );
-    background-size: 200% 100%;
-    animation: agents-skel-shimmer 1.35s ease-in-out infinite;
-}
-
-.agents-skel--label {
-    width: 52px;
-    height: 10px;
-    margin-bottom: 5px;
-    opacity: 0.85;
-}
-
-.agents-skel--control {
-    width: 100%;
-    height: 36px;
-}
-
-.agents-skel--grow {
-    flex: 1;
-    min-width: 0;
-}
-
-.agents-skel--icon {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-}
-
-.agents-skel--btn {
-    width: 88px;
-    height: 36px;
-}
-
-.agents-skel--hint {
-    width: min(280px, 55%);
-    height: 12px;
-}
-
 .agents-skel-path {
     display: flex;
     gap: 6px;
     align-items: stretch;
-}
-
-@keyframes agents-skel-shimmer {
-    0% {
-        background-position: 100% 0;
-    }
-    100% {
-        background-position: -100% 0;
-    }
 }
 
 .agents-field {

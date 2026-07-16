@@ -18,6 +18,7 @@ import SettingStagingNote from './SettingStagingNote';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
 import Dialog from './Dialog';
 import {useAppDialog} from './AppDialogProvider';
+import {Skeleton} from './Skeleton';
 import './EnvironmentSwitcher.css';
 
 type VolumeDisposition = 'orphan' | 'delete';
@@ -1273,7 +1274,13 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         </div>
                     }
                 >
-                    {deleteLoading && <p className="settings-hint">Loading…</p>}
+                    {deleteLoading && (
+                        <div className="skel-stack" style={{gap: 10}} aria-busy="true" aria-label="Loading delete preview">
+                            <Skeleton width="90%" height={12} />
+                            <Skeleton width="75%" height={12} />
+                            <Skeleton width="60%" height={12} />
+                        </div>
+                    )}
                     {!deleteLoading && deletePreview && (
                         <div className="settings-delete-dialog">
                             <p className="settings-delete-lead">

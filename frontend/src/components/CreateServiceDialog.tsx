@@ -10,6 +10,7 @@ import Dialog from './Dialog';
 import TemplateIcon from './TemplateIcon';
 import {buildImageOptions, CUSTOM_IMAGE_VALUE} from '../utils/imageRef';
 import VolumeEditor, {VolumeEntry, parseVolumeEntries, serializeVolumeEntries} from './VolumeEditor';
+import {SkeletonGridCards} from './Skeleton';
 import './CreateServiceDialog.css';
 
 type VolumeCapability = {show?: boolean; editable?: boolean};
@@ -346,7 +347,7 @@ export default function CreateServiceDialog({projectId, environmentId, onClose, 
                             />
                         </div>
                         {loading ? (
-                            <div className="csd-loading">Loading templates…</div>
+                            <SkeletonGridCards count={6} minWidth={150} />
                         ) : loadError ? (
                             <p className="form-error">{loadError}</p>
                         ) : (

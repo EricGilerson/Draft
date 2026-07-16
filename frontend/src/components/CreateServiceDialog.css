@@ -11,12 +11,6 @@
     margin-bottom: 4px;
 }
 
-.csd-loading {
-    color: var(--text-faint);
-    padding: 24px 0;
-    text-align: center;
-}
-
 .csd-template-groups {
     display: flex;
     flex-direction: column;

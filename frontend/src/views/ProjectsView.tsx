@@ -2,9 +2,34 @@ import {ArrowRight, Boxes, ChevronRight, FileUp, FolderPlus, Package, Settings} 
 import {useState} from 'react';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
+import {Skeleton, SkeletonBlock, SkeletonStack} from '../components/Skeleton';
 import ServicePill from '../components/ServicePill';
 import {EnvironmentSummary, ProjectSummary, projectStatusColor} from '../lib/dashboardData';
 import './ProjectsView.css';
+
+function ProjectsSkeleton() {
+    return (
+        <SkeletonBlock label="Loading projects">
+            <SkeletonStack className="projects-stack" gap={8}>
+                {Array.from({length: 3}, (_, i) => (
+                    <article key={i} className="project-card">
+                        <div className="project-card-header" style={{cursor: 'default'}}>
+                            <Skeleton width={8} height={8} />
+                            <div className="project-card-copy">
+                                <Skeleton width={i === 1 ? '38%' : '48%'} height={15} />
+                                <Skeleton width="32%" height={10} style={{marginTop: 6}} />
+                            </div>
+                            <div className="skel-row" style={{flex: 'none'}}>
+                                <Skeleton width={44} height={22} variant="pill" />
+                                <Skeleton width={13} height={13} />
+                            </div>
+                        </div>
+                    </article>
+                ))}
+            </SkeletonStack>
+        </SkeletonBlock>
+    );
+}
 
 type ProjectsViewProps = {
     loading: boolean;
@@ -55,7 +80,7 @@ export default function ProjectsView({loading, projects, onCreateProject, onImpo
 
             <div className="projects-layout">
                 {loading ? (
-                    <div className="projects-loading">Loading projects...</div>
+                    <ProjectsSkeleton />
                 ) : projects.length === 0 ? (
                     <div className="projects-empty">
                         <Boxes size={20}/>

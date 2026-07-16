@@ -1,4 +1,5 @@
 import {deploy} from '../../wailsjs/go/models';
+import {SkeletonListCards} from './Skeleton';
 import '../views/SecretsView.css';
 
 type ScopedValueUsagesProps = {
@@ -32,7 +33,7 @@ export default function ScopedValueUsages({
             </div>
             <p className="settings-hint">Services not redeployed will pick up the new value on their next deploy.</p>
             {loading ? (
-                <div className="secrets-empty">Loading usages…</div>
+                <SkeletonListCards count={3} withActions />
             ) : usages.length === 0 ? (
                 <div className="secrets-empty">{emptyMessage}</div>
             ) : (
