@@ -608,6 +608,142 @@ func (c *Client) RunCommand(ctx context.Context, nodeID string, cmd []string, wo
 	return out, err
 }
 
+// ListProjects returns all projects.
+func (c *Client) ListProjects(ctx context.Context) ([]store.Project, error) {
+	var out []store.Project
+	err := c.postJSON(ctx, "/projects/list", map[string]any{}, &out)
+	return out, err
+}
+
+// CreateProject creates a project and its default environment.
+func (c *Client) CreateProject(ctx context.Context, name, path, description string) (*store.Project, error) {
+	var out store.Project
+	err := c.postJSON(ctx, "/project/create", map[string]any{
+		"name": name, "path": path, "description": description,
+	}, &out)
+	return &out, err
+}
+
+// ListEnvironments returns environments for a project.
+func (c *Client) ListEnvironments(ctx context.Context, projectID uint) ([]store.Environment, error) {
+	var out []store.Environment
+	err := c.postJSON(ctx, "/environments/list", map[string]any{"projectId": projectID}, &out)
+	return out, err
+}
+
+// CreateEnvironment creates a named environment in a project.
+func (c *Client) CreateEnvironment(ctx context.Context, projectID uint, name string) (*store.Environment, error) {
+	var out store.Environment
+	err := c.postJSON(ctx, "/environment/create", map[string]any{"projectId": projectID, "name": name}, &out)
+	return &out, err
+}
+
+// RenameEnvironment updates an environment's display name (slug is immutable).
+func (c *Client) RenameEnvironment(ctx context.Context, id uint, name string) error {
+	return c.postJSON(ctx, "/environment/rename", map[string]any{"id": id, "name": name}, nil)
+}
+
+// SetDefaultEnvironment marks an environment as the project's default.
+func (c *Client) SetDefaultEnvironment(ctx context.Context, environmentID uint) error {
+	return c.postJSON(ctx, "/environment/set-default", map[string]any{"environmentId": environmentID}, nil)
+}
+
+// ListNodes returns canvas nodes for an environment.
+func (c *Client) ListNodes(ctx context.Context, environmentID uint) ([]store.CanvasNode, error) {
+	var out []store.CanvasNode
+	err := c.postJSON(ctx, "/nodes/list", map[string]any{"environmentId": environmentID}, &out)
+	return out, err
+}
+
+// GetNode returns a single canvas node.
+func (c *Client) GetNode(ctx context.Context, id string) (*store.CanvasNode, error) {
+	var out store.CanvasNode
+	err := c.postJSON(ctx, "/node/get", map[string]any{"id": id}, &out)
+	return &out, err
+}
+
+// GetNodeSettings returns applied node settings as a key/value map.
+func (c *Client) GetNodeSettings(ctx context.Context, nodeID string) (map[string]string, error) {
+	var out map[string]string
+	err := c.postJSON(ctx, "/node/settings", map[string]any{"nodeId": nodeID}, &out)
+	return out, err
+}
+
+// ListTemplates returns the service template library.
+func (c *Client) ListTemplates(ctx context.Context) ([]store.ServiceTemplate, error) {
+	var out []store.ServiceTemplate
+	err := c.postJSON(ctx, "/templates/list", map[string]any{}, &out)
+	return out, err
+}
+
+// GetTemplate returns one service template by ID.
+func (c *Client) GetTemplate(ctx context.Context, id uint) (*store.ServiceTemplate, error) {
+	var out store.ServiceTemplate
+	err := c.postJSON(ctx, "/templates/get", map[string]any{"id": id}, &out)
+	return &out, err
+}
+
+// ListSandboxes returns sandboxes for a project.
+func (c *Client) ListSandboxes(ctx context.Context, projectID uint) ([]store.Sandbox, error) {
+	var out []store.Sandbox
+	err := c.postJSON(ctx, "/sandboxes/list", map[string]any{"projectId": projectID}, &out)
+	return out, err
+}
+
+// ListSandboxProfiles returns sandbox profiles for a project.
+func (c *Client) ListSandboxProfiles(ctx context.Context, projectID uint) ([]store.SandboxProfile, error) {
+	var out []store.SandboxProfile
+	err := c.postJSON(ctx, "/sandbox/profiles/list", map[string]any{"projectId": projectID}, &out)
+	return out, err
+}
+
+// SaveSandboxProfile creates or updates a sandbox profile.
+func (c *Client) SaveSandboxProfile(ctx context.Context, profile store.SandboxProfile) (*store.SandboxProfile, error) {
+	var out store.SandboxProfile
+	err := c.postJSON(ctx, "/sandbox/profiles/save", profile, &out)
+	return &out, err
+}
+
+// DeleteSandboxProfile removes a sandbox profile by ID.
+func (c *Client) DeleteSandboxProfile(ctx context.Context, id uint) error {
+	return c.postJSON(ctx, "/sandbox/profiles/delete", map[string]any{"id": id}, nil)
+}
+
+// GetSandboxProjectSettings returns project-wide sandbox TTL defaults.
+func (c *Client) GetSandboxProjectSettings(ctx context.Context, projectID uint) (*store.SandboxProjectSettings, error) {
+	var out store.SandboxProjectSettings
+	err := c.postJSON(ctx, "/sandbox/project-settings/get", map[string]any{"projectId": projectID}, &out)
+	return &out, err
+}
+
+// SaveSandboxProjectSettings upserts project-wide sandbox defaults.
+func (c *Client) SaveSandboxProjectSettings(ctx context.Context, settings store.SandboxProjectSettings) (*store.SandboxProjectSettings, error) {
+	var out store.SandboxProjectSettings
+	err := c.postJSON(ctx, "/sandbox/project-settings/save", settings, &out)
+	return &out, err
+}
+
+// ListProjectServicesSummary returns multi-env service rollup for a project.
+func (c *Client) ListProjectServicesSummary(ctx context.Context, projectID uint) (*deploy.ProjectServicesSummary, error) {
+	var out deploy.ProjectServicesSummary
+	err := c.postJSON(ctx, "/projects/services-summary", map[string]any{"projectId": projectID}, &out)
+	return &out, err
+}
+
+// GetAppSettings returns persisted app preferences with defaults filled in.
+func (c *Client) GetAppSettings(ctx context.Context) (*AppSettings, error) {
+	var out AppSettings
+	err := c.postJSON(ctx, "/app-settings/get", map[string]any{}, &out)
+	return &out, err
+}
+
+// SetAppSettings merges app preferences and returns the stored result.
+func (c *Client) SetAppSettings(ctx context.Context, settings AppSettings) (*AppSettings, error) {
+	var out AppSettings
+	err := c.postJSON(ctx, "/app-settings/set", settings, &out)
+	return &out, err
+}
+
 // UpdateProject edits a project's name/description.
 func (c *Client) UpdateProject(ctx context.Context, id uint, name, description string) error {
 	return c.postJSON(ctx, "/project/update", map[string]any{"id": id, "name": name, "description": description}, nil)

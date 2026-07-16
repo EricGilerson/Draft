@@ -268,6 +268,28 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/secrets/delete", s.handleDeleteAppSecret)
 	mux.HandleFunc("/secrets/usages", s.handleListAppSecretUsages)
 	mux.HandleFunc("/routes", s.handleListRoutes)
+
+	// Discovery / CRUD used by MCP and headless clients (POST-JSON).
+	mux.HandleFunc("/projects/list", s.handleListProjects)
+	mux.HandleFunc("/project/create", s.handleCreateProject)
+	mux.HandleFunc("/projects/services-summary", s.handleProjectServicesSummary)
+	mux.HandleFunc("/environments/list", s.handleListEnvironments)
+	mux.HandleFunc("/environment/create", s.handleCreateEnvironment)
+	mux.HandleFunc("/environment/rename", s.handleRenameEnvironment)
+	mux.HandleFunc("/environment/set-default", s.handleSetDefaultEnvironment)
+	mux.HandleFunc("/nodes/list", s.handleListNodes)
+	mux.HandleFunc("/node/get", s.handleGetNode)
+	mux.HandleFunc("/node/settings", s.handleGetNodeSettings)
+	mux.HandleFunc("/templates/list", s.handleListTemplates)
+	mux.HandleFunc("/templates/get", s.handleGetTemplate)
+	mux.HandleFunc("/sandboxes/list", s.handleListSandboxes)
+	mux.HandleFunc("/sandbox/profiles/list", s.handleListSandboxProfiles)
+	mux.HandleFunc("/sandbox/profiles/save", s.handleSaveSandboxProfile)
+	mux.HandleFunc("/sandbox/profiles/delete", s.handleDeleteSandboxProfile)
+	mux.HandleFunc("/sandbox/project-settings/get", s.handleGetSandboxProjectSettings)
+	mux.HandleFunc("/sandbox/project-settings/save", s.handleSaveSandboxProjectSettings)
+	mux.HandleFunc("/app-settings/get", s.handleGetAppSettings)
+	mux.HandleFunc("/app-settings/set", s.handleSetAppSettings)
 	return s.auth(mux)
 }
 

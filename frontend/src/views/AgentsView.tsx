@@ -518,7 +518,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                     <>
                         <PageHeader
                             title="Agents"
-                            description="Run Claude, Codex, and other CLIs here. Draft MCP is attached per session or installed into the agent config."
+                            description="Run Claude, Codex, and other CLIs here. Draft MCP exposes project, service, environment, and sandbox tools so agents can drive Draft; attach per session or install into the agent config."
                             action={
                                 <div className="agents-header-actions">
                                     {sessions.length > 0 ? (
@@ -744,7 +744,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
                         {sessions.length === 0 ? (
                             <div className="agents-term-placeholder">
                                 <SquareTerminal size={22} strokeWidth={1.5} />
-                                <p>Your agent TUI runs here with Draft MCP available.</p>
+                                <p>Your agent TUI runs here with Draft MCP available (projects, services, sandboxes, and more).</p>
                             </div>
                         ) : (
                             sessions.map((s) => (

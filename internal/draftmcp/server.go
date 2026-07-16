@@ -1,5 +1,4 @@
-// Package draftmcp implements a minimal Draft MCP server over stdio.
-// Tools are intentionally bare for now; the Agents tab + wiring is the product.
+// Package draftmcp implements Draft's MCP server over stdio.
 package draftmcp
 
 import (
@@ -12,7 +11,7 @@ import (
 
 const protocolVersion = "2024-11-05"
 const serverName = "draft"
-const serverVersion = "0.1.0"
+const serverVersion = "0.2.0"
 
 type rpcRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -22,21 +21,15 @@ type rpcRequest struct {
 }
 
 type rpcResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      any         `json:"id,omitempty"`
-	Result  any         `json:"result,omitempty"`
-	Error   *rpcError   `json:"error,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id,omitempty"`
+	Result  any       `json:"result,omitempty"`
+	Error   *rpcError `json:"error,omitempty"`
 }
 
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-}
-
-type toolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
 }
 
 // RunStdio serves MCP on stdin/stdout until EOF.
@@ -101,6 +94,7 @@ func handleRequest(method string, params json.RawMessage, id any) rpcResponse {
 					"name":    serverName,
 					"version": serverVersion,
 				},
+				"instructions": agentInstructions,
 			},
 		}
 	case "ping":
@@ -110,16 +104,7 @@ func handleRequest(method string, params json.RawMessage, id any) rpcResponse {
 			JSONRPC: "2.0",
 			ID:      id,
 			Result: map[string]any{
-				"tools": []toolDef{
-					{
-						Name:        "draft_ping",
-						Description: "Confirm the Draft MCP server is reachable. Returns a short status string. Prefer this before other Draft tools once they exist.",
-						InputSchema: map[string]any{
-							"type":       "object",
-							"properties": map[string]any{},
-						},
-					},
-				},
+				"tools": allTools(),
 			},
 		}
 	case "tools/call":
@@ -145,28 +130,5 @@ func handleToolCall(params json.RawMessage, id any) rpcResponse {
 			Error:   &rpcError{Code: -32602, Message: "invalid tools/call params"},
 		}
 	}
-	switch p.Name {
-	case "draft_ping":
-		text := "Draft MCP is running (stub). More Draft tools will land here; Agents tab wiring is active."
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]any{
-				"content": []map[string]any{
-					{"type": "text", "text": text},
-				},
-			},
-		}
-	default:
-		return rpcResponse{
-			JSONRPC: "2.0",
-			ID:      id,
-			Result: map[string]any{
-				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("unknown tool: %s", p.Name)},
-				},
-				"isError": true,
-			},
-		}
-	}
+	return callTool(id, p.Name, p.Arguments)
 }
