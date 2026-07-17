@@ -60,8 +60,10 @@ func TestToolRegistryInvariants(t *testing.T) {
 	for _, name := range []string{
 		"draft_help",
 		"draft_status",
+		"draft_set_context",
 		"draft_list_projects",
 		"draft_create_project",
+		"draft_create_blank_service",
 		"draft_list_environments",
 		"draft_list_nodes",
 		"draft_list_templates",
@@ -111,11 +113,14 @@ func TestAgentInstructionsContent(t *testing.T) {
 	}
 	for _, needle := range []string{
 		"draft_list_projects",
+		"draft_set_context",
+		"draft_create_blank_service",
 		"staged",
 		"includeSecrets",
 		"confirm",
 		"sandbox",
 		"draft_help",
+		"Recipes",
 	} {
 		if !strings.Contains(agentInstructions, needle) {
 			t.Fatalf("instructions missing %q", needle)

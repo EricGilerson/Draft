@@ -73,4 +73,10 @@ func TestServeInitializeAndTools(t *testing.T) {
 	if help.Result.IsError || len(help.Result.Content) == 0 || !strings.Contains(help.Result.Content[0].Text, "draft_list_projects") {
 		t.Fatalf("unexpected draft_help result: %+v", help.Result)
 	}
+	if !strings.Contains(help.Result.Content[0].Text, "recipes") && !strings.Contains(help.Result.Content[0].Text, "Recipes") {
+		// tools/call returns JSON with "recipes" key
+		if !strings.Contains(help.Result.Content[0].Text, `"recipes"`) {
+			t.Fatalf("draft_help missing recipes: %s", help.Result.Content[0].Text[:min(200, len(help.Result.Content[0].Text))])
+		}
+	}
 }

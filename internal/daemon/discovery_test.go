@@ -102,4 +102,12 @@ func TestDiscoveryListCreateProjectAndNodes(t *testing.T) {
 	if sbSettings.ProjectID != proj.ID {
 		t.Fatalf("sandbox settings projectId = %d", sbSettings.ProjectID)
 	}
+
+	node, err := c.CreateNode(ctx, "", "blank-svc", proj.ID, envs[0].ID, 1, 2)
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	if node.ID == "" || node.Label != "blank-svc" {
+		t.Fatalf("CreateNode result: %+v", node)
+	}
 }

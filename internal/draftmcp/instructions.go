@@ -1,31 +1,46 @@
 package draftmcp
 
-const agentInstructions = `Draft MCP controls the local Draft desktop daemon: Docker services laid out as projects → environments → service nodes on a canvas. Sandboxes are short-lived environment copies.
+const agentInstructions = `Draft MCP controls the local Draft desktop daemon: Docker services as projects → environments → service nodes. Sandboxes are short-lived environment copies.
 
-Always discover before acting:
-1) draft_list_projects
-2) draft_list_environments / draft_project_summary
-3) draft_list_nodes (or draft_get_node)
+## Quick start
+1. draft_list_projects (or draft_set_context once you know projectId/environmentId)
+2. draft_list_environments / draft_project_summary
+3. draft_list_nodes — use returned IDs; never invent them
 
-Use numeric/string IDs returned by those tools — do not invent IDs from labels.
+Optional: draft_set_context {projectId, environmentId} so later tools can omit those fields. draft_get_context / draft_clear_context manage it.
 
-Config model:
-- Applied settings/env = what last successful deploy used (plus immediate keys).
-- Staged settings/env = pending until the next successful deploy.
-- Prefer draft_stage_service_settings / draft_stage_env, then draft_deploy_service (or draft_run_environment_stack).
-- Immediate keys (git_branch, deploy_trigger, redeploy_on_pull, git_stream, service_root, env_file) apply without staging.
-- Check draft_service_config_status / draft_preview_staged_changes before deploying; then draft_service_health / draft_active_deployment.
+## Recipes
+Redeploy after config change:
+  draft_stage_service_settings or draft_stage_env → draft_deploy_service → draft_service_health / draft_active_deployment
 
-Create services with draft_create_service (from draft_list_templates). Image-mode templates may auto-start.
+Blank custom image service:
+  draft_create_blank_service → draft_stage_service_settings {image, service_port, cmd_override?} → draft_deploy_service
 
-Sandboxes (PR/feature/test copies):
-1) draft_sandbox_source_repos
-2) draft_preview_sandbox
-3) draft_create_sandbox (startOnCreate for previews)
-4) draft_refresh_sandbox mode tip|same; extend/suspend/resume/delete as needed
+From template:
+  draft_list_templates (compact by default) → draft_get_template if needed → draft_create_service
 
-Secrets and project values are redacted unless includeSecrets=true. Prefer {{secret.KEY}} / {{project.KEY}} references over pasting secrets.
+PR / preview sandbox:
+  draft_sandbox_source_repos → draft_preview_sandbox → draft_create_sandbox (startOnCreate) → draft_refresh_sandbox tip|same
 
-Destructive ops (delete/prune/import/promote/unlink/apply sync) require confirm:true. Prefer preview_* tools first.
+Whole environment:
+  Prefer draft_run_environment_stack {start|stop|redeploy} over N single deploys.
 
-Call draft_help anytime for the full tool index and this guide.`
+## Config model
+Applied = last successful deploy (+ immediate keys). Staged = pending until successful deploy.
+Immediate keys: git_branch, deploy_trigger, redeploy_on_pull, git_stream, service_root, env_file.
+Check draft_service_config_status / draft_preview_staged_changes before deploying.
+
+## Safety
+Secrets redacted unless includeSecrets=true. Prefer {{secret.KEY}} / {{project.KEY}}.
+Destructive ops need confirm:true. Prefer preview_* first.
+
+Call draft_help for recipes + full tool index grouped by domain.`
+
+var agentRecipes = map[string]string{
+	"discover":          "draft_list_projects → draft_set_context → draft_list_environments → draft_list_nodes / draft_project_summary",
+	"redeploy_config":   "draft_stage_service_settings|draft_stage_env → draft_deploy_service → draft_service_health",
+	"blank_image":       "draft_create_blank_service → draft_stage_service_settings(image,service_port,cmd_override) → draft_deploy_service",
+	"from_template":     "draft_list_templates → draft_create_service → (image templates may auto-start)",
+	"preview_sandbox":   "draft_sandbox_source_repos → draft_preview_sandbox → draft_create_sandbox(startOnCreate=true)",
+	"environment_stack": "draft_run_environment_stack action=start|stop|redeploy",
+}

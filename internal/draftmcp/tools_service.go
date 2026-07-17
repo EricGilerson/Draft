@@ -21,7 +21,39 @@ func nodeTool(name, description string, action func(context.Context, string) err
 
 func serviceTools() []toolDef {
 	return []toolDef{
-		withHandler(tool("draft_create_service", "Create a service from a template.", map[string]any{"id": stringsSchema("Optional stable node ID"), "projectId": uintSchema("Project ID"), "environmentId": uintSchema("Environment ID"), "templateId": uintSchema("Template ID"), "label": stringsSchema("Service label"), "x": map[string]any{"type": "number"}, "y": map[string]any{"type": "number"}}, "projectId", "environmentId", "templateId", "label"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_create_blank_service", "Create a blank service node (no template). Stage image/dockerfile + service_port, then deploy.", map[string]any{
+			"id":            stringsSchema("Optional stable node ID"),
+			"label":         stringsSchema("Service label"),
+			"projectId":     uintSchema("Project ID (or session context)"),
+			"environmentId": uintSchema("Environment ID (or session context)"),
+			"x":             map[string]any{"type": "number"},
+			"y":             map[string]any{"type": "number"},
+		}, "label"), func(ctx context.Context, args map[string]any) (any, error) {
+			c, e := getClient(ctx)
+			if e != nil {
+				return nil, e
+			}
+			label, e := argString(args, "label")
+			if e != nil {
+				return nil, e
+			}
+			pid, e := resolveProjectID(args)
+			if e != nil {
+				return nil, e
+			}
+			eid, e := resolveEnvironmentID(args)
+			if e != nil {
+				return nil, e
+			}
+			id := optionalString(args, "id")
+			if id == "" {
+				id = fmt.Sprintf("node-%d", time.Now().UnixNano())
+			}
+			x, _ := args["x"].(float64)
+			y, _ := args["y"].(float64)
+			return c.CreateNode(ctx, id, label, pid, eid, x, y)
+		}),
+		withHandler(tool("draft_create_service", "Create a service from a template. projectId/environmentId optional if context set.", map[string]any{"id": stringsSchema("Optional stable node ID"), "projectId": uintSchema("Project ID (or session context)"), "environmentId": uintSchema("Environment ID (or session context)"), "templateId": uintSchema("Template ID"), "label": stringsSchema("Service label"), "x": map[string]any{"type": "number"}, "y": map[string]any{"type": "number"}}, "templateId", "label"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
@@ -29,6 +61,20 @@ func serviceTools() []toolDef {
 			var req deploy.CreateNodeFromTemplateRequest
 			if e = decodeArgs(args, &req); e != nil {
 				return nil, e
+			}
+			if req.ProjectID == 0 {
+				pid, e := resolveProjectID(args)
+				if e != nil {
+					return nil, e
+				}
+				req.ProjectID = pid
+			}
+			if req.EnvironmentID == 0 {
+				eid, e := resolveEnvironmentID(args)
+				if e != nil {
+					return nil, e
+				}
+				req.EnvironmentID = eid
 			}
 			if req.ID == "" {
 				req.ID = fmt.Sprintf("node-%d", time.Now().UnixNano())

@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"Draft/internal/deploy"
 	"Draft/internal/store"
@@ -122,6 +124,41 @@ func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, nodes)
+}
+
+func (s *Server) handleCreateNode(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID            string  `json:"id"`
+		Label         string  `json:"label"`
+		ProjectID     uint    `json:"projectId"`
+		EnvironmentID uint    `json:"environmentId"`
+		X             float64 `json:"x"`
+		Y             float64 `json:"y"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Label) == "" || req.ProjectID == 0 || req.EnvironmentID == 0 {
+		http.Error(w, "label, projectId, and environmentId are required", http.StatusBadRequest)
+		return
+	}
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = fmt.Sprintf("node-%d", time.Now().UnixNano())
+	}
+	node, err := s.store.CreateNode(&store.CanvasNode{
+		ID:            id,
+		Label:         req.Label,
+		ProjectID:     req.ProjectID,
+		EnvironmentID: req.EnvironmentID,
+		X:             req.X,
+		Y:             req.Y,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, node)
 }
 
 func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request) {

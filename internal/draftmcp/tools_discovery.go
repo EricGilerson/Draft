@@ -1,6 +1,10 @@
 package draftmcp
 
-import "context"
+import (
+	"context"
+
+	"Draft/internal/store"
+)
 
 func discoveryTools() []toolDef {
 	return []toolDef{
@@ -22,23 +26,23 @@ func discoveryTools() []toolDef {
 			}
 			return c.CreateProject(ctx, n, optionalString(args, "path"), optionalString(args, "description"))
 		}),
-		withHandler(tool("draft_list_environments", "List project environments.", map[string]any{"projectId": uintSchema("Project ID")}, "projectId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_environments", "List project environments. projectId optional if draft_set_context was used.", map[string]any{"projectId": uintSchema("Project ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			id, e := argUint(args, "projectId")
+			id, e := resolveProjectID(args)
 			if e != nil {
 				return nil, e
 			}
 			return c.ListEnvironments(ctx, id)
 		}),
-		withHandler(tool("draft_create_environment", "Create an environment in a project.", map[string]any{"projectId": uintSchema("Project ID"), "name": stringsSchema("Environment name")}, "projectId", "name"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_create_environment", "Create an environment in a project.", map[string]any{"projectId": uintSchema("Project ID (or session context)"), "name": stringsSchema("Environment name")}, "name"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			projectID, e := argUint(args, "projectId")
+			projectID, e := resolveProjectID(args)
 			if e != nil {
 				return nil, e
 			}
@@ -74,12 +78,12 @@ func discoveryTools() []toolDef {
 			}
 			return map[string]string{"status": "updated"}, c.SetDefaultEnvironment(ctx, id)
 		}),
-		withHandler(tool("draft_list_nodes", "List service nodes in an environment.", map[string]any{"environmentId": uintSchema("Environment ID")}, "environmentId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_nodes", "List service nodes in an environment. environmentId optional if context set.", map[string]any{"environmentId": uintSchema("Environment ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			id, e := argUint(args, "environmentId")
+			id, e := resolveEnvironmentID(args)
 			if e != nil {
 				return nil, e
 			}
@@ -107,14 +111,21 @@ func discoveryTools() []toolDef {
 			}
 			return c.GetNodeSettings(ctx, id)
 		}),
-		withHandler(tool("draft_list_templates", "List service templates.", map[string]any{}), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_templates", "List service templates. Compact by default (no dockerfile/schema). Pass detail=true for full rows.", map[string]any{"detail": map[string]any{"type": "boolean", "description": "Include dockerfile, schema, envVars, etc."}}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			return c.ListTemplates(ctx)
+			templates, e := c.ListTemplates(ctx)
+			if e != nil {
+				return nil, e
+			}
+			if optionalBool(args, "detail") {
+				return templates, nil
+			}
+			return compactTemplates(templates), nil
 		}),
-		withHandler(tool("draft_get_template", "Get a service template.", map[string]any{"templateId": uintSchema("Template ID")}, "templateId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_get_template", "Get a full service template (including dockerfile/schema).", map[string]any{"templateId": uintSchema("Template ID")}, "templateId"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
@@ -125,49 +136,75 @@ func discoveryTools() []toolDef {
 			}
 			return c.GetTemplate(ctx, id)
 		}),
-		withHandler(tool("draft_list_routes", "List routes, optionally for a project.", map[string]any{"projectId": uintSchema("Optional project ID")}), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_routes", "List routes, optionally for a project.", map[string]any{"projectId": uintSchema("Optional project ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
 			id := optionalUint(args, "projectId")
 			if id == 0 {
+				id = getSessionContext().ProjectID
+			}
+			if id == 0 {
 				return c.ListRoutes(ctx, nil)
 			}
 			return c.ListRoutes(ctx, &id)
 		}),
-		withHandler(tool("draft_list_sandboxes", "List sandboxes for a project.", map[string]any{"projectId": uintSchema("Project ID")}, "projectId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_sandboxes", "List sandboxes for a project.", map[string]any{"projectId": uintSchema("Project ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			id, e := argUint(args, "projectId")
+			id, e := resolveProjectID(args)
 			if e != nil {
 				return nil, e
 			}
 			return c.ListSandboxes(ctx, id)
 		}),
-		withHandler(tool("draft_list_sandbox_profiles", "List sandbox profiles.", map[string]any{"projectId": uintSchema("Project ID")}, "projectId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_list_sandbox_profiles", "List sandbox profiles.", map[string]any{"projectId": uintSchema("Project ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			id, e := argUint(args, "projectId")
+			id, e := resolveProjectID(args)
 			if e != nil {
 				return nil, e
 			}
 			return c.ListSandboxProfiles(ctx, id)
 		}),
-		withHandler(tool("draft_project_summary", "Summarize project services across environments.", map[string]any{"projectId": uintSchema("Project ID")}, "projectId"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_project_summary", "Summarize project services across environments.", map[string]any{"projectId": uintSchema("Project ID (or session context)")}), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
 			}
-			id, e := argUint(args, "projectId")
+			id, e := resolveProjectID(args)
 			if e != nil {
 				return nil, e
 			}
 			return c.ListProjectServicesSummary(ctx, id)
 		}),
 	}
+}
+
+type templateSummary struct {
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	Icon        string `json:"icon,omitempty"`
+	Mode        string `json:"mode"`
+	Image       string `json:"image,omitempty"`
+	Port        int    `json:"port"`
+	Builtin     bool   `json:"builtin"`
+}
+
+func compactTemplates(templates []store.ServiceTemplate) []templateSummary {
+	out := make([]templateSummary, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, templateSummary{
+			ID: t.ID, Name: t.Name, Description: t.Description, Category: t.Category,
+			Icon: t.Icon, Mode: t.Mode, Image: t.Image, Port: t.Port, Builtin: t.Builtin,
+		})
+	}
+	return out
 }

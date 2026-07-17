@@ -655,6 +655,15 @@ func (c *Client) ListNodes(ctx context.Context, environmentID uint) ([]store.Can
 	return out, err
 }
 
+// CreateNode creates a blank canvas service node (no template).
+func (c *Client) CreateNode(ctx context.Context, id, label string, projectID, environmentID uint, x, y float64) (*store.CanvasNode, error) {
+	var out store.CanvasNode
+	err := c.postJSON(ctx, "/node/create", map[string]any{
+		"id": id, "label": label, "projectId": projectID, "environmentId": environmentID, "x": x, "y": y,
+	}, &out)
+	return &out, err
+}
+
 // GetNode returns a single canvas node.
 func (c *Client) GetNode(ctx context.Context, id string) (*store.CanvasNode, error) {
 	var out store.CanvasNode

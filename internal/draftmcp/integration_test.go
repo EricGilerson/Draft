@@ -280,9 +280,12 @@ func TestMCPIntegrationDiscoveryAndConfig(t *testing.T) {
 
 	var help map[string]any
 	mustCallToolJSON(t, "draft_help", nil, &help)
-	tools, _ := help["tools"].([]any)
-	if len(tools) < 80 {
-		t.Fatalf("help tools = %d", len(tools))
+	if help["recipes"] == nil {
+		t.Fatalf("help missing recipes: %#v", help)
+	}
+	byDomain, _ := help["toolsByDomain"].(map[string]any)
+	if len(byDomain) < 5 {
+		t.Fatalf("help toolsByDomain sparse: %#v", byDomain)
 	}
 
 	// Config status / preview staged should succeed.

@@ -278,6 +278,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/environment/rename", s.handleRenameEnvironment)
 	mux.HandleFunc("/environment/set-default", s.handleSetDefaultEnvironment)
 	mux.HandleFunc("/nodes/list", s.handleListNodes)
+	mux.HandleFunc("/node/create", s.handleCreateNode)
 	mux.HandleFunc("/node/get", s.handleGetNode)
 	mux.HandleFunc("/node/settings", s.handleGetNodeSettings)
 	mux.HandleFunc("/templates/list", s.handleListTemplates)
