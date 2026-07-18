@@ -219,3 +219,96 @@
     height: 0;
     overflow: hidden;
 }
+
+/* Intentional loading state while ListNodes resolves — avoids an empty canvas
+ * looking broken on open / environment switch. */
+.canvas-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background:
+        radial-gradient(circle at 50% 42%, rgba(224, 218, 204, 0.04), transparent 42%),
+        rgba(18, 18, 16, 0.55);
+    backdrop-filter: blur(1.5px);
+    animation: canvas-loading-in 180ms ease-out;
+}
+
+.canvas-loading-cluster {
+    position: relative;
+    width: 280px;
+    height: 168px;
+}
+
+.canvas-loading-node {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 148px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-strong);
+    border-left: 2px solid rgba(224, 218, 204, 0.28);
+    border-radius: 8px;
+    background:
+        linear-gradient(180deg, rgba(224, 218, 204, 0.03), transparent 60%),
+        var(--surface);
+    box-shadow: var(--inset-line), 0 7px 16px rgba(0, 0, 0, 0.22);
+}
+
+.canvas-loading-node--a {
+    top: 12px;
+    left: 18px;
+}
+
+.canvas-loading-node--b {
+    top: 18px;
+    right: 8px;
+}
+
+.canvas-loading-node--c {
+    bottom: 10px;
+    left: 72px;
+}
+
+.canvas-loading-link {
+    position: absolute;
+    border-top: 1px dashed rgba(224, 218, 204, 0.18);
+    pointer-events: none;
+}
+
+.canvas-loading-link--ab {
+    top: 42px;
+    left: 168px;
+    width: 36px;
+    transform: rotate(8deg);
+}
+
+.canvas-loading-link--ac {
+    top: 78px;
+    left: 88px;
+    width: 52px;
+    transform: rotate(68deg);
+    transform-origin: left center;
+}
+
+.canvas-loading-label {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+@keyframes canvas-loading-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}

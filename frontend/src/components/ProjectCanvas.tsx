@@ -43,6 +43,7 @@ import {
     CanvasSelectionContext,
     type SelectedVolume,
 } from './canvasSelection';
+import {Skeleton, SkeletonBlock} from './Skeleton';
 import './ProjectCanvas.css';
 
 type ProjectCanvasProps = {
@@ -207,8 +208,12 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     const [templates, setTemplates] = useState<store.ServiceTemplate[]>([]);
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
+    const [canvasLoading, setCanvasLoading] = useState(true);
     const nodeClickRef = useRef(false);
     const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
+    const canvasLoadGen = useRef(0);
+    const templatesRef = useRef(templates);
+    templatesRef.current = templates;
 
     useEffect(() => {
         if (!toolbarMenuOpen) return;
@@ -300,12 +305,17 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 const entry = results.find(([id]) => id === n.id);
                 if (!entry) return n;
                 const h = entry[1];
-                if (!h) return n;
+                if (!h) {
+                    // Health miss: leave real statuses alone, but clear the
+                    // first-paint "loading" placeholder so nodes don't stick.
+                    if (n.data.status !== 'loading') return n;
+                    return {...n, data: {...n.data, status: 'stopped'}};
+                }
                 // GetNodeHealth mirrors root status for linked aliases, so this is
                 // the durable source of truth on load — not just live SSE.
                 const status = h.status
                     ? serviceStatusFromDeployment(h.status)
-                    : n.data.status;
+                    : n.data.status === 'loading' ? 'stopped' : n.data.status;
                 return {
                     ...n,
                     data: {
@@ -420,58 +430,66 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
 
     const edges = connectionEdges;
 
-    const reloadCanvasNodes = useCallback(async () => {
-        const saved = await ListNodes(environmentId);
-        if (!saved || saved.length === 0) {
-            setServiceNodes([]);
-            return;
-        }
-        // Make sure templates are loaded so we can attach icon metadata to
-        // nodes created from a template. If the templates list isn't ready
-        // yet, fetch it once more so the first paint has icons.
-        let tpls = templates;
-        if (tpls.length === 0) {
-            try {
-                tpls = await ListServiceTemplates();
-                setTemplates(tpls ?? []);
-            } catch { /* leave icons blank */ }
-        }
-        const tplMap = new Map<number, store.ServiceTemplate>();
-        for (const t of tpls) tplMap.set(t.id, t);
-        const flowNodes = await Promise.all(
-            saved.map(async (n) => {
-                let status = 'stopped';
-                let deploymentId: number | undefined;
-                let linkedFromEnv: string | undefined;
-                let linkedRootNodeId: string | undefined;
-                let hostPort: number | undefined;
-                let publicUrl: string | undefined;
-                let health: string | undefined;
+    const refreshActiveDeployments = useCallback(async (nodeIds: string[]) => {
+        if (nodeIds.length === 0) return;
+        const results = await Promise.all(
+            nodeIds.map(async (id) => {
                 try {
-                    const link = await GetLinkedServiceInfo(n.id);
-                    if (link?.isLinked) {
-                        linkedFromEnv = link.rootEnvName || link.rootLabel || 'linked';
-                        linkedRootNodeId = link.rootNodeId || undefined;
-                    }
-                } catch { /* not linked */ }
-                // Resolve live status before first paint. GetDeployments[0] is the
-                // newest row (can be failed/stopped while an older deploy still
-                // runs); GetNodeHealth picks the active one and mirrors linked roots.
-                try {
-                    const h = await GetNodeHealth(n.id);
-                    if (h?.status) {
-                        status = serviceStatusFromDeployment(h.status);
-                    }
-                    if (h?.hostPort) hostPort = h.hostPort;
-                    if (h?.publicUrl) publicUrl = h.publicUrl;
-                    if (h?.dockerHealth) health = h.dockerHealth;
-                } catch { /* leave defaults */ }
-                if (!linkedRootNodeId) {
-                    try {
-                        const dep = await GetActiveDeployment(n.id);
-                        if (dep?.id) deploymentId = dep.id;
-                    } catch { /* no active deployment */ }
+                    const dep = await GetActiveDeployment(id);
+                    return [id, dep?.id] as const;
+                } catch {
+                    return [id, undefined] as const;
                 }
+            }),
+        );
+        const byId = new Map(results);
+        setServiceNodes((prev) =>
+            prev.map((n) => {
+                if (n.data.linkedRootNodeId) return n;
+                const deploymentId = byId.get(n.id);
+                if (typeof deploymentId !== 'number') return n;
+                return {...n, data: {...n.data, deploymentId}};
+            }),
+        );
+    }, [setServiceNodes]);
+
+    const reloadCanvasNodes = useCallback(async () => {
+        const gen = ++canvasLoadGen.current;
+        setCanvasLoading(true);
+        // Clear immediately so env switches don't flash the previous topology.
+        setServiceNodes([]);
+        setConnectionEdges([]);
+        setVolumeMountsByNode({});
+        setVolumePendingByNode({});
+        setManagedVolumesByNode({});
+
+        try {
+            const saved = await ListNodes(environmentId);
+            if (gen !== canvasLoadGen.current) return;
+
+            if (!saved || saved.length === 0) {
+                setServiceNodes([]);
+                setCanvasLoading(false);
+                return;
+            }
+
+            // Templates for icons — fetch once if the list isn't ready yet so
+            // the first structural paint still has brand marks.
+            let tpls = templatesRef.current;
+            if (tpls.length === 0) {
+                try {
+                    tpls = await ListServiceTemplates();
+                    if (gen !== canvasLoadGen.current) return;
+                    setTemplates(tpls ?? []);
+                } catch { /* leave icons blank */ }
+            }
+            const tplMap = new Map<number, store.ServiceTemplate>();
+            for (const t of tpls) tplMap.set(t.id, t);
+
+            // Fast first paint: positions + labels + icons. Health, links, and
+            // deployment ids enrich in the background so the canvas never sits
+            // empty while per-node RPCs fan out.
+            const flowNodes: Node<ServiceNodeData>[] = saved.map((n) => {
                 const tpl = n.templateId ? tplMap.get(n.templateId) : undefined;
                 return {
                     id: n.id,
@@ -479,25 +497,45 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     position: {x: n.x, y: n.y},
                     data: {
                         label: n.label,
-                        status,
-                        deploymentId,
+                        status: 'loading',
                         templateId: n.templateId || undefined,
                         icon: tpl?.icon,
                         iconColor: tpl?.color,
-                        linkedFromEnv,
-                        linkedRootNodeId,
-                        hostPort,
-                        publicUrl,
-                        health,
                     },
                 };
-            }),
-        );
-        setServiceNodes(flowNodes);
-        refreshVolumeMounts(flowNodes.map((n) => n.id));
-        refreshNodeHealth(flowNodes.map((n) => n.id));
-        refreshReferenceIssueNodes();
-    }, [environmentId, setServiceNodes, templates, refreshVolumeMounts, refreshNodeHealth, refreshReferenceIssueNodes]);
+            });
+            setServiceNodes(flowNodes);
+            setCanvasLoading(false);
+
+            const nodeIds = flowNodes.map((n) => n.id);
+            void refreshVolumeMounts(nodeIds);
+            void refreshLinkedServiceState(nodeIds).then(() => {
+                if (gen !== canvasLoadGen.current) return;
+                void refreshActiveDeployments(nodeIds);
+            });
+            void refreshNodeHealth(nodeIds);
+            refreshReferenceIssueNodes();
+        } catch {
+            if (gen === canvasLoadGen.current) {
+                setServiceNodes([]);
+                setCanvasLoading(false);
+            }
+        }
+    }, [
+        environmentId,
+        setServiceNodes,
+        setConnectionEdges,
+        refreshVolumeMounts,
+        refreshLinkedServiceState,
+        refreshActiveDeployments,
+        refreshNodeHealth,
+        refreshReferenceIssueNodes,
+    ]);
+
+    useEffect(() => {
+        setSelectedNodeId(null);
+        setSelectedVolume(null);
+    }, [environmentId]);
 
     useEffect(() => {
         void reloadCanvasNodes();
@@ -835,11 +873,45 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     minZoom={0.1}
                     maxZoom={1.6}
                     proOptions={{hideAttribution: true}}
+                    nodesDraggable={!canvasLoading}
+                    nodesConnectable={false}
+                    elementsSelectable={!canvasLoading}
                 >
                     <Background variant={BackgroundVariant.Dots} gap={22} size={1}/>
                     <CanvasControls environmentId={environmentId} serviceCount={serviceNodes.length}/>
                 </ReactFlow>
                 </CanvasSelectionContext.Provider>
+
+                {canvasLoading && (
+                    <SkeletonBlock className="canvas-loading" label="Loading services">
+                        <div className="canvas-loading-cluster" aria-hidden="true">
+                            <div className="canvas-loading-node canvas-loading-node--a">
+                                <Skeleton width={28} height={28} />
+                                <div className="skel-col">
+                                    <Skeleton width={88} height={12} />
+                                    <Skeleton width={52} height={8} variant="pill" />
+                                </div>
+                            </div>
+                            <div className="canvas-loading-node canvas-loading-node--b">
+                                <Skeleton width={28} height={28} />
+                                <div className="skel-col">
+                                    <Skeleton width={72} height={12} />
+                                    <Skeleton width={44} height={8} variant="pill" />
+                                </div>
+                            </div>
+                            <div className="canvas-loading-node canvas-loading-node--c">
+                                <Skeleton width={28} height={28} />
+                                <div className="skel-col">
+                                    <Skeleton width={96} height={12} />
+                                    <Skeleton width={48} height={8} variant="pill" />
+                                </div>
+                            </div>
+                            <span className="canvas-loading-link canvas-loading-link--ab" />
+                            <span className="canvas-loading-link canvas-loading-link--ac" />
+                        </div>
+                        <p className="canvas-loading-label">Loading services…</p>
+                    </SkeletonBlock>
+                )}
             </div>
 
             {selectedVolume && (

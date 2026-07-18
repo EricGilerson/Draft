@@ -76,15 +76,16 @@ export default function ServiceNode({id, data}: NodeProps) {
     const selection = useCanvasSelection();
     const label = d.label || 'unnamed';
     const status = d.status || 'stopped';
+    const statusLoading = status === 'loading';
     const icon = d.icon;
     const volumes = d.volumes ?? [];
     const hasReferenceIssues = d.hasReferenceIssues ?? false;
     const health = d.health;
-    const url = hostLabel(d.publicUrl, d.hostPort);
+    const url = statusLoading ? null : hostLabel(d.publicUrl, d.hostPort);
     const chipClass = healthClass(health);
 
     return (
-        <div className={`service-node service-node--${status}${volumes.length > 0 ? ' service-node--has-volumes' : ''}`}>
+        <div className={`service-node service-node--${status}${volumes.length > 0 ? ' service-node--has-volumes' : ''}${statusLoading ? ' service-node--status-loading' : ''}`}>
             {hasReferenceIssues && (
                 <span
                     className="service-node-ref-warning"
@@ -125,13 +126,17 @@ export default function ServiceNode({id, data}: NodeProps) {
                         )}
                     </span>
                     <span className="service-node-status-row">
-                        {chipClass && (
+                        {chipClass && !statusLoading && (
                             <span
                                 className={`service-node-health ${chipClass}`}
                                 title={`Docker health: ${health}`}
                             />
                         )}
-                        <span className="service-node-status">{status}</span>
+                        {statusLoading ? (
+                            <span className="service-node-status-skel" aria-label="Loading status" />
+                        ) : (
+                            <span className="service-node-status">{status}</span>
+                        )}
                     </span>
                     {url && (
                         <span className="service-node-url" title={url}>{url}</span>
