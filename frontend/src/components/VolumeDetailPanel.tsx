@@ -173,6 +173,8 @@ function VolumeDetailPanelBody({
                         managedByTarget={managedByTarget}
                         onDeleteVolume={deleteDockerVolume}
                         allowAdd={false}
+                        projectId={projectId}
+                        onManagedVolumesChanged={refreshManagedVolumes}
                     />
                 </div>
 

@@ -570,6 +570,7 @@ export default function CreateServiceDialog({projectId, environmentId, onClose, 
                             entries={volumes}
                             onChange={setVolumes}
                             editable={volumesEditable}
+                            projectId={projectId}
                         />
                         {!volumesEditable && volumes.length === 0 && (
                             <span className="csd-hint">This template defines no volumes.</span>

@@ -653,6 +653,8 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 onChange={saveVolumes}
                 managedByTarget={managedByTarget}
                 onDeleteVolume={deleteDockerVolume}
+                projectId={projectId}
+                onManagedVolumesChanged={refreshManagedVolumes}
             />
             {stagingNoteFor('volume_mounts')}
         </div>

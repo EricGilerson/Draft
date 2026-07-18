@@ -773,6 +773,7 @@ export default function TemplateEditorDialog({mode, template, onClose, onSaved}:
                         entries={volumeEntries}
                         onChange={setVolumeEntries}
                         editable={!readOnly}
+                        enableOrphanPicker={false}
                     />
                 </div>
 

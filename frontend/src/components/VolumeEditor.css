@@ -1,0 +1,185 @@
+/* Volume editor (Settings tab, volume detail, create-service wizard) */
+.volume-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.volume-row {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--surface-soft, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.volume-row-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.volume-type-seg {
+    display: inline-flex;
+    gap: 2px;
+    flex: 1;
+}
+
+.volume-row-fields {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.volume-field {
+    flex: 1;
+    min-width: 160px;
+}
+
+.volume-field-size {
+    flex: 0 0 180px;
+}
+
+.volume-row-meta {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.volume-resolved {
+    font-family: var(--mono, monospace);
+    font-size: 0.7rem;
+}
+
+.volume-delete-docker {
+    color: var(--danger, #d33);
+}
+
+.volume-in-use {
+    color: var(--warning, #b80);
+}
+
+.volume-action-error {
+    margin: 0;
+}
+
+.volume-orphan-name {
+    font-family: var(--mono, monospace);
+    font-size: 0.85em;
+}
+
+.volume-orphan-picker {
+    position: relative;
+}
+
+.volume-orphan-picker-input {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+}
+
+.volume-orphan-picker-input .input {
+    flex: 1;
+    min-width: 0;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.volume-orphan-picker-toggle {
+    flex-shrink: 0;
+    width: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-left: 0;
+    border-radius: 0 6px 6px 0;
+    background: rgba(8, 9, 7, 0.72);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.volume-orphan-picker-toggle:hover {
+    color: var(--text);
+    background: rgba(20, 22, 18, 0.9);
+}
+
+.volume-orphan-menu {
+    position: absolute;
+    z-index: 120;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    padding: 4px;
+}
+
+.volume-orphan-option {
+    width: 100%;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    text-align: left;
+    padding: 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.volume-orphan-option:hover,
+.volume-orphan-option--active {
+    background: rgba(140, 150, 144, 0.12);
+}
+
+.volume-orphan-option-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.volume-orphan-option-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.volume-orphan-option-meta {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.volume-orphan-option-size {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    padding-top: 1px;
+}
+
+.volume-orphan-option--custom .volume-orphan-option-name {
+    color: var(--accent, #9aa89a);
+}
+
+.volume-orphan-empty {
+    padding: 10px 8px;
+    font-size: 0.75rem;
+    color: var(--text-faint);
+}

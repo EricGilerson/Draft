@@ -1003,69 +1003,7 @@ select.input.settings-select option {
     color: var(--text);
 }
 
-/* ── Volume editor (Settings tab + create-service wizard) ── */
-.volume-editor {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.volume-row {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px;
-    background: var(--surface-soft, transparent);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.volume-row-top {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.volume-type-seg {
-    display: inline-flex;
-    gap: 2px;
-    flex: 1;
-}
-
-.volume-row-fields {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.volume-field {
-    flex: 1;
-    min-width: 160px;
-}
-
-.volume-field-size {
-    flex: 0 0 180px;
-}
-
-.volume-row-meta {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.volume-resolved {
-    font-family: var(--mono, monospace);
-    font-size: 0.7rem;
-}
-
-.volume-delete-docker {
-    color: var(--danger, #d33);
-}
-
-.volume-in-use {
-    color: var(--warning, #b80);
-}
+/* Volume editor styles live in VolumeEditor.css */
 
 .volume-detail-icon {
     color: rgba(212, 184, 132, 0.95);
