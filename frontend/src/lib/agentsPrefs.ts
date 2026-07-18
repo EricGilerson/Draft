@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'draft.agents.launcher';
+const AGENTS_CACHE_KEY = 'draft.agents.detected';
 
 export type AgentsLauncherPrefs = {
     agentId?: string;
@@ -9,6 +10,19 @@ export type AgentsLauncherPrefs = {
     launcherCollapsed?: boolean;
     /** User-ordered agent session tab ids. */
     tabOrder?: string[];
+};
+
+/** Last successful ListAgents snapshot — used to paint the Agents tab immediately. */
+export type CachedAgentInfo = {
+    id: string;
+    name: string;
+    binary: string;
+    path: string;
+    version?: string;
+    installed: boolean;
+    supportsEphemeral: boolean;
+    mcpConfigured: boolean;
+    error?: string;
 };
 
 function parseTabOrder(value: unknown): string[] | undefined {
@@ -65,6 +79,59 @@ export function saveAgentsPrefs(prefs: AgentsLauncherPrefs): void {
             next.tabOrder = prefs.tabOrder;
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+        /* quota / private mode */
+    }
+}
+
+function isCachedAgent(value: unknown): value is CachedAgentInfo {
+    if (!value || typeof value !== 'object') return false;
+    const a = value as Record<string, unknown>;
+    return (
+        typeof a.id === 'string' &&
+        typeof a.name === 'string' &&
+        typeof a.binary === 'string' &&
+        typeof a.path === 'string' &&
+        typeof a.installed === 'boolean' &&
+        typeof a.supportsEphemeral === 'boolean' &&
+        typeof a.mcpConfigured === 'boolean'
+    );
+}
+
+/** Returns the last detected agent list, or null when nothing usable is cached. */
+export function loadCachedAgents(): CachedAgentInfo[] | null {
+    try {
+        const raw = localStorage.getItem(AGENTS_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as {agents?: unknown};
+        if (!parsed || !Array.isArray(parsed.agents)) return null;
+        const agents = parsed.agents.filter(isCachedAgent);
+        return agents.length > 0 ? agents : null;
+    } catch {
+        return null;
+    }
+}
+
+export function saveCachedAgents(list: CachedAgentInfo[]): void {
+    if (!list.length) return;
+    try {
+        localStorage.setItem(
+            AGENTS_CACHE_KEY,
+            JSON.stringify({
+                savedAt: Date.now(),
+                agents: list.map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    binary: a.binary,
+                    path: a.path,
+                    version: a.version,
+                    installed: a.installed,
+                    supportsEphemeral: a.supportsEphemeral,
+                    mcpConfigured: a.mcpConfigured,
+                    error: a.error,
+                })),
+            }),
+        );
     } catch {
         /* quota / private mode */
     }

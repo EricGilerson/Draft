@@ -22,7 +22,13 @@ import {agents, store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import {Skeleton} from '../components/Skeleton';
 import {attachAgentTerminal, disposeAgentTerminal, focusAgentTerminal} from '../lib/agentTerminalHost';
-import {applySessionTabOrder, loadAgentsPrefs, saveAgentsPrefs} from '../lib/agentsPrefs';
+import {
+    applySessionTabOrder,
+    loadAgentsPrefs,
+    loadCachedAgents,
+    saveAgentsPrefs,
+    saveCachedAgents,
+} from '../lib/agentsPrefs';
 import './WorkspaceViews.css';
 import './AgentsView.css';
 
@@ -267,10 +273,14 @@ function AgentsLauncherFields({
 
 export default function AgentsView({projects}: AgentsViewProps) {
     const savedPrefs = useMemo(() => loadAgentsPrefs(), []);
-    const [agentList, setAgentList] = useState<agents.AgentInfo[]>([]);
+    const cachedAgents = useMemo(() => loadCachedAgents(), []);
+    const [agentList, setAgentList] = useState<agents.AgentInfo[]>(() =>
+        (cachedAgents ?? []).map((a) => agents.AgentInfo.createFrom(a)),
+    );
     const [sessions, setSessions] = useState<agents.SessionInfo[]>([]);
     const [activeId, setActiveId] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+    // Only block the launcher with a skeleton when we have nothing to show yet.
+    const [loading, setLoading] = useState(() => !(cachedAgents && cachedAgents.length > 0));
     const [starting, setStarting] = useState(false);
     const [error, setError] = useState('');
     const [selectedAgent, setSelectedAgent] = useState<string>(savedPrefs.agentId || 'claude');
@@ -291,26 +301,31 @@ export default function AgentsView({projects}: AgentsViewProps) {
         [agentList, selectedAgent],
     );
 
+    const applyAgentList = useCallback((list: agents.AgentInfo[]) => {
+        setAgentList(list);
+        saveCachedAgents(list);
+        setSelectedAgent((cur) => {
+            // Keep the user's last choice even if temporarily missing from PATH.
+            if (list.some((a) => a.id === cur)) return cur;
+            const preferred = loadAgentsPrefs().agentId;
+            if (preferred && list.some((a) => a.id === preferred)) return preferred;
+            const first = list.find((a) => a.installed);
+            return first?.id ?? cur;
+        });
+    }, []);
+
     const refreshAgents = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
             const list = await ListAgents();
-            setAgentList(list ?? []);
-            setSelectedAgent((cur) => {
-                // Keep the user's last choice even if temporarily missing from PATH.
-                if (list?.some((a) => a.id === cur)) return cur;
-                const preferred = loadAgentsPrefs().agentId;
-                if (preferred && list?.some((a) => a.id === preferred)) return preferred;
-                const first = list?.find((a) => a.installed);
-                return first?.id ?? cur;
-            });
+            applyAgentList(list ?? []);
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Failed to list agents');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [applyAgentList]);
 
     const refreshSessions = useCallback(async () => {
         try {
@@ -422,7 +437,7 @@ export default function AgentsView({projects}: AgentsViewProps) {
             setNewTabOpen(false);
             // Soft refresh — don't flip the toolbar into skeleton / loading.
             ListAgents()
-                .then((list) => setAgentList(list ?? []))
+                .then((list) => applyAgentList(list ?? []))
                 .catch(() => undefined);
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Failed to start agent');

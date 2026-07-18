@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,6 +30,7 @@ var knownAgents = []agentSpec{
 }
 
 // ListAgents probes PATH for known agent CLIs and whether Draft MCP is configured.
+// Agents are detected in parallel — version and MCP probes are the slow part.
 func ListAgents(ctx context.Context) ([]AgentInfo, error) {
 	draftCmd, draftArgs, err := DraftMCPCommand()
 	if err != nil {
@@ -37,34 +39,43 @@ func ListAgents(ctx context.Context) ([]AgentInfo, error) {
 		_ = draftArgs
 	}
 
-	out := make([]AgentInfo, 0, len(knownAgents))
-	for _, spec := range knownAgents {
-		info := AgentInfo{
-			ID:                spec.ID,
-			Name:              spec.Name,
-			SupportsEphemeral: spec.SupportsEphemeral,
-		}
-		path, bin := resolveBinary(ctx, spec)
-		if path == "" {
-			info.Binary = spec.Binaries[0]
-			info.Installed = false
-			out = append(out, info)
-			continue
-		}
-		info.Binary = bin
-		info.Path = path
-		info.Installed = true
-		info.Version = probeVersion(ctx, path)
-		if draftCmd != "" {
-			configured, cfgErr := IsDraftMCPConfigured(ctx, spec.ID, path, draftCmd, draftArgs)
-			info.MCPConfigured = configured
-			if cfgErr != nil {
-				info.Error = cfgErr.Error()
-			}
-		}
-		out = append(out, info)
+	out := make([]AgentInfo, len(knownAgents))
+	var wg sync.WaitGroup
+	for i, spec := range knownAgents {
+		wg.Add(1)
+		go func(i int, spec agentSpec) {
+			defer wg.Done()
+			out[i] = detectAgent(ctx, spec, draftCmd, draftArgs)
+		}(i, spec)
 	}
+	wg.Wait()
 	return out, nil
+}
+
+func detectAgent(ctx context.Context, spec agentSpec, draftCmd string, draftArgs []string) AgentInfo {
+	info := AgentInfo{
+		ID:                spec.ID,
+		Name:              spec.Name,
+		SupportsEphemeral: spec.SupportsEphemeral,
+	}
+	path, bin := resolveBinary(ctx, spec)
+	if path == "" {
+		info.Binary = spec.Binaries[0]
+		info.Installed = false
+		return info
+	}
+	info.Binary = bin
+	info.Path = path
+	info.Installed = true
+	info.Version = probeVersion(ctx, path)
+	if draftCmd != "" {
+		configured, cfgErr := IsDraftMCPConfigured(ctx, spec.ID, path, draftCmd, draftArgs)
+		info.MCPConfigured = configured
+		if cfgErr != nil {
+			info.Error = cfgErr.Error()
+		}
+	}
+	return info
 }
 
 func resolveBinary(ctx context.Context, spec agentSpec) (path, used string) {
