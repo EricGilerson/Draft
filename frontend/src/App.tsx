@@ -143,9 +143,9 @@ function App() {
         if (next === 'projects' || next === 'overview') {
             refreshProjectSummaries(projectsRef.current);
         }
-        if (next !== 'projects') {
-            setSelectedProject(null);
-        }
+        // Always leave the canvas on sidebar nav so re-clicking Projects
+        // returns to the project list instead of staying on the open canvas.
+        setSelectedProject(null);
     };
 
     const openSecretsTab = () => {
