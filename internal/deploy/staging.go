@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"context"
+	"log"
+	"time"
 
 	"Draft/internal/githooks"
 	"Draft/internal/store"
@@ -18,22 +20,50 @@ func (e *Engine) loadEffectiveEnvVars(nodeID string) ([]store.EnvVar, error) {
 }
 
 func (e *Engine) promoteStagedAfterSuccessfulDeploy(ctx context.Context, nodeID string, projectID uint) {
-	if err := e.store.PromoteStagedToApplied(nodeID); err != nil {
-		e.emitBuildLog(nodeID, "    Warning: failed to promote staged settings: "+err.Error())
-		return
-	}
-	settings, _ := e.store.GetNodeSettings(nodeID)
-	if settings == nil {
-		return
-	}
-	if settings["git_branch"] != "" || settings["deploy_trigger"] != "" || settings["redeploy_on_pull"] != "" {
-		trigger := settings["deploy_trigger"]
-		if trigger == "" {
-			trigger = "manual"
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				lastErr = ctx.Err()
+			case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
+			}
+			if lastErr != nil {
+				break
+			}
 		}
-		_ = githooks.SetDeployTrigger(ctx, e.store, nodeID, projectID, trigger)
-		redeployOnPull := settings["redeploy_on_pull"] == "true"
-		_ = githooks.SetRedeployOnPull(ctx, e.store, nodeID, projectID, redeployOnPull)
+		if err := e.store.PromoteStagedToApplied(nodeID); err != nil {
+			lastErr = err
+			continue
+		}
+		lastErr = nil
+		settings, _ := e.store.GetNodeSettings(nodeID)
+		if settings == nil {
+			return
+		}
+		if settings["git_branch"] != "" || settings["deploy_trigger"] != "" || settings["redeploy_on_pull"] != "" {
+			trigger := settings["deploy_trigger"]
+			if trigger == "" {
+				trigger = "manual"
+			}
+			_ = githooks.SetDeployTrigger(ctx, e.store, nodeID, projectID, trigger)
+			redeployOnPull := settings["redeploy_on_pull"] == "true"
+			_ = githooks.SetRedeployOnPull(ctx, e.store, nodeID, projectID, redeployOnPull)
+		}
+		return
+	}
+
+	msg := "staged config was NOT promoted after deploy"
+	if lastErr != nil {
+		msg += ": " + lastErr.Error()
+	}
+	log.Printf("[deploy] promote failed for %s: %v", nodeID, lastErr)
+	e.emitBuildLog(nodeID, "ERROR: "+msg+" — draft bar may still show pending changes; redeploy or discard/re-stage")
+	if e.emit != nil {
+		e.emit("deploy:promote-failed", map[string]any{
+			"nodeId": nodeID,
+			"error":  msg,
+		})
 	}
 }
 

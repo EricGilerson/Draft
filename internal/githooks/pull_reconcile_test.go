@@ -48,7 +48,7 @@ func TestSetRedeployOnPullInstallsPostMerge(t *testing.T) {
 	}
 
 	// Manual trigger + redeploy-on-pull: the 3-way trigger installs nothing,
-	// but the pull toggle must install post-merge.
+	// but the pull toggle must install post-merge and post-rewrite.
 	if err := SetDeployTrigger(context.Background(), s, "svc-1", project.ID, "manual"); err != nil {
 		t.Fatalf("SetDeployTrigger: %v", err)
 	}
@@ -56,13 +56,15 @@ func TestSetRedeployOnPullInstallsPostMerge(t *testing.T) {
 		t.Fatalf("SetRedeployOnPull: %v", err)
 	}
 
-	hp := filepath.Join(repo, ".git", "hooks", "post-merge")
-	data, err := os.ReadFile(hp)
-	if err != nil {
-		t.Fatalf("expected post-merge hook installed: %v", err)
-	}
-	if !strings.Contains(string(data), "--git-hook") {
-		t.Fatalf("post-merge hook missing invocation:\n%s", data)
+	for _, file := range []string{"post-merge", "post-rewrite"} {
+		hp := filepath.Join(repo, ".git", "hooks", file)
+		data, err := os.ReadFile(hp)
+		if err != nil {
+			t.Fatalf("expected %s hook installed: %v", file, err)
+		}
+		if !strings.Contains(string(data), "--git-hook") {
+			t.Fatalf("%s hook missing invocation:\n%s", file, data)
+		}
 	}
 	// The 3-way manual trigger must not have installed commit/push hooks.
 	for _, file := range []string{"post-commit", "pre-push"} {
@@ -71,12 +73,15 @@ func TestSetRedeployOnPullInstallsPostMerge(t *testing.T) {
 		}
 	}
 
-	// Toggling off uninstalls post-merge.
+	// Toggling off uninstalls both pull hooks.
 	if err := SetRedeployOnPull(context.Background(), s, "svc-1", project.ID, false); err != nil {
 		t.Fatalf("SetRedeployOnPull(false): %v", err)
 	}
-	if _, err := os.Stat(hp); !os.IsNotExist(err) {
-		t.Fatalf("expected post-merge removed, stat err = %v", err)
+	for _, file := range []string{"post-merge", "post-rewrite"} {
+		hp := filepath.Join(repo, ".git", "hooks", file)
+		if _, err := os.Stat(hp); !os.IsNotExist(err) {
+			t.Fatalf("expected %s removed, stat err = %v", file, err)
+		}
 	}
 }
 
@@ -118,6 +123,9 @@ func TestRedeployOnPullIndependentOfManualTrigger(t *testing.T) {
 	if _, err := os.Stat(hp); err != nil {
 		t.Fatalf("manual + redeploy_on_pull should install post-merge, stat err = %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "post-rewrite")); err != nil {
+		t.Fatalf("manual + redeploy_on_pull should install post-rewrite, stat err = %v", err)
+	}
 }
 
 // redeploy_on_pull without a pinned branch must not install the hook.
@@ -151,6 +159,9 @@ func TestRedeployOnPullWithoutBranchDoesNotInstall(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "post-merge")); !os.IsNotExist(err) {
 		t.Fatalf("post-merge should not be installed without a pinned branch, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "post-rewrite")); !os.IsNotExist(err) {
+		t.Fatalf("post-rewrite should not be installed without a pinned branch, stat err = %v", err)
 	}
 }
 

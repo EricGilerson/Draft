@@ -33,9 +33,12 @@ const (
 	// OnPush installs a pre-push hook: fires when refs are pushed to a remote.
 	OnPush Event = "on_push"
 	// OnPull installs a post-merge hook: fires after `git pull` (the default
-	// merge-based pull) and any `git merge` that updates the working tree. It
-	// does NOT fire for `git pull --rebase`, which uses post-rewrite instead.
+	// merge-based pull) and any `git merge` that updates the working tree.
 	OnPull Event = "on_pull"
+	// OnPullRewrite installs a post-rewrite hook: fires after `git pull --rebase`
+	// / `git rebase` (and amend). Paired with OnPull so redeploy-on-pull covers
+	// both merge and rebase pull strategies.
+	OnPullRewrite Event = "on_pull_rewrite"
 )
 
 // hookFile maps an Event to the git hook filename that carries it.
@@ -47,6 +50,8 @@ func (e Event) hookFile() (string, error) {
 		return "pre-push", nil
 	case OnPull:
 		return "post-merge", nil
+	case OnPullRewrite:
+		return "post-rewrite", nil
 	default:
 		return "", fmt.Errorf("unknown git trigger event %q", e)
 	}
@@ -290,10 +295,11 @@ func renderScript(event Event, exePath, repoPath, origPath string) string {
 			// on Windows would be more correct but would also veto pushes when
 			// a foreign hook file exists but is malformed, so we keep [ -x ].
 			"if [ -x " + qOrig + " ]; then printf '%s' \"$input\" | " + qOrig + " \"$@\"; exit $?; fi\n"
-	default: // OnCommit (post-commit) / OnPull (post-merge) — no stdin; Draft inspects HEAD itself.
-		// post-commit's and post-merge's exit codes are ignored by git, so
-		// exec-ing the chained hook (replacing this process) is fine and avoids
-		// an extra fork.
+	default: // OnCommit / OnPull (post-merge) / OnPullRewrite (post-rewrite)
+		// These hooks' exit codes are ignored by git (or non-blocking for our
+		// doorbell), so exec-ing the chained hook is fine and avoids an extra fork.
+		// post-rewrite receives "rebase"|"amend" on argv; Draft ignores args and
+		// inspects HEAD like post-merge.
 		invoke = qExe + " --git-hook --repo " + qRepo + " --event " + file + " </dev/null >/dev/null 2>&1\n" +
 			"if [ -x " + qOrig + " ]; then exec " + qOrig + " \"$@\"; fi\n"
 	}

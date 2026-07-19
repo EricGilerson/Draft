@@ -273,3 +273,28 @@ func TestFireHookPostMergeBuildsPullRequest(t *testing.T) {
 		t.Fatalf("ref = %+v, want {main %s}", got.Refs[0], sha)
 	}
 }
+
+func TestFireHookPostRewriteBuildsPullRequest(t *testing.T) {
+	repo, sha := daemonGitRepo(t)
+
+	orig := deliverRecheck
+	t.Cleanup(func() { deliverRecheck = orig })
+	var got recheckRequest
+	deliverRecheck = func(ctx context.Context, req recheckRequest) error {
+		got = req
+		return nil
+	}
+
+	if err := FireHook(context.Background(), repo, "post-rewrite"); err != nil {
+		t.Fatalf("FireHook: %v", err)
+	}
+	if got.Event != eventOnPull {
+		t.Fatalf("event = %q, want %q", got.Event, eventOnPull)
+	}
+	if len(got.Refs) != 1 {
+		t.Fatalf("expected 1 ref, got %d", len(got.Refs))
+	}
+	if got.Refs[0].Name != "main" || got.Refs[0].SHA != sha {
+		t.Fatalf("ref = %+v, want {main %s}", got.Refs[0], sha)
+	}
+}

@@ -3,10 +3,13 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,24 +40,21 @@ const (
 
 // FireHook is the body of `draft --git-hook`: it gathers what the git event
 // touched and hands it to the daemon, starting the daemon first if it isn't
-// running. It is designed to return quickly so it never stalls the user's git
-// command — in the cold-start case it launches the daemon and returns without
-// waiting, relying on the daemon's startup reconciliation to catch up.
+// running. It returns quickly so it never stalls the user's git command. On
+// cold start the payload is spooled to disk and drained when the daemon boots.
 func FireHook(ctx context.Context, repoPath, gitEvent string) error {
 	req := recheckRequest{Repo: repoPath}
 	switch gitEvent {
 	case "post-commit":
 		req.Event = eventOnCommit
-		// post-commit carries no ref data; the commit landed on HEAD's branch.
 		branch := gitOutput(ctx, repoPath, "symbolic-ref", "--quiet", "--short", "HEAD")
 		sha := gitOutput(ctx, repoPath, "rev-parse", "HEAD")
 		if branch != "" && sha != "" {
 			req.Refs = append(req.Refs, gitRef{Name: branch, SHA: sha})
 		}
-	case "post-merge":
-		// post-merge fires after `git pull` (merge strategy) or a `git merge`
-		// that updates the working tree. Like post-commit it carries no stdin;
-		// the merged result is now HEAD, so we report HEAD's branch + sha.
+	case "post-merge", "post-rewrite":
+		// post-merge: merge-based pull / merge. post-rewrite: rebase pull / rebase / amend.
+		// Both land a new HEAD tip we should redeploy against when redeploy_on_pull is on.
 		req.Event = eventOnPull
 		branch := gitOutput(ctx, repoPath, "symbolic-ref", "--quiet", "--short", "HEAD")
 		sha := gitOutput(ctx, repoPath, "rev-parse", "HEAD")
@@ -70,10 +70,10 @@ func FireHook(ctx context.Context, repoPath, gitEvent string) error {
 	return deliverRecheck(ctx, req)
 }
 
-// deliverRecheck sends the payload to a running daemon, or launches one if none
-// is up. When it has to launch, it does not wait for readiness — startup
-// reconciliation handles the just-fired event. It is a package-level variable
-// so tests can stub daemon delivery.
+// deliverRecheck sends the payload to a running daemon, or spools it and
+// launches a daemon when none is up. Spooling preserves the exact refs from
+// the hook so startup does not rely solely on tip reconcile. It is a
+// package-level variable so tests can stub daemon delivery.
 var deliverRecheck = func(ctx context.Context, req recheckRequest) error {
 	if c, err := NewClientFromState(); err == nil {
 		pingCtx, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
@@ -83,8 +83,66 @@ var deliverRecheck = func(ctx context.Context, req recheckRequest) error {
 			return c.postJSON(ctx, "/hooks/recheck", req, nil)
 		}
 	}
-	// No live daemon: start it detached and return immediately.
+	if err := spoolRecheck(req); err != nil {
+		log.Printf("[git-hook] spool recheck: %v", err)
+	}
 	return launchDaemon()
+}
+
+func pendingRecheckDir() (string, error) {
+	cfg, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cfg, "pending-rechecks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func spoolRecheck(req recheckRequest) error {
+	dir, err := pendingRecheckDir()
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%d.json", time.Now().UnixNano())
+	return os.WriteFile(filepath.Join(dir, name), data, 0o600)
+}
+
+// drainPendingRechecks applies any hook payloads spooled while the daemon was
+// down, then removes them. Safe to call on every startup.
+func (s *Server) drainPendingRechecks(ctx context.Context) {
+	dir, err := pendingRecheckDir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, ent.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var req recheckRequest
+		if err := json.Unmarshal(data, &req); err != nil {
+			_ = os.Remove(path)
+			continue
+		}
+		log.Printf("[git-trigger] draining spooled %s for %s (%d refs)", req.Event, req.Repo, len(req.Refs))
+		s.reconcileGitTriggers(ctx, req)
+		_ = os.Remove(path)
+	}
 }
 
 // parsePrePush reads the ref lines git feeds a pre-push hook on stdin. Each line
@@ -260,6 +318,9 @@ func (s *Server) shouldDeploy(nodeID, candidateSHA string) bool {
 // nodes once when the daemon boots, catching commits/pushes that happened while
 // the daemon was down (including the very event whose hook just launched it).
 func (s *Server) reconcileAllGitTriggersOnStartup(ctx context.Context) {
+	// Prefer exact spooled hook payloads first (refs from the cold-start fire).
+	s.drainPendingRechecks(ctx)
+
 	projects, err := s.store.ListProjects()
 	if err != nil {
 		return

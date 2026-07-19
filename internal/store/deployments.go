@@ -39,12 +39,13 @@ func (s *Store) UpdateDeployment(d *Deployment) error {
 	return s.DB.Save(d).Error
 }
 
-// ActiveDeployment returns the most recent non-stopped deployment for a node,
-// or nil if none exists.
+// ActiveDeployment returns the most recent live deployment for a node, or nil
+// if none exists. Terminal statuses (stopped, failed, interrupted) are excluded
+// so a cut-short build cannot block Stop/Restart/idle or look "active".
 func (s *Store) ActiveDeployment(nodeID string) (*Deployment, error) {
 	var d Deployment
 	err := s.DB.
-		Where("node_id = ? AND status NOT IN ?", nodeID, []string{"stopped", "failed"}).
+		Where("node_id = ? AND status NOT IN ?", nodeID, []string{"stopped", "failed", "interrupted"}).
 		Order("created_at desc").
 		First(&d).Error
 	if err == gorm.ErrRecordNotFound {
@@ -95,7 +96,7 @@ func (s *Store) ListAllDeployments() ([]Deployment, error) {
 func (s *Store) ListActiveDeployments() ([]Deployment, error) {
 	var deployments []Deployment
 	if err := s.DB.
-		Where("status NOT IN ?", []string{"stopped", "failed"}).
+		Where("status NOT IN ?", []string{"stopped", "failed", "interrupted"}).
 		Order("created_at desc").
 		Find(&deployments).Error; err != nil {
 		return nil, err

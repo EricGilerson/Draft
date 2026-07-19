@@ -18,15 +18,14 @@ import (
 type RollbackEligibility struct {
 	DeploymentID uint   `json:"deploymentId"`
 	Eligible     bool   `json:"eligible"`
-	Method       string `json:"method"` // "run-image" | "re-pull" | "none"
+	Method       string `json:"method"` // "run-image" | "re-pull" | "rebuild-sha" | "none"
 	Reason       string `json:"reason"`
 }
 
 // RollbackEligibility computes per-deployment rollback eligibility for a node.
-// Image-mode deployments are always re-pullable; build/git deployments are
-// eligible only while their built image is still retained locally (governed by
-// keep_images). Git-sourced rebuilds from a SHA are not supported yet — the
-// honest reason is surfaced rather than pretending disk is infinite.
+// Image-mode deployments are always re-pullable. Build deployments are eligible
+// while their image is retained locally, or via rebuild-from-SHA when
+// SourceSHA is recorded (keeps keep_images lean without losing rollback).
 func (e *Engine) RollbackEligibility(ctx context.Context, nodeID string) ([]RollbackEligibility, error) {
 	deployments, err := e.store.ListDeployments(nodeID)
 	if err != nil {
@@ -34,6 +33,7 @@ func (e *Engine) RollbackEligibility(ctx context.Context, nodeID string) ([]Roll
 	}
 	settings, _ := e.store.GetNodeSettings(nodeID)
 	isImageMode := strings.TrimSpace(settings["image"]) != "" && strings.TrimSpace(settings["dockerfile"]) == ""
+	canRebuildSHA := strings.TrimSpace(settings["dockerfile"]) != ""
 
 	cli, cliErr := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if cliErr == nil {
@@ -42,54 +42,66 @@ func (e *Engine) RollbackEligibility(ctx context.Context, nodeID string) ([]Roll
 
 	out := make([]RollbackEligibility, 0, len(deployments))
 	for _, d := range deployments {
-		out = append(out, e.rollbackEligibilityForDeployment(ctx, cli, d, isImageMode))
+		out = append(out, e.rollbackEligibilityForDeployment(ctx, cli, d, isImageMode, canRebuildSHA))
 	}
 	return out, nil
 }
 
-func (e *Engine) rollbackEligibilityForDeployment(ctx context.Context, cli *client.Client, d store.Deployment, isImageMode bool) RollbackEligibility {
+func (e *Engine) rollbackEligibilityForDeployment(ctx context.Context, cli *client.Client, d store.Deployment, isImageMode, canRebuildSHA bool) RollbackEligibility {
 	res := RollbackEligibility{DeploymentID: d.ID}
-	if d.ImageTag == "" {
-		res.Reason = "no image recorded for this deployment"
+	if d.ImageTag == "" && d.SourceSHA == "" {
+		res.Reason = "no image or source commit recorded for this deployment"
 		return res
 	}
 	if isImageMode {
-		// ImageTag is a registry pull ref — always recoverable.
+		if d.ImageTag == "" {
+			res.Reason = "no image recorded for this deployment"
+			return res
+		}
 		res.Eligible = true
 		res.Method = "re-pull"
+		return res
+	}
+	if d.ImageTag != "" && cli != nil {
+		if _, ok := e.resolveLocalDraftImageRef(ctx, cli, d.ImageTag); ok {
+			res.Eligible = true
+			res.Method = "run-image"
+			return res
+		}
+	}
+	if d.SourceSHA != "" && canRebuildSHA {
+		res.Eligible = true
+		res.Method = "rebuild-sha"
+		res.Reason = fmt.Sprintf("image not retained; will rebuild from commit %s (current settings apply)", shortSHA(d.SourceSHA))
+		return res
+	}
+	if d.SourceSHA != "" && !canRebuildSHA {
+		res.Reason = "image was garbage-collected; service is no longer in build mode (no dockerfile)"
 		return res
 	}
 	if cli == nil {
 		res.Reason = "Docker not reachable"
 		return res
 	}
-	if _, ok := e.resolveLocalDraftImageRef(ctx, cli, d.ImageTag); ok {
-		res.Eligible = true
-		res.Method = "run-image"
-		return res
-	}
-	if d.SourceSHA != "" {
-		res.Reason = "image was garbage-collected; rebuild-from-sha is not supported yet — redeploy from the pinned branch instead"
-	} else {
-		res.Reason = "working-tree build, image no longer retained (increase keep_images to keep more)"
-	}
+	res.Reason = "working-tree build, image no longer retained (no source commit to rebuild from)"
 	return res
 }
 
-// RollbackDeployment re-runs a historical deployment's image. It creates a new
-// deployment row (so rollback is visible in history) and reuses the shared
-// startContainerAndRegister tail so routing, blue-green cutover, healthchecks,
-// and env/volume resolution behave exactly like a fresh deploy. Env references
-// are re-resolved against current node settings so @{Service.ATTR} links stay
-// live. Image-mode images are re-pulled if missing; build/git images must be
-// retained locally (keep_images) or the call returns an error.
+func shortSHA(sha string) string {
+	if len(sha) > 8 {
+		return sha[:8]
+	}
+	return sha
+}
+
+// RollbackDeployment re-runs a historical deployment. Prefer the retained
+// image when present; otherwise rebuild from SourceSHA when recorded. Creates
+// a new deployment row and shares Deploy's cancel map so concurrent
+// Deploy/Stop cancel an in-flight rollback.
 func (e *Engine) RollbackDeployment(ctx context.Context, deploymentID uint) error {
 	historical, err := e.store.GetDeployment(deploymentID)
 	if err != nil {
 		return fmt.Errorf("deployment not found: %w", err)
-	}
-	if historical.ImageTag == "" {
-		return fmt.Errorf("deployment has no image to roll back to")
 	}
 	node, err := e.store.GetNode(historical.NodeID)
 	if err != nil {
@@ -100,25 +112,68 @@ func (e *Engine) RollbackDeployment(ctx context.Context, deploymentID uint) erro
 		return err
 	}
 	isImageMode := strings.TrimSpace(settings["image"]) != "" && strings.TrimSpace(settings["dockerfile"]) == ""
+	canRebuildSHA := historical.SourceSHA != "" && strings.TrimSpace(settings["dockerfile"]) != ""
 
+	rebuildFromSHA := false
 	if !isImageMode {
-		cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-		if err != nil {
-			return fmt.Errorf("cannot connect to Docker: %w", err)
+		if historical.ImageTag == "" && !canRebuildSHA {
+			return fmt.Errorf("deployment has no image or source commit to roll back to")
 		}
-		_, present := e.resolveLocalDraftImageRef(ctx, cli, historical.ImageTag)
-		cli.Close()
-		if !present {
-			if historical.SourceSHA != "" {
-				return fmt.Errorf("image no longer retained and rebuild-from-sha is not supported yet; redeploy from the pinned branch instead")
+		if historical.ImageTag != "" {
+			cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+			if err != nil {
+				return fmt.Errorf("cannot connect to Docker: %w", err)
 			}
-			return fmt.Errorf("working-tree build image is no longer retained; cannot roll back (increase keep_images to keep more)")
+			_, present := e.resolveLocalDraftImageRef(ctx, cli, historical.ImageTag)
+			cli.Close()
+			if !present {
+				if canRebuildSHA {
+					rebuildFromSHA = true
+				} else {
+					return fmt.Errorf("working-tree build image is no longer retained; cannot roll back")
+				}
+			}
+		} else {
+			rebuildFromSHA = true
 		}
+	} else if historical.ImageTag == "" {
+		return fmt.Errorf("deployment has no image to roll back to")
 	}
 
-	// Run asynchronously like Deploy does; status flows through SSE.
-	go e.runRollbackDeploy(context.Background(), historical, node, settings, isImageMode)
+	nodeID := historical.NodeID
+	e.mu.Lock()
+	if cancel, ok := e.active[nodeID]; ok {
+		cancel()
+	}
+	buildCtx, cancel := context.WithCancel(ctx)
+	e.active[nodeID] = cancel
+	e.mu.Unlock()
+
+	go func() {
+		defer func() {
+			e.mu.Lock()
+			delete(e.active, nodeID)
+			e.mu.Unlock()
+			cancel()
+		}()
+		if rebuildFromSHA {
+			e.runRollbackRebuildFromSHA(buildCtx, historical, node)
+			return
+		}
+		e.runRollbackDeploy(buildCtx, historical, node, settings, isImageMode)
+	}()
 	return nil
+}
+
+// runRollbackRebuildFromSHA rebuilds from the historical commit using current
+// effective settings (dockerfile/service_root/env may have changed since then —
+// intentional trade-off vs retaining every image).
+func (e *Engine) runRollbackRebuildFromSHA(ctx context.Context, historical *store.Deployment, node *store.CanvasNode) {
+	nodeID := node.ID
+	sha := strings.TrimSpace(historical.SourceSHA)
+	e.emitBuildLog(nodeID, fmt.Sprintf("==> Rolling back by rebuilding commit %s (deployment #%d)...", shortSHA(sha), historical.Sequence))
+	e.emitBuildLog(nodeID, "    Note: uses current service settings; only the source commit is restored from history")
+	e.runDeployWith(ctx, nodeID, map[string]string{"git_branch": sha})
 }
 
 // runRollbackDeploy mirrors runImageDeploy but runs a historical ImageTag

@@ -19,6 +19,16 @@ func TestOnPullMapsToPostMerge(t *testing.T) {
 	}
 }
 
+func TestOnPullRewriteMapsToPostRewrite(t *testing.T) {
+	file, err := OnPullRewrite.hookFile()
+	if err != nil {
+		t.Fatalf("hookFile: %v", err)
+	}
+	if file != "post-rewrite" {
+		t.Fatalf("OnPullRewrite hookFile = %q, want post-rewrite", file)
+	}
+}
+
 func TestInstallAndUninstallPostMerge(t *testing.T) {
 	repo := newRepo(t)
 	ctx := context.Background()

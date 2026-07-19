@@ -208,7 +208,8 @@ volume:    draft-{projectId}-{project}-{envSegment}-{uid}-{target}   (label draf
 ### Git triggers
 
 - `deploy_trigger`: `manual` | `on_commit` | `on_push` (requires pinned `git_branch`).
-- `redeploy_on_pull`: independent; installs a `post-merge` hook (merge-based `git pull`; not rebase).
+- `redeploy_on_pull`: independent; installs `post-merge` + `post-rewrite` (merge and rebase pulls).
+- Cold-start: hook payloads spool under `pending-rechecks/` and drain when the daemon boots.
 - Hooks install per repo (reference-counted), honor `core.hooksPath` / worktrees, and chain foreign hooks via `.draft-orig`.
 
 ### Staged vs immediate config
@@ -268,7 +269,7 @@ Same binary modes:
 
 ```bash
 ./Draft --daemon
-./Draft --git-hook --repo <path> --event <post-commit|pre-push|post-merge>
+./Draft --git-hook --repo <path> --event <post-commit|pre-push|post-merge|post-rewrite>
 ./Draft mcp
 ```
 
@@ -291,10 +292,9 @@ Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Deepe
 ## Current limitations
 
 - No first-class branch/worktree workspace model (pinned refs + sandbox repo pins only).
-- Rollback reuses a retained local image (`keep_images`); git builds do not yet rebuild-from-SHA outside sandbox refresh.
-- `redeploy_on_pull` does not detect `git pull --rebase`.
-- Environment stack start/stop/redeploy runs per service independently (no depends-on ordering).
-- Idle auto-suspend for sandboxes is stored on plans but not yet applied by lifecycle reconcile (suspend/resume are explicit).
+- Explicit depends-on edges are not first-class; stack start orders by inferred `@{Service…}` connections.
+- Config sync can create missing source services; target-only extras still need a delete-or-promote dialog.
+- Overview sandbox urgency / shared-root map / PR one-click create are not polished yet.
 
 ---
 

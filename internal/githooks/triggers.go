@@ -38,7 +38,7 @@ func SetDeployTrigger(ctx context.Context, s *store.Store, nodeID string, projec
 // node. Unlike SetDeployTrigger, this is a boolean that is orthogonal to the
 // 3-way deploy trigger: a node may be Manual and still redeploy on pull, or
 // On push and also redeploy on pull. It installs/uninstalls the repo's
-// post-merge hook to match.
+// post-merge and post-rewrite hooks so both merge and rebase pulls fire.
 func SetRedeployOnPull(ctx context.Context, s *store.Store, nodeID string, projectID uint, enabled bool) error {
 	value := ""
 	if enabled {
@@ -140,7 +140,10 @@ func ReconcileRepoHooks(ctx context.Context, s *store.Store, repoRoot string) er
 	if err := applyHook(ctx, repoRoot, exe, OnPush, wantPush); err != nil {
 		return err
 	}
-	return applyHook(ctx, repoRoot, exe, OnPull, wantPull)
+	if err := applyHook(ctx, repoRoot, exe, OnPull, wantPull); err != nil {
+		return err
+	}
+	return applyHook(ctx, repoRoot, exe, OnPullRewrite, wantPull)
 }
 
 func applyHook(ctx context.Context, repoPath, exe string, event Event, want bool) error {
@@ -173,6 +176,11 @@ func StatusForNode(ctx context.Context, s *store.Store, nodeID string) (GitHookS
 	}
 	if _, foreign, err := Status(ctx, repoRoot, OnPull); err == nil {
 		st.PullForeign = foreign
+	}
+	if !st.PullForeign {
+		if _, foreign, err := Status(ctx, repoRoot, OnPullRewrite); err == nil {
+			st.PullForeign = foreign
+		}
 	}
 	return st, nil
 }

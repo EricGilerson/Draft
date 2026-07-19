@@ -816,14 +816,14 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                         <div style={{marginTop: 12}}>
                             <ToggleRow
                                 label="Redeploy on pull"
-                                desc="Also redeploy whenever a `git pull` (or merge) updates this branch. Installs a local post-merge git hook — nothing is committed to your repo. Covers merge-based pulls only; `git pull --rebase` is not detected."
+                                desc="Also redeploy whenever a `git pull` (merge or rebase) or merge updates this branch. Installs local post-merge and post-rewrite git hooks — nothing is committed to your repo."
                                 checked={redeployOnPull}
                                 onToggle={() => commitRedeployOnPull(!redeployOnPull)}
                             />
                         </div>
                         {redeployOnPull && hookStatus?.pullForeign && (
                             <span className="settings-hint" style={{marginTop: 6}}>
-                                An existing post-merge hook was found. Draft chains to it, so your existing hook keeps running.
+                                An existing post-merge or post-rewrite hook was found. Draft chains to it, so your existing hook keeps running.
                             </span>
                         )}
                     </div>

@@ -92,7 +92,11 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
         if (!await confirm({
             title: 'Redeploy this version?',
             message: `Roll back to deployment #${dep.sequence ?? dep.id}?`,
-            detail: 'A new deployment will run this image and replace the current one.',
+            detail: elig?.method === 'rebuild-sha'
+                ? `Image was not retained. Draft will rebuild from commit ${(dep.sourceSha || '').slice(0, 8)} using current service settings.`
+                : elig?.method === 're-pull'
+                    ? 'Draft will re-pull this image and replace the current deployment.'
+                    : 'A new deployment will run this image and replace the current one.',
             confirmLabel: 'Redeploy',
         })) return;
         setRollingBack(dep.id);

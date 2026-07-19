@@ -97,7 +97,7 @@ internal/
   dockerfile/              # Dockerfile EXPOSE + ARG/build-info parser
   dockerwatch/             # Docker daemon health and event watching
   envfile/                 # .env import/export/refresh helpers
-  githooks/                # post-commit / pre-push / post-merge hook install + chaining
+  githooks/                # post-commit / pre-push / post-merge / post-rewrite hook install + chaining
   gitsrc/                  # Branch/ref export and ref/SHA helpers via git
   ignore/                  # .dockerignore / .gitignore matching
   networking/              # Port leases, proxy, hosts/domain routing, URL selection
@@ -259,7 +259,7 @@ Important model details:
 - Docker build + run deployments with streaming build logs and upload progress events.
 - Deployment history, active deployment lookup, stop, restart, cancel-build behavior.
 - **Rollback**: re-run a historical deployment’s image when still retained; `RollbackEligibility` drives UI; image-mode can re-pull if missing.
-- **Image retention (`keep_images`)**: default `last` keeps N-1 under `…:N-previous` for rollback; `none` removes priors on cutover; `all` keeps every image.
+- **Image retention (`keep_images`)**: default `last` keeps N-1 under `…:N-previous` for fast `run-image` rollback; `none` removes priors on cutover; `all` keeps every image. When the image is gone, build-mode rollbacks with a recorded `source_sha` rebuild from that commit (`rebuild-sha`) using current settings.
 - Live container logs, **service shell** (`ShellTab` / `RunCommand` with terminal resize), and service metrics with port-based reachability checks.
 - Lightweight **node health** API for canvas status pills.
 - Port leasing plus local hostname/routing (internal + public hostnames).
@@ -306,7 +306,7 @@ Important model details:
   - Preview create uses **Create & start** (`startOnCreate`) so the sandbox deploys immediately after materialize.
 - **Refresh**: `RefreshSandbox` mode `tip` re-resolves human refs and redeploys; mode `same` redeploys at frozen SHAs (sandbox-native rebuild-from-SHA).
 - **Profiles**: reusable project (or source-env-scoped) plans; create can merge profile + request overrides; resolved plan is frozen on the sandbox row.
-- **Lifecycle**: project defaults (`sandbox_project_settings`) for TTL / warning / grace / idle-suspend hours; statuses `active` → `warning` → `expired` → purge after grace; `suspended` still expires on schedule; `cleanup_failed` is retriable on reconcile.
+- **Lifecycle**: project defaults (`sandbox_project_settings`) for TTL / warning / grace / idle-suspend hours; statuses `active` → `warning` → `expired` → purge after grace; `suspended` still expires on schedule; `cleanup_failed` is retriable on reconcile. Idle auto-suspend uses `LastActivityAt` (create/extend/resume + proxy hits) when `suspendIdleHours` is set.
 - **Actions**: preview plan (no Docker), create (+ optional start), extend, suspend/resume, refresh tip/same SHA, delete (destructive: services + Draft-managed volumes + sandbox network).
 - **Testing runs**: `RunTestingSandbox` with mode `fresh` (new sandbox + steps) or `steps` (re-run on live testing sandbox); step results and suite pass/fail stored in `sandbox_test_runs` (history survives sandbox delete).
 - **Links**: optional PR/ticket/URL-style context rows on the sandbox.
@@ -322,7 +322,8 @@ Important model details:
 
 - Deploy-from-git for pinned branches/refs without touching the working tree.
 - Automatic redeploy triggers on commit or push via local git hooks, with chaining to pre-existing foreign hooks.
-- **Redeploy on pull**: independent `redeploy_on_pull` setting installs a `post-merge` hook for merge-based `git pull` (orthogonal to `deploy_trigger`).
+- **Redeploy on pull**: independent `redeploy_on_pull` setting installs `post-merge` and `post-rewrite` hooks (merge and rebase pulls; orthogonal to `deploy_trigger`).
+- Cold-start: when a hook fires with no live daemon, the payload is spooled under `pending-rechecks/` and drained on daemon startup (exact refs, not tip-only guess).
 - Git repo-root awareness: cached `git_repo_root` per node for multi-repo projects; hook scripts normalize Windows paths.
 
 ### Cloud config & sync
@@ -382,18 +383,18 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 - Image tags and container names use the per-node `deployments.sequence` counter **and environment segment** (slug, or `sand-{slug}` for sandboxes), not the global deployment ID.
 - Template stamping writes embedded Dockerfiles to the service root (best-effort), resolves `{{draft.*}}` env defaults, seeds volume mounts and DefaultSettings from the template.
 - **Linked services** short-circuit deploy: ensure the root is multi-attached rather than building a second container.
-- **Rollback** reuses the shared start/register tail with a historical image tag; it does not rebuild from git SHA yet.
+- **Rollback** prefers a retained local image (`run-image`); image-mode can `re-pull`; build-mode with a recorded `source_sha` can `rebuild-sha` when the image was GC’d (current settings apply — storage stays lean via `keep_images`).
 
 ## Git Trigger Behavior
 
 - Trigger values are `manual`, `on_commit`, and `on_push`.
 - Triggers only matter when a node also has a pinned `git_branch`.
-- **`redeploy_on_pull`** is orthogonal to `deploy_trigger`: when enabled, Draft installs a **`post-merge`** hook that fires `on_pull` events after merge-based `git pull` or `git merge`. Works even when `deploy_trigger` is `manual`. Does not detect `git pull --rebase`.
+- **`redeploy_on_pull`** is orthogonal to `deploy_trigger`: when enabled, Draft installs **`post-merge`** and **`post-rewrite`** hooks that fire `on_pull` after merge-based `git pull` / `git merge`, and after `git pull --rebase` / rebase / amend. Works even when `deploy_trigger` is `manual`.
 - Hook installation is per repo, not per node. Draft reference-counts hook need across all nodes in the project.
 - Hooks are written into the repo's actual hooks directory using `git rev-parse --git-path hooks`, so `core.hooksPath` and worktrees are honored.
-- Draft never overwrites a foreign hook destructively; it preserves and chains to it via `.draft-orig`. `GitHookStatus` reports `pullForeign` when a non-Draft `post-merge` hook exists.
+- Draft never overwrites a foreign hook destructively; it preserves and chains to it via `.draft-orig`. `GitHookStatus` reports `pullForeign` when a non-Draft `post-merge` or `post-rewrite` hook exists.
 - Hook scripts use cached `git_repo_root` and normalize Windows paths.
-- On startup, the daemon reconciles missed commit/push/pull events by comparing tracked branch SHAs against `deployments.source_sha`.
+- On cold start, hook payloads are spooled then drained; the daemon also reconciles missed commit/push/pull tips by comparing tracked branch SHAs against `deployments.source_sha`.
 
 ## Networking
 
@@ -448,10 +449,12 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 ## Not Yet Implemented
 
 - Branch/worktree UX beyond the current pinned-ref deploy path (sandboxes can pin per-repo refs at create, but there is no first-class worktree workspace model).
-- Rebuild-from-SHA rollback for git-sourced builds (rollback requires a retained local image under `keep_images`).
-- `git pull --rebase` detection for redeploy-on-pull.
-- Depends-on / ordered start for environment stack ops (actions currently run independently per node; sandbox test steps wait for their own service readiness, not a full graph).
-- Idle-time auto-suspend for sandboxes (`suspendIdleHours` is stored on project settings / plans and merged into create, but reconcile currently advances warning/expiry/purge only; suspend/resume are explicit user actions).
+- Explicit depends-on edges beyond inferred `@{Service…}` connection waves for stack start (graph is derived from env refs today).
+- Target-only sync actions (delete target-only services, or promote them to standalone) — sync can create missing source services, but target extras need a dedicated dialog.
+- Overview sandbox urgency / shared-root map / PR one-click create polish.
+- Secrets-at-rest encryption (deferred; local desktop threat model similar to a committed `.env` once the filesystem is owned).
+- MCP confirm gates on destructive/sensitive tools (`run_command`, `set_secret`).
+- Sandbox purge inventory / dry-run of what delete will remove.
 
 ## Conventions And Constraints
 

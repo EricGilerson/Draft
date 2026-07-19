@@ -78,6 +78,7 @@ func TestActiveDeploymentSkipsStoppedAndFailed(t *testing.T) {
 
 	s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "stopped"})
 	s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "failed"})
+	s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "interrupted"})
 
 	got, _ := s.ActiveDeployment("n1")
 	if got != nil {

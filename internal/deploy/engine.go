@@ -109,12 +109,16 @@ func (e *Engine) Deploy(ctx context.Context, nodeID string) error {
 			e.mu.Unlock()
 			cancel()
 		}()
-		e.runDeploy(buildCtx, nodeID)
+		e.runDeployWith(buildCtx, nodeID, nil)
 	}()
 	return nil
 }
 
 func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
+	e.runDeployWith(ctx, nodeID, nil)
+}
+
+func (e *Engine) runDeployWith(ctx context.Context, nodeID string, settingsOverride map[string]string) {
 	e.emitBuildLog(nodeID, "==> Initializing deployment...")
 	e.emitBuildLog(nodeID, "    Loading node settings")
 
@@ -122,6 +126,9 @@ func (e *Engine) runDeploy(ctx context.Context, nodeID string) {
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to read settings: " + err.Error()})
 		return
+	}
+	for k, v := range settingsOverride {
+		settings[k] = v
 	}
 
 	// Linked (virtualized) services do not run a local container.
