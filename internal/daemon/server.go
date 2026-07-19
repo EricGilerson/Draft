@@ -83,6 +83,7 @@ func RunProcess(ctx context.Context) error {
 	logDir := filepath.Join(cfgDir, "logs")
 	hub := newEventHub()
 	engine := deploy.New(s, router, logDir, hub.publish)
+	router.SetProxyAccessHandler(engine.NoteProxyHostAccess)
 	watch := dockerwatch.New()
 	srv := &Server{store: s, router: router, engine: engine, hub: hub, watch: watch}
 	return srv.Run(ctx)
@@ -1366,6 +1367,9 @@ func (s *Server) watchDocker(ctx context.Context) {
 				"name":   ev.Raw.Actor.Attributes["name"],
 				"image":  ev.Raw.Actor.Attributes["image"],
 			})
+			if string(ev.Raw.Type) == "container" {
+				s.engine.HandleDockerContainerEvent(string(ev.Raw.Action), ev.Raw.Actor.Attributes)
+			}
 		}
 	})
 	s.watch.Run(ctx)

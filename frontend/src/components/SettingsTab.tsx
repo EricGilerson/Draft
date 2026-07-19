@@ -689,7 +689,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                             You are viewing the root service&apos;s settings from{' '}
                             <span className="settings-mono">{linkInfo?.rootEnvName || 'another environment'}</span>
                             {linkInfo?.rootLabel ? ` · ${linkInfo.rootLabel}` : ''}. Update the root service to change how {serviceLabel} runs here.
-                            Use <strong>Promote</strong> on Overview to become an independent local service again.
+                            Use <strong>Promote</strong> or <strong>Unlink</strong> on Overview to stop sharing.
                         </p>
                         {!!linkInfo?.rootNodeId && !!linkInfo?.rootEnvironmentId && onOpenRootService && (
                             <button

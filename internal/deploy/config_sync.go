@@ -23,6 +23,7 @@ const (
 	SyncActionSet     = "set"
 	SyncActionRestamp = "restamp"
 	SyncActionSkip    = "skip"
+	SyncActionCreate  = "create"
 )
 
 // Settings never copied between environments.
@@ -49,6 +50,10 @@ type SyncRequest struct {
 	TargetNodeID        string `json:"targetNodeId,omitempty"`
 	IncludeSettings     bool   `json:"includeSettings"`
 	IncludeEnv          bool   `json:"includeEnv"`
+	// CreateMissing adds source-only services onto the target (clone + restamp).
+	// Environment sync: every unmatched source label. Service sync: when
+	// TargetNodeID is empty (or no label match). Does not delete target-only services.
+	CreateMissing bool `json:"createMissing"`
 }
 
 // SyncSettingDiff is one settings key difference.
@@ -80,11 +85,13 @@ type SyncEnvDiff struct {
 	Reason         string `json:"reason,omitempty"`
 }
 
-// SyncServicePreview is the per-service diff for one matched pair.
+// SyncServicePreview is the per-service diff for one matched pair, or a
+// create plan when the service exists only on the source.
 type SyncServicePreview struct {
 	Label           string            `json:"label"`
 	SourceNodeID    string            `json:"sourceNodeId"`
-	TargetNodeID    string            `json:"targetNodeId"`
+	TargetNodeID    string            `json:"targetNodeId,omitempty"`
+	WillCreate      bool              `json:"willCreate,omitempty"`
 	Skipped         bool              `json:"skipped"`
 	SkipReason      string            `json:"skipReason,omitempty"`
 	Settings        []SyncSettingDiff `json:"settings"`
@@ -102,6 +109,7 @@ type SyncPreview struct {
 	TargetEnvName       string               `json:"targetEnvName"`
 	IncludeSettings     bool                 `json:"includeSettings"`
 	IncludeEnv          bool                 `json:"includeEnv"`
+	CreateMissing       bool                 `json:"createMissing"`
 	Services            []SyncServicePreview `json:"services"`
 	UnmatchedSource     []string             `json:"unmatchedSource"`
 	UnmatchedTarget     []string             `json:"unmatchedTarget"`
@@ -110,11 +118,12 @@ type SyncPreview struct {
 
 // SyncApplyNodeResult is the per-node outcome of ApplySync.
 type SyncApplyNodeResult struct {
-	NodeID    string `json:"nodeId"`
-	Label     string `json:"label"`
-	Staged    bool   `json:"staged"`
-	Redeployed bool  `json:"redeployed"`
-	Error     string `json:"error,omitempty"`
+	NodeID     string `json:"nodeId"`
+	Label      string `json:"label"`
+	Created    bool   `json:"created,omitempty"`
+	Staged     bool   `json:"staged"`
+	Redeployed bool   `json:"redeployed"`
+	Error      string `json:"error,omitempty"`
 }
 
 // SyncApplyResult summarizes ApplySync.
@@ -130,14 +139,16 @@ func (e *Engine) PreviewSync(req SyncRequest) (*SyncPreview, error) {
 }
 
 // ApplySync stages (and optionally redeploys) based on the same plan as PreviewSync.
+// CreateMissing services are cloned into the target environment (fresh volumes,
+// restamped generated env) before matched-pair updates run.
 func (e *Engine) ApplySync(ctx context.Context, req SyncRequest, mode string) (*SyncApplyResult, error) {
 	switch mode {
 	case SyncModeStage, SyncModeStageAndRedeploy:
 	default:
 		return nil, fmt.Errorf("unknown sync mode %q", mode)
 	}
-	if !req.IncludeSettings && !req.IncludeEnv {
-		return nil, fmt.Errorf("enable settings sync and/or env sync")
+	if !req.IncludeSettings && !req.IncludeEnv && !req.CreateMissing {
+		return nil, fmt.Errorf("enable settings sync, env sync, and/or create missing")
 	}
 
 	preview, err := e.buildSyncPreview(req)
@@ -153,11 +164,44 @@ func (e *Engine) ApplySync(ctx context.Context, req SyncRequest, mode string) (*
 		return out, nil
 	}
 
+	tgtEnv, err := e.store.GetEnvironment(req.TargetEnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, svc := range preview.Services {
 		if svc.Skipped || svc.ActionableCount == 0 {
 			continue
 		}
 		res := SyncApplyNodeResult{NodeID: svc.TargetNodeID, Label: svc.Label}
+
+		if svc.WillCreate {
+			src, gerr := e.store.GetNode(svc.SourceNodeID)
+			if gerr != nil || src == nil {
+				res.Error = "source service not found"
+				out.Results = append(out.Results, res)
+				continue
+			}
+			created, cerr := e.cloneNodeIntoEnvironment(ctx, *src, tgtEnv)
+			if cerr != nil {
+				res.Error = cerr.Error()
+				out.Results = append(out.Results, res)
+				continue
+			}
+			res.Created = true
+			res.Staged = true
+			res.NodeID = created.ID
+			if mode == SyncModeStageAndRedeploy {
+				if err := e.Deploy(ctx, created.ID); err != nil {
+					res.Error = "created, but redeploy failed: " + err.Error()
+				} else {
+					res.Redeployed = true
+				}
+			}
+			out.Results = append(out.Results, res)
+			continue
+		}
+
 		if err := e.applyServiceSync(svc, req); err != nil {
 			res.Error = err.Error()
 			out.Results = append(out.Results, res)
@@ -180,8 +224,8 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 	if e.store == nil {
 		return nil, fmt.Errorf("store is not available")
 	}
-	if !req.IncludeSettings && !req.IncludeEnv {
-		return nil, fmt.Errorf("enable settings sync and/or env sync")
+	if !req.IncludeSettings && !req.IncludeEnv && !req.CreateMissing {
+		return nil, fmt.Errorf("enable settings sync, env sync, and/or create missing")
 	}
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {
@@ -209,7 +253,7 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 		return nil, fmt.Errorf("environments must belong to the same project")
 	}
 
-	pairs, unmatchedSrc, unmatchedTgt, err := e.resolveSyncPairs(req, srcEnv, tgtEnv)
+	pairs, creates, unmatchedSrc, unmatchedTgt, err := e.resolveSyncPairs(req, srcEnv, tgtEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -222,13 +266,26 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 		TargetEnvName:       tgtEnv.Name,
 		IncludeSettings:     req.IncludeSettings,
 		IncludeEnv:          req.IncludeEnv,
-		Services:            make([]SyncServicePreview, 0, len(pairs)),
+		CreateMissing:       req.CreateMissing,
+		Services:            make([]SyncServicePreview, 0, len(pairs)+len(creates)),
 		UnmatchedSource:     unmatchedSrc,
 		UnmatchedTarget:     unmatchedTgt,
 	}
 
 	for _, pair := range pairs {
+		if !req.IncludeSettings && !req.IncludeEnv {
+			continue
+		}
 		svc, err := e.diffSyncPair(pair.source, pair.target, req)
+		if err != nil {
+			return nil, err
+		}
+		out.Services = append(out.Services, *svc)
+		out.ActionableCount += svc.ActionableCount
+	}
+
+	for _, src := range creates {
+		svc, err := e.previewSyncCreate(src)
 		if err != nil {
 			return nil, err
 		}
@@ -247,61 +304,55 @@ type syncPair struct {
 	target store.CanvasNode
 }
 
-func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environment) (pairs []syncPair, unmatchedSrc, unmatchedTgt []string, err error) {
+func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environment) (pairs []syncPair, creates []store.CanvasNode, unmatchedSrc, unmatchedTgt []string, err error) {
 	srcNodes, err := e.store.ListNodesByEnvironment(srcEnv.ID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	tgtNodes, err := e.store.ListNodesByEnvironment(tgtEnv.ID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	if strings.TrimSpace(req.Scope) == SyncScopeService || req.Scope == "" {
 		srcID := strings.TrimSpace(req.SourceNodeID)
 		tgtID := strings.TrimSpace(req.TargetNodeID)
-		if srcID == "" || tgtID == "" {
-			return nil, nil, nil, fmt.Errorf("sourceNodeId and targetNodeId are required for service sync")
+		if srcID == "" {
+			return nil, nil, nil, nil, fmt.Errorf("sourceNodeId is required for service sync")
 		}
-		var src, tgt *store.CanvasNode
-		for i := range srcNodes {
-			if srcNodes[i].ID == srcID {
-				src = &srcNodes[i]
-				break
-			}
+		src, gerr := e.store.GetNode(srcID)
+		if gerr != nil || src == nil {
+			return nil, nil, nil, nil, fmt.Errorf("source service not found")
 		}
-		for i := range tgtNodes {
-			if tgtNodes[i].ID == tgtID {
-				tgt = &tgtNodes[i]
-				break
-			}
+		if src.EnvironmentID != srcEnv.ID {
+			return nil, nil, nil, nil, fmt.Errorf("source service is not in the source environment")
 		}
-		// Allow same-env service sync only when different nodes (unusual but ok).
-		if src == nil {
-			// Source might be in source env only — also try get by id
-			n, gerr := e.store.GetNode(srcID)
-			if gerr != nil {
-				return nil, nil, nil, fmt.Errorf("source service not found")
+
+		if tgtID == "" {
+			if !req.CreateMissing {
+				return nil, nil, nil, nil, fmt.Errorf("targetNodeId is required (or enable createMissing)")
 			}
-			if n.EnvironmentID != srcEnv.ID {
-				return nil, nil, nil, fmt.Errorf("source service is not in the source environment")
+			// Prefer an existing same-label target when present.
+			srcKey := syncLabelKey(src.Label)
+			for i := range tgtNodes {
+				if syncLabelKey(tgtNodes[i].Label) == srcKey {
+					return []syncPair{{source: *src, target: tgtNodes[i]}}, nil, nil, nil, nil
+				}
 			}
-			src = n
+			return nil, []store.CanvasNode{*src}, nil, nil, nil
 		}
-		if tgt == nil {
-			n, gerr := e.store.GetNode(tgtID)
-			if gerr != nil {
-				return nil, nil, nil, fmt.Errorf("target service not found")
-			}
-			if n.EnvironmentID != tgtEnv.ID {
-				return nil, nil, nil, fmt.Errorf("target service is not in the target environment")
-			}
-			tgt = n
+
+		tgt, gerr := e.store.GetNode(tgtID)
+		if gerr != nil || tgt == nil {
+			return nil, nil, nil, nil, fmt.Errorf("target service not found")
+		}
+		if tgt.EnvironmentID != tgtEnv.ID {
+			return nil, nil, nil, nil, fmt.Errorf("target service is not in the target environment")
 		}
 		if src.ID == tgt.ID {
-			return nil, nil, nil, fmt.Errorf("source and target services must differ")
+			return nil, nil, nil, nil, fmt.Errorf("source and target services must differ")
 		}
-		return []syncPair{{source: *src, target: *tgt}}, nil, nil, nil
+		return []syncPair{{source: *src, target: *tgt}}, nil, nil, nil, nil
 	}
 
 	// Environment scope: match by normalized label.
@@ -325,6 +376,8 @@ func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environ
 		if tgt, ok := tgtByLabel[key]; ok {
 			pairs = append(pairs, syncPair{source: src, target: tgt})
 			delete(tgtByLabel, key)
+		} else if req.CreateMissing {
+			creates = append(creates, src)
 		} else {
 			unmatchedSrc = append(unmatchedSrc, src.Label)
 		}
@@ -332,9 +385,12 @@ func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environ
 	for _, tgt := range tgtByLabel {
 		unmatchedTgt = append(unmatchedTgt, tgt.Label)
 	}
+	sort.Slice(creates, func(i, j int) bool {
+		return strings.ToLower(creates[i].Label) < strings.ToLower(creates[j].Label)
+	})
 	sort.Strings(unmatchedSrc)
 	sort.Strings(unmatchedTgt)
-	return pairs, unmatchedSrc, unmatchedTgt, nil
+	return pairs, creates, unmatchedSrc, unmatchedTgt, nil
 }
 
 func syncLabelKey(label string) string {
@@ -756,11 +812,168 @@ func normalizeVolumeMountsForSync(raw string) string {
 	return string(b)
 }
 
+// previewSyncCreate describes adding a source-only service onto the target.
+// Create always copies the full service (settings + env + volumes) and restamps
+// generated values — includeSettings/includeEnv only gate matched-pair updates.
+func (e *Engine) previewSyncCreate(source store.CanvasNode) (*SyncServicePreview, error) {
+	out := &SyncServicePreview{
+		Label:        source.Label,
+		SourceNodeID: source.ID,
+		WillCreate:   true,
+		Settings:     []SyncSettingDiff{},
+		Env:          []SyncEnvDiff{},
+		Warnings: []SettingsWarning{{
+			Code:    "sync_create",
+			Message: "Service will be created on the target with a fresh UID, auto-named volumes, and restamped template credentials/URLs",
+		}},
+	}
+
+	srcSettings, err := e.store.EffectiveNodeSettings(source.ID)
+	if err != nil {
+		return nil, err
+	}
+	srcNodeID := source.ID
+	if link := ParseServiceLink(srcSettings[SettingServiceLink]); link != nil {
+		out.Warnings = append(out.Warnings, SettingsWarning{
+			Code:    "sync_create_link",
+			Message: "Source is linked — the new service will share the same root",
+		})
+		if rootSettings, rerr := e.store.EffectiveNodeSettings(link.RootNodeID); rerr == nil {
+			srcSettings = rootSettings
+		}
+		srcNodeID = link.RootNodeID
+	}
+
+	for key, val := range srcSettings {
+		key = strings.TrimSpace(key)
+		if key == "" || strings.TrimSpace(val) == "" {
+			continue
+		}
+		if syncNeverCopySettings[key] && key != SettingServiceLink {
+			continue
+		}
+		if key == SettingServiceLink {
+			continue // handled via SetServiceLink in clone
+		}
+		action := SyncActionSet
+		reason := "add on create"
+		if syncExcludeSettings[key] {
+			action = SyncActionSkip
+			reason = "git/deploy automation is excluded from sync by default"
+		}
+		if key == "volume_mounts" {
+			val = normalizeVolumeMountsForSync(val)
+		}
+		diff := SyncSettingDiff{
+			Key:         key,
+			SourceValue: val,
+			Action:      action,
+			Reason:      reason,
+		}
+		if key == "volume_mounts" && action == SyncActionSet {
+			diff.Warnings = append(diff.Warnings, "Managed volumes are auto-named for the target environment (fresh data)")
+		}
+		out.Settings = append(out.Settings, diff)
+		if action == SyncActionSet {
+			out.ActionableCount++
+		}
+	}
+	sort.Slice(out.Settings, func(i, j int) bool { return out.Settings[i].Key < out.Settings[j].Key })
+
+	vars, err := e.store.EffectiveEnvVars(srcNodeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vars {
+		if isReservedDraftEnvKey(v.Key) {
+			continue
+		}
+		diff := SyncEnvDiff{
+			Key:          v.Key,
+			SourceValue:  v.Value,
+			SourceScope:  v.Scope,
+			SourceSource: v.Source,
+			SourceSecret: v.Secret,
+			Action:       SyncActionSet,
+			Reason:       "add on create",
+		}
+		if v.Source == store.EnvSourceGenerated {
+			diff.Action = SyncActionRestamp
+			diff.Reason = "template-generated — restamp for new target identity"
+			diff.ProposedScope = normalizeEnvScope(v.Scope)
+		} else {
+			diff.ProposedValue = v.Value
+			diff.ProposedScope = normalizeEnvScope(v.Scope)
+		}
+		out.Env = append(out.Env, diff)
+		out.ActionableCount++
+	}
+	sort.Slice(out.Env, func(i, j int) bool { return out.Env[i].Key < out.Env[j].Key })
+
+	// Creating the node is always one actionable unit even if settings/env lists
+	// are empty (blank service).
+	if out.ActionableCount == 0 {
+		out.ActionableCount = 1
+	}
+	return out, nil
+}
+
+// cloneNodeIntoEnvironment duplicates one source node into targetEnv using the
+// same path as environment duplicate (fresh volumes + restamp).
+func (e *Engine) cloneNodeIntoEnvironment(ctx context.Context, src store.CanvasNode, targetEnv *store.Environment) (*store.CanvasNode, error) {
+	if targetEnv == nil {
+		return nil, fmt.Errorf("target environment is required")
+	}
+	before, err := e.store.ListNodesByEnvironment(targetEnv.ID)
+	if err != nil {
+		return nil, err
+	}
+	beforeIDs := map[string]struct{}{}
+	for _, n := range before {
+		beforeIDs[n.ID] = struct{}{}
+	}
+
+	err = e.duplicateNodesInto(ctx, []store.CanvasNode{src}, targetEnv, map[string]ServiceDataChoice{
+		src.ID: {SourceNodeID: src.ID, Mode: ServiceDataFresh, Consistency: CloneConsistent},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	after, err := e.store.ListNodesByEnvironment(targetEnv.ID)
+	if err != nil {
+		return nil, err
+	}
+	srcKey := syncLabelKey(src.Label)
+	for i := range after {
+		n := after[i]
+		if _, existed := beforeIDs[n.ID]; existed {
+			continue
+		}
+		if syncLabelKey(n.Label) == srcKey {
+			return &n, nil
+		}
+	}
+	// Fallback: any new node (should be exactly one).
+	for i := range after {
+		if _, existed := beforeIDs[after[i].ID]; !existed {
+			return &after[i], nil
+		}
+	}
+	return nil, fmt.Errorf("created service %q not found in target environment", src.Label)
+}
+
 func (e *Engine) applyServiceSync(svc SyncServicePreview, req SyncRequest) error {
 	if svc.Skipped {
 		return nil
 	}
+	if svc.WillCreate {
+		return fmt.Errorf("internal: create services must use cloneNodeIntoEnvironment")
+	}
 	targetID := svc.TargetNodeID
+	if targetID == "" {
+		return fmt.Errorf("target node is required")
+	}
 
 	if req.IncludeSettings {
 		toStage := map[string]string{}

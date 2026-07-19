@@ -337,7 +337,7 @@ func (e *Engine) startContainerAndRegister(
 		HostPort:     hostPort,
 	})
 
-	go e.watchContainer(context.Background(), dep, nodeID)
+	e.startContainerWatch(dep, nodeID)
 }
 
 // runImageDeploy is the image-pull deploy path for templates whose Mode is

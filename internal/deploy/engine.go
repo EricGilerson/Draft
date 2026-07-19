@@ -45,23 +45,31 @@ type Engine struct {
 	execCommand func(context.Context, string, ...string) *exec.Cmd
 	mu          sync.Mutex
 	active      map[string]context.CancelFunc // nodeID → cancel build
+	watchMu     sync.Mutex
+	watchers    map[string]context.CancelFunc // nodeID → cancel container wait
+	watchGen    map[string]uint64             // nodeID → generation (avoid comparing funcs)
 	logsMu      sync.Mutex
 	logSubs     map[string]context.CancelFunc // nodeID → cancel log stream
 	statsMu     sync.Mutex
 	stats       map[string][]MetricPoint
+	activityMu  sync.Mutex
+	lastProxyTouch map[string]time.Time // nodeID → last sandbox activity touch
 }
 
 func New(s *store.Store, router *networking.Router, logDir string, emit func(string, any)) *Engine {
 	os.MkdirAll(logDir, 0o755)
 	return &Engine{
-		store:       s,
-		router:      router,
-		emit:        emit,
-		logDir:      logDir,
-		execCommand: exec.CommandContext,
-		active:      make(map[string]context.CancelFunc),
-		logSubs:     make(map[string]context.CancelFunc),
-		stats:       make(map[string][]MetricPoint),
+		store:          s,
+		router:         router,
+		emit:           emit,
+		logDir:         logDir,
+		execCommand:    exec.CommandContext,
+		active:         make(map[string]context.CancelFunc),
+		watchers:       make(map[string]context.CancelFunc),
+		watchGen:       make(map[string]uint64),
+		logSubs:        make(map[string]context.CancelFunc),
+		stats:          make(map[string][]MetricPoint),
+		lastProxyTouch: make(map[string]time.Time),
 	}
 }
 
@@ -1220,6 +1228,46 @@ func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFil
 	return scanner.Err()
 }
 
+// startContainerWatch attaches a background waiter for a running deployment.
+// Safe to call after cutover, Restart, or Reconcile — replaces any prior
+// watcher for the same node so daemon restarts regain exit detection.
+func (e *Engine) startContainerWatch(dep *store.Deployment, nodeID string) {
+	if dep == nil || dep.ContainerID == "" || nodeID == "" {
+		return
+	}
+	e.watchMu.Lock()
+	if cancel, ok := e.watchers[nodeID]; ok {
+		cancel()
+	}
+	e.watchGen[nodeID]++
+	gen := e.watchGen[nodeID]
+	ctx, cancel := context.WithCancel(context.Background())
+	e.watchers[nodeID] = cancel
+	e.watchMu.Unlock()
+
+	go func() {
+		defer func() {
+			e.watchMu.Lock()
+			if e.watchGen[nodeID] == gen {
+				delete(e.watchers, nodeID)
+			}
+			e.watchMu.Unlock()
+			cancel()
+		}()
+		e.watchContainer(ctx, dep, nodeID)
+	}()
+}
+
+func (e *Engine) stopContainerWatch(nodeID string) {
+	e.watchMu.Lock()
+	if cancel, ok := e.watchers[nodeID]; ok {
+		cancel()
+		delete(e.watchers, nodeID)
+	}
+	e.watchGen[nodeID]++
+	e.watchMu.Unlock()
+}
+
 func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, nodeID string) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -1253,9 +1301,17 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	applyContainerExitResult(dep, exitCode, waitErr)
 
 	if dep.ContainerID != "" && containerRestarted(ctx, cli, dep.ContainerID, 10*time.Second) {
+		// Docker restart policy brought the container back — keep waiting.
+		e.watchContainer(ctx, dep, nodeID)
 		return
 	}
 
+	e.finalizeContainerExit(ctx, cli, dep, nodeID)
+}
+
+// finalizeContainerExit updates deployment status, removes the stopped
+// container/image, and clears the public route after an unexpected exit.
+func (e *Engine) finalizeContainerExit(ctx context.Context, cli *client.Client, dep *store.Deployment, nodeID string) {
 	now := time.Now()
 	if dep.ContainerStoppedAt == nil {
 		dep.ContainerStoppedAt = &now
@@ -1265,7 +1321,6 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 	}
 	dep.LastSeenAt = &now
 
-	// Clean up the stopped container and its image to reclaim disk space.
 	if dep.ContainerID != "" {
 		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
 			log.Printf("[deploy] remove stopped container %s: %v", dep.ContainerID, err)
@@ -1276,6 +1331,9 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 			log.Printf("[deploy] remove image %s: %v", dep.ImageTag, err)
 		}
 	}
+	if dep.Hostname != "" {
+		_ = e.router.Unregister(dep.Hostname)
+	}
 
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{
@@ -1283,6 +1341,61 @@ func (e *Engine) watchContainer(ctx context.Context, dep *store.Deployment, node
 		Status:       dep.Status,
 		Error:        dep.Error,
 	})
+}
+
+// HandleDockerContainerEvent reacts to dockerwatch container lifecycle events
+// for Draft-labeled containers. Covers the gap where ContainerWait was not
+// attached (e.g. between daemon crash and Reconcile reattach).
+func (e *Engine) HandleDockerContainerEvent(action string, attrs map[string]string) {
+	if attrs == nil {
+		return
+	}
+	action = strings.ToLower(strings.TrimSpace(action))
+	switch action {
+	case "die", "oom", "destroy", "kill":
+	default:
+		return
+	}
+	idStr := attrs["draft.deployment"]
+	if idStr == "" {
+		return
+	}
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil || id == 0 {
+		return
+	}
+	dep, err := e.store.GetDeployment(uint(id))
+	if err != nil || dep == nil {
+		return
+	}
+	if dep.Status != "running" && dep.Status != "starting" {
+		return
+	}
+	if deploymentWasIntentionallyStopped(dep) {
+		return
+	}
+
+	exitCode := 0
+	if ec, ok := attrs["exitCode"]; ok {
+		if n, err := strconv.Atoi(ec); err == nil {
+			exitCode = n
+		}
+	}
+	applyContainerExitResult(dep, exitCode, nil)
+
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		now := time.Now()
+		dep.FinishedAt = &now
+		dep.ContainerStoppedAt = &now
+		_ = e.store.UpdateDeployment(dep)
+		e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: dep.Status, Error: dep.Error})
+		return
+	}
+	defer cli.Close()
+
+	e.stopContainerWatch(dep.NodeID)
+	e.finalizeContainerExit(context.Background(), cli, dep, dep.NodeID)
 }
 
 // stopPrevious retires every deployment for the node other than currentID:
@@ -1400,6 +1513,8 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 	markDeploymentStopped(dep, now)
 	e.store.UpdateDeployment(dep)
 
+	e.stopContainerWatch(nodeID)
+
 	if dep.ContainerID != "" {
 		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &stopTimeout})
 		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
@@ -1457,6 +1572,7 @@ func (e *Engine) Restart(ctx context.Context, nodeID string) error {
 	dep.FinishedAt = nil
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "running"})
+	e.startContainerWatch(dep, nodeID)
 	return nil
 }
 
@@ -1602,6 +1718,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 				Hostname:     dep.Hostname,
 				HostPort:     dep.HostPort,
 			})
+			e.startContainerWatch(dep, dep.NodeID)
 		} else if deploymentWasIntentionallyStopped(dep) {
 			if dep.FinishedAt == nil {
 				dep.FinishedAt = ptrTime(time.Now())

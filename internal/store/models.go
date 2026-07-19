@@ -80,8 +80,11 @@ type Sandbox struct {
 	WarnAt              time.Time  `gorm:"index;not null" json:"warnAt"`
 	GraceEndsAt         time.Time  `gorm:"index;not null" json:"graceEndsAt"`
 	SuspendedAt         *time.Time `json:"suspendedAt,omitempty"`
-	CreatedAt           time.Time  `json:"createdAt"`
-	UpdatedAt           time.Time  `json:"updatedAt"`
+	// LastActivityAt is bumped on create/resume/extend and on HTTP proxy hits
+	// to sandbox hostnames. Used by idle auto-suspend when SuspendIdleHours > 0.
+	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 // SandboxTestRun records one execution of a testing sandbox's steps. The

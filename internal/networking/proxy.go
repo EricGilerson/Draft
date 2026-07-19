@@ -22,10 +22,11 @@ type ProxyTarget struct {
 // correct container backend. It runs on a single port and serves all
 // Draft-managed HTTP services.
 type Proxy struct {
-	mu      sync.RWMutex
-	routes  map[string]ProxyTarget // hostname → target
-	server  *http.Server
-	addr    string
+	mu       sync.RWMutex
+	routes   map[string]ProxyTarget // hostname → target
+	server   *http.Server
+	addr     string
+	onAccess func(hostname string)
 }
 
 // NewProxy creates a reverse proxy that will listen on the given address
@@ -36,7 +37,7 @@ func NewProxy(addr string) *Proxy {
 		addr:   addr,
 	}
 
-	handler := &httputil.ReverseProxy{
+	rp := &httputil.ReverseProxy{
 		Director: p.director,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, fmt.Sprintf("Draft proxy: upstream unreachable (%v)", err), http.StatusBadGateway)
@@ -44,13 +45,31 @@ func NewProxy(addr string) *Proxy {
 	}
 
 	p.server = &http.Server{
-		Addr:         addr,
-		Handler:      handler,
+		Addr: addr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host := stripPort(r.Host)
+			p.mu.RLock()
+			_, ok := p.routes[host]
+			onAccess := p.onAccess
+			p.mu.RUnlock()
+			if ok && onAccess != nil {
+				onAccess(host)
+			}
+			rp.ServeHTTP(w, r)
+		}),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
 
 	return p
+}
+
+// SetAccessHandler registers a callback invoked on each proxied request with
+// the Host header (without port). Used for sandbox idle-activity tracking.
+func (p *Proxy) SetAccessHandler(fn func(hostname string)) {
+	p.mu.Lock()
+	p.onAccess = fn
+	p.mu.Unlock()
 }
 
 // director rewrites the incoming request to point at the matched upstream.

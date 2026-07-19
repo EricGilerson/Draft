@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -833,6 +834,7 @@ func (e *Engine) ResumeSandbox(ctx context.Context, sandboxID uint) (*store.Sand
 	if err := e.store.UpdateSandboxStatus(sandboxID, "active", nil); err != nil {
 		return nil, err
 	}
+	_ = e.store.TouchSandboxActivity(sandboxID, time.Now().UTC())
 	return e.store.GetSandbox(sandboxID)
 }
 
@@ -1153,7 +1155,8 @@ func sandboxTimes(now time.Time, plan SandboxPlan) (time.Time, time.Time, time.T
 //
 // Status transitions are applied in-memory so a single pass can move
 // active → warning → expired → deleted when timestamps land in the same
-// reconcile window (for example graceHours=0).
+// reconcile window (for example graceHours=0). When SuspendIdleHours > 0 on
+// the frozen plan, idle active/warning sandboxes are suspended before expiry.
 func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) error {
 	projects, err := e.store.ListProjects()
 	if err != nil {
@@ -1166,6 +1169,24 @@ func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) e
 		}
 		for _, sandbox := range sandboxes {
 			status := sandbox.Status
+			plan, _ := parseSandboxPlan(sandbox.PlanJSON)
+
+			// Idle auto-suspend: only while still live (not expired/suspended).
+			if (status == "active" || status == "warning") && plan.SuspendIdleHours > 0 {
+				last := sandbox.CreatedAt
+				if sandbox.LastActivityAt != nil {
+					last = *sandbox.LastActivityAt
+				}
+				idleFor := now.Sub(last.UTC())
+				if idleFor >= time.Duration(plan.SuspendIdleHours)*time.Hour {
+					if _, err := e.SuspendSandbox(ctx, sandbox.ID); err != nil {
+						log.Printf("[sandbox] idle suspend %d: %v", sandbox.ID, err)
+					} else {
+						status = "suspended"
+					}
+				}
+			}
+
 			// Warning only applies while the sandbox is still considered live.
 			if status == "active" && !sandbox.WarnAt.After(now) {
 				if err := e.store.UpdateSandboxStatus(sandbox.ID, "warning", nil); err != nil {
@@ -1182,13 +1203,23 @@ func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) e
 				status = "expired"
 			}
 			// cleanup_failed is retriable: a prior purge attempt may have failed
-			// because Docker was down mid-delete.
+			// because Docker was down mid-delete. Continue other sandboxes on
+			// failure so one stuck purge does not block the project.
 			if (status == "expired" || status == "cleanup_failed") && !sandbox.GraceEndsAt.After(now) {
 				if err := e.DeleteSandbox(ctx, sandbox.ID); err != nil {
-					return err
+					log.Printf("[sandbox] purge %d: %v", sandbox.ID, err)
 				}
 			}
 		}
 	}
 	return nil
+}
+
+func parseSandboxPlan(planJSON string) (SandboxPlan, error) {
+	var plan SandboxPlan
+	if strings.TrimSpace(planJSON) == "" {
+		return plan, nil
+	}
+	err := json.Unmarshal([]byte(planJSON), &plan)
+	return plan, err
 }

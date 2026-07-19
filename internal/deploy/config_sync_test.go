@@ -235,6 +235,171 @@ func TestPreviewSyncSkipsLinkedTarget(t *testing.T) {
 	}
 }
 
+func TestPreviewSyncCreateMissingService(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	e := New(s, nil, t.TempDir(), nil)
+
+	project, err := s.CreateProject("sync-create", t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+	mainEnv, _ := s.GetDefaultEnvironment(project.ID)
+	staging, _ := s.CreateEnvironment(project.ID, "Staging")
+
+	src, err := s.CreateNode(&store.CanvasNode{
+		ID: "src-worker", ProjectID: project.ID, EnvironmentID: mainEnv.ID, Label: "worker",
+	})
+	if err != nil {
+		t.Fatalf("src: %v", err)
+	}
+	_ = s.SetNodeSetting(src.ID, "service_port", "9000")
+	_ = s.SetNodeSetting(src.ID, "image", "busybox:latest")
+	_ = s.UpsertEnvVar(store.EnvVar{
+		NodeID: src.ID, Key: "ROLE", Value: "worker", Scope: store.EnvScopeRuntime, Source: store.EnvSourceManual,
+	})
+
+	// Without createMissing: unmatched only.
+	preview, err := e.PreviewSync(SyncRequest{
+		Scope:               SyncScopeEnvironment,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		IncludeSettings:     true,
+		IncludeEnv:          true,
+		CreateMissing:       false,
+	})
+	if err != nil {
+		t.Fatalf("PreviewSync: %v", err)
+	}
+	if len(preview.UnmatchedSource) != 1 || preview.UnmatchedSource[0] != "worker" {
+		t.Fatalf("unmatched = %+v", preview.UnmatchedSource)
+	}
+	if preview.ActionableCount != 0 {
+		t.Fatalf("actionable without create = %d", preview.ActionableCount)
+	}
+
+	preview, err = e.PreviewSync(SyncRequest{
+		Scope:               SyncScopeEnvironment,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		IncludeSettings:     true,
+		IncludeEnv:          true,
+		CreateMissing:       true,
+	})
+	if err != nil {
+		t.Fatalf("PreviewSync create: %v", err)
+	}
+	if len(preview.UnmatchedSource) != 0 {
+		t.Fatalf("unmatched should be empty when creating, got %+v", preview.UnmatchedSource)
+	}
+	if len(preview.Services) != 1 || !preview.Services[0].WillCreate {
+		t.Fatalf("expected willCreate service, got %+v", preview.Services)
+	}
+	if preview.ActionableCount == 0 {
+		t.Fatal("expected actionable create")
+	}
+
+	result, err := e.ApplySync(context.Background(), SyncRequest{
+		Scope:               SyncScopeEnvironment,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		IncludeSettings:     true,
+		IncludeEnv:          true,
+		CreateMissing:       true,
+	}, SyncModeStage)
+	if err != nil {
+		t.Fatalf("ApplySync: %v", err)
+	}
+	if len(result.Results) != 1 || !result.Results[0].Created {
+		t.Fatalf("apply = %+v", result.Results)
+	}
+
+	nodes, err := s.ListNodesByEnvironment(staging.ID)
+	if err != nil || len(nodes) != 1 || nodes[0].Label != "worker" {
+		t.Fatalf("target nodes = %+v err=%v", nodes, err)
+	}
+	eff, _ := s.EffectiveNodeSettings(nodes[0].ID)
+	if eff["service_port"] != "9000" || eff["image"] != "busybox:latest" {
+		t.Fatalf("settings = %+v", eff)
+	}
+	vars, _ := s.EffectiveEnvVars(nodes[0].ID)
+	found := false
+	for _, v := range vars {
+		if v.Key == "ROLE" && v.Value == "worker" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ROLE env missing: %+v", vars)
+	}
+
+	// Second sync: no longer a create — now a matched pair with no diffs.
+	preview, err = e.PreviewSync(SyncRequest{
+		Scope:               SyncScopeEnvironment,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		IncludeSettings:     true,
+		IncludeEnv:          true,
+		CreateMissing:       true,
+	})
+	if err != nil {
+		t.Fatalf("PreviewSync after: %v", err)
+	}
+	if len(preview.Services) != 1 || preview.Services[0].WillCreate {
+		t.Fatalf("after create should match, got %+v", preview.Services)
+	}
+}
+
+func TestPreviewSyncServiceScopeCreateMissing(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+	e := New(s, nil, t.TempDir(), nil)
+
+	project, _ := s.CreateProject("sync-svc-create", t.TempDir(), "")
+	mainEnv, _ := s.GetDefaultEnvironment(project.ID)
+	staging, _ := s.CreateEnvironment(project.ID, "Staging")
+	src, _ := s.CreateNode(&store.CanvasNode{
+		ID: "src-api", ProjectID: project.ID, EnvironmentID: mainEnv.ID, Label: "api",
+	})
+	_ = s.SetNodeSetting(src.ID, "service_port", "8080")
+
+	preview, err := e.PreviewSync(SyncRequest{
+		Scope:               SyncScopeService,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		SourceNodeID:        src.ID,
+		CreateMissing:       true,
+		IncludeSettings:     true,
+	})
+	if err != nil {
+		t.Fatalf("PreviewSync: %v", err)
+	}
+	if len(preview.Services) != 1 || !preview.Services[0].WillCreate {
+		t.Fatalf("expected create preview, got %+v", preview.Services)
+	}
+
+	result, err := e.ApplySync(context.Background(), SyncRequest{
+		Scope:               SyncScopeService,
+		SourceEnvironmentID: mainEnv.ID,
+		TargetEnvironmentID: staging.ID,
+		SourceNodeID:        src.ID,
+		CreateMissing:       true,
+		IncludeSettings:     true,
+	}, SyncModeStage)
+	if err != nil {
+		t.Fatalf("ApplySync: %v", err)
+	}
+	if !result.Results[0].Created {
+		t.Fatalf("result = %+v", result.Results)
+	}
+}
+
 func TestNormalizeVolumeMountsForSync(t *testing.T) {
 	raw := `[{"type":"volume","source":"draft-1-main-abcd-data","containerPath":"/data"},{"type":"bind","source":"/host/path","containerPath":"/cfg"}]`
 	got := normalizeVolumeMountsForSync(raw)

@@ -102,6 +102,23 @@ func PublicHostname(hostname string) string {
 	return hostname
 }
 
+// InternalHostnameFromAlias maps a public (*.draft.resolv.sh) or local
+// (*.draft) alias back to the canonical *.draft.local hostname used in the
+// routes table. Unknown hosts are returned unchanged.
+func InternalHostnameFromAlias(hostname string) string {
+	hostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hostname), "."))
+	if strings.HasSuffix(hostname, "."+Suffix) {
+		return hostname
+	}
+	if strings.HasSuffix(hostname, "."+PublicSuffix) {
+		return strings.TrimSuffix(hostname, "."+PublicSuffix) + "." + Suffix
+	}
+	if strings.HasSuffix(hostname, "."+LocalSuffix) && !strings.HasSuffix(hostname, "."+Suffix) {
+		return strings.TrimSuffix(hostname, "."+LocalSuffix) + "." + Suffix
+	}
+	return hostname
+}
+
 // LocalHostname returns the optional local-DNS alias for an internal Draft
 // hostname. Resolution is installed only when the user enables local domains.
 func LocalHostname(hostname string) string {

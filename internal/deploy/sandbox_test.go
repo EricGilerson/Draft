@@ -182,6 +182,42 @@ func TestSandboxLifecycleTransitionsToWarningAndExpired(t *testing.T) {
 	}
 }
 
+func TestSandboxLifecycleIdleSuspend(t *testing.T) {
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	p, err := s.CreateProject("sandbox-idle", t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, _ := s.GetDefaultEnvironment(p.ID)
+	env, err := s.CreateEnvironment(p.ID, "temporary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	last := now.Add(-3 * time.Hour)
+	sandbox, err := s.CreateSandbox(&store.Sandbox{
+		ProjectID: p.ID, EnvironmentID: env.ID, SourceEnvironmentID: source.ID,
+		Name: "temporary", Status: "active", PlanJSON: `{"suspendIdleHours":2,"ttlHours":48,"warningHours":24,"graceHours":72}`,
+		ExpiresAt: now.Add(24 * time.Hour), WarnAt: now.Add(12 * time.Hour), GraceEndsAt: now.Add(48 * time.Hour),
+		LastActivityAt: &last,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(s, nil, t.TempDir(), func(string, any) {})
+	if err := e.ReconcileSandboxLifecycle(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetSandbox(sandbox.ID)
+	if got.Status != "suspended" {
+		t.Fatalf("status = %q, want suspended", got.Status)
+	}
+}
+
 // When grace ends at the same time as expiry (graceHours=0), a single reconcile
 // pass must expire and purge — not leave the row stuck as "expired" until the
 // next minute tick.

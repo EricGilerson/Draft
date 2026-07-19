@@ -69,6 +69,11 @@ func NewRouter(s *store.Store, proxyAddr string) *Router {
 	}
 }
 
+// SetProxyAccessHandler registers a callback for HTTP proxy hits (sandbox idle).
+func (r *Router) SetProxyAccessHandler(fn func(hostname string)) {
+	r.proxy.SetAccessHandler(fn)
+}
+
 // Start boots the reverse proxy and reloads persisted routes into memory.
 func (r *Router) Start() error {
 	if err := r.proxy.Start(); err != nil {

@@ -4,7 +4,7 @@ import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
     GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
-    GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService,
+    GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService, UnlinkService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
 import {networking, store, deploy} from '../../wailsjs/go/models';
@@ -78,8 +78,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     const [promoteCloneOpen, setPromoteCloneOpen] = useState(false);
     const [promoteConsistency, setPromoteConsistency] = useState<CloneConsistency>('consistent');
+    const [unlinking, setUnlinking] = useState(false);
     const [promoting, setPromoting] = useState(false);
-    const actionsBusy = !!pendingAction || promoting;
+    const actionsBusy = !!pendingAction || promoting || unlinking;
 
     useEffect(() => {
         let cancelled = false;
@@ -211,6 +212,45 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
     const handlePromoteCloneConfirm = async () => {
         await runPromote('clone', promoteConsistency);
+    };
+
+    const runUnlink = async (become: 'fresh' | 'delete') => {
+        setError('');
+        setUnlinking(true);
+        try {
+            await UnlinkService(nodeId, become);
+            onServicesChanged?.();
+            if (become === 'fresh') {
+                const runtime = await loadLinkedAwareRuntime(nodeId);
+                setLinkInfo(runtime.linkInfo);
+                setHealth(runtime.health);
+                setDeployment(runtime.deployment);
+                setRuntimeReady(true);
+            }
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Unlink failed');
+        } finally {
+            setUnlinking(false);
+        }
+    };
+
+    const handleUnlinkFresh = async () => {
+        if (!await confirm({
+            title: 'Stop sharing?',
+            message: 'Disconnect from the root and keep this node as an empty local service. Deploy afterward to run your own container.',
+            confirmLabel: 'Become independent',
+        })) return;
+        await runUnlink('fresh');
+    };
+
+    const handleUnlinkDelete = async () => {
+        if (!await confirm({
+            title: 'Remove linked service?',
+            message: 'Delete this alias from the canvas. The root service in the other environment is not affected.',
+            confirmLabel: 'Delete alias',
+            danger: true,
+        })) return;
+        await runUnlink('delete');
     };
 
     const handleStop = async () => {
@@ -379,6 +419,13 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                                 {promoting && promoteCloneOpen ? 'Cloning…' : 'Promote + clone data'}
                             </button>
                         )}
+                        <button className="btn btn-ghost" onClick={() => void handleUnlinkFresh()} disabled={actionsBusy} title="Disconnect and keep an empty local service">
+                            {unlinking ? <Loader2 size={13} className="spin" /> : null}
+                            {unlinking ? 'Unlinking…' : 'Unlink'}
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => void handleUnlinkDelete()} disabled={actionsBusy} title="Remove this alias from the canvas">
+                            Delete alias
+                        </button>
                     </>
                 )}
                 {!isLinked && runtimeReady && !isActive && !deploying && (

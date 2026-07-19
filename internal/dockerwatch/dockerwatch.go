@@ -5,11 +5,11 @@
 // internal, delivery is via callbacks), so the main package can bridge it to
 // Wails runtime events without this package importing any UI concerns.
 //
-// Today the only consumer is the daemon up/down status indicator, so we only
-// surface daemon liveness. The stream itself already carries container, image,
-// network and volume lifecycle events — future consumers (the React Flow node
-// canvas, port manager, .env sync) register via Subscribe and filter on
-// Event.Kind / Event.Raw without opening their own connections.
+// Today the primary consumers are the daemon up/down indicator and Draft's
+// deploy engine (container die/oom → deployment status). The stream itself
+// already carries container, image, network and volume lifecycle events —
+// future consumers register via Subscribe and filter on Event.Kind /
+// Event.Raw without opening their own connections.
 package dockerwatch
 
 import (

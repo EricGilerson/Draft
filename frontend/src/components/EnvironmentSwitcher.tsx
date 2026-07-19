@@ -9,10 +9,13 @@ import {
     ListSandboxes,
     PreviewEnvironmentDuplicate,
     RedeployEnvironment,
+    RefreshSandbox,
     RenameEnvironment,
+    ResumeSandbox,
     SetDefaultEnvironment,
     StartEnvironment,
     StopEnvironment,
+    SuspendSandbox,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
@@ -25,6 +28,21 @@ import './EnvironmentSwitcher.css';
 function sandboxExpiryLabel(value: unknown): string {
     const date = new Date(value as string | number | Date);
     return Number.isNaN(date.valueOf()) ? 'Unknown expiry' : date.toLocaleString();
+}
+
+/** Relative TTL for the sandbox banner (updates via parent refresh / tick). */
+function sandboxRelativeLabel(value: unknown, prefix: string): string {
+    const date = new Date(value as string | number | Date);
+    if (Number.isNaN(date.valueOf())) return `${prefix} unknown`;
+    const ms = date.valueOf() - Date.now();
+    const abs = Math.abs(ms);
+    const minutes = Math.round(abs / 60_000);
+    if (minutes < 1) return ms >= 0 ? `${prefix} in under a minute` : `${prefix} just now`;
+    if (minutes < 60) return ms >= 0 ? `${prefix} in ${minutes}m` : `${prefix} ${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return ms >= 0 ? `${prefix} in ${hours}h` : `${prefix} ${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return ms >= 0 ? `${prefix} in ${days}d` : `${prefix} ${days}d ago`;
 }
 
 /** Confirm dialog tone tracks lifecycle: strongest while live, softest in grace. */
@@ -128,6 +146,8 @@ export default function EnvironmentSwitcher({
     const [renameEnv, setRenameEnv] = useState<store.Environment | null>(null);
     const [renameValue, setRenameValue] = useState('');
     const [stackBusy, setStackBusy] = useState(false);
+    const [sandboxBusy, setSandboxBusy] = useState(false);
+    const [nowTick, setNowTick] = useState(() => Date.now());
     const menuRef = useRef<HTMLDivElement | null>(null);
     const {confirm, alert} = useAppDialog();
 
@@ -140,6 +160,11 @@ export default function EnvironmentSwitcher({
         refresh();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId, selectedEnvironmentId]);
+
+    useEffect(() => {
+        const id = window.setInterval(() => setNowTick(Date.now()), 60_000);
+        return () => window.clearInterval(id);
+    }, []);
 
     useEffect(() => {
         if (menuEnvId == null) return;
@@ -308,6 +333,46 @@ export default function EnvironmentSwitcher({
                 title: 'Could not delete sandbox',
                 message: String(e),
             });
+        }
+    };
+
+    const refreshSelectedSandbox = async (mode: 'tip' | 'same') => {
+        if (!selectedSandbox || sandboxBusy) return;
+        setSandboxBusy(true);
+        try {
+            await RefreshSandbox(selectedSandbox.id, mode);
+            refresh();
+            onStackActionDone?.();
+            onServicesChanged?.();
+        } catch (e) {
+            void alert({
+                title: mode === 'tip' ? 'Could not refresh to tip' : 'Could not rebuild at same SHA',
+                message: String(e),
+            });
+        } finally {
+            setSandboxBusy(false);
+        }
+    };
+
+    const toggleSandboxSuspend = async () => {
+        if (!selectedSandbox || sandboxBusy) return;
+        setSandboxBusy(true);
+        try {
+            if (selectedSandbox.status === 'suspended') {
+                await ResumeSandbox(selectedSandbox.id);
+            } else {
+                await SuspendSandbox(selectedSandbox.id);
+            }
+            refresh();
+            onStackActionDone?.();
+            onServicesChanged?.();
+        } catch (e) {
+            void alert({
+                title: selectedSandbox.status === 'suspended' ? 'Could not resume sandbox' : 'Could not suspend sandbox',
+                message: String(e),
+            });
+        } finally {
+            setSandboxBusy(false);
         }
     };
 
@@ -536,11 +601,11 @@ export default function EnvironmentSwitcher({
                                 from {sandboxSourceEnv.name}
                             </span>
                         )}
-                        <span className="environment-sandbox-expiry">
+                        <span className="environment-sandbox-expiry" title={sandboxExpiryLabel(selectedSandbox.expiresAt)} data-tick={nowTick}>
                             <Clock3 size={12}/>
                             {selectedSandbox.status === 'expired' || selectedSandbox.status === 'cleanup_failed'
-                                ? `Deletes ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`
-                                : `Expires ${sandboxExpiryLabel(selectedSandbox.expiresAt)} · deletes ${sandboxExpiryLabel(selectedSandbox.graceEndsAt)}`}
+                                ? sandboxRelativeLabel(selectedSandbox.graceEndsAt, 'Deletes')
+                                : `${sandboxRelativeLabel(selectedSandbox.expiresAt, 'Expires')} · ${sandboxRelativeLabel(selectedSandbox.graceEndsAt, 'deletes')}`}
                         </span>
                     </div>
                     <div className="environment-sandbox-banner-actions">
@@ -552,6 +617,37 @@ export default function EnvironmentSwitcher({
                             >
                                 Open source
                             </button>
+                        )}
+                        {(selectedSandbox.status === 'active' || selectedSandbox.status === 'warning' || selectedSandbox.status === 'suspended') && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    disabled={sandboxBusy}
+                                    title="Redeploy at current branch/PR tip"
+                                    onClick={() => void refreshSelectedSandbox('tip')}
+                                >
+                                    <RefreshCw size={13}/>
+                                    Tip
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    disabled={sandboxBusy}
+                                    title="Rebuild at the recorded commit SHA"
+                                    onClick={() => void refreshSelectedSandbox('same')}
+                                >
+                                    Same SHA
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    disabled={sandboxBusy}
+                                    onClick={() => void toggleSandboxSuspend()}
+                                >
+                                    {selectedSandbox.status === 'suspended' ? 'Resume' : 'Suspend'}
+                                </button>
+                            </>
                         )}
                         <button
                             type="button"

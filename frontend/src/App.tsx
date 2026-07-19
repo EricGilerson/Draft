@@ -4,6 +4,7 @@ import {GetAppSettings, GetDefaultEnvironment, ListProjectServicesSummary, ListP
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
+import HostnameHealth from './components/HostnameHealth';
 import ActivityTicker from './components/ActivityTicker';
 import {AppDialogProvider} from './components/AppDialogProvider';
 import {BuildLogProvider} from './components/BuildLogProvider';
@@ -241,6 +242,7 @@ function App() {
                     <div className="app-main">
                         <header className="topbar">
                             <ActivityTicker/>
+                            <HostnameHealth/>
                             <DockerIndicator/>
                         </header>
                         <main className="app-content">

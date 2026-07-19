@@ -2081,6 +2081,7 @@ export namespace deploy {
 	export class SyncApplyNodeResult {
 	    nodeId: string;
 	    label: string;
+	    created: boolean;
 	    staged: boolean;
 	    redeployed: boolean;
 	    error?: string;
@@ -2093,6 +2094,7 @@ export namespace deploy {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.nodeId = source["nodeId"];
 	        this.label = source["label"];
+	        this.created = source["created"];
 	        this.staged = source["staged"];
 	        this.redeployed = source["redeployed"];
 	        this.error = source["error"];
@@ -2198,6 +2200,7 @@ export namespace deploy {
 	    label: string;
 	    sourceNodeId: string;
 	    targetNodeId: string;
+	    willCreate: boolean;
 	    skipped: boolean;
 	    skipReason?: string;
 	    settings: SyncSettingDiff[];
@@ -2214,6 +2217,7 @@ export namespace deploy {
 	        this.label = source["label"];
 	        this.sourceNodeId = source["sourceNodeId"];
 	        this.targetNodeId = source["targetNodeId"];
+	        this.willCreate = source["willCreate"];
 	        this.skipped = source["skipped"];
 	        this.skipReason = source["skipReason"];
 	        this.settings = this.convertValues(source["settings"], SyncSettingDiff);
@@ -2248,6 +2252,7 @@ export namespace deploy {
 	    targetEnvName: string;
 	    includeSettings: boolean;
 	    includeEnv: boolean;
+	    createMissing: boolean;
 	    services: SyncServicePreview[];
 	    unmatchedSource: string[];
 	    unmatchedTarget: string[];
@@ -2266,6 +2271,7 @@ export namespace deploy {
 	        this.targetEnvName = source["targetEnvName"];
 	        this.includeSettings = source["includeSettings"];
 	        this.includeEnv = source["includeEnv"];
+	        this.createMissing = source["createMissing"];
 	        this.services = this.convertValues(source["services"], SyncServicePreview);
 	        this.unmatchedSource = source["unmatchedSource"];
 	        this.unmatchedTarget = source["unmatchedTarget"];
@@ -2298,6 +2304,7 @@ export namespace deploy {
 	    targetNodeId?: string;
 	    includeSettings: boolean;
 	    includeEnv: boolean;
+	    createMissing: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncRequest(source);
@@ -2312,6 +2319,7 @@ export namespace deploy {
 	        this.targetNodeId = source["targetNodeId"];
 	        this.includeSettings = source["includeSettings"];
 	        this.includeEnv = source["includeEnv"];
+	        this.createMissing = source["createMissing"];
 	    }
 	}
 	
@@ -4207,6 +4215,8 @@ export namespace store {
 	    // Go type: time
 	    suspendedAt?: any;
 	    // Go type: time
+	    lastActivityAt?: any;
+	    // Go type: time
 	    createdAt: any;
 	    // Go type: time
 	    updatedAt: any;
@@ -4230,6 +4240,7 @@ export namespace store {
 	        this.warnAt = this.convertValues(source["warnAt"], null);
 	        this.graceEndsAt = this.convertValues(source["graceEndsAt"], null);
 	        this.suspendedAt = this.convertValues(source["suspendedAt"], null);
+	        this.lastActivityAt = this.convertValues(source["lastActivityAt"], null);
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }

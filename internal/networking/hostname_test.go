@@ -149,3 +149,18 @@ func TestGenerateUID(t *testing.T) {
 		t.Errorf("two UIDs are identical: %s", uid)
 	}
 }
+
+func TestInternalHostnameFromAlias(t *testing.T) {
+	internal := "api.myapp.sand.pr-1.abcd.draft.local"
+	if got := InternalHostnameFromAlias(internal); got != internal {
+		t.Fatalf("internal passthrough = %q", got)
+	}
+	public := "api.myapp.sand.pr-1.abcd.draft.resolv.sh"
+	if got := InternalHostnameFromAlias(public); got != internal {
+		t.Fatalf("public → internal = %q, want %q", got, internal)
+	}
+	local := "api.myapp.sand.pr-1.abcd.draft"
+	if got := InternalHostnameFromAlias(local); got != internal {
+		t.Fatalf("local → internal = %q, want %q", got, internal)
+	}
+}

@@ -42,6 +42,7 @@ function actionClass(action: string): string {
     switch (action) {
         case 'set':
         case 'restamp':
+        case 'create':
             return 'sync-action sync-action-set';
         case 'skip':
             return 'sync-action sync-action-skip';
@@ -68,6 +69,7 @@ export default function SyncConfigDialog({
     const [targetNode, setTargetNode] = useState(targetNodeId || '');
     const [includeSettings, setIncludeSettings] = useState(true);
     const [includeEnv, setIncludeEnv] = useState(true);
+    const [createMissing, setCreateMissing] = useState(true);
     const [preview, setPreview] = useState<deploy.SyncPreview | null>(null);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [applying, setApplying] = useState(false);
@@ -125,7 +127,7 @@ export default function SyncConfigDialog({
         const src = sourceNodes.find((n) => n.id === id);
         if (!src) return;
         const match = findByLabel(targetNodes, src.label);
-        if (match) setTargetNode(match.id);
+        setTargetNode(match?.id || '');
     };
 
     const selectTargetService = (id: string) => {
@@ -137,14 +139,18 @@ export default function SyncConfigDialog({
     };
 
     const canPreview = useMemo(() => {
-        if (!includeSettings && !includeEnv) return false;
+        if (!includeSettings && !includeEnv && !createMissing) return false;
         if (!sourceEnvId || !targetEnvId) return false;
         if (Number(sourceEnvId) === Number(targetEnvId) && scope === 'environment') return false;
         if (scope === 'service') {
-            return Boolean(sourceNodeId && targetNode && sourceNodeId !== targetNode);
+            if (!sourceNodeId) return false;
+            if (sourceNodeId === targetNode) return false;
+            // Create-missing allows empty target when the source service is absent there.
+            if (!targetNode && !createMissing) return false;
+            return true;
         }
         return true;
-    }, [includeSettings, includeEnv, sourceEnvId, targetEnvId, scope, sourceNodeId, targetNode]);
+    }, [includeSettings, includeEnv, createMissing, sourceEnvId, targetEnvId, scope, sourceNodeId, targetNode]);
 
     const buildRequest = (): deploy.SyncRequest =>
         deploy.SyncRequest.createFrom({
@@ -155,6 +161,7 @@ export default function SyncConfigDialog({
             targetNodeId: scope === 'service' ? targetNode : '',
             includeSettings,
             includeEnv,
+            createMissing,
         });
 
     const runPreview = () => {
@@ -173,7 +180,7 @@ export default function SyncConfigDialog({
     useEffect(() => {
         setPreview(null);
         setApplyMessage('');
-    }, [scope, sourceEnvId, targetEnvId, sourceNodeId, targetNode, includeSettings, includeEnv]);
+    }, [scope, sourceEnvId, targetEnvId, sourceNodeId, targetNode, includeSettings, includeEnv, createMissing]);
 
     const runApply = async (mode: 'stage' | 'stageAndRedeploy') => {
         if (!preview || preview.actionableCount === 0 || applying) return;
@@ -184,15 +191,26 @@ export default function SyncConfigDialog({
             const result = await ApplySync(buildRequest(), mode);
             const failed = (result.results ?? []).filter((r) => r.error);
             const staged = (result.results ?? []).filter((r) => r.staged).length;
+            const created = (result.results ?? []).filter((r) => r.created).length;
             if (failed.length > 0) {
                 setError(
                     failed.map((r) => `${r.label || r.nodeId}: ${r.error}`).join('\n'),
                 );
             } else {
+                const parts: string[] = [];
+                if (created > 0) {
+                    parts.push(`created ${created} service${created === 1 ? '' : 's'}`);
+                }
+                if (staged > created) {
+                    parts.push(`updated ${staged - created}`);
+                } else if (created === 0) {
+                    parts.push(`staged ${staged} service${staged === 1 ? '' : 's'}`);
+                }
+                const summary = parts.join(', ');
                 setApplyMessage(
                     mode === 'stageAndRedeploy'
-                        ? `Staged and redeployed ${staged} service${staged === 1 ? '' : 's'}.`
-                        : `Staged ${staged} service${staged === 1 ? '' : 's'}. Changes apply on next deploy.`,
+                        ? `${summary.charAt(0).toUpperCase()}${summary.slice(1)} and redeployed.`
+                        : `${summary.charAt(0).toUpperCase()}${summary.slice(1)}. Config changes apply on next deploy.`,
                 );
             }
             onApplied?.();
@@ -245,9 +263,10 @@ export default function SyncConfigDialog({
         >
             <div className="sync-dialog">
                 <p className="sync-dialog-lead">
-                    Copy configuration from a source environment into a target. Changes are staged
-                    (like the draft bar) unless you choose Sync &amp; redeploy. Template-generated
-                    secrets are restamped for the target identity, not pasted.
+                    Copy configuration from a source environment into a target. Matched services get
+                    staged settings/env updates (like the draft bar). Missing services can be created
+                    on the target with a fresh UID, auto-named volumes, and restamped template
+                    credentials. Sync does not delete target-only services.
                 </p>
 
                 <div className="sync-dialog-grid">
@@ -291,6 +310,14 @@ export default function SyncConfigDialog({
                                     onChange={(e) => setIncludeEnv(e.target.checked)}
                                 />
                                 Environment variables
+                            </label>
+                            <label className="sync-check">
+                                <input
+                                    type="checkbox"
+                                    checked={createMissing}
+                                    onChange={(e) => setCreateMissing(e.target.checked)}
+                                />
+                                Create missing services
                             </label>
                         </div>
                     </div>
@@ -352,11 +379,18 @@ export default function SyncConfigDialog({
                                 value={targetNode}
                                 onChange={(e) => selectTargetService(e.target.value)}
                             >
-                                <option value="">Select…</option>
+                                <option value="">
+                                    {createMissing ? 'Create on target…' : 'Select…'}
+                                </option>
                                 {targetNodes.map((n) => (
                                     <option key={n.id} value={n.id}>{n.label}</option>
                                 ))}
                             </select>
+                            {scope === 'service' && createMissing && !targetNode && sourceNodeId && (
+                                <span className="settings-hint">
+                                    No target selected — sync will create this service on the target environment.
+                                </span>
+                            )}
                         </div>
                     </div>
                 )}
@@ -387,13 +421,13 @@ export default function SyncConfigDialog({
                             <div className="sync-unmatched">
                                 {preview.unmatchedSource?.length > 0 && (
                                     <p>
-                                        Only in source:{' '}
+                                        Only in source (not created — enable Create missing):{' '}
                                         {preview.unmatchedSource.join(', ')}
                                     </p>
                                 )}
                                 {preview.unmatchedTarget?.length > 0 && (
                                     <p>
-                                        Only in target:{' '}
+                                        Only in target (left alone — sync does not delete):{' '}
                                         {preview.unmatchedTarget.join(', ')}
                                     </p>
                                 )}
@@ -401,10 +435,15 @@ export default function SyncConfigDialog({
                         )}
 
                         {(preview.services ?? []).map((svc) => (
-                            <div key={svc.targetNodeId} className="sync-service-card">
+                            <div
+                                key={svc.willCreate ? `create-${svc.sourceNodeId}` : svc.targetNodeId}
+                                className={`sync-service-card${svc.willCreate ? ' sync-service-card--create' : ''}`}
+                            >
                                 <div className="sync-service-head">
                                     <strong>{svc.label}</strong>
-                                    {svc.skipped ? (
+                                    {svc.willCreate ? (
+                                        <span className="sync-badge sync-badge-create">Will create</span>
+                                    ) : svc.skipped ? (
                                         <span className="sync-badge sync-badge-skip">{svc.skipReason}</span>
                                     ) : (
                                         <span className="sync-badge">
@@ -421,7 +460,7 @@ export default function SyncConfigDialog({
                                     </ul>
                                 )}
 
-                                {!svc.skipped && includeSettings && (svc.settings?.length ?? 0) > 0 && (
+                                {!svc.skipped && (svc.willCreate || includeSettings) && (svc.settings?.length ?? 0) > 0 && (
                                     <div className="sync-section">
                                         <div className="sync-section-title">Settings</div>
                                         <table className="sync-table">
@@ -453,7 +492,7 @@ export default function SyncConfigDialog({
                                     </div>
                                 )}
 
-                                {!svc.skipped && includeEnv && (svc.env?.length ?? 0) > 0 && (
+                                {!svc.skipped && (svc.willCreate || includeEnv) && (svc.env?.length ?? 0) > 0 && (
                                     <div className="sync-section">
                                         <div className="sync-section-title">Environment variables</div>
                                         <table className="sync-table">

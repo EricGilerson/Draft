@@ -97,6 +97,10 @@ func (s *Store) CreateSandbox(sandbox *Sandbox, links []SandboxLink, repositorie
 	if strings.TrimSpace(sandbox.Purpose) == "" {
 		sandbox.Purpose = "preview"
 	}
+	if sandbox.LastActivityAt == nil {
+		now := time.Now().UTC()
+		sandbox.LastActivityAt = &now
+	}
 	if err := s.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(sandbox).Error; err != nil {
 			return err
@@ -196,8 +200,22 @@ func (s *Store) UpdateSandboxPlanJSON(sandboxID uint, planJSON string) error {
 func (s *Store) UpdateSandboxStatus(id uint, status string, suspendedAt *time.Time) error {
 	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{"status": status, "suspended_at": suspendedAt}).Error
 }
+
+// TouchSandboxActivity records recent use for idle auto-suspend.
+func (s *Store) TouchSandboxActivity(id uint, at time.Time) error {
+	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Update("last_activity_at", at.UTC()).Error
+}
+
 func (s *Store) ExtendSandbox(id uint, expiresAt, warnAt, graceEndsAt time.Time) error {
-	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{"status": "active", "expires_at": expiresAt, "warn_at": warnAt, "grace_ends_at": graceEndsAt, "suspended_at": nil}).Error
+	now := time.Now().UTC()
+	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{
+		"status":           "active",
+		"expires_at":       expiresAt,
+		"warn_at":          warnAt,
+		"grace_ends_at":    graceEndsAt,
+		"suspended_at":     nil,
+		"last_activity_at": now,
+	}).Error
 }
 func (s *Store) DueSandboxes(now time.Time) ([]Sandbox, error) {
 	var rows []Sandbox

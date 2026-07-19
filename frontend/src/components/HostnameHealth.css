@@ -1,0 +1,41 @@
+.hostname-health {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+    user-select: none;
+    white-space: nowrap;
+}
+
+.hostname-health-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background-color: var(--text-faint);
+    flex-shrink: 0;
+}
+
+.hostname-health--ok .hostname-health-dot {
+    background-color: var(--green);
+    box-shadow: 0 0 0 2px rgba(104, 189, 120, 0.12);
+}
+
+.hostname-health--warn .hostname-health-dot {
+    background-color: var(--yellow);
+}
+
+.hostname-health--error .hostname-health-dot {
+    background-color: var(--red);
+    box-shadow: 0 0 0 2px rgba(239, 111, 104, 0.12);
+}
+
+.hostname-health--checking .hostname-health-dot {
+    background-color: var(--yellow);
+    animation: hostname-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hostname-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}

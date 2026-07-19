@@ -140,6 +140,14 @@
     text-align: right;
 }
 
+.sync-badge-create {
+    color: var(--green, #68bd78);
+}
+
+.sync-service-card--create {
+    border-color: rgba(104, 189, 120, 0.35);
+}
+
 .sync-section {
     margin-top: 8px;
 }
