@@ -616,6 +616,16 @@ func (c *Client) RunCommand(ctx context.Context, nodeID string, cmd []string, wo
 	return out, err
 }
 
+// MintShellTicket mints a short-lived single-use ticket for WebSocket /exec/attach.
+func (c *Client) MintShellTicket(ctx context.Context, nodeID, shell string) (*execTicketResponse, error) {
+	var out execTicketResponse
+	err := c.postJSON(ctx, "/exec/ticket", map[string]any{"nodeId": nodeID, "shell": shell}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListProjects returns all projects.
 func (c *Client) ListProjects(ctx context.Context) ([]store.Project, error) {
 	var out []store.Project

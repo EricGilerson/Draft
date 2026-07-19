@@ -1620,10 +1620,40 @@ func (a *App) DeleteProjectEnvVar(projectID uint, key string) error {
 	return c.DeleteProjectEnvVar(a.ctx, projectID, key)
 }
 
-// DaemonConnection returns the daemon's 127.0.0.1 address and auth token so the
-// frontend can open a direct WebSocket to it (the interactive shell). Browsers
-// cannot set custom headers on a WS handshake, so the token is passed as a query
-// param on those endpoints.
+// MintShellAttach returns the daemon address plus a short-lived single-use
+// ticket for opening the interactive shell WebSocket. The long-lived daemon
+// token is never returned to the frontend.
+func (a *App) MintShellAttach(nodeID, shell string) (ShellAttachInfo, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return ShellAttachInfo{}, err
+	}
+	if c == nil {
+		return ShellAttachInfo{}, errNoStore
+	}
+	ticket, err := c.MintShellTicket(a.ctx, nodeID, shell)
+	if err != nil {
+		return ShellAttachInfo{}, err
+	}
+	return ShellAttachInfo{
+		Addr:      c.State().Addr,
+		Ticket:    ticket.Ticket,
+		NodeID:    ticket.NodeID,
+		ExpiresAt: ticket.ExpiresAt,
+	}, nil
+}
+
+// ShellAttachInfo is enough for the frontend to open /exec/attach over WebSocket
+// without holding the daemon session token.
+type ShellAttachInfo struct {
+	Addr      string    `json:"addr"`
+	Ticket    string    `json:"ticket"`
+	NodeID    string    `json:"nodeId"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// DaemonConnection is retained for compatibility but no longer returns the
+// daemon token. Prefer MintShellAttach for the interactive shell.
 func (a *App) DaemonConnection() (DaemonConnectionInfo, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
@@ -1633,14 +1663,13 @@ func (a *App) DaemonConnection() (DaemonConnectionInfo, error) {
 		return DaemonConnectionInfo{}, errNoStore
 	}
 	state := c.State()
-	return DaemonConnectionInfo{Addr: state.Addr, Token: state.Token}, nil
+	return DaemonConnectionInfo{Addr: state.Addr}, nil
 }
 
-// DaemonConnectionInfo is the address + auth token needed to talk to the
-// daemon directly (e.g. opening a WebSocket for the interactive shell).
+// DaemonConnectionInfo is the daemon loopback address. Token is omitted so the
+// frontend cannot put the long-lived credential in a WebSocket URL.
 type DaemonConnectionInfo struct {
-	Addr  string `json:"addr"`
-	Token string `json:"token"`
+	Addr string `json:"addr"`
 }
 
 // CheckDocker returns the last known Docker daemon status from the watcher.

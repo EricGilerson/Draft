@@ -260,7 +260,7 @@ Important model details:
 - Deployment history, active deployment lookup, stop, restart, cancel-build behavior.
 - **Rollback**: re-run a historical deployment’s image when still retained; `RollbackEligibility` drives UI; image-mode can re-pull if missing.
 - **Image retention (`keep_images`)**: default `last` keeps N-1 under `…:N-previous` for fast `run-image` rollback; `none` removes priors on cutover; `all` keeps every image. When the image is gone, build-mode rollbacks with a recorded `source_sha` rebuild from that commit (`rebuild-sha`) using current settings.
-- Live container logs, **service shell** (`ShellTab` / `RunCommand` with terminal resize), and service metrics with port-based reachability checks.
+- Live container logs, **service shell** (`ShellTab` / `RunCommand` with terminal resize; WebSocket attach uses a short-lived single-use ticket so the daemon session token never appears in the URL), and service metrics with port-based reachability checks.
 - Lightweight **node health** API for canvas status pills.
 - Port leasing plus local hostname/routing (internal + public hostnames).
 - **TCP routes**: `route_protocol=tcp` + host port; public/internal endpoints without `http://` scheme; HTTP remains reverse-proxied.
@@ -451,7 +451,6 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 - Branch/worktree UX beyond the current pinned-ref deploy path (sandboxes can pin per-repo refs at create, but there is no first-class worktree workspace model).
 - Explicit depends-on edges beyond inferred `@{Service…}` connection waves for stack start (graph is derived from env refs today).
 - Secrets-at-rest encryption (deferred; local desktop threat model similar to a committed `.env` once the filesystem is owned).
-- Shell WebSocket auth without putting a token in the query string (token can appear in DevTools / local process lists).
 
 ## Conventions And Constraints
 

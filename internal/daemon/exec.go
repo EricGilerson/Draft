@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -99,6 +101,39 @@ func (s *Server) handleExecAttach(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	<-ctx.Done()
+}
+
+// execTicketRequest is the body for /exec/ticket.
+type execTicketRequest struct {
+	NodeID string `json:"nodeId"`
+	Shell  string `json:"shell,omitempty"`
+}
+
+// execTicketResponse is returned by /exec/ticket.
+type execTicketResponse struct {
+	Ticket    string    `json:"ticket"`
+	NodeID    string    `json:"nodeId"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// handleExecTicket mints a short-lived single-use ticket for /exec/attach.
+// Requires header auth (X-Draft-Token); never accepts query credentials.
+func (s *Server) handleExecTicket(w http.ResponseWriter, r *http.Request) {
+	var req execTicketRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	nodeID := strings.TrimSpace(req.NodeID)
+	if nodeID == "" {
+		http.Error(w, "nodeId is required", http.StatusBadRequest)
+		return
+	}
+	ticket, expiresAt, err := s.ensureShellTickets().mint(nodeID, strings.TrimSpace(req.Shell))
+	if err != nil {
+		http.Error(w, "failed to mint ticket", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, execTicketResponse{Ticket: ticket, NodeID: nodeID, ExpiresAt: expiresAt})
 }
 
 // execRunRequest is the body for /exec/run: a one-shot, non-interactive command.

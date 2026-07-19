@@ -378,6 +378,10 @@ export function ListVolumesOverview() {
   return window['go']['main']['App']['ListVolumesOverview']();
 }
 
+export function MintShellAttach(arg1, arg2) {
+  return window['go']['main']['App']['MintShellAttach'](arg1, arg2);
+}
+
 export function ParseDockerfileExpose(arg1, arg2) {
   return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
 }

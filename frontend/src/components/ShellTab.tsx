@@ -3,7 +3,7 @@ import {Terminal as XTerm} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
 import {Play, Square} from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
-import {DaemonConnection, RunCommand} from '../../wailsjs/go/main/App';
+import {MintShellAttach, RunCommand} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import {useLinkedServiceTarget} from '../lib/linkedService';
 import './ShellTab.css';
@@ -17,6 +17,8 @@ const SHELLS = ['sh', 'bash', 'ash', 'zsh'];
 
 // ShellTab opens a live, interactive TTY in the service's running container
 // via a WebSocket to the daemon's /exec/attach endpoint, rendered with xterm.js.
+// Auth uses a short-lived single-use ticket (minted over Wails/HTTP), never the
+// long-lived daemon token in the WebSocket URL.
 // The connection is bound to the tab's lifetime: switching tabs or unmounting
 // closes the WS, which tears down the exec on the daemon side.
 export default function ShellTab({nodeId}: ShellTabProps) {
@@ -78,11 +80,11 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             term.write('Connecting to service shell…\r\n');
 
             let addr = '';
-            let token = '';
+            let ticket = '';
             try {
-                const info = await DaemonConnection();
+                const info = await MintShellAttach(targetNodeId, shellRef.current);
                 addr = info.addr;
-                token = info.token;
+                ticket = info.ticket;
             } catch (e: any) {
                 if (cancelled) return;
                 const msg = typeof e === 'string' ? e : e?.message || 'daemon unavailable';
@@ -93,7 +95,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             }
 
             if (cancelled) return;
-            const url = `ws://${addr}/exec/attach?nodeId=${encodeURIComponent(targetNodeId)}&shell=${encodeURIComponent(shellRef.current)}&token=${encodeURIComponent(token)}`;
+            const url = `ws://${addr}/exec/attach?nodeId=${encodeURIComponent(targetNodeId)}&shell=${encodeURIComponent(shellRef.current)}&ticket=${encodeURIComponent(ticket)}`;
             const ws = new WebSocket(url);
             ws.binaryType = 'arraybuffer';
             wsRef.current = ws;

@@ -43,6 +43,7 @@ type Server struct {
 	state         State
 	disableDocker bool
 	disableIdle   bool
+	shellTickets  *shellTicketStore
 }
 
 func RunProcess(ctx context.Context) error {
@@ -85,7 +86,7 @@ func RunProcess(ctx context.Context) error {
 	engine := deploy.New(s, router, logDir, hub.publish)
 	router.SetProxyAccessHandler(engine.NoteProxyHostAccess)
 	watch := dockerwatch.New()
-	srv := &Server{store: s, router: router, engine: engine, hub: hub, watch: watch}
+	srv := &Server{store: s, router: router, engine: engine, hub: hub, watch: watch, shellTickets: newShellTicketStore()}
 	return srv.Run(ctx)
 }
 
@@ -258,6 +259,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/docker/prune", s.handleDockerPrune)
 	mux.HandleFunc("/hooks/recheck", s.handleGitRecheck)
 	mux.HandleFunc("/exec/attach", s.handleExecAttach)
+	mux.HandleFunc("/exec/ticket", s.handleExecTicket)
 	mux.HandleFunc("/exec/run", s.handleExecRun)
 	mux.HandleFunc("/project/update", s.handleUpdateProject)
 	mux.HandleFunc("/project/delete", s.handleDeleteProject)
@@ -298,20 +300,41 @@ func (s *Server) routes() http.Handler {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Browsers cannot set custom headers on a WebSocket handshake, so the
-		// interactive-shell endpoints accept the token as a ?token= query param.
-		if r.URL.Path != "/health" {
-			token := r.Header.Get(tokenHeader)
-			if token == "" && strings.HasPrefix(r.URL.Path, "/exec/") {
-				token = r.URL.Query().Get("token")
-			}
-			if token != s.state.Token {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+		if r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Interactive shell WebSocket: browsers cannot set custom headers, so
+		// /exec/attach accepts a short-lived single-use ?ticket= minted over
+		// header-authenticated HTTP. The long-lived daemon token is never
+		// accepted in the query string.
+		if r.URL.Path == "/exec/attach" {
+			if r.Header.Get(tokenHeader) == s.state.Token {
+				next.ServeHTTP(w, r)
 				return
 			}
+			ticket := r.URL.Query().Get("ticket")
+			nodeID := r.URL.Query().Get("nodeId")
+			if s.ensureShellTickets().consume(ticket, nodeID) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get(tokenHeader) != s.state.Token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (s *Server) ensureShellTickets() *shellTicketStore {
+	if s.shellTickets == nil {
+		s.shellTickets = newShellTicketStore()
+	}
+	return s.shellTickets
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
