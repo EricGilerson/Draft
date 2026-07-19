@@ -211,6 +211,7 @@ func TestMCPIntegrationDiscoveryAndConfig(t *testing.T) {
 		"key":         "API_KEY",
 		"value":       "super-secret",
 		"description": "test",
+		"confirm":     true,
 	})
 	if isErr {
 		t.Fatalf("set secret: %s", text)

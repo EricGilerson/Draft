@@ -1,4 +1,6 @@
 import {ArrowRight, Boxes, FolderPlus} from 'lucide-react';
+import {useEffect, useState} from 'react';
+import {ListSandboxes} from '../../wailsjs/go/main/App';
 import {store} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import {Skeleton, SkeletonBlock, SkeletonFeedRows, SkeletonListCards, SkeletonStats} from '../components/Skeleton';
@@ -13,6 +15,34 @@ type OverviewViewProps = {
     onCreateProject: () => void;
     onOpenProject: (project: store.Project, environmentId?: number) => void;
 };
+
+type UrgentSandbox = {
+    sandbox: store.Sandbox;
+    projectName: string;
+};
+
+function sandboxUrgencyRank(status: string): number {
+    switch (status) {
+        case 'cleanup_failed': return 0;
+        case 'expired': return 1;
+        case 'warning': return 2;
+        case 'suspended': return 3;
+        default: return 9;
+    }
+}
+
+function formatSandboxExpiry(value: any): string {
+    if (!value) return '';
+    const ms = new Date(value).getTime() - Date.now();
+    if (Number.isNaN(ms)) return '';
+    const abs = Math.abs(ms);
+    const minutes = Math.round(abs / 60000);
+    if (minutes < 60) return ms >= 0 ? `in ${minutes}m` : `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return ms >= 0 ? `in ${hours}h` : `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return ms >= 0 ? `in ${days}d` : `${days}d ago`;
+}
 
 const ACTIVITY_COLORS: Record<ActivityPreview['type'], string> = {
     start: STATUS_COLORS.running,
@@ -112,6 +142,33 @@ export default function OverviewView({
     onCreateProject,
     onOpenProject,
 }: OverviewViewProps) {
+    const [urgentSandboxes, setUrgentSandboxes] = useState<UrgentSandbox[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (loading || projects.length === 0) {
+            setUrgentSandboxes([]);
+            return;
+        }
+        Promise.all(
+            projects.map(async (summary) => {
+                const rows = await ListSandboxes(summary.project.id).catch(() => [] as store.Sandbox[]);
+                return (rows ?? [])
+                    .filter((s) => ['warning', 'expired', 'cleanup_failed', 'suspended'].includes(s.status))
+                    .map((sandbox) => ({sandbox, projectName: summary.project.name}));
+            }),
+        ).then((groups) => {
+            if (cancelled) return;
+            const flat = groups.flat().sort((a, b) => {
+                const rank = sandboxUrgencyRank(a.sandbox.status) - sandboxUrgencyRank(b.sandbox.status);
+                if (rank !== 0) return rank;
+                return new Date(a.sandbox.graceEndsAt).getTime() - new Date(b.sandbox.graceEndsAt).getTime();
+            });
+            setUrgentSandboxes(flat);
+        });
+        return () => { cancelled = true; };
+    }, [loading, projects]);
+
     const runningServices = projects.flatMap((project) => project.services).filter((service) => service.status === 'running').length;
     const totalServices = projects.flatMap((project) => project.services).length;
     const totalEnvironments = projects.reduce((n, project) => n + (project.environmentCount || project.environments.length), 0);
@@ -187,6 +244,58 @@ export default function OverviewView({
                         <div className="metric-subtle">{runningServices} running</div>
                     </div>
                 </div>
+
+                {urgentSandboxes.length > 0 && (
+                    <section className="panel" style={{marginTop: 14}}>
+                        <div className="panel-header">
+                            <div>
+                                <h2 className="panel-title">Sandbox attention</h2>
+                                <p className="panel-description">
+                                    Expiring, suspended, or failed cleanups across projects.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="stack-list">
+                            {urgentSandboxes.map(({sandbox, projectName}) => (
+                                <button
+                                    key={sandbox.id}
+                                    type="button"
+                                    className="list-row-button"
+                                    onClick={() => {
+                                        const summary = projects.find((p) => p.project.id === sandbox.projectId);
+                                        if (summary) onOpenProject(summary.project, sandbox.environmentId);
+                                    }}
+                                >
+                                    <div className="list-row-main">
+                                        <div className="list-row-title">
+                                            <span
+                                                className="status-dot"
+                                                style={{
+                                                    background: sandbox.status === 'cleanup_failed'
+                                                        ? STATUS_COLORS.error
+                                                        : sandbox.status === 'warning' || sandbox.status === 'expired'
+                                                            ? STATUS_COLORS.starting
+                                                            : STATUS_COLORS.stopped,
+                                                }}
+                                            />
+                                            <span>{sandbox.name}</span>
+                                        </div>
+                                        <div className="list-row-subtle">
+                                            {projectName} · {sandbox.status}
+                                            {sandbox.status === 'cleanup_failed' && sandbox.cleanupError
+                                                ? ` — ${sandbox.cleanupError}`
+                                                : ''}
+                                            {sandbox.status !== 'cleanup_failed'
+                                                ? ` · grace ${formatSandboxExpiry(sandbox.graceEndsAt)}`
+                                                : ''}
+                                        </div>
+                                    </div>
+                                    <ArrowRight size={14}/>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+                )}
 
                 <div className="overview-grid">
                     <section className="panel panel-emphasis">

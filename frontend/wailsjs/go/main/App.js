@@ -414,6 +414,10 @@ export function PreviewSandbox(arg1) {
   return window['go']['main']['App']['PreviewSandbox'](arg1);
 }
 
+export function PreviewSandboxPurge(arg1) {
+  return window['go']['main']['App']['PreviewSandboxPurge'](arg1);
+}
+
 export function PreviewStagedChanges(arg1, arg2) {
   return window['go']['main']['App']['PreviewStagedChanges'](arg1, arg2);
 }

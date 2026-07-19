@@ -293,8 +293,8 @@ Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Deepe
 
 - No first-class branch/worktree workspace model (pinned refs + sandbox repo pins only).
 - Explicit depends-on edges are not first-class; stack start orders by inferred `@{Service…}` connections.
-- Config sync can create missing source services; target-only extras still need a delete-or-promote dialog.
-- Overview sandbox urgency / shared-root map / PR one-click create are not polished yet.
+- Secrets remain plaintext in local SQLite (same class of risk as a local `.env` once the machine is owned).
+- Interactive shell auth currently uses a short-lived token in the WebSocket URL.
 
 ---
 

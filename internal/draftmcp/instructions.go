@@ -32,7 +32,7 @@ Check draft_service_config_status / draft_preview_staged_changes before deployin
 
 ## Safety
 Secrets redacted unless includeSecrets=true. Prefer {{secret.KEY}} / {{project.KEY}}.
-Destructive ops need confirm:true. Prefer preview_* first.
+Destructive ops and sensitive writes need confirm:true (deletes, draft_run_command, draft_set_secret). Prefer preview_* first.
 
 Call draft_help for recipes + full tool index grouped by domain.`
 

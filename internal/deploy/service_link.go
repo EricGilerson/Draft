@@ -110,7 +110,8 @@ type LinkToSharedRootPreview struct {
 	Warning             string `json:"warning,omitempty"`
 }
 
-// LinkedServiceInfo is returned for UI (badge, overview).
+// LinkedServiceInfo is returned for UI (badge, overview). When the node is a
+// root, Linkers lists aliases in other environments that share it.
 type LinkedServiceInfo struct {
 	IsLinked          bool   `json:"isLinked"`
 	RootNodeID        string `json:"rootNodeId,omitempty"`
@@ -119,6 +120,16 @@ type LinkedServiceInfo struct {
 	RootEnvName       string `json:"rootEnvName,omitempty"`
 	// HasVolumes is true when the root has managed named volumes (clone promote is meaningful).
 	HasVolumes bool `json:"hasVolumes,omitempty"`
+	// Linkers are aliases that point at this node when it is a shared root.
+	Linkers []LinkedAliasRef `json:"linkers,omitempty"`
+}
+
+// LinkedAliasRef is one alias that shares a root service.
+type LinkedAliasRef struct {
+	NodeID        string `json:"nodeId"`
+	Label         string `json:"label"`
+	EnvironmentID uint   `json:"environmentId"`
+	Environment   string `json:"environment"`
 }
 
 // ParseServiceLink decodes the service_link setting. Empty/malformed → nil.
@@ -161,22 +172,38 @@ func (e *Engine) GetLinkedServiceInfo(nodeID string) (*LinkedServiceInfo, error)
 	if err != nil {
 		return nil, err
 	}
-	if link == nil {
-		return &LinkedServiceInfo{IsLinked: false}, nil
+	if link != nil {
+		info := &LinkedServiceInfo{
+			IsLinked:          true,
+			RootNodeID:        link.RootNodeID,
+			RootEnvironmentID: link.RootEnvironmentID,
+		}
+		if root, err := e.store.GetNode(link.RootNodeID); err == nil {
+			info.RootLabel = root.Label
+		}
+		if env, err := e.store.GetEnvironment(link.RootEnvironmentID); err == nil {
+			info.RootEnvName = env.Name
+		}
+		if settings, err := e.store.GetNodeSettings(link.RootNodeID); err == nil {
+			info.HasVolumes = len(managedVolumePaths(settings)) > 0
+		}
+		return info, nil
 	}
-	info := &LinkedServiceInfo{
-		IsLinked:          true,
-		RootNodeID:        link.RootNodeID,
-		RootEnvironmentID: link.RootEnvironmentID,
+	info := &LinkedServiceInfo{IsLinked: false}
+	linkers, err := e.ListLinkers(nodeID)
+	if err != nil {
+		return nil, err
 	}
-	if root, err := e.store.GetNode(link.RootNodeID); err == nil {
-		info.RootLabel = root.Label
+	if len(linkers) == 0 {
+		return info, nil
 	}
-	if env, err := e.store.GetEnvironment(link.RootEnvironmentID); err == nil {
-		info.RootEnvName = env.Name
-	}
-	if settings, err := e.store.GetNodeSettings(link.RootNodeID); err == nil {
-		info.HasVolumes = len(managedVolumePaths(settings)) > 0
+	info.Linkers = make([]LinkedAliasRef, 0, len(linkers))
+	for _, n := range linkers {
+		ref := LinkedAliasRef{NodeID: n.ID, Label: n.Label, EnvironmentID: n.EnvironmentID}
+		if env, err := e.store.GetEnvironment(n.EnvironmentID); err == nil {
+			ref.Environment = env.Name
+		}
+		info.Linkers = append(info.Linkers, ref)
 	}
 	return info, nil
 }

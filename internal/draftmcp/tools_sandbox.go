@@ -193,6 +193,17 @@ func sandboxTools() []toolDef {
 			}
 			return map[string]string{"status": "deleted"}, c.DeleteSandbox(ctx, id)
 		}),
+		withHandler(tool("draft_preview_sandbox_purge", "Preview resources a sandbox delete will remove (nodes, Draft volumes, network). Useful after cleanup_failed.", map[string]any{"sandboxId": uintSchema("Sandbox ID")}, "sandboxId"), func(ctx context.Context, args map[string]any) (any, error) {
+			c, e := getClient(ctx)
+			if e != nil {
+				return nil, e
+			}
+			id, e := argUint(args, "sandboxId")
+			if e != nil {
+				return nil, e
+			}
+			return c.PreviewSandboxPurge(ctx, id)
+		}),
 		withHandler(tool("draft_list_sandbox_test_runs", "List testing sandbox run history.", map[string]any{"projectId": uintSchema("Project ID"), "limit": uintSchema("Maximum results")}, "projectId"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {

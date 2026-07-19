@@ -407,6 +407,18 @@ func (a *App) DeleteSandbox(sandboxID uint) error {
 	return c.DeleteSandbox(a.ctx, sandboxID)
 }
 
+// PreviewSandboxPurge returns the resources a sandbox delete will remove.
+func (a *App) PreviewSandboxPurge(sandboxID uint) (*deploy.SandboxPurgeInventory, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.PreviewSandboxPurge(a.ctx, sandboxID)
+}
+
 func (a *App) GetSandboxDetail(sandboxID uint) (*deploy.SandboxDetail, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {

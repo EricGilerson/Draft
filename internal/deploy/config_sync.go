@@ -54,6 +54,21 @@ type SyncRequest struct {
 	// Environment sync: every unmatched source label. Service sync: when
 	// TargetNodeID is empty (or no label match). Does not delete target-only services.
 	CreateMissing bool `json:"createMissing"`
+	// TargetOnlyActions maps target-only node IDs to leave|delete|promote.
+	// leave (default/missing): keep. delete: remove the target service.
+	// promote: if linked, promote alias to an independent service; if already
+	// a root, leave it (already its own).
+	TargetOnlyActions map[string]string `json:"targetOnlyActions,omitempty"`
+}
+
+// SyncTargetOnlyService is a service present only on the target environment.
+type SyncTargetOnlyService struct {
+	NodeID        string `json:"nodeId"`
+	Label         string `json:"label"`
+	IsLinked      bool   `json:"isLinked"`
+	RootLabel     string `json:"rootLabel,omitempty"`
+	RootEnvName   string `json:"rootEnvName,omitempty"`
+	DefaultAction string `json:"defaultAction"` // leave
 }
 
 // SyncSettingDiff is one settings key difference.
@@ -109,11 +124,12 @@ type SyncPreview struct {
 	TargetEnvName       string               `json:"targetEnvName"`
 	IncludeSettings     bool                 `json:"includeSettings"`
 	IncludeEnv          bool                 `json:"includeEnv"`
-	CreateMissing       bool                 `json:"createMissing"`
-	Services            []SyncServicePreview `json:"services"`
-	UnmatchedSource     []string             `json:"unmatchedSource"`
-	UnmatchedTarget     []string             `json:"unmatchedTarget"`
-	ActionableCount     int                  `json:"actionableCount"`
+	CreateMissing       bool                    `json:"createMissing"`
+	Services            []SyncServicePreview    `json:"services"`
+	UnmatchedSource     []string                `json:"unmatchedSource"`
+	UnmatchedTarget     []string                `json:"unmatchedTarget"`
+	TargetOnly          []SyncTargetOnlyService `json:"targetOnly,omitempty"`
+	ActionableCount     int                     `json:"actionableCount"`
 }
 
 // SyncApplyNodeResult is the per-node outcome of ApplySync.
@@ -140,15 +156,16 @@ func (e *Engine) PreviewSync(req SyncRequest) (*SyncPreview, error) {
 
 // ApplySync stages (and optionally redeploys) based on the same plan as PreviewSync.
 // CreateMissing services are cloned into the target environment (fresh volumes,
-// restamped generated env) before matched-pair updates run.
+// restamped generated env) before matched-pair updates run. Target-only actions
+// (delete / promote) run after matched-pair work.
 func (e *Engine) ApplySync(ctx context.Context, req SyncRequest, mode string) (*SyncApplyResult, error) {
 	switch mode {
 	case SyncModeStage, SyncModeStageAndRedeploy:
 	default:
 		return nil, fmt.Errorf("unknown sync mode %q", mode)
 	}
-	if !req.IncludeSettings && !req.IncludeEnv && !req.CreateMissing {
-		return nil, fmt.Errorf("enable settings sync, env sync, and/or create missing")
+	if !syncRequestHasWork(req) {
+		return nil, fmt.Errorf("enable settings sync, env sync, create missing, and/or target-only actions")
 	}
 
 	preview, err := e.buildSyncPreview(req)
@@ -217,15 +234,64 @@ func (e *Engine) ApplySync(ctx context.Context, req SyncRequest, mode string) (*
 		}
 		out.Results = append(out.Results, res)
 	}
+
+	for _, only := range preview.TargetOnly {
+		action := strings.ToLower(strings.TrimSpace(req.TargetOnlyActions[only.NodeID]))
+		if action == "" || action == "leave" {
+			continue
+		}
+		res := SyncApplyNodeResult{NodeID: only.NodeID, Label: only.Label}
+		switch action {
+		case "delete":
+			if err := e.DeleteService(ctx, only.NodeID); err != nil {
+				res.Error = err.Error()
+			} else {
+				res.Staged = true
+			}
+		case "promote":
+			if !only.IsLinked {
+				res.Staged = true // already independent
+				break
+			}
+			if err := e.PromoteLinkedService(ctx, only.NodeID, "empty", CloneQuick); err != nil {
+				res.Error = err.Error()
+			} else {
+				res.Staged = true
+				if mode == SyncModeStageAndRedeploy {
+					if err := e.Deploy(ctx, only.NodeID); err != nil {
+						res.Error = "promoted, but redeploy failed: " + err.Error()
+					} else {
+						res.Redeployed = true
+					}
+				}
+			}
+		default:
+			res.Error = fmt.Sprintf("unknown target-only action %q", action)
+		}
+		out.Results = append(out.Results, res)
+	}
 	return out, nil
+}
+
+func syncRequestHasWork(req SyncRequest) bool {
+	if req.IncludeSettings || req.IncludeEnv || req.CreateMissing {
+		return true
+	}
+	for _, action := range req.TargetOnlyActions {
+		a := strings.ToLower(strings.TrimSpace(action))
+		if a == "delete" || a == "promote" {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 	if e.store == nil {
 		return nil, fmt.Errorf("store is not available")
 	}
-	if !req.IncludeSettings && !req.IncludeEnv && !req.CreateMissing {
-		return nil, fmt.Errorf("enable settings sync, env sync, and/or create missing")
+	if !syncRequestHasWork(req) {
+		return nil, fmt.Errorf("enable settings sync, env sync, create missing, and/or target-only actions")
 	}
 	scope := strings.TrimSpace(req.Scope)
 	if scope == "" {
@@ -253,9 +319,13 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 		return nil, fmt.Errorf("environments must belong to the same project")
 	}
 
-	pairs, creates, unmatchedSrc, unmatchedTgt, err := e.resolveSyncPairs(req, srcEnv, tgtEnv)
+	pairs, creates, unmatchedSrc, unmatchedTgtNodes, err := e.resolveSyncPairs(req, srcEnv, tgtEnv)
 	if err != nil {
 		return nil, err
+	}
+	unmatchedTgt := make([]string, 0, len(unmatchedTgtNodes))
+	for _, n := range unmatchedTgtNodes {
+		unmatchedTgt = append(unmatchedTgt, n.Label)
 	}
 
 	out := &SyncPreview{
@@ -270,6 +340,7 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 		Services:            make([]SyncServicePreview, 0, len(pairs)+len(creates)),
 		UnmatchedSource:     unmatchedSrc,
 		UnmatchedTarget:     unmatchedTgt,
+		TargetOnly:          make([]SyncTargetOnlyService, 0, len(unmatchedTgtNodes)),
 	}
 
 	for _, pair := range pairs {
@@ -293,8 +364,33 @@ func (e *Engine) buildSyncPreview(req SyncRequest) (*SyncPreview, error) {
 		out.ActionableCount += svc.ActionableCount
 	}
 
+	for _, tgt := range unmatchedTgtNodes {
+		only := SyncTargetOnlyService{
+			NodeID:        tgt.ID,
+			Label:         tgt.Label,
+			DefaultAction: "leave",
+		}
+		if link, _ := e.GetServiceLink(tgt.ID); link != nil {
+			only.IsLinked = true
+			if root, err := e.store.GetNode(link.RootNodeID); err == nil {
+				only.RootLabel = root.Label
+			}
+			if env, err := e.store.GetEnvironment(link.RootEnvironmentID); err == nil {
+				only.RootEnvName = env.Name
+			}
+		}
+		out.TargetOnly = append(out.TargetOnly, only)
+		action := strings.ToLower(strings.TrimSpace(req.TargetOnlyActions[tgt.ID]))
+		if action == "delete" || action == "promote" {
+			out.ActionableCount++
+		}
+	}
+
 	sort.Slice(out.Services, func(i, j int) bool {
 		return strings.ToLower(out.Services[i].Label) < strings.ToLower(out.Services[j].Label)
+	})
+	sort.Slice(out.TargetOnly, func(i, j int) bool {
+		return strings.ToLower(out.TargetOnly[i].Label) < strings.ToLower(out.TargetOnly[j].Label)
 	})
 	return out, nil
 }
@@ -304,7 +400,7 @@ type syncPair struct {
 	target store.CanvasNode
 }
 
-func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environment) (pairs []syncPair, creates []store.CanvasNode, unmatchedSrc, unmatchedTgt []string, err error) {
+func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environment) (pairs []syncPair, creates []store.CanvasNode, unmatchedSrc []string, unmatchedTgt []store.CanvasNode, err error) {
 	srcNodes, err := e.store.ListNodesByEnvironment(srcEnv.ID)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -383,13 +479,15 @@ func (e *Engine) resolveSyncPairs(req SyncRequest, srcEnv, tgtEnv *store.Environ
 		}
 	}
 	for _, tgt := range tgtByLabel {
-		unmatchedTgt = append(unmatchedTgt, tgt.Label)
+		unmatchedTgt = append(unmatchedTgt, tgt)
 	}
 	sort.Slice(creates, func(i, j int) bool {
 		return strings.ToLower(creates[i].Label) < strings.ToLower(creates[j].Label)
 	})
 	sort.Strings(unmatchedSrc)
-	sort.Strings(unmatchedTgt)
+	sort.Slice(unmatchedTgt, func(i, j int) bool {
+		return strings.ToLower(unmatchedTgt[i].Label) < strings.ToLower(unmatchedTgt[j].Label)
+	})
 	return pairs, creates, unmatchedSrc, unmatchedTgt, nil
 }
 

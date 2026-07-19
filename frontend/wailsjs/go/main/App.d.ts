@@ -216,6 +216,8 @@ export function PreviewLinkToSharedRoot(arg1:string,arg2:string):Promise<deploy.
 
 export function PreviewSandbox(arg1:deploy.SandboxCreateRequest):Promise<deploy.SandboxPreview>;
 
+export function PreviewSandboxPurge(arg1:number):Promise<deploy.SandboxPurgeInventory>;
+
 export function PreviewStagedChanges(arg1:string,arg2:Record<string, string>):Promise<deploy.StagedChangePreview>;
 
 export function PreviewSync(arg1:deploy.SyncRequest):Promise<deploy.SyncPreview>;

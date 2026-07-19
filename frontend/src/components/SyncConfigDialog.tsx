@@ -70,6 +70,7 @@ export default function SyncConfigDialog({
     const [includeSettings, setIncludeSettings] = useState(true);
     const [includeEnv, setIncludeEnv] = useState(true);
     const [createMissing, setCreateMissing] = useState(true);
+    const [targetOnlyActions, setTargetOnlyActions] = useState<Record<string, string>>({});
     const [preview, setPreview] = useState<deploy.SyncPreview | null>(null);
     const [loadingPreview, setLoadingPreview] = useState(false);
     const [applying, setApplying] = useState(false);
@@ -138,8 +139,12 @@ export default function SyncConfigDialog({
         setSourceNodeId(match?.id || '');
     };
 
+    const hasTargetOnlyWork = Object.values(targetOnlyActions).some(
+        (a) => a === 'delete' || a === 'promote',
+    );
+
     const canPreview = useMemo(() => {
-        if (!includeSettings && !includeEnv && !createMissing) return false;
+        if (!includeSettings && !includeEnv && !createMissing && !hasTargetOnlyWork) return false;
         if (!sourceEnvId || !targetEnvId) return false;
         if (Number(sourceEnvId) === Number(targetEnvId) && scope === 'environment') return false;
         if (scope === 'service') {
@@ -150,7 +155,7 @@ export default function SyncConfigDialog({
             return true;
         }
         return true;
-    }, [includeSettings, includeEnv, createMissing, sourceEnvId, targetEnvId, scope, sourceNodeId, targetNode]);
+    }, [includeSettings, includeEnv, createMissing, hasTargetOnlyWork, sourceEnvId, targetEnvId, scope, sourceNodeId, targetNode]);
 
     const buildRequest = (): deploy.SyncRequest =>
         deploy.SyncRequest.createFrom({
@@ -162,6 +167,7 @@ export default function SyncConfigDialog({
             includeSettings,
             includeEnv,
             createMissing,
+            targetOnlyActions,
         });
 
     const runPreview = () => {
@@ -171,7 +177,15 @@ export default function SyncConfigDialog({
         setApplyMessage('');
         setPreview(null);
         PreviewSync(buildRequest())
-            .then((p) => setPreview(p))
+            .then((p) => {
+                setPreview(p);
+                // Seed leave defaults for newly discovered target-only services.
+                const next: Record<string, string> = {...targetOnlyActions};
+                for (const only of p?.targetOnly ?? []) {
+                    if (!next[only.nodeId]) next[only.nodeId] = 'leave';
+                }
+                setTargetOnlyActions(next);
+            })
             .catch((e) => setError(String(e)))
             .finally(() => setLoadingPreview(false));
     };
@@ -180,6 +194,7 @@ export default function SyncConfigDialog({
     useEffect(() => {
         setPreview(null);
         setApplyMessage('');
+        setTargetOnlyActions({});
     }, [scope, sourceEnvId, targetEnvId, sourceNodeId, targetNode, includeSettings, includeEnv, createMissing]);
 
     const runApply = async (mode: 'stage' | 'stageAndRedeploy') => {
@@ -417,7 +432,7 @@ export default function SyncConfigDialog({
                             </span>
                         </div>
 
-                        {(preview.unmatchedSource?.length > 0 || preview.unmatchedTarget?.length > 0) && (
+                        {(preview.unmatchedSource?.length > 0 || (preview.targetOnly?.length ?? 0) > 0) && (
                             <div className="sync-unmatched">
                                 {preview.unmatchedSource?.length > 0 && (
                                     <p>
@@ -425,11 +440,77 @@ export default function SyncConfigDialog({
                                         {preview.unmatchedSource.join(', ')}
                                     </p>
                                 )}
-                                {preview.unmatchedTarget?.length > 0 && (
-                                    <p>
-                                        Only in target (left alone — sync does not delete):{' '}
-                                        {preview.unmatchedTarget.join(', ')}
-                                    </p>
+                                {(preview.targetOnly?.length ?? 0) > 0 && (
+                                    <div className="sync-target-only">
+                                        <p>
+                                            Only in target — choose keep, delete, or promote linked aliases to
+                                            independent services:
+                                        </p>
+                                        <div className="sync-target-only-actions" style={{display: 'flex', gap: 8, marginBottom: 8}}>
+                                            <button
+                                                type="button"
+                                                className="btn btn-ghost"
+                                                onClick={() => {
+                                                    const next: Record<string, string> = {};
+                                                    for (const only of preview.targetOnly ?? []) next[only.nodeId] = 'delete';
+                                                    setTargetOnlyActions(next);
+                                                }}
+                                            >
+                                                Delete all
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-ghost"
+                                                onClick={() => {
+                                                    const next: Record<string, string> = {};
+                                                    for (const only of preview.targetOnly ?? []) {
+                                                        next[only.nodeId] = only.isLinked ? 'promote' : 'leave';
+                                                    }
+                                                    setTargetOnlyActions(next);
+                                                }}
+                                            >
+                                                Promote linked to own
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn btn-ghost"
+                                                onClick={() => {
+                                                    const next: Record<string, string> = {};
+                                                    for (const only of preview.targetOnly ?? []) next[only.nodeId] = 'leave';
+                                                    setTargetOnlyActions(next);
+                                                }}
+                                            >
+                                                Keep all
+                                            </button>
+                                        </div>
+                                        <ul className="sync-target-only-list">
+                                            {(preview.targetOnly ?? []).map((only) => (
+                                                <li key={only.nodeId} style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6}}>
+                                                    <strong>{only.label}</strong>
+                                                    {only.isLinked && (
+                                                        <span className="settings-hint">
+                                                            linked → {only.rootEnvName || 'root'}
+                                                            {only.rootLabel ? ` · ${only.rootLabel}` : ''}
+                                                        </span>
+                                                    )}
+                                                    <select
+                                                        className="input settings-select"
+                                                        value={targetOnlyActions[only.nodeId] || 'leave'}
+                                                        onChange={(e) => {
+                                                            setTargetOnlyActions((cur) => ({...cur, [only.nodeId]: e.target.value}));
+                                                        }}
+                                                    >
+                                                        <option value="leave">Keep</option>
+                                                        <option value="delete">Delete</option>
+                                                        <option value="promote" disabled={!only.isLinked}>
+                                                            Promote to own
+                                                        </option>
+                                                    </select>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <p className="settings-hint">Click Preview again after changing actions so the change count updates.</p>
+                                    </div>
                                 )}
                             </div>
                         )}

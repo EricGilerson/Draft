@@ -59,6 +59,7 @@ type DeletePreview = {
     isRunning: boolean;
     managedVolumeCount: number;
     dependents: deploy.ReferenceDependent[];
+    activeAliases: string[];
 };
 
 type SettingsTabProps = {
@@ -603,6 +604,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 isRunning: preview?.isRunning ?? false,
                 managedVolumeCount: preview?.managedVolumeCount ?? 0,
                 dependents: preview?.dependents ?? [],
+                activeAliases: preview?.activeAliases ?? [],
             });
         } catch (e: unknown) {
             const msg = typeof e === 'string' ? e : (e as Error)?.message || 'Failed to load delete preview';
@@ -1270,7 +1272,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                             <button className="btn btn-ghost" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>
                                 Cancel
                             </button>
-                            <button className="btn btn-danger" onClick={confirmDelete} disabled={deleting || deleteLoading}>
+                            <button
+                                className="btn btn-danger"
+                                onClick={confirmDelete}
+                                disabled={deleting || deleteLoading || (deletePreview?.activeAliases?.length ?? 0) > 0}
+                            >
                                 {deleting ? 'Deleting…' : 'Delete service'}
                             </button>
                         </div>
@@ -1300,6 +1306,20 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                                     {deletePreview.managedVolumeCount === 1 ? '' : 's'} will be kept (orphaned) so you can
                                     delete them separately if needed.
                                 </p>
+                            )}
+                            {(deletePreview.activeAliases ?? []).length > 0 && (
+                                <div className="settings-delete-dependents">
+                                    <p className="settings-delete-warning">
+                                        This is a shared root. Unlink or promote these aliases first:
+                                    </p>
+                                    <ul className="settings-delete-dependent-list">
+                                        {(deletePreview.activeAliases ?? []).map((label) => (
+                                            <li key={label}>
+                                                <span className="settings-delete-dependent-service">{label}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
                             )}
                             {(deletePreview.dependents ?? []).length > 0 && (
                                 <div className="settings-delete-dependents">

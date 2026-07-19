@@ -7,7 +7,10 @@ import (
 
 func dockerTools() []toolDef {
 	return []toolDef{
-		withHandler(tool("draft_run_command", "Run a one-shot command in a service's running container. cmd is an argv array, not a shell string.", map[string]any{"nodeId": stringsSchema("Node ID"), "cmd": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workDir": stringsSchema("Optional working directory")}, "nodeId", "cmd"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_run_command", "Run a one-shot command in a service's running container. cmd is an argv array, not a shell string. Requires confirm:true.", map[string]any{"nodeId": stringsSchema("Node ID"), "cmd": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "workDir": stringsSchema("Optional working directory"), "confirm": confirmSchema()}, "nodeId", "cmd", "confirm"), func(ctx context.Context, args map[string]any) (any, error) {
+			if e := requireConfirm(args); e != nil {
+				return nil, e
+			}
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e

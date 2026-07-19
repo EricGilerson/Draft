@@ -968,6 +968,24 @@ export namespace deploy {
 	        this.warning = source["warning"];
 	    }
 	}
+	export class LinkedAliasRef {
+	    nodeId: string;
+	    label: string;
+	    environmentId: number;
+	    environment: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LinkedAliasRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.environmentId = source["environmentId"];
+	        this.environment = source["environment"];
+	    }
+	}
 	export class LinkedServiceInfo {
 	    isLinked: boolean;
 	    rootNodeId?: string;
@@ -975,6 +993,7 @@ export namespace deploy {
 	    rootEnvironmentId?: number;
 	    rootEnvName?: string;
 	    hasVolumes?: boolean;
+	    linkers?: LinkedAliasRef[];
 	
 	    static createFrom(source: any = {}) {
 	        return new LinkedServiceInfo(source);
@@ -988,7 +1007,26 @@ export namespace deploy {
 	        this.rootEnvironmentId = source["rootEnvironmentId"];
 	        this.rootEnvName = source["rootEnvName"];
 	        this.hasVolumes = source["hasVolumes"];
+	        this.linkers = this.convertValues(source["linkers"], LinkedAliasRef);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ManagedVolume {
 	    name: string;
@@ -1632,6 +1670,68 @@ export namespace deploy {
 		    return a;
 		}
 	}
+	export class SandboxPurgeItem {
+	    kind: string;
+	    id: string;
+	    label?: string;
+	    status: string;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxPurgeItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.status = source["status"];
+	        this.error = source["error"];
+	    }
+	}
+	export class SandboxPurgeInventory {
+	    sandboxId: number;
+	    environmentId: number;
+	    networkName: string;
+	    items: SandboxPurgeItem[];
+	    lastError?: string;
+	    // Go type: time
+	    builtAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new SandboxPurgeInventory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sandboxId = source["sandboxId"];
+	        this.environmentId = source["environmentId"];
+	        this.networkName = source["networkName"];
+	        this.items = this.convertValues(source["items"], SandboxPurgeItem);
+	        this.lastError = source["lastError"];
+	        this.builtAt = this.convertValues(source["builtAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class SandboxRefreshResult {
 	    sandbox?: store.Sandbox;
 	    repositories: store.SandboxRepositorySource[];
@@ -2081,7 +2181,7 @@ export namespace deploy {
 	export class SyncApplyNodeResult {
 	    nodeId: string;
 	    label: string;
-	    created: boolean;
+	    created?: boolean;
 	    staged: boolean;
 	    redeployed: boolean;
 	    error?: string;
@@ -2170,6 +2270,28 @@ export namespace deploy {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class SyncTargetOnlyService {
+	    nodeId: string;
+	    label: string;
+	    isLinked: boolean;
+	    rootLabel?: string;
+	    rootEnvName?: string;
+	    defaultAction: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SyncTargetOnlyService(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.nodeId = source["nodeId"];
+	        this.label = source["label"];
+	        this.isLinked = source["isLinked"];
+	        this.rootLabel = source["rootLabel"];
+	        this.rootEnvName = source["rootEnvName"];
+	        this.defaultAction = source["defaultAction"];
+	    }
+	}
 	export class SyncSettingDiff {
 	    key: string;
 	    sourceValue: string;
@@ -2199,8 +2321,8 @@ export namespace deploy {
 	export class SyncServicePreview {
 	    label: string;
 	    sourceNodeId: string;
-	    targetNodeId: string;
-	    willCreate: boolean;
+	    targetNodeId?: string;
+	    willCreate?: boolean;
 	    skipped: boolean;
 	    skipReason?: string;
 	    settings: SyncSettingDiff[];
@@ -2256,6 +2378,7 @@ export namespace deploy {
 	    services: SyncServicePreview[];
 	    unmatchedSource: string[];
 	    unmatchedTarget: string[];
+	    targetOnly?: SyncTargetOnlyService[];
 	    actionableCount: number;
 	
 	    static createFrom(source: any = {}) {
@@ -2275,6 +2398,7 @@ export namespace deploy {
 	        this.services = this.convertValues(source["services"], SyncServicePreview);
 	        this.unmatchedSource = source["unmatchedSource"];
 	        this.unmatchedTarget = source["unmatchedTarget"];
+	        this.targetOnly = this.convertValues(source["targetOnly"], SyncTargetOnlyService);
 	        this.actionableCount = source["actionableCount"];
 	    }
 	
@@ -2305,6 +2429,7 @@ export namespace deploy {
 	    includeSettings: boolean;
 	    includeEnv: boolean;
 	    createMissing: boolean;
+	    targetOnlyActions?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncRequest(source);
@@ -2320,8 +2445,10 @@ export namespace deploy {
 	        this.includeSettings = source["includeSettings"];
 	        this.includeEnv = source["includeEnv"];
 	        this.createMissing = source["createMissing"];
+	        this.targetOnlyActions = source["targetOnlyActions"];
 	    }
 	}
+	
 	
 	
 	export class VolumeOverview {
@@ -4216,6 +4343,10 @@ export namespace store {
 	    suspendedAt?: any;
 	    // Go type: time
 	    lastActivityAt?: any;
+	    cleanupInventoryJson?: string;
+	    cleanupError?: string;
+	    // Go type: time
+	    cleanupAttemptedAt?: any;
 	    // Go type: time
 	    createdAt: any;
 	    // Go type: time
@@ -4241,6 +4372,9 @@ export namespace store {
 	        this.graceEndsAt = this.convertValues(source["graceEndsAt"], null);
 	        this.suspendedAt = this.convertValues(source["suspendedAt"], null);
 	        this.lastActivityAt = this.convertValues(source["lastActivityAt"], null);
+	        this.cleanupInventoryJson = source["cleanupInventoryJson"];
+	        this.cleanupError = source["cleanupError"];
+	        this.cleanupAttemptedAt = this.convertValues(source["cleanupAttemptedAt"], null);
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.updatedAt = this.convertValues(source["updatedAt"], null);
 	    }

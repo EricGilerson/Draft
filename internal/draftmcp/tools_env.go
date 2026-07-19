@@ -158,7 +158,10 @@ func envTools() []toolDef {
 			v, e := c.ListAppSecrets(ctx)
 			return redactSecrets(v, optionalBool(args, "includeSecrets")), e
 		}),
-		withHandler(tool("draft_set_secret", "Create or update an app-wide secret ({{secret.KEY}}).", map[string]any{"key": stringsSchema("Secret key"), "value": stringsSchema("Secret value"), "description": stringsSchema("Optional description")}, "key", "value"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_set_secret", "Create or update an app-wide secret ({{secret.KEY}}). Requires confirm:true.", map[string]any{"key": stringsSchema("Secret key"), "value": stringsSchema("Secret value"), "description": stringsSchema("Optional description"), "confirm": confirmSchema()}, "key", "value", "confirm"), func(ctx context.Context, args map[string]any) (any, error) {
+			if e := requireConfirm(args); e != nil {
+				return nil, e
+			}
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e

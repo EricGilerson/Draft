@@ -172,6 +172,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sandbox/create", s.handleCreateSandbox)
 	mux.HandleFunc("/sandbox/extend", s.handleExtendSandbox)
 	mux.HandleFunc("/sandbox/delete", s.handleDeleteSandbox)
+	mux.HandleFunc("/sandbox/purge-preview", s.handlePreviewSandboxPurge)
 	mux.HandleFunc("/sandbox/detail", s.handleSandboxDetail)
 	mux.HandleFunc("/sandbox/suspend", s.handleSuspendSandbox)
 	mux.HandleFunc("/sandbox/resume", s.handleResumeSandbox)
@@ -555,6 +556,21 @@ func (s *Server) handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeError(w, s.engine.DeleteSandbox(r.Context(), req.SandboxID))
+}
+
+func (s *Server) handlePreviewSandboxPurge(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SandboxID uint `json:"sandboxId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.PreviewSandboxPurge(r.Context(), req.SandboxID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
 }
 
 func (s *Server) handleSandboxDetail(w http.ResponseWriter, r *http.Request) {

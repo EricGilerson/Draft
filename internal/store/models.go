@@ -83,8 +83,13 @@ type Sandbox struct {
 	// LastActivityAt is bumped on create/resume/extend and on HTTP proxy hits
 	// to sandbox hostnames. Used by idle auto-suspend when SuspendIdleHours > 0.
 	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	// CleanupInventoryJSON / CleanupError are set when a purge fails
+	// (status=cleanup_failed) so UI/MCP can show what remains.
+	CleanupInventoryJSON string     `json:"cleanupInventoryJson,omitempty"`
+	CleanupError         string     `json:"cleanupError,omitempty"`
+	CleanupAttemptedAt   *time.Time `json:"cleanupAttemptedAt,omitempty"`
+	CreatedAt            time.Time  `json:"createdAt"`
+	UpdatedAt            time.Time  `json:"updatedAt"`
 }
 
 // SandboxTestRun records one execution of a testing sandbox's steps. The

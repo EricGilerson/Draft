@@ -333,7 +333,7 @@ Important model details:
   - Export single service or whole environment stack; optional write-to-path.
   - Round-trip: original document stored on the node for overlay on re-export.
   - Cloud-target runtime profile env injected when running locally as Cloud Run / Container Apps.
-- **Config sync** between environments (or single matched services): preview diffs for settings/env; apply as `stage` or `stageAndRedeploy`.
+- **Config sync** between environments (or single matched services): preview diffs for settings/env; create missing source services; target-only dialog (`leave` | `delete` | `promote`); apply as `stage` or `stageAndRedeploy`.
 
 ### Draft packs (native share)
 
@@ -450,11 +450,8 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 
 - Branch/worktree UX beyond the current pinned-ref deploy path (sandboxes can pin per-repo refs at create, but there is no first-class worktree workspace model).
 - Explicit depends-on edges beyond inferred `@{Service…}` connection waves for stack start (graph is derived from env refs today).
-- Target-only sync actions (delete target-only services, or promote them to standalone) — sync can create missing source services, but target extras need a dedicated dialog.
-- Overview sandbox urgency / shared-root map / PR one-click create polish.
 - Secrets-at-rest encryption (deferred; local desktop threat model similar to a committed `.env` once the filesystem is owned).
-- MCP confirm gates on destructive/sensitive tools (`run_command`, `set_secret`).
-- Sandbox purge inventory / dry-run of what delete will remove.
+- Shell WebSocket auth without putting a token in the query string (token can appear in DevTools / local process lists).
 
 ## Conventions And Constraints
 

@@ -395,6 +395,15 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 </div>
             )}
 
+            {!isLinked && (linkInfo?.linkers?.length ?? 0) > 0 && (
+                <div className="overview-staged-banner">
+                    Shared root for <strong>{linkInfo!.linkers!.length}</strong> alias
+                    {linkInfo!.linkers!.length === 1 ? '' : 'es'}:{' '}
+                    {linkInfo!.linkers!.map((l) => `${l.environment || 'env'} · ${l.label}`).join(', ')}.
+                    Delete or promote those aliases before removing this service.
+                </div>
+            )}
+
             <div className="overview-actions">
                 {isLinked && (
                     <>

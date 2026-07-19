@@ -201,6 +201,26 @@ func (s *Store) UpdateSandboxStatus(id uint, status string, suspendedAt *time.Ti
 	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{"status": status, "suspended_at": suspendedAt}).Error
 }
 
+// SaveSandboxCleanupFailure marks a sandbox cleanup_failed with inventory detail.
+func (s *Store) SaveSandboxCleanupFailure(id uint, inventoryJSON, cleanupError string) error {
+	now := time.Now().UTC()
+	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{
+		"status":                 "cleanup_failed",
+		"cleanup_inventory_json": inventoryJSON,
+		"cleanup_error":          cleanupError,
+		"cleanup_attempted_at":   now,
+	}).Error
+}
+
+// ClearSandboxCleanupDetail resets cleanup diagnostic fields after a successful purge.
+func (s *Store) ClearSandboxCleanupDetail(id uint) error {
+	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Updates(map[string]any{
+		"cleanup_inventory_json": "",
+		"cleanup_error":          "",
+		"cleanup_attempted_at":   nil,
+	}).Error
+}
+
 // TouchSandboxActivity records recent use for idle auto-suspend.
 func (s *Store) TouchSandboxActivity(id uint, at time.Time) error {
 	return s.DB.Model(&Sandbox{}).Where("id = ?", id).Update("last_activity_at", at.UTC()).Error

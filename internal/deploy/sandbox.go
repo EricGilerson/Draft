@@ -842,55 +842,138 @@ func (e *Engine) ResumeSandbox(ctx context.Context, sandboxID uint) (*store.Sand
 // sandbox is disposable, so its Draft-managed volumes are removed alongside
 // containers, images, routes, and its Docker network. Explicit user-managed
 // volumes and bind mounts are never selected by this cleanup path.
+// On partial failure the sandbox is marked cleanup_failed with a purge inventory.
 func (e *Engine) DeleteSandbox(ctx context.Context, sandboxID uint) error {
+	inv, err := e.PreviewSandboxPurge(ctx, sandboxID)
+	if err != nil {
+		return err
+	}
+	fail := func(last error) error {
+		inv.LastError = last.Error()
+		now := time.Now().UTC()
+		inv.BuiltAt = now
+		raw, _ := json.Marshal(inv)
+		_ = e.store.SaveSandboxCleanupFailure(sandboxID, string(raw), last.Error())
+		return last
+	}
+
+	for i := range inv.Items {
+		item := &inv.Items[i]
+		switch item.Kind {
+		case SandboxPurgeNode:
+			if err := e.guardRootDelete(item.ID); err != nil {
+				item.Status = "failed"
+				item.Error = err.Error()
+				return fail(err)
+			}
+			if err := e.DeleteService(ctx, item.ID); err != nil {
+				item.Status = "failed"
+				item.Error = err.Error()
+				return fail(fmt.Errorf("delete service %q: %w", item.Label, err))
+			}
+			item.Status = "removed"
+		case SandboxPurgeVolume:
+			if err := e.DeleteManagedVolume(ctx, item.ID, true); err != nil {
+				item.Status = "failed"
+				item.Error = err.Error()
+				return fail(fmt.Errorf("remove sandbox volume %q: %w", item.ID, err))
+			}
+			item.Status = "removed"
+		case SandboxPurgeNetwork:
+			if err := e.RemoveNetwork(ctx, item.ID); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
+				item.Status = "failed"
+				item.Error = err.Error()
+				return fail(err)
+			}
+			item.Status = "removed"
+		}
+	}
+	_ = e.store.ClearSandboxCleanupDetail(sandboxID)
+	return e.store.DeleteEnvironment(inv.EnvironmentID)
+}
+
+// SandboxPurgeItemKind classifies rows in a sandbox purge inventory.
+type SandboxPurgeItemKind string
+
+const (
+	SandboxPurgeNode    SandboxPurgeItemKind = "node"
+	SandboxPurgeVolume  SandboxPurgeItemKind = "volume"
+	SandboxPurgeNetwork SandboxPurgeItemKind = "network"
+)
+
+// SandboxPurgeItem is one resource that DeleteSandbox will remove.
+type SandboxPurgeItem struct {
+	Kind   SandboxPurgeItemKind `json:"kind"`
+	ID     string               `json:"id"`
+	Label  string               `json:"label,omitempty"`
+	Status string               `json:"status"` // pending | removed | failed | skipped
+	Error  string               `json:"error,omitempty"`
+}
+
+// SandboxPurgeInventory lists what a sandbox purge will (or did) touch.
+type SandboxPurgeInventory struct {
+	SandboxID     uint               `json:"sandboxId"`
+	EnvironmentID uint               `json:"environmentId"`
+	NetworkName   string             `json:"networkName"`
+	Items         []SandboxPurgeItem `json:"items"`
+	LastError     string             `json:"lastError,omitempty"`
+	BuiltAt       time.Time          `json:"builtAt"`
+}
+
+// PreviewSandboxPurge builds a dry-run inventory of sandbox-owned resources.
+func (e *Engine) PreviewSandboxPurge(ctx context.Context, sandboxID uint) (*SandboxPurgeInventory, error) {
 	sandbox, err := e.store.GetSandbox(sandboxID)
 	if err != nil {
-		return err
-	}
-	nodes, err := e.store.ListNodesByEnvironment(sandbox.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	for _, node := range nodes {
-		if err := e.guardRootDelete(node.ID); err != nil {
-			return err
-		}
-	}
-	volumesByNode := map[string][]ManagedVolume{}
-	for _, node := range nodes {
-		volumes, err := e.ListManagedVolumes(ctx, &sandbox.ProjectID, node.ID)
-		if err != nil {
-			_ = e.store.UpdateSandboxStatus(sandboxID, "cleanup_failed", nil)
-			return err
-		}
-		volumesByNode[node.ID] = volumes
-	}
-	for _, node := range nodes {
-		if err := e.DeleteService(ctx, node.ID); err != nil {
-			_ = e.store.UpdateSandboxStatus(sandboxID, "cleanup_failed", nil)
-			return err
-		}
-		for _, volume := range volumesByNode[node.ID] {
-			if err := e.DeleteManagedVolume(ctx, volume.Name, true); err != nil {
-				_ = e.store.UpdateSandboxStatus(sandboxID, "cleanup_failed", nil)
-				return fmt.Errorf("remove sandbox volume %q: %w", volume.Name, err)
-			}
-		}
+		return nil, err
 	}
 	project, err := e.store.GetProject(sandbox.ProjectID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	env, err := e.store.GetEnvironment(sandbox.EnvironmentID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	dockerEnv := networking.DockerEnvironment(env.Slug, true)
-	if err := e.RemoveNetwork(ctx, draftNetworkName(project.ID, project.Name, dockerEnv)); err != nil && !strings.Contains(strings.ToLower(err.Error()), "not found") {
-		_ = e.store.UpdateSandboxStatus(sandboxID, "cleanup_failed", nil)
-		return err
+	netName := draftNetworkName(project.ID, project.Name, dockerEnv)
+	inv := &SandboxPurgeInventory{
+		SandboxID:     sandbox.ID,
+		EnvironmentID: sandbox.EnvironmentID,
+		NetworkName:   netName,
+		Items:         []SandboxPurgeItem{},
+		BuiltAt:       time.Now().UTC(),
 	}
-	return e.store.DeleteEnvironment(sandbox.EnvironmentID)
+	nodes, err := e.store.ListNodesByEnvironment(sandbox.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		inv.Items = append(inv.Items, SandboxPurgeItem{
+			Kind:   SandboxPurgeNode,
+			ID:     node.ID,
+			Label:  node.Label,
+			Status: "pending",
+		})
+		volumes, err := e.ListManagedVolumes(ctx, &sandbox.ProjectID, node.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list volumes for %s: %w", node.Label, err)
+		}
+		for _, volume := range volumes {
+			inv.Items = append(inv.Items, SandboxPurgeItem{
+				Kind:   SandboxPurgeVolume,
+				ID:     volume.Name,
+				Label:  volume.Target,
+				Status: "pending",
+			})
+		}
+	}
+	inv.Items = append(inv.Items, SandboxPurgeItem{
+		Kind:   SandboxPurgeNetwork,
+		ID:     netName,
+		Label:  env.Name,
+		Status: "pending",
+	})
+	return inv, nil
 }
 
 func (e *Engine) resolveSandboxPlan(req SandboxCreateRequest, source *store.Environment) (SandboxPlan, uint, error) {

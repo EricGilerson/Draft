@@ -434,6 +434,60 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         });
     };
 
+    /** One-click preview sandbox from an open PR using default profile + Create & start. */
+    const createPreviewFromPR = async (repo: deploy.SandboxSourceRepo, prNumber: number) => {
+        const pr = (repo.pullRequests ?? []).find((item) => item.number === prNumber);
+        if (!pr || !sourceId || busy) return;
+        setBusy(true);
+        setError('');
+        setPurpose('preview');
+        try {
+            const result = await CreateSandbox(deploy.SandboxCreateRequest.createFrom({
+                name: `pr-${pr.number}`,
+                sourceEnvironmentId: sourceId,
+                profileId: profileId || undefined,
+                plan: deploy.SandboxPlan.createFrom({
+                    ttlHours: ttlHours || 168,
+                    purpose: 'preview',
+                    services: Object.values(rules),
+                    repositories: [
+                        deploy.SandboxRepositoryRef.createFrom({
+                            repoRoot: repo.repoRoot,
+                            ref: pr.headRef,
+                            commitSha: pr.headSha || undefined,
+                            prNumber: pr.number,
+                        }),
+                    ],
+                }),
+                links: [store.SandboxLink.createFrom({
+                    kind: 'pr',
+                    value: String(pr.number),
+                    label: pr.title || undefined,
+                })],
+                startOnCreate: true,
+            }));
+            setOpen(false);
+            setName('');
+            setLinks('');
+            await refresh();
+            if (result.startError) {
+                void alert({
+                    title: 'Sandbox created, start incomplete',
+                    message: result.startError,
+                    detail: 'The sandbox environment exists. Open it and deploy individual services if needed.',
+                });
+            }
+            if (result.sandbox) {
+                onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
+                onReturnToSource?.(result.sandbox.projectId, result.sandbox.environmentId);
+            }
+        } catch (e) {
+            setError(String(e));
+        } finally {
+            setBusy(false);
+        }
+    };
+
     const suggestNameFromBranch = (ref: string) => {
         if (name.trim()) return;
         const slug = slugifyRef(ref);
@@ -1028,11 +1082,23 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                                                 ))}
                                             </select>
                                             {draft.prNumber > 0 && (
-                                                <p className="environment-source-hint">
-                                                    Head {draft.ref || '—'}
-                                                    {draft.commitSha ? ` · ${shortSha(draft.commitSha)}` : ''}
-                                                    {draft.prTitle ? ` · ${draft.prTitle}` : ''}
-                                                </p>
+                                                <div style={{display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap'}}>
+                                                    <p className="environment-source-hint" style={{margin: 0}}>
+                                                        Head {draft.ref || '—'}
+                                                        {draft.commitSha ? ` · ${shortSha(draft.commitSha)}` : ''}
+                                                        {draft.prTitle ? ` · ${draft.prTitle}` : ''}
+                                                    </p>
+                                                    {purpose === 'preview' && (
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-primary"
+                                                            disabled={busy}
+                                                            onClick={() => void createPreviewFromPR(repo, draft.prNumber)}
+                                                        >
+                                                            Preview this PR
+                                                        </button>
+                                                    )}
+                                                </div>
                                             )}
                                             {!prs.length && (
                                                 <p className="settings-hint">No open pull requests found for this repository.</p>

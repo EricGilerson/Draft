@@ -8,6 +8,7 @@ import {
     ListEnvironments,
     ListSandboxes,
     PreviewEnvironmentDuplicate,
+    PreviewSandboxPurge,
     RedeployEnvironment,
     RefreshSandbox,
     RenameEnvironment,
@@ -316,7 +317,23 @@ export default function EnvironmentSwitcher({
     };
 
     const removeSandbox = async (sandbox: store.Sandbox) => {
-        const options = sandboxDeleteConfirm(sandbox);
+        let detail = sandboxDeleteConfirm(sandbox).detail;
+        if (sandbox.status === 'cleanup_failed') {
+            try {
+                const inv = await PreviewSandboxPurge(sandbox.id);
+                const pending = (inv?.items ?? []).filter((i) => i.status === 'pending' || i.status === 'failed');
+                if (pending.length > 0) {
+                    detail = `Still present: ${pending.map((i) => `${i.kind} ${i.label || i.id}`).join(', ')}.${
+                        sandbox.cleanupError ? ` Last error: ${sandbox.cleanupError}` : ''
+                    }`;
+                } else if (sandbox.cleanupError) {
+                    detail = `Last error: ${sandbox.cleanupError}`;
+                }
+            } catch {
+                if (sandbox.cleanupError) detail = `Last error: ${sandbox.cleanupError}`;
+            }
+        }
+        const options = {...sandboxDeleteConfirm(sandbox), detail};
         if (!await confirm(options)) return;
         try {
             await DeleteSandbox(sandbox.id);

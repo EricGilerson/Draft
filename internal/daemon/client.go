@@ -198,6 +198,14 @@ func (c *Client) DeleteSandbox(ctx context.Context, sandboxID uint) error {
 	return c.postJSON(ctx, "/sandbox/delete", map[string]uint{"sandboxId": sandboxID}, nil)
 }
 
+func (c *Client) PreviewSandboxPurge(ctx context.Context, sandboxID uint) (*deploy.SandboxPurgeInventory, error) {
+	var out deploy.SandboxPurgeInventory
+	if err := c.postJSON(ctx, "/sandbox/purge-preview", map[string]uint{"sandboxId": sandboxID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) GetSandboxDetail(ctx context.Context, sandboxID uint) (*deploy.SandboxDetail, error) {
 	var out deploy.SandboxDetail
 	if err := c.postJSON(ctx, "/sandbox/detail", map[string]uint{"sandboxId": sandboxID}, &out); err != nil {
