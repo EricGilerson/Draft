@@ -186,6 +186,9 @@ func (e *Engine) runDeployWith(ctx context.Context, nodeID string, settingsOverr
 	//     .dockerignore/.gitignore and BuildKit local context do not apply.
 	//   - checkout: materialize the branch into an ephemeral directory, then
 	//     build it like a normal on-disk service (honors ignore files/BuildKit).
+	// When the pinned tree has submodules, stream splices local module objects
+	// when available; otherwise Draft falls back to an ephemeral worktree +
+	// `git submodule update --init --recursive`.
 	sourcePath := project.Path
 	repoRoot := project.Path
 	if strings.TrimSpace(settings["git_branch"]) != "" {
@@ -195,40 +198,27 @@ func (e *Engine) runDeployWith(ctx context.Context, nodeID string, settingsOverr
 	}
 	gitBranch := gitsrc.PreferLocalRef(ctx, repoRoot, strings.TrimSpace(settings["git_branch"]))
 	gitStream := gitBranch != "" && gitStreamEnabled(settings)
+	var gitSourceCleanup func()
+	defer func() {
+		if gitSourceCleanup != nil {
+			gitSourceCleanup()
+		}
+	}()
 
-	if gitBranch != "" && !gitStream {
-		// Determine the minimal subtree the build context needs so we export
-		// only that from git, not the whole repository. The path math is
-		// filesystem-independent, so resolve it against the on-disk project.
-		basePlan, err := resolveBuildContextPlan(project.Path, settings["service_root"], dockerfilePath)
+	if gitBranch != "" {
+		pinned, err := e.resolvePinnedGitSource(ctx, nodeID, project.Path, repoRoot, gitBranch, dockerfilePath, settings["service_root"], gitStream, func(line string) {
+			e.emitBuildLog(nodeID, line)
+		})
 		if err != nil {
 			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
 			return
 		}
-		contextRel, err := filepath.Rel(repoRoot, basePlan.ContextRoot)
-		if err != nil {
-			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
-			return
+		gitSourceCleanup = pinned.Cleanup
+		gitStream = pinned.Stream
+		dockerfilePath = pinned.DockerfilePath
+		if !pinned.Stream {
+			sourcePath = pinned.SourcePath
 		}
-
-		archiveDir, err := e.prepareGitSource(ctx, nodeID, repoRoot, gitBranch, contextRel)
-		if err != nil {
-			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
-			return
-		}
-		defer os.RemoveAll(archiveDir)
-		sourcePath = archiveDir
-
-		// The Dockerfile setting may be stored as an absolute path pointing into
-		// the on-disk project (e.g. picked via the file dialog). Re-anchor it to
-		// the archived workspace so it resolves against the branch's files rather
-		// than the original working tree.
-		rebased, err := rebaseUnderSource(project.Path, sourcePath, dockerfilePath)
-		if err != nil {
-			e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: err.Error()})
-			return
-		}
-		dockerfilePath = rebased
 	}
 
 	// For streaming, resolve the plan against the real project path — the path
@@ -448,6 +438,23 @@ func (e *Engine) prepareGitSource(ctx context.Context, nodeID, repoPath, ref, co
 	if err := gitsrc.ArchiveToDir(ctx, repoPath, treeish, destDir); err != nil {
 		os.RemoveAll(archiveDir)
 		return "", err
+	}
+
+	modulePrefix := ""
+	if contextRel != "" && contextRel != "." {
+		modulePrefix = contextRel
+	}
+	links, err := gitsrc.ListGitlinks(ctx, repoPath, treeish)
+	if err != nil {
+		os.RemoveAll(archiveDir)
+		return "", err
+	}
+	if len(links) > 0 {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Expanding %d submodule(s) from local modules cache...", len(links)))
+		if err := gitsrc.MaterializeSubmodules(ctx, repoPath, treeish, destDir, modulePrefix); err != nil {
+			os.RemoveAll(archiveDir)
+			return "", err
+		}
 	}
 
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Exported %s into an ephemeral workspace (working tree untouched)", exported))
@@ -739,21 +746,64 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, plan.RelativeDockerfile))
 	e.emitBuildLog(nodeID, "    Note: .dockerignore, .gitignore and BuildKit local context do not apply while streaming")
 
+	modulePrefix := ""
+	if contextRel, err := filepath.Rel(repoRoot, plan.ContextRoot); err == nil {
+		contextRel = filepath.ToSlash(contextRel)
+		if contextRel != "" && contextRel != "." {
+			modulePrefix = contextRel
+		}
+	}
+	links, err := gitsrc.ListGitlinks(ctx, repoRoot, treeish)
+	if err != nil {
+		return err
+	}
+	spliceSubs := len(links) > 0
+	if spliceSubs {
+		ok, availErr := gitsrc.SubmoduleObjectsAvailable(ctx, repoRoot, treeish, modulePrefix)
+		if availErr != nil {
+			return availErr
+		}
+		if !ok {
+			return fmt.Errorf("%w: cannot stream with missing submodule objects", gitsrc.ErrSubmoduleObjectsMissing)
+		}
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Including %d submodule(s) via archive splice", len(links)))
+	}
+
 	// A dedicated cancellable context lets us tear down git archive if Docker
 	// rejects the build before draining the tar, avoiding a blocked-writer hang.
 	gitCtx, cancelGit := context.WithCancel(ctx)
 	defer cancelGit()
 
-	cmd := e.execCommand(gitCtx, "git", "-C", repoRoot, "archive", "--format=tar", treeish)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("git archive: %w", err)
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("git archive: %w", err)
-	}
+	pr, pw := io.Pipe()
+	var archiveErr error
+	var archiveWG sync.WaitGroup
+	archiveWG.Add(1)
+	go func() {
+		defer archiveWG.Done()
+		if spliceSubs {
+			archiveErr = gitsrc.WriteArchiveWithSubmodules(gitCtx, repoRoot, treeish, modulePrefix, pw)
+			if archiveErr != nil {
+				_ = pw.CloseWithError(archiveErr)
+				return
+			}
+			_ = pw.Close()
+			return
+		}
+		cmd := e.execCommand(gitCtx, "git", "-C", repoRoot, "archive", "--format=tar", treeish)
+		var stderr bytes.Buffer
+		cmd.Stdout = pw
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			msg := strings.TrimSpace(stderr.String())
+			if msg == "" {
+				msg = err.Error()
+			}
+			archiveErr = fmt.Errorf("git archive %s: %s", treeish, msg)
+			_ = pw.CloseWithError(archiveErr)
+			return
+		}
+		_ = pw.Close()
+	}()
 
 	uploadStart := time.Now()
 	// clearProgress hides the (indeterminate) upload bar. It must fire exactly
@@ -773,7 +823,7 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Streamed %.1f MB of committed files in %s", float64(sent)/(1024*1024), time.Since(uploadStart).Round(time.Millisecond)))
 	}
 	reader := &countingReader{
-		r: stdout,
+		r: pr,
 		onProgress: func(sent int64) {
 			e.emit("deploy:upload-progress", map[string]any{
 				"nodeId":        nodeID,
@@ -789,7 +839,8 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	resp, err := cli.ImageBuild(ctx, reader, legacyImageBuildOptions(imageTag, plan.RelativeDockerfile, deployEnv.BuildArgs, bo))
 	if err != nil {
 		cancelGit()
-		_ = cmd.Wait()
+		_ = pr.Close()
+		archiveWG.Wait()
 		clearProgress(atomic.LoadInt64(&reader.n))
 		return fmt.Errorf("docker build failed: %w", err)
 	}
@@ -799,8 +850,9 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	buildErr := e.streamBuildOutput(ctx, resp.Body, logFile, nodeID, 0)
 
 	// The build response is fully read above, so the entire tar has been sent
-	// and git has finished writing; Wait reaps it and surfaces archive errors.
-	waitErr := cmd.Wait()
+	// and the archive producer has finished; Wait reaps it and surfaces errors.
+	_ = pr.Close()
+	archiveWG.Wait()
 
 	// Belt-and-suspenders: ensure the bar is cleared even if EOF wasn't observed.
 	clearProgress(atomic.LoadInt64(&reader.n))
@@ -808,12 +860,8 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 	if buildErr != nil {
 		return buildErr
 	}
-	if waitErr != nil && ctx.Err() == nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = waitErr.Error()
-		}
-		return fmt.Errorf("git archive %s: %s", ref, msg)
+	if archiveErr != nil && ctx.Err() == nil {
+		return archiveErr
 	}
 	e.emitBuildLog(nodeID, fmt.Sprintf("==> Build completed in %s", time.Since(buildStart).Round(time.Millisecond)))
 	return nil

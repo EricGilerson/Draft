@@ -980,7 +980,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                 {gitBranch && (
                     <ToggleRow
                         label="Stream branch to Docker"
-                        desc="Pipe the branch's committed files straight to Docker for a faster build. .dockerignore, .gitignore and BuildKit local context don't apply while streaming — commit only what you need to keep the context small. Turn off to build from a full checkout that respects your ignore files (slower)."
+                        desc="Pipe the branch's committed files straight to Docker for a faster build. .dockerignore, .gitignore and BuildKit local context don't apply while streaming — commit only what you need to keep the context small. Turn off to build from a full checkout that respects your ignore files (slower). If the branch has git submodules, Draft includes them: stream splices from the local modules cache when those commits are already present, otherwise it checks out an ephemeral worktree and runs submodule update."
                         checked={gitStream}
                         onToggle={toggleGitStream}
                     />

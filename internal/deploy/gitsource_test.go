@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"Draft/internal/gitsrc"
 )
 
 // runGitIn runs git in dir, failing the test on error.
@@ -384,5 +386,81 @@ func TestGitDeploy_AbsoluteDockerfileResolves(t *testing.T) {
 	// The Dockerfile the plan points at must actually exist in the archive.
 	if _, err := os.Stat(plan.DockerfilePath); err != nil {
 		t.Fatalf("resolved Dockerfile does not exist in archive: %v", err)
+	}
+}
+
+// TestPrepareGitSource_IncludesSubmodules verifies the checkout path expands
+// gitlinks from the local modules cache into the ephemeral workspace.
+func TestPrepareGitSource_IncludesSubmodules(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	child := t.TempDir()
+	runGitIn(t, child, "init", "-b", "main", "-q")
+	runGitIn(t, child, "config", "core.autocrlf", "false")
+	if err := os.WriteFile(filepath.Join(child, "lib.txt"), []byte("from-sub\n"), 0o644); err != nil {
+		t.Fatalf("write lib.txt: %v", err)
+	}
+	runGitIn(t, child, "add", ".")
+	runGitIn(t, child, "commit", "-q", "-m", "sub")
+
+	repo := t.TempDir()
+	runGitIn(t, repo, "init", "-b", "main", "-q")
+	runGitIn(t, repo, "config", "core.autocrlf", "false")
+	runGitIn(t, repo, "config", "protocol.file.allow", "always")
+	if err := os.WriteFile(filepath.Join(repo, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatalf("write Dockerfile: %v", err)
+	}
+	runGitIn(t, repo, "add", ".")
+	runGitIn(t, repo, "commit", "-q", "-m", "root")
+	runGitIn(t, repo, "submodule", "add", child, "vendor/lib")
+	runGitIn(t, repo, "commit", "-q", "-m", "add sub")
+
+	dir, err := e.prepareGitSource(context.Background(), "node-1", repo, "main", ".")
+	if err != nil {
+		t.Fatalf("prepareGitSource: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	data, err := os.ReadFile(filepath.Join(dir, "vendor", "lib", "lib.txt"))
+	if err != nil {
+		t.Fatalf("expected submodule file in workspace: %v", err)
+	}
+	if got := strings.ReplaceAll(string(data), "\r\n", "\n"); got != "from-sub\n" {
+		t.Fatalf("content = %q", data)
+	}
+}
+
+// TestWriteArchiveWithSubmodules_StreamContents ensures the stream splice tar
+// contains submodule files at the recorded paths.
+func TestWriteArchiveWithSubmodules_StreamContents(t *testing.T) {
+	child := t.TempDir()
+	runGitIn(t, child, "init", "-b", "main", "-q")
+	runGitIn(t, child, "config", "core.autocrlf", "false")
+	if err := os.WriteFile(filepath.Join(child, "lib.txt"), []byte("from-sub\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	runGitIn(t, child, "add", ".")
+	runGitIn(t, child, "commit", "-q", "-m", "sub")
+
+	repo := t.TempDir()
+	runGitIn(t, repo, "init", "-b", "main", "-q")
+	runGitIn(t, repo, "config", "core.autocrlf", "false")
+	runGitIn(t, repo, "config", "protocol.file.allow", "always")
+	if err := os.WriteFile(filepath.Join(repo, "app.txt"), []byte("app\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	runGitIn(t, repo, "add", ".")
+	runGitIn(t, repo, "commit", "-q", "-m", "root")
+	runGitIn(t, repo, "submodule", "add", child, "vendor/lib")
+	runGitIn(t, repo, "commit", "-q", "-m", "add sub")
+
+	var buf bytes.Buffer
+	if err := gitsrc.WriteArchiveWithSubmodules(context.Background(), repo, "main", "", &buf); err != nil {
+		t.Fatalf("WriteArchiveWithSubmodules: %v", err)
+	}
+	names := tarEntryNames(t, buf.Bytes())
+	if !names["app.txt"] || !names["vendor/lib/lib.txt"] {
+		t.Fatalf("expected app.txt and vendor/lib/lib.txt, got %v", names)
 	}
 }
