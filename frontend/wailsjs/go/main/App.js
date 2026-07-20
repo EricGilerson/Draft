@@ -226,6 +226,10 @@ export function GetServiceRoot(arg1, arg2) {
   return window['go']['main']['App']['GetServiceRoot'](arg1, arg2);
 }
 
+export function GetServiceStaleness(arg1) {
+  return window['go']['main']['App']['GetServiceStaleness'](arg1);
+}
+
 export function GetServiceTemplate(arg1) {
   return window['go']['main']['App']['GetServiceTemplate'](arg1);
 }

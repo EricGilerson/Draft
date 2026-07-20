@@ -1862,6 +1862,19 @@ func (a *App) GetNodeConfigStatus(nodeID string) (*deploy.NodeConfigStatus, erro
 	return deploy.NodeConfigStatusFromStore(a.store, nodeID)
 }
 
+// GetServiceStaleness compares the running container's deployment manifest
+// with the configuration Draft would resolve today.
+func (a *App) GetServiceStaleness(nodeID string) (*deploy.ServiceStaleness, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetServiceStaleness(a.ctx, nodeID)
+}
+
 // InspectDockerfileBuildInfo returns the ARG/build-step structure of a node's
 // Dockerfile so the Variables tab can warn about build-time env wiring
 // (client-inlined vars left runtime-only, or build args the Dockerfile never

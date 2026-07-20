@@ -3,7 +3,7 @@ import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
-    GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus,
+    GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus, GetServiceStaleness,
     GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService, UnlinkService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
@@ -60,6 +60,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [error, setError] = useState('');
     const [settings, setSettings] = useState<Record<string, string>>({});
     const [hasStagedChanges, setHasStagedChanges] = useState(false);
+    const [staleness, setStaleness] = useState<deploy.ServiceStaleness | null>(null);
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
     const [linkInfo, setLinkInfo] = useState<deploy.LinkedServiceInfo | null>(null);
     const {confirm} = useAppDialog();
@@ -102,6 +103,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setSettings({...applied, ...staged});
             setHasStagedChanges(!!status?.hasStagedChanges);
         });
+        GetServiceStaleness(nodeId).then(setStaleness).catch(() => setStaleness(null));
         GetLocalDomainStatus().then((s) => {
             if (!cancelled) setLocalDomain(s);
         }).catch(() => {
@@ -133,6 +135,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             setSettings({...applied, ...staged});
             setHasStagedChanges(!!status?.hasStagedChanges);
         });
+        GetServiceStaleness(nodeId).then(setStaleness).catch(() => setStaleness(null));
         return () => { cancelled = true; };
     }, [nodeId, version]);
 
@@ -370,6 +373,17 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             {hasStagedChanges && (
                 <div className="overview-staged-banner">
                     Staged settings will apply on the next deploy.
+                </div>
+            )}
+
+            {staleness?.stale && (
+                <div className="overview-staged-banner overview-stale-banner">
+                    <AlertCircle size={13} />
+                    <span>
+                        Running with stale {staleness.needsRebuild ? 'build or runtime' : 'runtime'} configuration
+                        {staleness.inputs.length ? `: ${staleness.inputs.map((input) => input.key).join(', ')}` : ''}.
+                        {' '}Restart will not apply these values; deploy this service instead.
+                    </span>
                 </div>
             )}
 

@@ -103,7 +103,7 @@ type SandboxTestRun struct {
 	SandboxID           uint       `gorm:"index" json:"sandboxId"`
 	SourceEnvironmentID uint       `gorm:"index;not null" json:"sourceEnvironmentId"`
 	Name                string     `gorm:"not null" json:"name"`
-	Mode                string     `gorm:"not null;default:'fresh'" json:"mode"` // fresh | steps
+	Mode                string     `gorm:"not null;default:'fresh'" json:"mode"`           // fresh | steps
 	Status              string     `gorm:"index;not null;default:'running'" json:"status"` // running | passed | failed
 	PlanJSON            string     `gorm:"not null;default:'{}'" json:"planJson"`
 	StepsJSON           string     `gorm:"not null;default:'[]'" json:"stepsJson"`
@@ -222,8 +222,8 @@ type Deployment struct {
 	// is pinned to a git branch/ref. Empty for working-tree deploys. It is the
 	// baseline the git-trigger reconciler diffs against to decide whether a
 	// commit/push actually changed the tracked branch since the last deploy.
-	SourceSHA          string     `json:"sourceSha"`
-	Status             string     `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
+	SourceSHA string `json:"sourceSha"`
+	Status    string `gorm:"not null;default:'pending'" json:"status"` // pending|building|built|starting|running|stopped|failed
 	// Sequence is the 1-based, per-node deploy counter (the 1st, 2nd, 3rd...
 	// deploy of THIS service). It's the number shown in the image tag and
 	// container name (draft-{project}-{environment}-{service}:{sequence}),
@@ -248,6 +248,18 @@ type Deployment struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
 	FinishedAt         *time.Time `json:"finishedAt"`
+}
+
+// DeploymentInput is a secret-safe snapshot of one value supplied to a
+// deployment. Values are stored as SHA-256 digests rather than plaintext so
+// Draft can determine whether a live container is stale without retaining a
+// second copy of credentials.
+type DeploymentInput struct {
+	DeploymentID uint      `gorm:"primaryKey;not null" json:"deploymentId"`
+	Key          string    `gorm:"primaryKey;not null" json:"key"`
+	Scope        string    `gorm:"not null;default:'runtime'" json:"scope"` // runtime|build
+	Digest       string    `gorm:"not null" json:"digest"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // EnvVar represents a single environment variable key/value pair.
@@ -300,29 +312,29 @@ type AppSetting struct {
 // "create service" flow can stamp a node from a template in one step — Draft
 // writes the Dockerfile body into the service root at creation time.
 type ServiceTemplate struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"not null" json:"name"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`                             // "web" | "datastore" | "language"
-	Icon        string    `json:"icon"`                                 // simple-icons slug, e.g. "nextdotjs"
-	Color       string    `json:"color"`                                // optional brand hex; empty = currentColor
-	Mode        string    `gorm:"not null;default:'build'" json:"mode"` // "build" | "image"
-	Image       string    `json:"image"`                                // image name when Mode=="image" (datastores)
-	ImageTags   string    `gorm:"type:text" json:"imageTags"`           // JSON: ["16-alpine","16",...] curated tags for image-mode templates; base name comes from Image
-	Port        int       `json:"port"`
-	Dockerfile  string    `gorm:"type:text" json:"dockerfile"` // embedded Dockerfile content
-	CmdOverride string    `json:"cmdOverride"`
-	Entrypoint  string    `json:"entrypoint"`
-	WorkingDir  string    `json:"workingDir"`
-	EnvVars     string    `gorm:"type:text" json:"envVars"` // JSON: [{"key","value","scope"}]
-	Labels      string    `gorm:"type:text" json:"labels"`  // JSON: {"key":"value"}
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Name        string `gorm:"not null" json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`                             // "web" | "datastore" | "language"
+	Icon        string `json:"icon"`                                 // simple-icons slug, e.g. "nextdotjs"
+	Color       string `json:"color"`                                // optional brand hex; empty = currentColor
+	Mode        string `gorm:"not null;default:'build'" json:"mode"` // "build" | "image"
+	Image       string `json:"image"`                                // image name when Mode=="image" (datastores)
+	ImageTags   string `gorm:"type:text" json:"imageTags"`           // JSON: ["16-alpine","16",...] curated tags for image-mode templates; base name comes from Image
+	Port        int    `json:"port"`
+	Dockerfile  string `gorm:"type:text" json:"dockerfile"` // embedded Dockerfile content
+	CmdOverride string `json:"cmdOverride"`
+	Entrypoint  string `json:"entrypoint"`
+	WorkingDir  string `json:"workingDir"`
+	EnvVars     string `gorm:"type:text" json:"envVars"` // JSON: [{"key","value","scope"}]
+	Labels      string `gorm:"type:text" json:"labels"`  // JSON: {"key":"value"}
 	// Volumes is a JSON array of TemplateVolume (see volumes.go): default volume
 	// mounts seeded onto services created from this template. Datastore built-ins
 	// carry a Draft-managed named volume for their data directory so a freshly
 	// created Postgres/MySQL/Mongo/Redis persists across redeploys. Empty for
 	// build-mode web/language templates. The create wizard lets the user edit
 	// these defaults before stamping.
-	Volumes     string    `gorm:"type:text" json:"volumes"` // JSON: [{type, source, target, readOnly, sizeHint, labels}]
+	Volumes string `gorm:"type:text" json:"volumes"` // JSON: [{type, source, target, readOnly, sizeHint, labels}]
 	// Schema is a JSON-encoded TemplateSchema that drives the create-service
 	// wizard (which steps/fields apply) and the Settings tab (which sections to
 	// hide). Empty means "use the default for Mode"; see template_schema.go.

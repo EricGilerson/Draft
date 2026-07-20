@@ -297,6 +297,10 @@ func (e *Engine) startContainerAndRegister(
 		dep.Hostname = routeHostname
 	}
 	e.store.UpdateDeployment(dep)
+	if err := e.recordDeploymentInputs(dep.ID, deployEnv); err != nil {
+		log.Printf("[deploy] warning: record deployment inputs: %v", err)
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not record deployment inputs: %v", err))
+	}
 
 	// Traffic now flows to the new container; retire the previous deployment(s).
 	e.emitBuildLog(nodeID, "==> Retiring previous deployment...")
@@ -319,13 +323,13 @@ func (e *Engine) startContainerAndRegister(
 
 	e.promoteStagedAfterSuccessfulDeploy(ctx, nodeID, node.ProjectID)
 
-	// Persist leased public endpoints into template-generated connection
-	// strings (PUBLIC_DATABASE_URL, …) so Variables matches the live bind.
-	if isTCP {
-		if err := e.refreshTemplateGeneratedEnvVars(nodeID); err != nil {
-			log.Printf("[deploy] warning: refresh public connection URLs: %v", err)
-			e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not refresh public connection URLs: %v", err))
-		}
+	// Persist template-owned generated values after every deploy. These values
+	// are concrete at rest, but derive from hostname/port identity; refreshing
+	// here keeps Variables, future consumers, and the just-recorded deployment
+	// model converged after any identity or TCP lease change.
+	if err := e.refreshTemplateGeneratedEnvVars(nodeID); err != nil {
+		log.Printf("[deploy] warning: refresh generated environment: %v", err)
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not refresh generated environment: %v", err))
 	}
 
 	succeeded = true
@@ -378,7 +382,7 @@ func (e *Engine) runImageDeploy(ctx context.Context, nodeID string, settings map
 		return
 	}
 
-	addr, err := e.computeNodeAddress(node)
+	addr, err := e.computeNodeAddressWithSettings(node, settings)
 	if err != nil {
 		e.failDeployment(dep, nodeID, "failed to resolve node identity: "+err.Error())
 		return
@@ -551,10 +555,10 @@ func renderPullLine(status, id, progress string) string {
 // requires the image to already be present locally (air-gapped / strictly-local
 // workflows) and fails the deploy if it isn't.
 const (
-	pullPolicyAlways   = "always"
-	pullPolicyMissing  = "missing"
-	pullPolicyNever    = "never"
-	pullPolicyDefault  = pullPolicyMissing
+	pullPolicyAlways  = "always"
+	pullPolicyMissing = "missing"
+	pullPolicyNever   = "never"
+	pullPolicyDefault = pullPolicyMissing
 )
 
 // normalizePullPolicy coerces an arbitrary setting value to one of the

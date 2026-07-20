@@ -140,6 +140,25 @@ func TestListAppSecretUsages(t *testing.T) {
 	}
 }
 
+func TestListAppSecretUsagesIncludesTransitiveServiceReferences(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	project, err := s.CreateProject("p", "/tmp/p", "")
+	if err != nil { t.Fatal(err) }
+	envID := defaultEnvID(t, s, project.ID)
+	db, err := s.CreateNode(&store.CanvasNode{ID: "db", ProjectID: project.ID, EnvironmentID: envID, Label: "db"})
+	if err != nil { t.Fatal(err) }
+	api, err := s.CreateNode(&store.CanvasNode{ID: "api", ProjectID: project.ID, EnvironmentID: envID, Label: "api"})
+	if err != nil { t.Fatal(err) }
+	if err := s.SetAppSecret("DB_PASSWORD", "secret", ""); err != nil { t.Fatal(err) }
+	if err := s.UpsertEnvVar(store.EnvVar{NodeID: db.ID, Key: "DATABASE_URL", Value: "postgres://{{secret.DB_PASSWORD}}", Scope: store.EnvScopeRuntime}); err != nil { t.Fatal(err) }
+	if err := s.UpsertEnvVar(store.EnvVar{NodeID: api.ID, Key: "DATABASE_URL", Value: "@{db.DATABASE_URL}", Scope: store.EnvScopeRuntime}); err != nil { t.Fatal(err) }
+	usages, err := e.ListAppSecretUsages("DB_PASSWORD")
+	if err != nil { t.Fatal(err) }
+	if len(usages) != 2 { t.Fatalf("got %+v, want db and api", usages) }
+	if usages[0].NodeID != "db" || usages[1].NodeID != "api" { t.Fatalf("unexpected usages: %+v", usages) }
+}
+
 func TestDeleteAppSecretBlockedWhenReferenced(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

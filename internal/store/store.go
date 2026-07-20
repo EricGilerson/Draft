@@ -40,6 +40,7 @@ var registeredModels = []any{
 	&NodeSetting{},
 	&NodeSettingStaged{},
 	&Deployment{},
+	&DeploymentInput{},
 	&EnvVar{},
 	&EnvVarStaged{},
 	&ProjectEnvVar{},

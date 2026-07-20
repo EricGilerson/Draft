@@ -280,7 +280,7 @@ func (e *Engine) runDeployWith(ctx context.Context, nodeID string, settingsOverr
 		return
 	}
 
-	addr, err := e.computeNodeAddress(&node)
+	addr, err := e.computeNodeAddressWithSettings(&node, settings)
 	if err != nil {
 		e.emitStatus(nodeID, StatusEvent{Status: "failed", Error: "failed to resolve node identity: " + err.Error()})
 		return

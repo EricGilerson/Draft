@@ -221,6 +221,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/deployments/rollback-eligible", s.handleRollbackEligible)
 	mux.HandleFunc("/node/delete-preview", s.handlePreviewDeleteService)
 	mux.HandleFunc("/node/config-status", s.handleNodeConfigStatus)
+	mux.HandleFunc("/node/staleness", s.handleNodeStaleness)
 	mux.HandleFunc("/node/stage-settings", s.handleStageNodeSettings)
 	mux.HandleFunc("/node/stage-env", s.handleStageEnvVarChanges)
 	mux.HandleFunc("/node/discard-staged", s.handleDiscardStagedChanges)
@@ -1132,6 +1133,19 @@ func (s *Server) handleNodeConfigStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	status, err := deploy.NodeConfigStatusFromStore(s.store, req.NodeID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, status)
+}
+
+func (s *Server) handleNodeStaleness(w http.ResponseWriter, r *http.Request) {
+	var req nodeRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	status, err := s.engine.GetServiceStaleness(req.NodeID)
 	if err != nil {
 		writeError(w, err)
 		return

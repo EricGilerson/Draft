@@ -71,13 +71,23 @@ func (a NodeAddress) attr(name string) (string, bool) {
 // deployed or running: hostname is built from the node's permanent UID, and
 // the port comes from its configured node settings.
 func (e *Engine) computeNodeAddress(node *store.CanvasNode) (NodeAddress, error) {
+	return e.computeNodeAddressWithSettings(node, nil)
+}
+
+// computeNodeAddressWithSettings is the deploy-time variant of address
+// resolution. A deployment must use its effective (applied + staged) port and
+// routing settings, while ordinary previews intentionally use applied state.
+func (e *Engine) computeNodeAddressWithSettings(node *store.CanvasNode, effectiveSettings map[string]string) (NodeAddress, error) {
 	project, err := e.store.GetProject(node.ProjectID)
 	if err != nil {
 		return NodeAddress{}, fmt.Errorf("project not found for %q: %w", node.Label, err)
 	}
-	settings, err := e.store.GetNodeSettings(node.ID)
-	if err != nil {
-		return NodeAddress{}, err
+	settings := effectiveSettings
+	if settings == nil {
+		settings, err = e.store.GetNodeSettings(node.ID)
+		if err != nil {
+			return NodeAddress{}, err
+		}
 	}
 	uid, err := e.store.EnsureNodeUID(node.ID)
 	if err != nil {

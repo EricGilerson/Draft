@@ -3,6 +3,8 @@ package deploy
 import (
 	"fmt"
 	"strings"
+
+	"Draft/internal/store"
 )
 
 // SecretUsage describes one service affected by an app secret.
@@ -42,7 +44,7 @@ func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 				return nil, err
 			}
 			for _, v := range vars {
-				if !strings.Contains(v.Value, token) {
+				if !e.valueDependsOnToken(&node, v.Value, token, map[string]bool{node.ID: true}) {
 					continue
 				}
 				usageKey := fmt.Sprintf("%s:%s", node.ID, v.Key)
@@ -110,7 +112,7 @@ func (e *Engine) ListProjectEnvVarUsages(projectID uint, key string) ([]SecretUs
 			return nil, err
 		}
 		for _, v := range vars {
-			if !strings.Contains(v.Value, token) {
+			if !e.valueDependsOnToken(&node, v.Value, token, map[string]bool{node.ID: true}) {
 				continue
 			}
 			usageKey := fmt.Sprintf("%s:%s", node.ID, v.Key)
@@ -130,6 +132,59 @@ func (e *Engine) ListProjectEnvVarUsages(projectID uint, key string) ([]SecretUs
 		}
 	}
 	return out, nil
+}
+
+// valueDependsOnToken follows the same service-reference graph used during
+// deployment resolution. This makes shared-value usage lists include indirect
+// consumers such as api -> @{db.DATABASE_URL} -> {{secret.DB_PASSWORD}}.
+func (e *Engine) valueDependsOnToken(node *store.CanvasNode, raw, token string, visited map[string]bool) bool {
+	if strings.Contains(raw, token) {
+		return true
+	}
+	for _, match := range projectExprPattern.FindAllStringSubmatch(raw, -1) {
+		marker := "project:" + match[1]
+		if visited[marker] {
+			continue
+		}
+		projectValue, err := e.store.GetProjectEnvVar(node.ProjectID, match[1])
+		if err == nil {
+			visited[marker] = true
+			depends := e.valueDependsOnToken(node, projectValue.Value, token, visited)
+			delete(visited, marker)
+			if depends {
+				return true
+			}
+		}
+	}
+	for _, match := range refPattern.FindAllStringSubmatch(raw, -1) {
+		target, err := e.store.GetNodeByLabel(node.EnvironmentID, match[1])
+		if err != nil || visited[target.ID] {
+			continue
+		}
+		attr := match[2]
+		if isGeneratedAttr(attr) {
+			continue
+		}
+		resolveID, err := referenceEnvVarNodeID(e.store, target.ID)
+		if err != nil {
+			continue
+		}
+		value, err := e.store.GetEnvVar(resolveID, attr)
+		if err != nil {
+			continue
+		}
+		resolvedNode, err := e.store.GetNode(resolveID)
+		if err != nil {
+			continue
+		}
+		visited[resolveID] = true
+		depends := e.valueDependsOnToken(resolvedNode, value.Value, token, visited)
+		delete(visited, resolveID)
+		if depends {
+			return true
+		}
+	}
+	return false
 }
 
 // CountProjectEnvVarReferences returns how many distinct service usages reference key.

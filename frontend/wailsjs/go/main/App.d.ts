@@ -122,6 +122,8 @@ export function GetServiceMetrics(arg1:string):Promise<deploy.ServiceMetrics>;
 
 export function GetServiceRoot(arg1:string,arg2:number):Promise<string>;
 
+export function GetServiceStaleness(arg1:string):Promise<deploy.ServiceStaleness>;
+
 export function GetServiceTemplate(arg1:number):Promise<store.ServiceTemplate>;
 
 export function ImportConfigAsProject(arg1:string,arg2:string):Promise<deploy.ImportResult>;

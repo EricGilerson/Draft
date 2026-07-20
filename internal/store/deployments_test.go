@@ -46,6 +46,62 @@ func TestUpdateDeployment(t *testing.T) {
 	}
 }
 
+func TestReplaceDeploymentInputsStoresDigestsOnly(t *testing.T) {
+	s := openTemp(t)
+	dep, err := s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceDeploymentInputs(dep.ID, []DeploymentInput{{Key: "TOKEN", Scope: "runtime", Digest: "digest-one"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceDeploymentInputs(dep.ID, []DeploymentInput{{Key: "TOKEN", Scope: "runtime", Digest: "digest-two"}, {Key: "ARG", Scope: "build", Digest: "digest-three"}}); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := s.ListDeploymentInputs(dep.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 2 || inputs[0].Digest != "digest-three" || inputs[1].Digest != "digest-two" {
+		t.Fatalf("unexpected inputs: %+v", inputs)
+	}
+}
+
+func TestUpdateNodeRenamesReferencesInAppliedAndStagedEnv(t *testing.T) {
+	s := openTemp(t)
+	p, err := s.CreateProject("p", "/p", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envs, err := s.ListEnvironments(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&CanvasNode{ID: "db", ProjectID: p.ID, EnvironmentID: envs[0].ID, Label: "db"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateNode(&CanvasNode{ID: "api", ProjectID: p.ID, EnvironmentID: envs[0].ID, Label: "api"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertEnvVar(EnvVar{NodeID: "api", Key: "URL", Value: "@{db.DATABASE_URL}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StageEnvVarChanges("api", []EnvVarStageUpsert{{Key: "NEXT_URL", Value: "@{db.DRAFT_INTERNAL_URL}"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateNode("db", 1, 2, "primary-db"); err != nil {
+		t.Fatal(err)
+	}
+	vars, err := s.ListEnvVars("api")
+	if err != nil || vars[0].Value != "@{primary-db.DATABASE_URL}" {
+		t.Fatalf("applied vars: %+v err=%v", vars, err)
+	}
+	staged, err := s.ListStagedEnvVarChanges("api")
+	if err != nil || staged[0].Value != "@{primary-db.DRAFT_INTERNAL_URL}" {
+		t.Fatalf("staged vars: %+v err=%v", staged, err)
+	}
+}
+
 func TestActiveDeployment(t *testing.T) {
 	s := openTemp(t)
 	s.DB.Create(&Project{Name: "p1", Path: "/p1"})

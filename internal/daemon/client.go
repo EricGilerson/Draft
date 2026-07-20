@@ -522,6 +522,14 @@ func (c *Client) GetNodeConfigStatus(ctx context.Context, nodeID string) (*deplo
 	return &out, nil
 }
 
+func (c *Client) GetServiceStaleness(ctx context.Context, nodeID string) (*deploy.ServiceStaleness, error) {
+	var out deploy.ServiceStaleness
+	if err := c.postJSON(ctx, "/node/staleness", nodeRequest{NodeID: nodeID}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) StageNodeSettings(ctx context.Context, nodeID string, projectID uint, settings map[string]string) error {
 	return c.postJSON(ctx, "/node/stage-settings", map[string]any{
 		"nodeId": nodeID, "projectId": projectID, "settings": settings,

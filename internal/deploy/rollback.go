@@ -209,7 +209,7 @@ func (e *Engine) runRollbackDeploy(ctx context.Context, historical *store.Deploy
 		return
 	}
 
-	addr, err := e.computeNodeAddress(node)
+	addr, err := e.computeNodeAddressWithSettings(node, settings)
 	if err != nil {
 		e.failDeployment(dep, nodeID, "failed to resolve node identity: "+err.Error())
 		return

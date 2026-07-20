@@ -52,11 +52,33 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	runtimeValues := make(map[string]string, len(nodeVars)+len(generatedEnvKeys))
 	buildArgs := map[string]*string{}
 
-	addVar := func(v scopeVar) error {
+	addVar := func(v scopeVar, source string) error {
 		if _, reserved := generatedEnvKeys[v.Key]; reserved {
 			return fmt.Errorf("%s is reserved for Draft-generated deployment values", v.Key)
 		}
-		value, err := e.resolveValue(in.NodeID, in.ProjectID, in.EnvironmentID, v.Value, map[string]bool{in.NodeID: true})
+		raw := v.Value
+		// Template defaults are stamped as concrete strings for portability, but
+		// address-derived generated values must follow the identity and port used
+		// by this deployment. Rehydrate them from the template before resolving
+		// references so a port/hostname change is correct on the first deploy.
+		if source == store.EnvSourceGenerated {
+			if templateRaw, found := e.templateEnvRaw(in.NodeID, v.Key); found {
+				uid, err := e.store.EnsureNodeUID(in.NodeID)
+				if err != nil {
+					return err
+				}
+				expanded, err := resolveTemplateExprs(templateExprInput{
+					ServiceName: in.ServiceName, ProjectName: in.ProjectName, Environment: in.Environment,
+					UID: uid, ServicePort: in.ServicePort, InternalHostname: in.InternalHostname,
+					InternalURL: in.InternalURL, PublicHostname: in.PublicHostname, PublicURL: in.PublicURL,
+				}, templateRaw)
+				if err != nil {
+					return err
+				}
+				raw = expanded
+			}
+		}
+		value, err := e.resolveValue(in.NodeID, in.ProjectID, in.EnvironmentID, raw, map[string]bool{in.NodeID: true})
 		if err != nil {
 			return fmt.Errorf("%s: %w", v.Key, err)
 		}
@@ -77,7 +99,7 @@ func (e *Engine) resolveDeploymentEnv(in deploymentEnvInput) (deploymentEnv, err
 	}
 
 	for _, v := range nodeVars {
-		if err := addVar(scopeVar{Key: v.Key, Value: v.Value, Scope: v.Scope}); err != nil {
+		if err := addVar(scopeVar{Key: v.Key, Value: v.Value, Scope: v.Scope}, v.Source); err != nil {
 			return deploymentEnv{}, err
 		}
 	}
@@ -198,4 +220,27 @@ type scopeVar struct {
 	Key   string
 	Value string
 	Scope string
+}
+
+// templateEnvRaw returns the authored default for a generated key. It keeps
+// generated identity values refreshable without overwriting user-owned vars.
+func (e *Engine) templateEnvRaw(nodeID, key string) (string, bool) {
+	node, err := e.store.GetNode(nodeID)
+	if err != nil || node.TemplateID == 0 {
+		return "", false
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return "", false
+	}
+	entries, err := parseTemplateEnvVars(tpl.EnvVars)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if entry.Key == key {
+			return entry.Value, true
+		}
+	}
+	return "", false
 }
