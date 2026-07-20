@@ -214,6 +214,14 @@ func (c *Client) Restart(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/restart", nodeID)
 }
 
+// PrepareForUpdate asks the daemon to either report active deployments or to
+// gracefully drain and exit. It intentionally does not stop user containers.
+func (c *Client) PrepareForUpdate(ctx context.Context, cancelActive bool) (*UpdateReadiness, error) {
+	var out UpdateReadiness
+	err := c.postJSONWithTimeout(ctx, "/update/prepare", prepareUpdateRequest{CancelActive: cancelActive}, &out, 35*time.Second)
+	return &out, err
+}
+
 func (c *Client) StartLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/start", nodeID)
 }

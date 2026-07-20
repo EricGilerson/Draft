@@ -1,5 +1,5 @@
 import type {ComponentType} from 'react';
-import {LayoutDashboard, FolderOpen, Box, LayoutTemplate, HardDrive, Route, Settings2, KeyRound, Container, SquareTerminal} from 'lucide-react';
+import {LayoutDashboard, FolderOpen, Box, LayoutTemplate, HardDrive, Route, Settings2, KeyRound, Container, SquareTerminal, RefreshCw, LoaderCircle} from 'lucide-react';
 import type {LucideProps} from 'lucide-react';
 import './Sidebar.css';
 
@@ -33,6 +33,8 @@ type SidebarProps = {
     active: NavId;
     onSelect: (id: NavId) => void;
     compact?: boolean;
+    update?: {state: string; version?: string};
+    onRestartToUpdate?: () => void;
 };
 
 function BrandMark() {
@@ -49,7 +51,7 @@ function BrandMark() {
     );
 }
 
-export default function Sidebar({active, onSelect, compact}: SidebarProps) {
+export default function Sidebar({active, onSelect, compact, update, onRestartToUpdate}: SidebarProps) {
     const renderItem = (item: NavItem) => {
         const Icon = item.icon;
         const isActive = active === item.id;
@@ -82,6 +84,23 @@ export default function Sidebar({active, onSelect, compact}: SidebarProps) {
             </nav>
 
             <div className="sidebar-footer">
+                {update?.state === 'ready' && (
+                    <button
+                        type="button"
+                        className="nav-item nav-item--update"
+                        onClick={onRestartToUpdate}
+                        title={`Restart to install Draft ${update.version ?? ''}`.trim()}
+                    >
+                        <RefreshCw className="nav-icon" size={14} strokeWidth={2}/>
+                        <span className="nav-label">Restart to update</span>
+                    </button>
+                )}
+                {(update?.state === 'checking' || update?.state === 'downloading') && (
+                    <div className="nav-item nav-item--update-progress" title={update.state === 'downloading' ? 'Downloading update in the background' : 'Checking for updates'}>
+                        <LoaderCircle className="nav-icon spin" size={14} strokeWidth={2}/>
+                        <span className="nav-label">{update.state === 'downloading' ? 'Downloading update…' : 'Checking for updates…'}</span>
+                    </div>
+                )}
                 {FOOTER.map(renderItem)}
             </div>
         </aside>

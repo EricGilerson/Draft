@@ -19,6 +19,11 @@
 #     AZURE_CODE_SIGNING_ACCOUNT
 #     AZURE_CERTIFICATE_PROFILE
 #
+#   Auto-update manifest (optional):
+#     DRAFT_UPDATER_SIGNING_PRIVATE_KEY  base64 raw Ed25519 private key
+#   Repository variable:
+#     DRAFT_UPDATER_PUBLIC_KEY           matching base64 raw Ed25519 public key
+#
 # Platforms without their secrets configured are skipped.
 name: Release Desktop App
 
@@ -50,6 +55,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       has_apple_secrets: ${{ steps.check.outputs.has_apple_secrets }}
       has_azure_secrets: ${{ steps.check.outputs.has_azure_secrets }}
+      has_updater_secrets: ${{ steps.check.outputs.has_updater_secrets }}
     steps:
       - uses: actions/checkout@v4
 
@@ -85,6 +91,8 @@ jobs:
           AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
           AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
           AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          DRAFT_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.DRAFT_UPDATER_SIGNING_PRIVATE_KEY }}
+          DRAFT_UPDATER_PUBLIC_KEY: ${{ vars.DRAFT_UPDATER_PUBLIC_KEY }}
         run: |
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
             echo "has_apple_secrets=true" >> "$GITHUB_OUTPUT"
@@ -97,6 +105,12 @@ jobs:
           else
             echo "has_azure_secrets=false" >> "$GITHUB_OUTPUT"
             echo "⚠️ Azure Trusted Signing secrets not configured — skipping Windows build"
+          fi
+          if [ -n "$DRAFT_UPDATER_SIGNING_PRIVATE_KEY" ] && [ -n "$DRAFT_UPDATER_PUBLIC_KEY" ]; then
+            echo "has_updater_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_updater_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Updater signing key not configured — publishing installers only"
           fi
 
   build-mac:
@@ -173,7 +187,9 @@ jobs:
       - name: Build universal macOS app
         env:
           CGO_ENABLED: "1"
-        run: wails build -platform darwin/universal -clean
+          VERSION: ${{ needs.get-version.outputs.version }}
+          UPDATER_PUBLIC_KEY: ${{ vars.DRAFT_UPDATER_PUBLIC_KEY }}
+        run: wails build -platform darwin/universal -clean -ldflags "-X main.appVersion=$VERSION -X main.updaterPublicKey=$UPDATER_PUBLIC_KEY"
 
       - name: Codesign app
         env:
@@ -187,6 +203,13 @@ jobs:
             --sign "$APPLE_SIGNING_IDENTITY" \
             "$APP"
           codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create macOS update archive
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          ditto -c -k --keepParent "build/bin/Draft.app" "build/bin/Draft_${VERSION}_universal.app.zip"
+          test -f "build/bin/Draft_${VERSION}_universal.app.zip"
 
       - name: Create DMG
         env:
@@ -248,6 +271,7 @@ jobs:
           retention-days: 1
           path: |
             build/bin/Draft_*.dmg
+            build/bin/Draft_*.app.zip
 
   build-windows:
     needs: get-version
@@ -312,7 +336,9 @@ jobs:
       - name: Build Windows app + NSIS installer
         env:
           CGO_ENABLED: "0"
-        run: wails build -platform windows/amd64 -nsis -clean
+          VERSION: ${{ needs.get-version.outputs.version }}
+          UPDATER_PUBLIC_KEY: ${{ vars.DRAFT_UPDATER_PUBLIC_KEY }}
+        run: wails build -platform windows/amd64 -nsis -clean -ldflags "-X main.appVersion=$VERSION -X main.updaterPublicKey=$UPDATER_PUBLIC_KEY"
 
       - name: Sign Draft.exe
         uses: azure/trusted-signing-action@v0.5.0
@@ -384,6 +410,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Go for manifest signing
+        if: needs.get-version.outputs.has_updater_secrets == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
       - name: Download macOS artifact
         if: needs.build-mac.result == 'success'
         uses: actions/download-artifact@v4
@@ -400,6 +432,34 @@ jobs:
 
       - name: List release files
         run: find artifacts -type f | sort
+
+      - name: Create signed update manifest
+        if: needs.get-version.outputs.has_updater_secrets == 'true'
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+          DRAFT_UPDATER_SIGNING_PRIVATE_KEY: ${{ secrets.DRAFT_UPDATER_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/update
+          PLATFORMS='{}'
+          if [ "${{ needs.build-mac.result }}" = "success" ]; then
+            MAC=$(find artifacts/mac -name '*.app.zip' -print -quit)
+            test -n "$MAC"
+            MAC_NAME=$(basename "$MAC")
+            MAC_SHA=$(shasum -a 256 "$MAC" | awk '{print $1}')
+            MAC_SIZE=$(stat -c%s "$MAC")
+            PLATFORMS=$(jq --arg n "$MAC_NAME" --arg s "$MAC_SHA" --argjson z "$MAC_SIZE" '. + {"darwin-universal": {asset: $n, sha256: $s, size: $z}}' <<<"$PLATFORMS")
+          fi
+          if [ "${{ needs.build-windows.result }}" = "success" ]; then
+            WIN=$(find artifacts/windows -name 'Draft-*-installer.exe' -print -quit)
+            test -n "$WIN"
+            WIN_NAME=$(basename "$WIN")
+            WIN_SHA=$(shasum -a 256 "$WIN" | awk '{print $1}')
+            WIN_SIZE=$(stat -c%s "$WIN")
+            PLATFORMS=$(jq --arg n "$WIN_NAME" --arg s "$WIN_SHA" --argjson z "$WIN_SIZE" '. + {"windows-amd64": {asset: $n, sha256: $s, size: $z}}' <<<"$PLATFORMS")
+          fi
+          jq -n --arg version "$VERSION" --argjson platforms "$PLATFORMS" '{version: $version, channel: "stable", notes: ("Draft v" + $version), platforms: $platforms}' > artifacts/update/draft-update-manifest.json
+          go run ./cmd/updatesign -in artifacts/update/draft-update-manifest.json -out artifacts/update/draft-update-manifest.sig
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
@@ -419,6 +479,9 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             artifacts/mac/*.dmg
+            artifacts/mac/*.app.zip
             artifacts/windows/Draft-*-installer.exe
+            artifacts/update/draft-update-manifest.json
+            artifacts/update/draft-update-manifest.sig
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

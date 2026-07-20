@@ -74,6 +74,43 @@ func New(s *store.Store, router *networking.Router, logDir string, emit func(str
 	}
 }
 
+// ActiveBuilds returns a stable snapshot of deployments that are still owned
+// by this daemon. It is used by the desktop updater to avoid replacing the
+// application while a Docker build or deploy is mid-flight.
+func (e *Engine) ActiveBuilds() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]string, 0, len(e.active))
+	for nodeID := range e.active {
+		out = append(out, nodeID)
+	}
+	return out
+}
+
+// CancelActiveBuilds cancels only in-flight deploy contexts. Unlike Stop it
+// deliberately leaves already-running user containers alone.
+func (e *Engine) CancelActiveBuilds() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]string, 0, len(e.active))
+	for nodeID, cancel := range e.active {
+		cancel()
+		out = append(out, nodeID)
+	}
+	return out
+}
+
+// StopAllLogStreams detaches daemon-owned container-log readers. Build logs
+// are durable deployment files and are not removed.
+func (e *Engine) StopAllLogStreams() {
+	e.logsMu.Lock()
+	defer e.logsMu.Unlock()
+	for nodeID, cancel := range e.logSubs {
+		cancel()
+		delete(e.logSubs, nodeID)
+	}
+}
+
 type StatusEvent struct {
 	DeploymentID uint   `json:"deploymentId"`
 	Status       string `json:"status"`

@@ -85,6 +85,29 @@ export namespace agents {
 
 }
 
+export namespace appupdate {
+
+	export class Status {
+	    state: string;
+	    version?: string;
+	    message?: string;
+	    notes?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.message = source["message"];
+	        this.notes = source["notes"];
+	    }
+	}
+
+}
+
 export namespace build {
 
 	export class CacheRecord {
@@ -3905,6 +3928,22 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class UpdateRestartResult {
+	    ready: boolean;
+	    activeNodes?: string[];
+	    message?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateRestartResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ready = source["ready"];
+	        this.activeNodes = source["activeNodes"];
+	        this.message = source["message"];
+	    }
 	}
 
 }

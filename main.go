@@ -5,6 +5,7 @@ import (
 	"embed"
 	"os"
 
+	"Draft/internal/appupdate"
 	"Draft/internal/daemon"
 	"Draft/internal/draftmcp"
 	"github.com/wailsapp/wails/v2"
@@ -17,6 +18,13 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) > 2 && os.Args[1] == "--apply-update" {
+		if err := appupdate.ApplyJobFile(os.Args[2]); err != nil {
+			println("Update error:", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--daemon" {
 		if err := daemon.RunProcess(context.Background()); err != nil {
 			println("Daemon error:", err.Error())

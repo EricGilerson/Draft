@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import './App.css';
-import {GetAppSettings, GetDefaultEnvironment, ListProjectServicesSummary, ListProjects} from '../wailsjs/go/main/App';
+import {GetAppSettings, GetDefaultEnvironment, ListProjectServicesSummary, ListProjects, RestartToUpdate, UpdateStatus} from '../wailsjs/go/main/App';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import Sidebar, {NavId} from './components/Sidebar';
 import DockerIndicator from './components/DockerIndicator';
@@ -30,6 +30,7 @@ import {main, store} from '../wailsjs/go/models';
 
 type VolumeFocus = {nodeId: string; target: string};
 type NodeFocus = {projectId: number; nodeId: string; environmentId?: number | null};
+type UpdateState = {state: string; version?: string; message?: string};
 
 function App() {
     const [view, setView] = useState<NavId>('overview');
@@ -47,6 +48,7 @@ function App() {
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const [compactSidebar, setCompactSidebar] = useState(false);
     const [sandboxSource, setSandboxSource] = useState<{projectId: number; environmentId: number} | null>(null);
+    const [update, setUpdate] = useState<UpdateState>({state: 'checking'});
     const projectsRef = useRef<store.Project[]>([]);
     const requestedEnvironmentRef = useRef<{projectId: number; environmentId: number} | null>(null);
 
@@ -101,6 +103,26 @@ function App() {
         });
         return unsubscribe;
     }, [refreshProjectSummaries]);
+
+    useEffect(() => {
+        UpdateStatus().then((status) => setUpdate(status ?? {state: 'unavailable'})).catch(() => setUpdate({state: 'unavailable'}));
+        return EventsOn('update:status', (status: UpdateState) => setUpdate(status ?? {state: 'unavailable'}));
+    }, []);
+
+    const restartToUpdate = async () => {
+        try {
+            const result = await RestartToUpdate(false);
+            if (result?.ready) return;
+            if (result?.activeNodes?.length) {
+                const confirmed = window.confirm(`A build or deploy is still running (${result.activeNodes.length}). Cancel it and restart to update? Running services will stay up.`);
+                if (confirmed) await RestartToUpdate(true);
+                return;
+            }
+            if (result?.message) window.alert(result.message);
+        } catch (error: any) {
+            window.alert(typeof error === 'string' ? error : error?.message || 'Could not restart to update.');
+        }
+    };
 
     useEffect(() => {
         if (!selectedProject) {
@@ -238,7 +260,7 @@ function App() {
         <BuildLogProvider>
             <AppDialogProvider>
                 <div className={'app-shell' + (view === 'agents' ? ' app-shell--agents-focus' : '')}>
-                    <Sidebar active={view} onSelect={handleSelectView} compact={compactSidebar || view === 'agents'}/>
+                    <Sidebar active={view} onSelect={handleSelectView} compact={compactSidebar || view === 'agents'} update={update} onRestartToUpdate={restartToUpdate}/>
                     <div className="app-main">
                         <header className="topbar">
                             <ActivityTicker/>

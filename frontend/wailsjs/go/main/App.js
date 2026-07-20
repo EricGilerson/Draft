@@ -10,6 +10,10 @@ export function CheckDocker() {
   return window['go']['main']['App']['CheckDocker']();
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function CloneServiceTemplate(arg1) {
   return window['go']['main']['App']['CloneServiceTemplate'](arg1);
 }
@@ -502,6 +506,10 @@ export function RestartService(arg1) {
   return window['go']['main']['App']['RestartService'](arg1);
 }
 
+export function RestartToUpdate(arg1) {
+  return window['go']['main']['App']['RestartToUpdate'](arg1);
+}
+
 export function ResumeSandbox(arg1) {
   return window['go']['main']['App']['ResumeSandbox'](arg1);
 }
@@ -668,6 +676,10 @@ export function UpdateProject(arg1, arg2, arg3) {
 
 export function UpdateServiceTemplate(arg1) {
   return window['go']['main']['App']['UpdateServiceTemplate'](arg1);
+}
+
+export function UpdateStatus() {
+  return window['go']['main']['App']['UpdateStatus']();
 }
 
 export function WriteAgentSession(arg1, arg2) {

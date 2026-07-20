@@ -164,6 +164,23 @@
     background: var(--accent);
 }
 
+.nav-item--update {
+    color: var(--accent-text);
+    background: rgba(104, 189, 120, 0.09);
+    border-color: rgba(104, 189, 120, 0.22);
+}
+
+.nav-item--update:hover {
+    background: rgba(104, 189, 120, 0.15);
+    color: var(--accent-text);
+}
+
+.nav-item--update-progress {
+    cursor: default;
+    color: var(--text-faint);
+    font-size: 0.72rem;
+}
+
 .nav-icon {
     flex-shrink: 0;
 }

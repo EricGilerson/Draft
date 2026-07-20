@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"Draft/internal/deploy"
@@ -48,6 +49,8 @@ type Server struct {
 	disableDocker bool
 	disableIdle   bool
 	shellTickets  *shellTicketStore
+	shutdownMu    sync.Mutex
+	shutdown      context.CancelFunc
 }
 
 func RunProcess(ctx context.Context) error {
@@ -114,6 +117,11 @@ func RunProcess(ctx context.Context) error {
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	runCtx, requestShutdown := context.WithCancel(ctx)
+	s.shutdownMu.Lock()
+	s.shutdown = requestShutdown
+	s.shutdownMu.Unlock()
+	defer requestShutdown()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -131,8 +139,8 @@ func (s *Server) Run(ctx context.Context) error {
 	defer removeStateIfOwned(s.state)
 
 	if !s.disableDocker {
-		go s.watchDocker(ctx)
-		reconcileCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		go s.watchDocker(runCtx)
+		reconcileCtx, cancel := context.WithTimeout(runCtx, 10*time.Second)
 		if err := s.engine.Reconcile(reconcileCtx); err != nil {
 			log.Printf("[draft-daemon] reconcile: %v", err)
 		}
@@ -143,14 +151,14 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		cancel()
 	}
-	if err := s.engine.ReconcileSandboxLifecycle(ctx, time.Now().UTC()); err != nil {
+	if err := s.engine.ReconcileSandboxLifecycle(runCtx, time.Now().UTC()); err != nil {
 		log.Printf("[draft-daemon] sandbox lifecycle reconcile: %v", err)
 	}
-	go s.reconcileSandboxLifecycle(ctx)
+	go s.reconcileSandboxLifecycle(runCtx)
 
 	// Catch commits/pushes to tracked branches that landed while the daemon was
 	// down — including the event whose git hook just launched this daemon.
-	go s.reconcileAllGitTriggersOnStartup(ctx)
+	go s.reconcileAllGitTriggersOnStartup(runCtx)
 
 	httpServer := &http.Server{Handler: s.routes()}
 	errCh := make(chan error, 1)
@@ -161,14 +169,14 @@ func (s *Server) Run(ctx context.Context) error {
 		close(errCh)
 	}()
 
-	idleCtx, idleCancel := context.WithCancel(ctx)
+	idleCtx, idleCancel := context.WithCancel(runCtx)
 	defer idleCancel()
 	if !s.disableIdle {
 		go s.stopWhenIdle(idleCtx, idleCancel)
 	}
 
 	select {
-	case <-ctx.Done():
+	case <-runCtx.Done():
 	case err := <-errCh:
 		if err != nil {
 			return err
@@ -183,6 +191,7 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/update/prepare", s.handlePrepareUpdate)
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/deploy", s.handleDeploy)
 	mux.HandleFunc("/node/create-from-template", s.handleCreateNodeFromTemplate)
@@ -1242,6 +1251,55 @@ func (s *Server) handleGitRecheck(w http.ResponseWriter, r *http.Request) {
 	// never delays the user's git command.
 	go s.reconcileGitTriggers(context.Background(), req)
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+type prepareUpdateRequest struct {
+	CancelActive bool `json:"cancelActive"`
+}
+
+type UpdateReadiness struct {
+	Ready       bool     `json:"ready"`
+	ActiveNodes []string `json:"activeNodes,omitempty"`
+}
+
+// handlePrepareUpdate is the only supported way for the desktop process to
+// stop its daemon for an app replacement. It never stops Docker containers.
+// A caller must explicitly opt into cancelling in-flight builds.
+func (s *Server) handlePrepareUpdate(w http.ResponseWriter, r *http.Request) {
+	var req prepareUpdateRequest
+	if r.ContentLength > 0 && !decodeJSON(w, r, &req) {
+		return
+	}
+	active := s.engine.ActiveBuilds()
+	if len(active) > 0 && !req.CancelActive {
+		writeJSON(w, UpdateReadiness{Ready: false, ActiveNodes: active})
+		return
+	}
+	if req.CancelActive {
+		s.engine.CancelActiveBuilds()
+		deadline := time.Now().Add(30 * time.Second)
+		for len(s.engine.ActiveBuilds()) > 0 && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Millisecond)
+		}
+		active = s.engine.ActiveBuilds()
+		if len(active) > 0 {
+			writeJSON(w, UpdateReadiness{Ready: false, ActiveNodes: active})
+			return
+		}
+	}
+	s.engine.StopAllLogStreams()
+	writeJSON(w, UpdateReadiness{Ready: true})
+	// Let the response reach the desktop before closing the server that carries
+	// it. Run() then flushes HTTP connections and releases router/database state.
+	go func() {
+		time.Sleep(75 * time.Millisecond)
+		s.shutdownMu.Lock()
+		shutdown := s.shutdown
+		s.shutdownMu.Unlock()
+		if shutdown != nil {
+			shutdown()
+		}
+	}()
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
