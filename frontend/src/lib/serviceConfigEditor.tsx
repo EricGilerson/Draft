@@ -88,16 +88,27 @@ export function ServiceConfigEditorProvider({
     const [envDraft, setEnvDraft] = useState<EnvDraftState>(emptyEnvDraft);
     const envDraftRef = useRef(envDraft);
     const committedEnvRef = useRef(committedEnvByKey([], []));
+    const currentNodeIdRef = useRef(nodeId);
 
     envDraftRef.current = envDraft;
+    currentNodeIdRef.current = nodeId;
 
     const reload = useCallback(async () => {
-        setLoading(true);
+        const requestedNodeId = nodeId;
+        if (currentNodeIdRef.current === requestedNodeId) {
+            setLoading(true);
+        }
         try {
             const [status, envVars] = await Promise.all([
-                GetNodeConfigStatus(nodeId),
-                GetEnvVars(nodeId),
+                GetNodeConfigStatus(requestedNodeId),
+                GetEnvVars(requestedNodeId),
             ]);
+            // A reload started for the previously selected service may finish
+            // after the panel is showing another one. Never let that response
+            // replace the current service's editor state.
+            if (currentNodeIdRef.current !== requestedNodeId) {
+                return;
+            }
             setAppliedSettings(status?.appliedSettings || {});
             setStagedSettings(status?.stagedSettings || {});
             setStagedEnvChanges(status?.stagedEnvChanges || []);
@@ -105,7 +116,9 @@ export function ServiceConfigEditorProvider({
             setActiveDeploymentStatus(status?.activeDeploymentStatus || '');
             setAppliedEnvVars(envVars || []);
         } finally {
-            setLoading(false);
+            if (currentNodeIdRef.current === requestedNodeId) {
+                setLoading(false);
+            }
         }
     }, [nodeId]);
 

@@ -288,7 +288,7 @@ function NodeDetailPanelBody({
 
 export default function NodeDetailPanel(props: NodeDetailPanelProps) {
     return (
-        <ServiceConfigEditorProvider nodeId={props.nodeId} projectId={props.projectId}>
+        <ServiceConfigEditorProvider key={props.nodeId} nodeId={props.nodeId} projectId={props.projectId}>
             <NodeDetailPanelBody {...props} />
         </ServiceConfigEditorProvider>
     );

@@ -309,22 +309,6 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         await loadBuildInfo();
     };
 
-    const loadSettings = async () => {
-        try {
-            const root = await GetServiceRoot(nodeId, projectId);
-            setEnvFile(appliedSettings.env_file || '');
-            setServiceRoot(root || projectPath);
-            if (!appliedSettings.env_file) {
-                const suggestion = await SuggestEnvFile(nodeId, projectId);
-                if (suggestion) {
-                    setEnvFile(suggestion);
-                }
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
     useEffect(() => {
         void loadProjectVars();
         void loadAppSecrets();
@@ -364,8 +348,31 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     );
 
     useEffect(() => {
-        void loadSettings();
-    }, [nodeId, projectId, appliedSettings.env_file]);
+        let cancelled = false;
+        const configuredEnvFile = appliedSettings.env_file || '';
+
+        void (async () => {
+            try {
+                const root = await GetServiceRoot(nodeId, projectId);
+                if (cancelled) return;
+
+                setEnvFile(configuredEnvFile);
+                setServiceRoot(root || projectPath);
+                if (!configuredEnvFile) {
+                    const suggestion = await SuggestEnvFile(nodeId, projectId);
+                    if (!cancelled && suggestion) {
+                        setEnvFile(suggestion);
+                    }
+                }
+            } catch (e) {
+                if (!cancelled) console.error(e);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [nodeId, projectId, projectPath, appliedSettings.env_file]);
 
     const persistEnvPath = useCallback(async (path?: string) => {
         const trimmed = (path ?? envFile).trim();
