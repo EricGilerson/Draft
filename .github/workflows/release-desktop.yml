@@ -1,0 +1,397 @@
+# Signed desktop release — patterned after BuildOS release-desktop.yml,
+# adapted for Wails (Go + NSIS / .app + DMG) instead of Tauri.
+#
+# Required GitHub secrets (reuse BuildOS/org secrets where they match):
+#
+#   Apple (macOS build + notarize):
+#     APPLE_CERTIFICATE            base64-encoded .p12 Developer ID Application cert
+#     APPLE_CERTIFICATE_PASSWORD
+#     APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: … (TEAMID)"
+#     APPLE_ID                     Apple ID email
+#     APPLE_PASSWORD               app-specific password
+#     APPLE_TEAM_ID
+#
+#   Azure Trusted Signing (Windows):
+#     AZURE_TENANT_ID
+#     AZURE_CLIENT_ID
+#     AZURE_CLIENT_SECRET
+#     AZURE_CODE_SIGNING_ENDPOINT  e.g. https://eus.codesigning.azure.net/
+#     AZURE_CODE_SIGNING_ACCOUNT
+#     AZURE_CERTIFICATE_PROFILE
+#
+# Platforms without their secrets configured are skipped.
+name: Release Desktop App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (semver, no leading v). Empty = wails.json productVersion."
+        required: false
+        type: string
+      draft_release:
+        description: "Create GitHub release as draft"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  NODE_OPTIONS: "--max-old-space-size=4096"
+  WAILS_VERSION: v2.12.0
+  GO_VERSION: "1.25.x"
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      has_apple_secrets: ${{ steps.check.outputs.has_apple_secrets }}
+      has_azure_secrets: ${{ steps.check.outputs.has_azure_secrets }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(jq -r '.info.productVersion // empty' wails.json)
+          fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "No version: set workflow input or wails.json info.productVersion" >&2
+            exit 1
+          fi
+          # Strip accidental leading v
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+
+      - name: Check signing secrets
+        id: check
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "has_apple_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_apple_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Apple signing secrets not configured — skipping macOS build"
+          fi
+          if [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_CODE_SIGNING_ENDPOINT" ] && [ -n "$AZURE_CODE_SIGNING_ACCOUNT" ] && [ -n "$AZURE_CERTIFICATE_PROFILE" ]; then
+            echo "has_azure_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_azure_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ Azure Trusted Signing secrets not configured — skipping Windows build"
+          fi
+
+  build-mac:
+    needs: get-version
+    if: needs.get-version.outputs.has_apple_secrets == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Stamp product version
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('wails.json', 'utf8'));
+            j.info = j.info || {};
+            j.info.productVersion = process.env.VERSION;
+            fs.writeFileSync('wails.json', JSON.stringify(j, null, 2) + '\n');
+          "
+          echo "Stamped productVersion=$VERSION"
+
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build universal macOS app
+        env:
+          CGO_ENABLED: "1"
+        run: wails build -platform darwin/universal -clean
+
+      - name: Codesign app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          APP="build/bin/Draft.app"
+          test -d "$APP"
+          codesign --deep --force --options runtime \
+            --entitlements build/darwin/entitlements.plist \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Create DMG
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          set -uo pipefail
+          DMG="build/bin/Draft_${VERSION}_universal.dmg"
+          rm -f "$DMG"
+          # create-dmg exits 2 on success when Finder blessing fails on CI — treat 0/2 as OK
+          set +e
+          create-dmg \
+            --volname "Draft" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Draft.app" 150 190 \
+            --hide-extension "Draft.app" \
+            --app-drop-link 450 185 \
+            "$DMG" \
+            "build/bin/Draft.app"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "create-dmg failed with exit $status" >&2
+            exit "$status"
+          fi
+          test -f "$DMG"
+          ls -lh "$DMG"
+
+      - name: Codesign DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          DMG="build/bin/Draft_${VERSION}_universal.dmg"
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" "$DMG"
+
+      - name: Notarize and staple DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          DMG="build/bin/Draft_${VERSION}_universal.dmg"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          retention-days: 1
+          path: |
+            build/bin/Draft_*.dmg
+
+  build-windows:
+    needs: get-version
+    if: needs.get-version.outputs.has_azure_secrets == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Stamp product version
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('wails.json', 'utf8'));
+            j.info = j.info || {};
+            j.info.productVersion = process.env.VERSION;
+            fs.writeFileSync('wails.json', JSON.stringify(j, null, 2) + '\n');
+          "
+          echo "Stamped productVersion=$VERSION"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Windows app + NSIS installer
+        env:
+          CGO_ENABLED: "0"
+        run: wails build -platform windows/amd64 -nsis -clean
+
+      - name: Sign Draft.exe
+        uses: azure/trusted-signing-action@v0.5.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}/build/bin/Draft.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Repackage NSIS installer with signed exe
+        id: nsis
+        shell: pwsh
+        run: |
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) {
+            throw "makensis not found at $makensis"
+          }
+          Get-ChildItem build\bin\Draft-*-installer.exe -ErrorAction SilentlyContinue | Remove-Item -Force
+          Push-Location build\windows\installer
+          try {
+            & $makensis "/DARG_WAILS_AMD64_BINARY=..\..\bin\Draft.exe" "project.nsi"
+            if ($LASTEXITCODE -ne 0) { throw "makensis failed with $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          $installer = Get-ChildItem build\bin\Draft-*-installer.exe | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found in build/bin" }
+          Write-Host "Installer: $($installer.FullName)"
+          "path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Get-ChildItem build\bin | Select-Object Name, Length
+
+      - name: Sign NSIS installer
+        uses: azure/trusted-signing-action@v0.5.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ steps.nsis.outputs.path }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-x64
+          retention-days: 1
+          path: |
+            build/bin/Draft.exe
+            build/bin/Draft-*-installer.exe
+
+  publish-release:
+    needs: [get-version, build-mac, build-windows]
+    # Publish when at least one platform built successfully and none failed.
+    if: |
+      always() &&
+      (needs.build-mac.result == 'success' || needs.build-windows.result == 'success') &&
+      (needs.build-mac.result != 'failure' && needs.build-windows.result != 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        if: needs.build-mac.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-installer
+          path: artifacts/mac
+
+      - name: Download Windows artifact
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-x64
+          path: artifacts/windows
+
+      - name: List release files
+        run: find artifacts -type f | sort
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.get-version.outputs.version }}
+          name: Draft v${{ needs.get-version.outputs.version }}
+          body: |
+            ## Draft Desktop v${{ needs.get-version.outputs.version }}
+
+            ### Downloads
+            - **macOS** (Universal — Intel + Apple Silicon): `.dmg`
+            - **Windows** (x64): NSIS `.exe` installer
+
+            Built with Wails ${{ env.WAILS_VERSION }}.
+          draft: ${{ inputs.draft_release }}
+          prerelease: false
+          fail_on_unmatched_files: false
+          files: |
+            artifacts/mac/*.dmg
+            artifacts/windows/Draft-*-installer.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

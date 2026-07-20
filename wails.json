@@ -9,5 +9,12 @@
   "author": {
     "name": "Eric Gilerson",
     "email": "ericgilerson@gmail.com"
+  },
+  "info": {
+    "companyName": "Draft",
+    "productName": "Draft",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © Eric Gilerson",
+    "comments": "Local Docker services as a visual workspace"
   }
 }
