@@ -3,9 +3,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    branches: [main]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main]
 
 env:
   NODE_OPTIONS: "--max-old-space-size=4096"
