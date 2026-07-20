@@ -285,7 +285,7 @@ Files: `draft.db`, `daemon.json`.
 
 Line endings in-repo are LF (`.gitattributes`); Windows `.ps1` / `.bat` / `.cmd` keep CRLF. Don’t fight Wails-generated `frontend/wailsjs` with CRLF.
 
-Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Deeper product/architecture notes for contributors live in [`CLAUDE.md`](./CLAUDE.md).
+Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Want to contribute? See [`CONTRIBUTING.md`](./CONTRIBUTING.md). Deeper product/architecture notes live in [`CLAUDE.md`](./CLAUDE.md).
 
 ---
 
@@ -302,7 +302,7 @@ Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Deepe
 Licensed under the [Apache License, Version 2.0](./LICENSE). See [`NOTICE`](./NOTICE) for copyright attribution.
 
 ```
-Copyright 2026 EricGilerson
+Copyright 2026 Eric Gilerson
 ```
 
 Draft is under active development (alpha). For day-to-day work on the codebase, start with [`CLAUDE.md`](./CLAUDE.md).
