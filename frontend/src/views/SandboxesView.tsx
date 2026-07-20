@@ -161,7 +161,11 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const [nodesWithVolumes, setNodesWithVolumes] = useState<Record<string, boolean>>({});
     const [sourceRepos, setSourceRepos] = useState<deploy.SandboxSourceRepos | null>(null);
     const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoSourceDraft>>({});
-    const [sourceReposLoading, setSourceReposLoading] = useState(false);
+    // True when we already know a source env (dialog-only / preselected) so the
+    // Source code block shows a skeleton on first paint instead of "no repos".
+    const [sourceReposLoading, setSourceReposLoading] = useState(
+        () => (initialSource?.environmentId ?? 0) > 0,
+    );
     const [rules, setRules] = useState<Record<string, deploy.SandboxServiceRule>>({});
     const [preview, setPreview] = useState<deploy.SandboxPreview | null>(null);
     const [detail, setDetail] = useState<deploy.SandboxDetail | null>(null);
@@ -235,11 +239,19 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
             .catch(() => setNodesWithVolumes({}));
         setRules({}); setPreview(null);
     }, [sourceId]);
+    // Prefetch source repos whenever the source env is known — not only after the
+    // create dialog opens — so the Source code section is ready (or clearly
+    // skeleton) instead of flashing "no repos" then popping in.
     useEffect(() => {
-        if (!sourceId || (!open && !dialogOnly)) {
+        if (!sourceId) {
+            setSourceRepos(null);
+            setRepoDrafts({});
+            setSourceReposLoading(false);
             return;
         }
         let cancelled = false;
+        setSourceRepos(null);
+        setRepoDrafts({});
         setSourceReposLoading(true);
         ListSandboxSourceRepos(sourceId)
             .then((repos) => {
@@ -256,7 +268,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                 if (!cancelled) setSourceReposLoading(false);
             });
         return () => { cancelled = true; };
-    }, [sourceId, open, dialogOnly]);
+    }, [sourceId]);
     useEffect(() => {
         if (!initialSource) return;
         setProjectId(initialSource.projectId);
