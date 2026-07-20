@@ -1339,6 +1339,17 @@ func (a *App) StartLogStream(nodeID string) error {
 	return c.StartLogStream(a.ctx, nodeID)
 }
 
+func (a *App) GetContainerLogHistory(nodeID string, tail int) (*deploy.LogHistory, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetContainerLogHistory(a.ctx, nodeID, tail)
+}
+
 func (a *App) StopLogStream(nodeID string) error {
 	c, err := a.ensureDaemon()
 	if err != nil {

@@ -625,6 +625,13 @@
     color: var(--red);
 }
 
+.log-history-loading {
+    padding: 6px 10px;
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    text-align: center;
+}
+
 .btn-sm {
     padding: 3px 8px;
     font-size: 0.66rem;

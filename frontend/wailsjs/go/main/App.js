@@ -154,6 +154,10 @@ export function GetBuildLog(arg1) {
   return window['go']['main']['App']['GetBuildLog'](arg1);
 }
 
+export function GetContainerLogHistory(arg1, arg2) {
+  return window['go']['main']['App']['GetContainerLogHistory'](arg1, arg2);
+}
+
 export function GetDefaultEnvironment(arg1) {
   return window['go']['main']['App']['GetDefaultEnvironment'](arg1);
 }

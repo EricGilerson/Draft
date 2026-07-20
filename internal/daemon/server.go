@@ -28,7 +28,7 @@ const (
 	idleTimeout = 30 * time.Minute
 	// daemonProtocolVersion changes whenever a desktop client requires daemon
 	// routes or behavior that older daemon processes do not provide.
-	daemonProtocolVersion = 1
+	daemonProtocolVersion = 2
 )
 
 type State struct {
@@ -243,6 +243,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/restart", s.handleRestart)
 	mux.HandleFunc("/logs/start", s.handleStartLogStream)
 	mux.HandleFunc("/logs/stop", s.handleStopLogStream)
+	mux.HandleFunc("/logs/history", s.handleLogHistory)
 	mux.HandleFunc("/deployments", s.handleDeployments)
 	mux.HandleFunc("/active-deployment", s.handleActiveDeployment)
 	mux.HandleFunc("/build-log", s.handleBuildLog)
@@ -1260,6 +1261,21 @@ func (s *Server) handleStopLogStream(w http.ResponseWriter, r *http.Request) {
 	}
 	s.engine.StopLogStream(req.NodeID)
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+func (s *Server) handleLogHistory(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.URL.Query().Get("nodeId")
+	tail, err := strconv.Atoi(r.URL.Query().Get("tail"))
+	if err != nil {
+		http.Error(w, "tail must be a number", http.StatusBadRequest)
+		return
+	}
+	history, err := s.engine.GetContainerLogHistory(r.Context(), nodeID, tail)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, history)
 }
 
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {

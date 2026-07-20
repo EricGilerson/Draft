@@ -83,8 +83,17 @@ type StatusEvent struct {
 }
 
 type LogLine struct {
-	Line   string `json:"line"`
-	Stream string `json:"stream"` // "build", "stdout", "stderr"
+	Line      string `json:"line"`
+	Stream    string `json:"stream"` // "build", "stdout", "stderr"
+	Timestamp string `json:"timestamp,omitempty"`
+}
+
+// LogHistory is a bounded snapshot of a container's most recent output. Tail
+// is deliberately cumulative: a caller can request a larger tail to reveal
+// the next older page without disrupting the live stream.
+type LogHistory struct {
+	Lines   []LogLine `json:"lines"`
+	HasMore bool      `json:"hasMore"`
 }
 
 type buildContextPlan struct {
@@ -1668,6 +1677,7 @@ func (e *Engine) StartLogStream(ctx context.Context, nodeID string) error {
 		ShowStderr: true,
 		Follow:     true,
 		Tail:       "200",
+		Timestamps: true,
 	})
 	if err != nil {
 		cli.Close()
@@ -1707,8 +1717,22 @@ func (e *Engine) scanLogStream(ctx context.Context, r io.Reader, nodeID, stream 
 		if ctx.Err() != nil {
 			return
 		}
-		e.emit("container:log:"+nodeID, LogLine{Line: scanner.Text(), Stream: stream})
+		e.emit("container:log:"+nodeID, parseContainerLogLine(scanner.Text(), stream))
 	}
+}
+
+func parseContainerLogLine(line, stream string) LogLine {
+	entry := LogLine{Line: line, Stream: stream}
+	timestamp, message, ok := strings.Cut(line, " ")
+	if !ok {
+		return entry
+	}
+	if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+		return entry
+	}
+	entry.Timestamp = timestamp
+	entry.Line = message
+	return entry
 }
 
 func (e *Engine) StopLogStream(nodeID string) {

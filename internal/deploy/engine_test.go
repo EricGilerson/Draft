@@ -495,6 +495,28 @@ func TestFailDeploymentSetsFields(t *testing.T) {
 
 // --- StopLogStream ---
 
+func TestParseContainerLogLineSeparatesDockerTimestamp(t *testing.T) {
+	entry := parseContainerLogLine("2026-07-20T12:34:56.123456789Z started", "stdout")
+	if entry.Timestamp != "2026-07-20T12:34:56.123456789Z" || entry.Line != "started" || entry.Stream != "stdout" {
+		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestParseContainerLogLineLeavesUntimestampedOutputAlone(t *testing.T) {
+	entry := parseContainerLogLine("started", "stderr")
+	if entry.Timestamp != "" || entry.Line != "started" || entry.Stream != "stderr" {
+		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestGetContainerLogHistoryRejectsUnsafeTail(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	if _, err := e.GetContainerLogHistory(context.Background(), "n1", 0); err == nil {
+		t.Fatal("expected invalid tail to fail")
+	}
+}
+
 func TestStopLogStreamNoOp(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

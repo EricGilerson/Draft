@@ -549,6 +549,139 @@ CMD ["sh", "-c", "for i in 1 2 3 4 5; do echo log-line-$i; sleep 0.2; done; slee
 	})
 }
 
+// TestIntegrationContainerLogHistoryExercises the scroll-back contract against
+// Docker: a short tail exposes only recent output, a larger cumulative request
+// reveals the older lines, and the regular live stream remains usable after a
+// history lookup.
+func TestIntegrationContainerLogHistory(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	e, s, col, projectDir := setupIntegration(t)
+	writeDockerfile(t, projectDir, `FROM alpine:3.20
+HEALTHCHECK --interval=1s --timeout=2s --retries=1 CMD true
+CMD ["sh", "-c", "i=1; while [ $i -le 260 ]; do printf 'history-%03d\\n' $i; i=$((i + 1)); done; i=1; while true; do printf 'live-%03d\\n' $i; i=$((i + 1)); sleep 1; done"]
+`)
+	s.SetNodeSetting("svc1", "dockerfile", "Dockerfile")
+	s.SetNodeSetting("svc1", "service_port", "80")
+
+	e.Deploy(context.Background(), "svc1")
+	if waitForStatus(col, "svc1", "running", 60*time.Second) == nil {
+		t.Fatal("expected running status before log history test")
+	}
+
+	const initialTail = 200
+	recent, err := e.GetContainerLogHistory(context.Background(), "svc1", initialTail)
+	if err != nil {
+		t.Fatalf("GetContainerLogHistory(%d): %v", initialTail, err)
+	}
+	if len(recent.Lines) != initialTail {
+		t.Fatalf("recent lines = %d, want %d", len(recent.Lines), initialTail)
+	}
+	if !recent.HasMore {
+		t.Fatal("recent history should report older lines are available")
+	}
+	if containsContainerLogLine(recent.Lines, "history-001") {
+		t.Fatal("initial tail unexpectedly included the oldest history line")
+	}
+	if !containsContainerLogLine(recent.Lines, "history-260") {
+		t.Fatal("initial tail did not include the newest history line")
+	}
+	assertTimestampedContainerLogLines(t, recent.Lines)
+
+	// The frontend requests a larger cumulative tail when the reader reaches
+	// the top. It should now contain the lines that were absent from the first
+	// request, without requiring the live stream to restart.
+	all, err := e.GetContainerLogHistory(context.Background(), "svc1", 700)
+	if err != nil {
+		t.Fatalf("GetContainerLogHistory(700): %v", err)
+	}
+	if all.HasMore {
+		t.Fatalf("complete history unexpectedly reported more lines: got %d", len(all.Lines))
+	}
+	if !containsContainerLogLine(all.Lines, "history-001") || !containsContainerLogLine(all.Lines, "history-260") {
+		t.Fatal("larger history request did not include both oldest and newest seeded lines")
+	}
+	assertTimestampedContainerLogLines(t, all.Lines)
+	assertHistoryLineOrder(t, all.Lines, 260)
+
+	if err := e.StartLogStream(context.Background(), "svc1"); err != nil {
+		t.Fatalf("StartLogStream after history lookup: %v", err)
+	}
+	t.Cleanup(func() { e.StopLogStream("svc1") })
+
+	deadline := time.Now().Add(10 * time.Second)
+	var live LogLine
+	for time.Now().Before(deadline) {
+		for _, event := range col.get() {
+			if event.Name != "container:log:svc1" {
+				continue
+			}
+			line, ok := event.Data.(LogLine)
+			if ok && strings.HasPrefix(line.Line, "live-") {
+				live = line
+				break
+			}
+		}
+		if live.Line != "" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if live.Line == "" {
+		t.Fatal("expected a live container log after history lookup")
+	}
+	if live.Timestamp == "" {
+		t.Fatalf("live log should carry its Docker timestamp: %+v", live)
+	}
+	if live.Stream != "stdout" {
+		t.Fatalf("live log stream = %q, want stdout", live.Stream)
+	}
+}
+
+func containsContainerLogLine(lines []LogLine, want string) bool {
+	for _, line := range lines {
+		if line.Line == want {
+			return true
+		}
+	}
+	return false
+}
+
+func assertTimestampedContainerLogLines(t *testing.T, lines []LogLine) {
+	t.Helper()
+	for index, line := range lines {
+		if line.Timestamp == "" {
+			t.Fatalf("line %d is missing its Docker timestamp: %+v", index, line)
+		}
+		if line.Stream != "stdout" && line.Stream != "stderr" {
+			t.Fatalf("line %d has invalid stream %q", index, line.Stream)
+		}
+	}
+}
+
+func assertHistoryLineOrder(t *testing.T, lines []LogLine, count int) {
+	t.Helper()
+	previousIndex := -1
+	for number := 1; number <= count; number++ {
+		want := fmt.Sprintf("history-%03d", number)
+		index := -1
+		for candidate, line := range lines {
+			if line.Line == want {
+				index = candidate
+				break
+			}
+		}
+		if index == -1 {
+			t.Fatalf("complete history is missing %s", want)
+		}
+		if index <= previousIndex {
+			t.Fatalf("history line %s is out of order (index %d after %d)", want, index, previousIndex)
+		}
+		previousIndex = index
+	}
+}
+
 // TestIntegrationRedeployCancelsPrevious verifies that starting a new deploy
 // stops the previously running container.
 func TestIntegrationRedeployCancelsPrevious(t *testing.T) {

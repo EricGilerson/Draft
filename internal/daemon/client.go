@@ -218,6 +218,12 @@ func (c *Client) StartLogStream(ctx context.Context, nodeID string) error {
 	return c.postNode(ctx, "/logs/start", nodeID)
 }
 
+func (c *Client) GetContainerLogHistory(ctx context.Context, nodeID string, tail int) (*deploy.LogHistory, error) {
+	var out deploy.LogHistory
+	err := c.get(ctx, fmt.Sprintf("/logs/history?nodeId=%s&tail=%d", url.QueryEscape(nodeID), tail), &out)
+	return &out, err
+}
+
 // CreateNodeFromTemplate stamps a new canvas node out of a template via the
 // daemon (which owns the deploy engine needed to resolve {{draft.*}} at stamp
 // time). Returns the created node plus any non-fatal warnings.

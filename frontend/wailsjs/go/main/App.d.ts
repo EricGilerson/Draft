@@ -86,6 +86,8 @@ export function GetAppSettings():Promise<main.AppSettings>;
 
 export function GetBuildLog(arg1:number):Promise<string>;
 
+export function GetContainerLogHistory(arg1:string,arg2:number):Promise<deploy.LogHistory>;
+
 export function GetDefaultEnvironment(arg1:number):Promise<store.Environment>;
 
 export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
