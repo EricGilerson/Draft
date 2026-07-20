@@ -55,6 +55,8 @@ export default function EnvReferenceEdge({id, source, target, data, style}: Edge
                     className="env-reference-edge-container nodrag nopan"
                     style={{
                         transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                        // Above React Flow nodes (selected nodes use z-index 1000).
+                        zIndex: open ? 1001 : 1,
                     }}
                 >
                     <button
