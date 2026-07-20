@@ -138,9 +138,13 @@ export default function ServiceNode({id, data}: NodeProps) {
                             <span className="service-node-status">{status}</span>
                         )}
                     </span>
-                    {url && (
-                        <span className="service-node-url" title={url}>{url}</span>
-                    )}
+                    <span
+                        className={`service-node-url${url ? '' : ' service-node-url--placeholder'}`}
+                        title={url || undefined}
+                        aria-hidden={!url}
+                    >
+                        {url || '\u00a0'}
+                    </span>
                 </div>
             </div>
             {volumes.length > 0 && (

@@ -1,7 +1,7 @@
 .service-node {
     position: relative;
-    min-width: 160px;
-    max-width: 200px;
+    box-sizing: border-box;
+    width: 200px;
     border-radius: 8px;
     border: 1px solid var(--border-strong);
     border-left: 2px solid var(--accent);
@@ -232,6 +232,10 @@
     text-overflow: ellipsis;
     max-width: 150px;
     opacity: 0.85;
+}
+
+.service-node-url--placeholder {
+    visibility: hidden;
 }
 
 .service-node--running .service-node-url {
