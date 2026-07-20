@@ -22,6 +22,29 @@ type GitHookStatus struct {
 
 var validTriggers = map[string]bool{"manual": true, "on_commit": true, "on_push": true}
 
+// SetGitDeploymentConfig persists the three git automation settings before
+// reconciling hooks. Keeping this as one operation prevents reconciliation from
+// observing a newly selected trigger before its branch has been saved.
+func SetGitDeploymentConfig(ctx context.Context, s *store.Store, nodeID string, projectID uint, branch, trigger string, redeployOnPull bool) error {
+	if !validTriggers[trigger] {
+		return fmt.Errorf("invalid deploy trigger %q", trigger)
+	}
+	if err := s.SetNodeSetting(nodeID, "git_branch", branch); err != nil {
+		return err
+	}
+	if err := s.SetNodeSetting(nodeID, "deploy_trigger", trigger); err != nil {
+		return err
+	}
+	pullValue := ""
+	if redeployOnPull {
+		pullValue = "true"
+	}
+	if err := s.SetNodeSetting(nodeID, "redeploy_on_pull", pullValue); err != nil {
+		return err
+	}
+	return reconcileNodeRepoHooks(ctx, s, nodeID, projectID)
+}
+
 // SetDeployTrigger records how a node should be deployed and reconciles the
 // repository hooks needed to honor the setting.
 func SetDeployTrigger(ctx context.Context, s *store.Store, nodeID string, projectID uint, trigger string) error {

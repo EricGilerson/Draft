@@ -91,6 +91,39 @@ func TestReconcileAllProjectsInstallsHooksAndNormalizesBranch(t *testing.T) {
 	}
 }
 
+// Selecting a branch and an automatic trigger is one user action in the
+// Settings UI. It must persist both values before reconciling, otherwise the
+// reconcile can observe an empty branch and decide no hook is needed until the
+// next app startup happens to repair it.
+func TestSetGitDeploymentConfigInstallsHookOnInitialSelection(t *testing.T) {
+	repo := newGitRepo(t)
+	s, err := store.Open(store.MemoryDSN())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+
+	project, err := s.CreateProject("Repo", repo, "")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	env, err := s.GetDefaultEnvironment(project.ID)
+	if err != nil {
+		t.Fatalf("get default environment: %v", err)
+	}
+	if _, err := s.CreateNode(&store.CanvasNode{ID: "svc-1", ProjectID: project.ID, EnvironmentID: env.ID, Label: "svc"}); err != nil {
+		t.Fatalf("create node: %v", err)
+	}
+
+	if err := SetGitDeploymentConfig(context.Background(), s, "svc-1", project.ID, "main", "on_commit", false); err != nil {
+		t.Fatalf("SetGitDeploymentConfig: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(repo, ".git", "hooks", "post-commit")); err != nil {
+		t.Fatalf("expected post-commit hook immediately after initial selection: %v", err)
+	}
+}
+
 func TestReconcileRepoHooks_ReferenceCountsAcrossProjects(t *testing.T) {
 	repo := newGitRepo(t)
 

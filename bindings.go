@@ -2084,6 +2084,15 @@ func (a *App) SetDeployTrigger(nodeID string, projectID uint, trigger string) er
 	return githooks.SetDeployTrigger(a.ctx, a.store, nodeID, projectID, trigger)
 }
 
+// SetGitDeploymentConfig updates a node's branch and automatic-deploy settings
+// together, then reconciles its repository hooks from that complete state.
+func (a *App) SetGitDeploymentConfig(nodeID string, projectID uint, branch, trigger string, redeployOnPull bool) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return githooks.SetGitDeploymentConfig(a.ctx, a.store, nodeID, projectID, branch, trigger, redeployOnPull)
+}
+
 // SetRedeployOnPull toggles the independent "redeploy on pull" behavior for a
 // node: when enabled, Draft installs a post-merge git hook so the service
 // redeploys whenever a `git pull` (or merge) updates its tracked branch. It is

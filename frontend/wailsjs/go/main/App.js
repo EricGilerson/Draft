@@ -566,6 +566,10 @@ export function SetEnvVarScope(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvVarScope'](arg1, arg2, arg3);
 }
 
+export function SetGitDeploymentConfig(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SetGitDeploymentConfig'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function SetLocalDraftDomainEnabled(arg1) {
   return window['go']['main']['App']['SetLocalDraftDomainEnabled'](arg1);
 }

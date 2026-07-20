@@ -3,7 +3,7 @@ import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {
     GetServiceRoot, SetServiceRoot, SelectServiceRoot,
     SelectFile, ParseDockerfileExpose,
-    IsGitRepo, ListGitBranches, SetDeployTrigger, SetRedeployOnPull, GetGitHookStatus,
+    IsGitRepo, ListGitBranches, SetGitDeploymentConfig, GetGitHookStatus,
     SetNodeSetting,
     GetNode, GetServiceTemplate, ListManagedVolumes, DeleteManagedVolume, GetNodeConfigStatus,
     PreviewDeleteService, DeleteNode,
@@ -168,6 +168,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
     const [branchError, setBranchError] = useState('');
     const [deployTrigger, setDeployTrigger] = useState<DeployTrigger>('manual');
     const [redeployOnPull, setRedeployOnPull] = useState(false);
+    const [gitAutomationSaving, setGitAutomationSaving] = useState(false);
     const [hookStatus, setHookStatus] = useState<main.GitHookStatus | null>(null);
 
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -217,34 +218,34 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
 
     const commitGitBranch = useCallback((value: string) => {
         setGitBranch(value);
-        SetNodeSetting(nodeId, 'git_branch', value).then(() => {
-            return SetDeployTrigger(nodeId, projectId, deployTrigger);
-        }).then(() => {
-            if (value) {
-                return SetRedeployOnPull(nodeId, projectId, redeployOnPull);
-            }
-            return SetRedeployOnPull(nodeId, projectId, false);
-        }).then(() => {
+        setGitAutomationSaving(true);
+        SetGitDeploymentConfig(nodeId, projectId, value, deployTrigger, value ? redeployOnPull : false).then(() => {
             refreshHookStatus();
             return reload();
-        }).then(() => onServicesChanged?.()).catch(() => onServicesChanged?.());
+        }).then(() => onServicesChanged?.()).catch((e) => {
+            setError(typeof e === 'string' ? e : e?.message || 'Failed to update git deployment settings');
+        }).finally(() => setGitAutomationSaving(false));
     }, [nodeId, projectId, deployTrigger, redeployOnPull, refreshHookStatus, reload, onServicesChanged]);
 
     const commitDeployTrigger = useCallback((value: DeployTrigger) => {
         setDeployTrigger(value);
-        SetDeployTrigger(nodeId, projectId, value)
+        setGitAutomationSaving(true);
+        SetGitDeploymentConfig(nodeId, projectId, gitBranch, value, redeployOnPull)
             .then(() => refreshHookStatus())
             .then(() => reload())
-            .catch(() => {});
-    }, [nodeId, projectId, refreshHookStatus, reload]);
+            .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Failed to update deploy trigger'))
+            .finally(() => setGitAutomationSaving(false));
+    }, [nodeId, projectId, gitBranch, redeployOnPull, refreshHookStatus, reload]);
 
     const commitRedeployOnPull = useCallback((value: boolean) => {
         setRedeployOnPull(value);
-        SetRedeployOnPull(nodeId, projectId, value)
+        setGitAutomationSaving(true);
+        SetGitDeploymentConfig(nodeId, projectId, gitBranch, deployTrigger, value)
             .then(() => refreshHookStatus())
             .then(() => reload())
-            .catch(() => {});
-    }, [nodeId, projectId, refreshHookStatus, reload]);
+            .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Failed to update redeploy-on-pull'))
+            .finally(() => setGitAutomationSaving(false));
+    }, [nodeId, projectId, gitBranch, deployTrigger, refreshHookStatus, reload]);
 
     const applyGitStream = useCallback((next: boolean) => {
         setGitStream(next);
@@ -802,6 +803,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                                     type="button"
                                     className={`trigger-seg-btn ${deployTrigger === value ? 'trigger-seg-btn--active' : ''}`}
                                     onClick={() => commitDeployTrigger(value)}
+                                    disabled={gitAutomationSaving}
                                 >
                                     {label}
                                 </button>
@@ -821,6 +823,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
                                 desc="Also redeploy whenever a `git pull` (merge or rebase) or merge updates this branch. Installs local post-merge and post-rewrite git hooks — nothing is committed to your repo."
                                 checked={redeployOnPull}
                                 onToggle={() => commitRedeployOnPull(!redeployOnPull)}
+                                inactive={gitAutomationSaving}
                             />
                         </div>
                         {redeployOnPull && hookStatus?.pullForeign && (
@@ -1540,6 +1543,7 @@ function ToggleRow({label, desc, checked, onToggle, inactive, inactiveNote, sett
                 onClick={onToggle}
                 role="switch"
                 aria-checked={checked}
+                disabled={inactive}
             />
         </div>
     );

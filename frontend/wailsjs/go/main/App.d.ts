@@ -292,6 +292,8 @@ export function SetEnvVar(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SetEnvVarScope(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetGitDeploymentConfig(arg1:string,arg2:number,arg3:string,arg4:string,arg5:boolean):Promise<void>;
+
 export function SetLocalDraftDomainEnabled(arg1:boolean):Promise<networking.LocalDomainStatus>;
 
 export function SetNodeSetting(arg1:string,arg2:string,arg3:string):Promise<void>;
