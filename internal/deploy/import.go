@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"Draft/internal/cloudconfig"
+	"Draft/internal/envfile"
 	"Draft/internal/store"
 )
 
@@ -80,6 +82,8 @@ func (e *Engine) ImportConfigAsProject(path, projectName string) (*ImportResult,
 	}
 
 	report.Merge(rebaseImportedPaths(specs, path, projectPath))
+	report.Merge(loadImportedEnvFiles(specs, projectPath))
+	report.Merge(cloudconfig.RewriteCrossServiceRefs(specs))
 
 	raw, _ := os.ReadFile(path)
 	nodes, r := e.stampSpecsAsNodes(project.ID, env.ID, specs, adapter.Format(), string(raw), 0, 0)
@@ -99,6 +103,8 @@ func (e *Engine) ImportConfigIntoProject(projectID, environmentID uint, path str
 		return nil, fmt.Errorf("project not found: %w", err)
 	}
 	report.Merge(rebaseImportedPaths(specs, path, project.Path))
+	report.Merge(loadImportedEnvFiles(specs, project.Path))
+	report.Merge(cloudconfig.RewriteCrossServiceRefs(specs))
 	raw, _ := os.ReadFile(path)
 	nodes, r := e.stampSpecsAsNodes(projectID, environmentID, specs, adapter.Format(), string(raw), x, y)
 	report.Merge(r)
@@ -158,7 +164,7 @@ func (e *Engine) stampSpecOntoNode(nodeID string, projectID uint, spec cloudconf
 	bundle, _ := cloudconfig.BundleFromSpec(spec)
 
 	for key, value := range bundle.Settings {
-		if key == "service_root" {
+		if key == "service_root" || key == "env_file" {
 			value = normalizeImportedPath(value)
 			if value == "" {
 				continue
@@ -313,6 +319,80 @@ func rebaseImportedPaths(specs []cloudconfig.ServiceSpec, configPath, projectPat
 					fmt.Sprintf("Bind mount %q → %q (relative to compose file).", src, absSrc))
 			}
 			v.Source = absSrc
+		}
+		for j := range spec.EnvFiles {
+			src := strings.TrimSpace(spec.EnvFiles[j])
+			if src == "" {
+				continue
+			}
+			absSrc := resolveAgainstBase(absConfigDir, src)
+			if rel, ok := relInsideBase(absProject, absSrc); ok {
+				spec.EnvFiles[j] = rel
+			} else {
+				spec.EnvFiles[j] = absSrc
+			}
+			if before, after := src, spec.EnvFiles[j]; before != after && before != "./"+after && normalizeImportedPath(before) != after {
+				rep.Add(cloudconfig.KindTransformed, "env_file_path", spec.Name,
+					fmt.Sprintf("env_file %q → %q (relative to compose file, then project).", before, after))
+			}
+		}
+	}
+	return rep
+}
+
+// loadImportedEnvFiles reads compose env_file paths (already rebased) and
+// prepends their key/values onto each spec's Env so inline `environment:`
+// entries still win when stamped. Missing files are reported and skipped.
+func loadImportedEnvFiles(specs []cloudconfig.ServiceSpec, projectPath string) cloudconfig.Report {
+	var rep cloudconfig.Report
+	for i := range specs {
+		spec := &specs[i]
+		if len(spec.EnvFiles) == 0 {
+			continue
+		}
+		existing := make(map[string]struct{}, len(spec.Env))
+		for _, e := range spec.Env {
+			existing[e.Key] = struct{}{}
+		}
+		var fromFiles []cloudconfig.EnvVar
+		seenFileKeys := map[string]struct{}{}
+		for _, raw := range spec.EnvFiles {
+			path := store.ResolveUnderProject(projectPath, raw)
+			values, err := envfile.Read(path)
+			if err != nil {
+				rep.Add(cloudconfig.KindManual, "env_file_missing", spec.Name,
+					fmt.Sprintf("Could not read env_file %q: %v", raw, err))
+				continue
+			}
+			keys := make([]string, 0, len(values))
+			for k := range values {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if _, ok := existing[k]; ok {
+					continue // inline environment wins
+				}
+				if _, ok := seenFileKeys[k]; ok {
+					// Later env_file overrides earlier (compose order).
+					for idx := range fromFiles {
+						if fromFiles[idx].Key == k {
+							fromFiles[idx].Value = values[k]
+							break
+						}
+					}
+					continue
+				}
+				seenFileKeys[k] = struct{}{}
+				fromFiles = append(fromFiles, cloudconfig.EnvVar{
+					Key: k, Value: values[k], Scope: cloudconfig.ScopeRuntime,
+				})
+			}
+			rep.Add(cloudconfig.KindInfo, "env_file_loaded", spec.Name,
+				fmt.Sprintf("Loaded variables from env_file %q.", raw))
+		}
+		if len(fromFiles) > 0 {
+			spec.Env = append(fromFiles, spec.Env...)
 		}
 	}
 	return rep

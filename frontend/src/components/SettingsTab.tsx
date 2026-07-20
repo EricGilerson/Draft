@@ -282,7 +282,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
             setLabels([]);
         }
         if (df) {
-            ParseDockerfileExpose(df, projectId).then(setExposePorts).catch(() => setExposePorts([]));
+            ParseDockerfileExpose(df, projectId, s.service_root || '').then(setExposePorts).catch(() => setExposePorts([]));
         } else {
             setExposePorts([]);
         }
@@ -509,11 +509,11 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         setDockerfileInput(trimmed);
         saveSetting('dockerfile', trimmed);
         if (trimmed) {
-            ParseDockerfileExpose(trimmed, projectId).then(setExposePorts).catch(() => setExposePorts([]));
+            ParseDockerfileExpose(trimmed, projectId, settings.service_root || '').then(setExposePorts).catch(() => setExposePorts([]));
         } else {
             setExposePorts([]);
         }
-    }, [projectId, dockerfileInput, dockerfilePath, saveSetting]);
+    }, [projectId, dockerfileInput, dockerfilePath, saveSetting, settings.service_root]);
 
     const browseDockerfile = useCallback(async () => {
         const selected = await SelectFile('Select Dockerfile', projectPath);

@@ -159,6 +159,16 @@ func BundleFromSpec(s ServiceSpec) (Bundle, Report) {
 		}
 	}
 
+	// Draft tracks a single env_file path; compose may list several — keep the first
+	// as the refresh path and note when extras were folded in.
+	if len(s.EnvFiles) > 0 {
+		settings["env_file"] = s.EnvFiles[0]
+		if len(s.EnvFiles) > 1 {
+			rep.Add(KindTransformed, "env_file_multiple", "env_file",
+				fmt.Sprintf("Multiple env_file entries were merged; Draft tracks %q for refresh.", s.EnvFiles[0]))
+		}
+	}
+
 	// Security tail.
 	if s.Security.Privileged {
 		settings["privileged"] = "true"
@@ -277,6 +287,10 @@ func SpecFromBundle(b Bundle) (ServiceSpec, Report) {
 	}
 
 	s.Health = readHealth(b.Settings)
+
+	if ef := get("env_file"); ef != "" {
+		s.EnvFiles = []string{ef}
+	}
 
 	if raw := get("volume_mounts"); raw != "" {
 		var entries []volumeJSON

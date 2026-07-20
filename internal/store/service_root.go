@@ -38,10 +38,20 @@ func (s *Store) GetServiceRoot(nodeID string, projectID uint) (string, error) {
 		return "", err
 	}
 
-	if filepath.IsAbs(rel) {
-		return filepath.Clean(rel), nil
+	return ResolveUnderProject(project.Path, rel), nil
+}
+
+// ResolveUnderProject joins a project-relative path with the project root.
+// Absolute inputs are returned cleaned; an empty setting returns the project path.
+func ResolveUnderProject(projectPath, relOrAbs string) string {
+	relOrAbs = strings.TrimSpace(relOrAbs)
+	if relOrAbs == "" {
+		return filepath.Clean(projectPath)
 	}
-	return filepath.Join(project.Path, rel), nil
+	if filepath.IsAbs(relOrAbs) {
+		return filepath.Clean(relOrAbs)
+	}
+	return filepath.Clean(filepath.Join(projectPath, relOrAbs))
 }
 
 // ValidateInsideProject checks that targetPath resolves to projectPath or a

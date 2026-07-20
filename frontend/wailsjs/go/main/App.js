@@ -382,8 +382,8 @@ export function MintShellAttach(arg1, arg2) {
   return window['go']['main']['App']['MintShellAttach'](arg1, arg2);
 }
 
-export function ParseDockerfileExpose(arg1, arg2) {
-  return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2);
+export function ParseDockerfileExpose(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ParseDockerfileExpose'](arg1, arg2, arg3);
 }
 
 export function PreviewCloneVolume(arg1, arg2, arg3) {

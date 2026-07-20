@@ -60,6 +60,7 @@ type ServiceSpec struct {
 	User       string
 
 	Env       []EnvVar
+	EnvFiles  []string // compose env_file paths (→ node_settings.env_file + imported values)
 	Ports     []PortSpec
 	Resources ResourceSpec
 	Volumes   []VolumeMount

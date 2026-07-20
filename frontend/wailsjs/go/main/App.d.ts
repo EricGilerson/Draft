@@ -200,7 +200,7 @@ export function ListVolumesOverview():Promise<Array<deploy.VolumeOverview>>;
 
 export function MintShellAttach(arg1:string,arg2:string):Promise<main.ShellAttachInfo>;
 
-export function ParseDockerfileExpose(arg1:string,arg2:number):Promise<Array<dockerfile.ExposePort>>;
+export function ParseDockerfileExpose(arg1:string,arg2:number,arg3:string):Promise<Array<dockerfile.ExposePort>>;
 
 export function PreviewCloneVolume(arg1:string,arg2:string,arg3:string):Promise<deploy.CloneVolumePreview>;
 

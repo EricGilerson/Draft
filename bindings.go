@@ -2013,8 +2013,9 @@ func (a *App) SelectServiceRoot(projectID uint) (string, error) {
 }
 
 // ParseDockerfileExpose reads a Dockerfile and returns its EXPOSE ports.
-// The Dockerfile path is resolved relative to the project root if not absolute.
-func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint) ([]dockerfile.ExposePort, error) {
+// Relative dockerfile paths are resolved against serviceRoot (or the project
+// root when serviceRoot is empty), matching deploy's build-context math.
+func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint, serviceRoot string) ([]dockerfile.ExposePort, error) {
 	if a.store == nil {
 		return nil, errNoStore
 	}
@@ -2025,7 +2026,8 @@ func (a *App) ParseDockerfileExpose(dockerfilePath string, projectID uint) ([]do
 		if err != nil {
 			return nil, fmt.Errorf("project not found: %w", err)
 		}
-		absPath = filepath.Join(project.Path, dockerfilePath)
+		root := store.ResolveUnderProject(project.Path, serviceRoot)
+		absPath = filepath.Join(root, dockerfilePath)
 	}
 
 	ports, err := dockerfile.ParseExposePorts(absPath)

@@ -1984,10 +1984,7 @@ func (s *Server) suggestEnvFile(nodeID string, projectID uint) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root := project.Path
-	if rel := settings["service_root"]; rel != "" {
-		root = filepath.Join(project.Path, rel)
-	}
+	root := store.ResolveUnderProject(project.Path, settings["service_root"])
 	candidate := filepath.Join(root, ".env")
 	if _, err := os.Stat(candidate); err == nil {
 		return candidate, nil
@@ -2056,11 +2053,8 @@ func (s *Server) resolveEnvPath(nodeID string) (string, error) {
 	}
 	envPath := strings.TrimSpace(settings["env_file"])
 	if envPath != "" {
-		return envPath, nil
+		return store.ResolveUnderProject(project.Path, envPath), nil
 	}
-	root := project.Path
-	if rel := strings.TrimSpace(settings["service_root"]); rel != "" {
-		root = filepath.Join(project.Path, rel)
-	}
+	root := store.ResolveUnderProject(project.Path, settings["service_root"])
 	return filepath.Join(root, ".env"), nil
 }

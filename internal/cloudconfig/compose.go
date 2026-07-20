@@ -80,8 +80,7 @@ func (composeAdapter) Import(data []byte) ([]ServiceSpec, Report, error) {
 			spec.Env = append(spec.Env, EnvVar{Key: kv.k, Value: kv.v, Scope: ScopeRuntime})
 		}
 		if len(svc.EnvFile.items) > 0 {
-			rep.Add(KindManual, "env_file", name,
-				"env_file entries were not read; import their values into the service's variables.")
+			spec.EnvFiles = append(spec.EnvFiles, svc.EnvFile.items...)
 		}
 
 		for _, p := range svc.Ports {
@@ -165,6 +164,9 @@ func (composeAdapter) Export(specs []ServiceSpec) (map[string][]byte, Report, er
 				val = "${" + e.Key + "}"
 			}
 			svc.Environment.items = append(svc.Environment.items, kvPair{k: e.Key, v: val})
+		}
+		if len(spec.EnvFiles) > 0 {
+			svc.EnvFile = flexStringList{items: append([]string{}, spec.EnvFiles...)}
 		}
 
 		for _, p := range spec.Ports {

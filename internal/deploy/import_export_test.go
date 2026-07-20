@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"Draft/internal/cloudconfig"
+	"Draft/internal/store"
 )
 
 const e2eCompose = `
@@ -148,6 +151,11 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    env_file:
+      - ./.env.api
+    environment:
+      INLINE: from-compose
+      DATABASE_URL: postgres://db:5432/app
     volumes:
       - ./data:/app/data
   web:
@@ -158,6 +166,10 @@ services:
     build: .
 `
 	if err := os.WriteFile(composePath, []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	envFilePath := filepath.Join(composeDir, ".env.api")
+	if err := os.WriteFile(envFilePath, []byte("FROM_FILE=yes\nINLINE=from-file\nDATABASE_URL=postgres://db:5432/file\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,9 +199,24 @@ services:
 	if apiSettings["service_root"] != "deploy/api" {
 		t.Errorf("api service_root = %q, want deploy/api", apiSettings["service_root"])
 	}
+	if apiSettings["env_file"] != "deploy/.env.api" {
+		t.Errorf("api env_file = %q, want deploy/.env.api", apiSettings["env_file"])
+	}
 	wantData := filepath.Clean(dataDir)
 	if got := bindSourceFromMounts(apiSettings["volume_mounts"]); filepath.Clean(got) != wantData {
 		t.Errorf("api bind source = %q, want %q", got, wantData)
+	}
+
+	apiEnv, _ := s.ListEnvVars(byLabel["api"])
+	envMap := map[string]string{}
+	for _, v := range apiEnv {
+		envMap[v.Key] = v.Value
+	}
+	if envMap["FROM_FILE"] != "yes" {
+		t.Errorf("FROM_FILE = %q, want yes (from env_file)", envMap["FROM_FILE"])
+	}
+	if envMap["INLINE"] != "from-compose" {
+		t.Errorf("INLINE = %q, want from-compose (environment wins over env_file)", envMap["INLINE"])
 	}
 
 	webSettings, _ := s.GetNodeSettings(byLabel["web"])
@@ -232,6 +259,45 @@ func TestRebaseImportedPathsHelpers(t *testing.T) {
 	}
 	if looksLikeNamedVolume("./data") || looksLikeNamedVolume("../data") {
 		t.Fatal("host paths should not look like named volumes")
+	}
+}
+
+func TestRebaseSpecsForComposeExport(t *testing.T) {
+	project := t.TempDir()
+	dest := filepath.Join(project, "export")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	specs := []cloudconfig.ServiceSpec{{
+		Name: "api",
+		Build: &cloudconfig.BuildSpec{Context: "services/api", Dockerfile: "Dockerfile"},
+		Volumes: []cloudconfig.VolumeMount{{
+			Type: cloudconfig.VolumeBind, Source: filepath.Join(project, "data"), ContainerPath: "/data",
+		}},
+		EnvFiles: []string{"services/api/.env"},
+	}}
+	rebaseSpecsForComposeExport(specs, project, dest)
+	if specs[0].Build.Context != "../services/api" {
+		t.Fatalf("context = %q, want ../services/api", specs[0].Build.Context)
+	}
+	if specs[0].Volumes[0].Source != "../data" {
+		t.Fatalf("bind = %q, want ../data", specs[0].Volumes[0].Source)
+	}
+	if specs[0].EnvFiles[0] != "../services/api/.env" {
+		t.Fatalf("env_file = %q, want ../services/api/.env", specs[0].EnvFiles[0])
+	}
+}
+
+func TestResolveUnderProjectAbsolute(t *testing.T) {
+	project := t.TempDir()
+	abs := filepath.Join(project, "outside-sibling") // still under temp, but treat as abs input
+	got := store.ResolveUnderProject(project, abs)
+	if got != filepath.Clean(abs) {
+		t.Fatalf("ResolveUnderProject abs = %q, want %q", got, abs)
+	}
+	got = store.ResolveUnderProject(project, "web")
+	if got != filepath.Join(project, "web") {
+		t.Fatalf("ResolveUnderProject rel = %q", got)
 	}
 }
 

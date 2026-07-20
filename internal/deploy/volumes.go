@@ -205,6 +205,10 @@ func (e *Engine) ensureNamedVolumes(
 	uid string,
 	specs []VolumeSpec,
 ) ([]mount.Mount, error) {
+	projectPath := ""
+	if project, err := e.store.GetProject(node.ProjectID); err == nil {
+		projectPath = project.Path
+	}
 	mounts := make([]mount.Mount, 0, len(specs))
 	for _, s := range specs {
 		if strings.TrimSpace(s.ContainerPath) == "" {
@@ -236,6 +240,9 @@ func (e *Engine) ensureNamedVolumes(
 			}
 			if src == "" {
 				continue
+			}
+			if projectPath != "" {
+				src = store.ResolveUnderProject(projectPath, src)
 			}
 			mounts = append(mounts, mount.Mount{
 				Type:     mount.TypeBind,

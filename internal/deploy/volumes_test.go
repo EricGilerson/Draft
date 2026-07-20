@@ -1,8 +1,11 @@
 package deploy
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"Draft/internal/store"
 )
 
 func TestSpecsToMounts_BindBackCompat(t *testing.T) {
@@ -53,6 +56,19 @@ func TestSpecsToMounts_DropsIncompleteEntries(t *testing.T) {
 	mounts := SpecsToMounts(specs)
 	if len(mounts) != 0 {
 		t.Errorf("expected 0 mounts from incomplete entries, got %d (%+v)", len(mounts), mounts)
+	}
+}
+
+func TestResolveBindSourceUnderProject(t *testing.T) {
+	project := t.TempDir()
+	got := store.ResolveUnderProject(project, "data/cache")
+	want := filepath.Join(project, "data", "cache")
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	abs := filepath.Join(project, "abs-data")
+	if store.ResolveUnderProject(project, abs) != filepath.Clean(abs) {
+		t.Fatal("absolute bind source should pass through")
 	}
 }
 
