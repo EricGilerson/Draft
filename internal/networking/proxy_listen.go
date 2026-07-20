@@ -9,12 +9,14 @@ import (
 	"Draft/internal/store"
 )
 
-// ProxyListenPlan describes which loopback ports to try, in order, before the
-// ephemeral 127.0.0.1:0 last resort.
+// ProxyListenPlan describes which loopback ports to try. StickyPort records
+// Draft's prior successful bind so public URLs do not change merely because a
+// configured fallback is available again after a later restart.
 type ProxyListenPlan struct {
 	Mode         string
 	PrimaryPort  int // custom mode only
 	FallbackPort int // prefer80_fallback + custom
+	StickyPort   int // last successfully bound port, if any
 }
 
 // ProxyListenPlanFromSettings reads the proxy port preference from app settings.
@@ -27,6 +29,7 @@ func ProxyListenPlanFromSettings(s *store.Store) ProxyListenPlan {
 	plan.Mode = NormalizeProxyPortMode(mode)
 	plan.PrimaryPort = parseListenPort(mustSetting(s, store.AppSettingProxyPort))
 	plan.FallbackPort = parseListenPort(mustSetting(s, store.AppSettingProxyFallbackPort))
+	plan.StickyPort = parseListenPort(mustSetting(s, store.AppSettingProxyBoundPort))
 	return plan
 }
 
@@ -61,10 +64,10 @@ func parseListenPort(raw string) int {
 }
 
 // ProxyListenCandidates returns bind addresses to try in order, always ending
-// with 127.0.0.1:0 (OS-assigned ephemeral) as the last resort.
+// with 127.0.0.1:0 (OS-assigned ephemeral) as the first-run last resort.
 func ProxyListenCandidates(plan ProxyListenPlan) []string {
 	mode := NormalizeProxyPortMode(plan.Mode)
-	ports := make([]int, 0, 3)
+	ports := make([]int, 0, 4)
 	add := func(p int) {
 		if p < 1 || p > 65535 {
 			return
@@ -76,6 +79,11 @@ func ProxyListenCandidates(plan ProxyListenPlan) []string {
 		}
 		ports = append(ports, p)
 	}
+
+	// Once we had to choose an ephemeral port, reuse it before reconsidering
+	// the user-configured candidates. A browser bundle may have baked that
+	// public port at build time; switching it on every restart breaks fetches.
+	add(plan.StickyPort)
 
 	switch mode {
 	case store.ProxyPortModeCustom:
@@ -111,6 +119,13 @@ func StartRouterWithPlan(s *store.Store, plan ProxyListenPlan) (*Router, error) 
 			log.Printf("[draft-router] proxy listening on ephemeral %s", r.proxy.Addr())
 		} else {
 			log.Printf("[draft-router] proxy listening on %s", r.proxy.Addr())
+		}
+		if s != nil {
+			if port := parseListenPort(strings.TrimPrefix(r.proxy.Addr(), "127.0.0.1:")); port > 0 {
+				if err := s.SetAppSetting(store.AppSettingProxyBoundPort, strconv.Itoa(port)); err != nil {
+					log.Printf("[draft-router] persist bound proxy port %d: %v", port, err)
+				}
+			}
 		}
 		return r, nil
 	}

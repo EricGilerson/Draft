@@ -48,6 +48,26 @@ func TestAppSettingsDefaultsAndSet(t *testing.T) {
 	}
 }
 
+func TestSetAppSettingsClearsStickyProxyBindingOnlyWhenPortChanges(t *testing.T) {
+	s := openTemp(t)
+	if err := s.SetAppSetting(AppSettingProxyBoundPort, "50467"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetAppSettings(map[string]string{AppSettingCompactSidebar: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAppSetting(AppSettingProxyBoundPort); got != "50467" {
+		t.Fatalf("bound port after unrelated update = %q, want 50467", got)
+	}
+
+	if err := s.SetAppSettings(map[string]string{AppSettingProxyFallbackPort: "39000"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAppSetting(AppSettingProxyBoundPort); got != "" {
+		t.Fatalf("bound port after fallback change = %q, want empty", got)
+	}
+}
+
 func TestSetDefaultEnvironment(t *testing.T) {
 	s := openTemp(t)
 	project, err := s.CreateProject("p", "/tmp/p", "")

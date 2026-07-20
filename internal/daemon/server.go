@@ -51,10 +51,29 @@ type Server struct {
 }
 
 func RunProcess(ctx context.Context) error {
-	// Single-instance guard: if a daemon is already recorded and answering,
-	// don't start a second one — two daemons would bind separate ports and
-	// contend over the one SQLite file. This is what lets a git hook (or any
-	// caller) blindly launch the daemon without risking a double-up.
+	// Process-lifetime file lock is the real single-instance guard. The older
+	// ping-only check raced when Ensure stopped an incompatible daemon and two
+	// launchers (app + git hook, or two app paths) started at once: both saw
+	// "not alive", both bound a proxy, and only the last writer of daemon.json
+	// was discoverable — leaving the other owning DNS / stable proxy ports.
+	unlock, err := acquireInstanceLock()
+	if err != nil {
+		if existing, stateErr := NewClientFromState(); stateErr == nil {
+			pingCtx, cancel := context.WithTimeout(ctx, time.Second)
+			alive := existing.Ping(pingCtx) == nil
+			cancel()
+			if alive {
+				log.Printf("[draft-daemon] another daemon is already running; exiting")
+				return nil
+			}
+		}
+		log.Printf("[draft-daemon] could not acquire instance lock: %v", err)
+		return nil
+	}
+	defer unlock()
+
+	// Re-check after the lock: a peer may have finished writing state while we
+	// waited (should be rare with LOCK_NB, but keeps the happy path honest).
 	if existing, err := NewClientFromState(); err == nil {
 		pingCtx, cancel := context.WithTimeout(ctx, time.Second)
 		alive := existing.Ping(pingCtx) == nil

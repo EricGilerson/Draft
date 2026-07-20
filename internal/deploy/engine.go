@@ -1384,9 +1384,7 @@ func (e *Engine) finalizeContainerExit(ctx context.Context, cli *client.Client, 
 			log.Printf("[deploy] remove image %s: %v", dep.ImageTag, err)
 		}
 	}
-	if dep.Hostname != "" {
-		_ = e.router.Unregister(dep.Hostname)
-	}
+	e.unregisterRouteIfUnowned(dep, nodeID)
 
 	e.store.UpdateDeployment(dep)
 	e.emitStatus(nodeID, StatusEvent{
@@ -1394,6 +1392,21 @@ func (e *Engine) finalizeContainerExit(ctx context.Context, cli *client.Client, 
 		Status:       dep.Status,
 		Error:        dep.Error,
 	})
+}
+
+// unregisterRouteIfUnowned removes a route only when the exiting deployment
+// still owns it. Successive deployments of a service share one stable
+// hostname; an old container's watcher can finish after the new deployment
+// has already cut over, and must not tear down the new container's route.
+func (e *Engine) unregisterRouteIfUnowned(dep *store.Deployment, nodeID string) {
+	if e.router == nil || dep == nil || dep.Hostname == "" {
+		return
+	}
+	active, err := e.store.ActiveDeployment(nodeID)
+	if err == nil && active != nil && active.ID != dep.ID && active.Status == "running" && active.Hostname == dep.Hostname {
+		return
+	}
+	_ = e.router.Unregister(dep.Hostname)
 }
 
 // HandleDockerContainerEvent reacts to dockerwatch container lifecycle events

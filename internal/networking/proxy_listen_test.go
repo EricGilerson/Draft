@@ -14,6 +14,11 @@ func TestProxyListenCandidates(t *testing.T) {
 		want []string
 	}{
 		{
+			name: "sticky runtime port wins before configured ports",
+			plan: ProxyListenPlan{Mode: store.ProxyPortModePrefer80Fallback, FallbackPort: 38473, StickyPort: 50467},
+			want: []string{"127.0.0.1:50467", "127.0.0.1:80", "127.0.0.1:38473", "127.0.0.1:0"},
+		},
+		{
 			name: "prefer80",
 			plan: ProxyListenPlan{Mode: store.ProxyPortModePrefer80},
 			want: []string{"127.0.0.1:80", "127.0.0.1:0"},
@@ -54,9 +59,10 @@ func TestProxyListenPlanFromSettings(t *testing.T) {
 	_ = s.SetAppSetting(store.AppSettingProxyPortMode, store.ProxyPortModeCustom)
 	_ = s.SetAppSetting(store.AppSettingProxyPort, "9001")
 	_ = s.SetAppSetting(store.AppSettingProxyFallbackPort, "9002")
+	_ = s.SetAppSetting(store.AppSettingProxyBoundPort, "9003")
 
 	plan := ProxyListenPlanFromSettings(s)
-	if plan.Mode != store.ProxyPortModeCustom || plan.PrimaryPort != 9001 || plan.FallbackPort != 9002 {
+	if plan.Mode != store.ProxyPortModeCustom || plan.PrimaryPort != 9001 || plan.FallbackPort != 9002 || plan.StickyPort != 9003 {
 		t.Fatalf("plan = %+v", plan)
 	}
 }

@@ -22,6 +22,10 @@ const (
 	AppSettingProxyPortMode     = "proxy_port_mode"
 	AppSettingProxyPort         = "proxy_port"
 	AppSettingProxyFallbackPort = "proxy_fallback_port"
+	// AppSettingProxyBoundPort is an internal runtime record of the last
+	// successful proxy bind. It is deliberately not a user preference: it
+	// keeps public URLs stable when the configured ports are unavailable.
+	AppSettingProxyBoundPort = "proxy_bound_port"
 )
 
 // Local domain preference values for AppSettingLocalDomainPreference.
@@ -47,9 +51,9 @@ func DefaultAppSettings() map[string]string {
 		AppSettingLocalDraftDomainEnabled: "false",
 		// Prefer 80 for clean URLs; if taken, use the fixed fallback (not an
 		// ephemeral OS port) so public URLs stay stable across daemon restarts.
-		AppSettingProxyPortMode:           ProxyPortModePrefer80Fallback,
-		AppSettingProxyPort:               "38473",
-		AppSettingProxyFallbackPort:       "38473",
+		AppSettingProxyPortMode:     ProxyPortModePrefer80Fallback,
+		AppSettingProxyPort:         "38473",
+		AppSettingProxyFallbackPort: "38473",
 	}
 }
 
@@ -100,8 +104,30 @@ func (s *Store) SetAppSetting(key, value string) error {
 
 // SetAppSettings merges the provided map into stored preferences.
 func (s *Store) SetAppSettings(updates map[string]string) error {
+	proxySettingsChanged := false
+	for _, key := range []string{AppSettingProxyPortMode, AppSettingProxyPort, AppSettingProxyFallbackPort} {
+		value, ok := updates[key]
+		if !ok {
+			continue
+		}
+		current, err := s.GetAppSetting(key)
+		if err != nil {
+			return err
+		}
+		if normalizeAppSetting(key, value) != current {
+			proxySettingsChanged = true
+		}
+	}
 	for key, value := range updates {
 		if err := s.SetAppSetting(key, value); err != nil {
+			return err
+		}
+	}
+	// An explicit port-preference change is the one time it is correct to
+	// abandon the sticky runtime binding; the user expects the new port plan
+	// to take effect on the next daemon restart.
+	if proxySettingsChanged {
+		if err := s.DB.Delete(&AppSetting{}, "key = ?", AppSettingProxyBoundPort).Error; err != nil {
 			return err
 		}
 	}
@@ -142,6 +168,12 @@ func normalizeAppSetting(key, value string) string {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 || n > 65535 {
 			return DefaultAppSettings()[key]
+		}
+		return strconv.Itoa(n)
+	case AppSettingProxyBoundPort:
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 || n > 65535 {
+			return ""
 		}
 		return strconv.Itoa(n)
 	default:

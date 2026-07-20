@@ -61,7 +61,10 @@ func Ensure(ctx context.Context) (*Client, error) {
 		c, err := NewClientFromState()
 		if err == nil {
 			if pingErr := c.Ping(ctx); pingErr == nil {
-				return c, nil
+				if c.IsCompatible() {
+					return c, nil
+				}
+				lastErr = fmt.Errorf("daemon protocol incompatible")
 			} else {
 				lastErr = pingErr
 			}

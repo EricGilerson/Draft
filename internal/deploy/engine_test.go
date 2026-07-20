@@ -543,6 +543,54 @@ func TestGetActiveDeploymentNone(t *testing.T) {
 	}
 }
 
+func TestExitingPreviousDeploymentKeepsNewDeploymentRoute(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	const nodeID = "svc1"
+	const hostname = "api.project.default.abcd.draft.local"
+	if _, err := s.CreateRoute(&store.Route{
+		Hostname: hostname, ProjectID: 1, NodeID: nodeID, Protocol: "http", TargetHost: "127.0.0.1", TargetPort: 3000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	old, err := s.CreateDeployment(&store.Deployment{NodeID: nodeID, ProjectID: 1, Hostname: hostname, Status: "stopped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDeployment(&store.Deployment{NodeID: nodeID, ProjectID: 1, Hostname: hostname, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.unregisterRouteIfUnowned(old, nodeID)
+	if _, err := e.router.Lookup(hostname); err != nil {
+		t.Fatalf("new deployment route was removed: %v", err)
+	}
+}
+
+func TestExitingPreviousDeploymentRemovesRouteUntilSuccessorRuns(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	const nodeID = "svc1"
+	const hostname = "api.project.default.abcd.draft.local"
+	if _, err := s.CreateRoute(&store.Route{
+		Hostname: hostname, ProjectID: 1, NodeID: nodeID, Protocol: "http", TargetHost: "127.0.0.1", TargetPort: 3000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	old, err := s.CreateDeployment(&store.Deployment{NodeID: nodeID, ProjectID: 1, Hostname: hostname, Status: "stopped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDeployment(&store.Deployment{NodeID: nodeID, ProjectID: 1, Hostname: hostname, Status: "building"}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.unregisterRouteIfUnowned(old, nodeID)
+	if _, err := e.router.Lookup(hostname); err == nil {
+		t.Fatal("stopped deployment route remained while successor was not running")
+	}
+}
+
 // --- Concurrent deploy cancels previous ---
 
 func TestDeployCancelsPrevious(t *testing.T) {

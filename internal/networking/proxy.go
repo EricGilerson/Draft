@@ -52,7 +52,15 @@ func NewProxy(addr string) *Proxy {
 			_, ok := p.routes[host]
 			onAccess := p.onAccess
 			p.mu.RUnlock()
-			if ok && onAccess != nil {
+			if !ok {
+				// Without a route the ReverseProxy director leaves URL.Scheme
+				// empty, which surfaces as a confusing 502
+				// ("unsupported protocol scheme \"\""). Report unknown hosts
+				// clearly instead of attempting an upstream dial.
+				http.Error(w, fmt.Sprintf("Draft proxy: no route for host %q", host), http.StatusNotFound)
+				return
+			}
+			if onAccess != nil {
 				onAccess(host)
 			}
 			rp.ServeHTTP(w, r)
