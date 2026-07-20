@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, ChevronDown, ChevronRight, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
+import {AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
 import {
     SetEnvVar, SetNodeSetting, SelectFile,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
@@ -228,6 +228,8 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [syncError, setSyncError] = useState('');
     const [previews, setPreviews] = useState<Record<string, EnvPreview>>({});
     const [previewVisible, setPreviewVisible] = useState<Record<string, boolean>>({});
+    const [copiedKey, setCopiedKey] = useState<string | null>(null);
+    const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [linkTargets, setLinkTargets] = useState<deploy.ReferenceTarget[]>([]);
     const [linker, setLinker] = useState<LinkerState | null>(null);
     const [autocomplete, setAutocomplete] = useState<AutocompleteState>(null);
@@ -404,6 +406,23 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const togglePreview = (key: string) => {
         setPreviewVisible(prev => ({...prev, [key]: !prev[key]}));
     };
+
+    // Copy lives inside the value field (hover/focus) so it doesn't add another
+    // action-strip button and eat horizontal space beside Eye/Link/ARG/Delete.
+    const copyValue = useCallback(async (key: string, value: string) => {
+        try {
+            await navigator.clipboard.writeText(value);
+            setCopiedKey(key);
+            if (copiedTimer.current) clearTimeout(copiedTimer.current);
+            copiedTimer.current = setTimeout(() => setCopiedKey(null), 1500);
+        } catch (e) {
+            console.error(e);
+        }
+    }, []);
+
+    useEffect(() => () => {
+        if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    }, []);
 
     const stageEdit = useCallback((key: string, value: string) => {
         const committed = committedEnv[key];
@@ -945,33 +964,44 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         </div>
                         <div className="var-value-col">
                             <div className="var-value">
-                                {visible[v.key] ? (
-                                    <textarea
-                                        ref={el => { fieldRefs.current[v.key] = el; }}
-                                        className="var-value-editor"
-                                        value={v.value}
-                                        rows={v.value.includes('\n') || v.value.length > 160 ? 7 : 2}
-                                        wrap="off"
-                                        spellCheck={false}
-                                        onChange={e => {
-                                            stageEdit(v.key, e.target.value);
-                                            handleCaretActivity(v.key, e.target);
-                                        }}
-                                        onClick={e => handleCaretActivity(v.key, e.currentTarget)}
-                                        onKeyUp={e => handleCaretActivity(v.key, e.currentTarget)}
-                                        onBlur={() => {
-                                            setTimeout(() => setAutocomplete(a => (a?.key === v.key ? null : a)), 120);
-                                        }}
-                                    />
-                                ) : (
-                                    <input
-                                        className="var-value-mask"
-                                        type="password"
-                                        value={v.value}
-                                        disabled
-                                        readOnly
-                                    />
-                                )}
+                                <div className="var-value-field">
+                                    {visible[v.key] ? (
+                                        <textarea
+                                            ref={el => { fieldRefs.current[v.key] = el; }}
+                                            className="var-value-editor"
+                                            value={v.value}
+                                            rows={v.value.includes('\n') || v.value.length > 160 ? 7 : 2}
+                                            wrap="off"
+                                            spellCheck={false}
+                                            onChange={e => {
+                                                stageEdit(v.key, e.target.value);
+                                                handleCaretActivity(v.key, e.target);
+                                            }}
+                                            onClick={e => handleCaretActivity(v.key, e.currentTarget)}
+                                            onKeyUp={e => handleCaretActivity(v.key, e.currentTarget)}
+                                            onBlur={() => {
+                                                setTimeout(() => setAutocomplete(a => (a?.key === v.key ? null : a)), 120);
+                                            }}
+                                        />
+                                    ) : (
+                                        <input
+                                            className="var-value-mask"
+                                            type="password"
+                                            value={v.value}
+                                            disabled
+                                            readOnly
+                                        />
+                                    )}
+                                    <button
+                                        type="button"
+                                        className={`var-value-copy ${copiedKey === v.key ? 'var-value-copy--done' : ''}`}
+                                        onClick={() => { void copyValue(v.key, v.value); }}
+                                        title={copiedKey === v.key ? 'Copied' : 'Copy value'}
+                                        aria-label={copiedKey === v.key ? 'Copied' : `Copy ${v.key}`}
+                                    >
+                                        {copiedKey === v.key ? <Check size={12}/> : <Copy size={12}/>}
+                                    </button>
+                                </div>
                                 <button className="var-toggle" onClick={() => toggle(v.key)}>
                                     {visible[v.key] ? <EyeOff size={14}/> : <Eye size={14}/>}
                                 </button>
@@ -1049,6 +1079,15 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                                             {': '}
                                             {shown}
                                         </span>
+                                        <button
+                                            type="button"
+                                            className="var-preview-toggle"
+                                            onClick={() => { void copyValue(`preview:${v.key}`, preview.value || ''); }}
+                                            title={copiedKey === `preview:${v.key}` ? 'Copied' : 'Copy resolved value'}
+                                            aria-label={copiedKey === `preview:${v.key}` ? 'Copied' : `Copy resolved ${v.key}`}
+                                        >
+                                            {copiedKey === `preview:${v.key}` ? <Check size={12}/> : <Copy size={12}/>}
+                                        </button>
                                         <button
                                             className="var-preview-toggle"
                                             onClick={() => togglePreview(v.key)}

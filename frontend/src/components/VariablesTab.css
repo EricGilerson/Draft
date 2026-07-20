@@ -65,6 +65,61 @@
     min-width: 0;
 }
 
+/* Value field wrapper: copy control overlays inside the input so the action
+   strip (eye/link/ARG/delete) keeps the same width. */
+.var-value-field {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    display: flex;
+}
+
+.var-value-field .var-value-editor,
+.var-value-field .var-value-mask,
+.var-value-field input {
+    flex: 1;
+    min-width: 0;
+    /* Room for the overlay copy control on the right edge */
+    padding-right: 28px;
+}
+
+.var-value-copy {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+    color: var(--text-faint);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.var-value-field:hover .var-value-copy,
+.var-value-field:focus-within .var-value-copy,
+.var-value-copy:focus-visible,
+.var-value-copy--done {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.var-value-copy:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--surface-1, #1a1b19) 92%, transparent);
+}
+
+.var-value-copy--done {
+    color: var(--accent-text);
+}
+
 .var-toggle--active {
     color: var(--accent-text);
 }
@@ -279,8 +334,6 @@
 
 .var-value input,
 .var-value-editor {
-    flex: 1;
-    min-width: 0;
     font-family: var(--mono);
     font-size: 0.72rem;
     background: var(--surface-2);
