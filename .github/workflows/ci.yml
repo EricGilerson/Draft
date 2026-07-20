@@ -1,4 +1,6 @@
-# Unsigned smoke builds for PRs and pushes.
+# Unsigned smoke builds for PRs and pushes to main.
+# Previous CI artifacts are deleted at the start of each run so storage
+# does not accumulate across multiple pushes.
 name: CI
 
 on:
@@ -7,14 +9,52 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  actions: write
+
 env:
   NODE_OPTIONS: "--max-old-space-size=4096"
   WAILS_VERSION: v2.12.0
   GO_VERSION: "1.25.x"
 
 jobs:
+  cleanup-artifacts:
+    name: Cleanup previous CI artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete previous draft-* CI artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const names = new Set([
+              'draft-windows-amd64',
+              'draft-darwin-universal',
+            ]);
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+            let deleted = 0;
+            let freed = 0;
+            for (const a of artifacts) {
+              if (!names.has(a.name)) continue;
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: a.id,
+              });
+              deleted++;
+              freed += a.size_in_bytes || 0;
+              core.info(`Deleted ${a.name} (#${a.id}, created ${a.created_at})`);
+            }
+            core.notice(
+              `Deleted ${deleted} previous CI artifact(s), freed ${(freed / 1048576).toFixed(1)} MB`
+            );
+
   build:
     name: Build (${{ matrix.label }})
+    needs: cleanup-artifacts
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +84,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Cache Wails CLI
+        id: cache-wails
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/wails
+            ~/go/bin/wails.exe
+          key: wails-${{ runner.os }}-${{ env.WAILS_VERSION }}
+
       - name: Install NSIS
         if: matrix.nsis
         shell: pwsh
@@ -52,7 +101,12 @@ jobs:
           "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Wails
+        if: steps.cache-wails.outputs.cache-hit != 'true'
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Ensure Wails on PATH
+        shell: bash
+        run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -73,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: draft-${{ matrix.label }}
-          retention-days: 7
+          retention-days: 3
           path: |
             build/bin/Draft.exe
             build/bin/Draft-*-installer.exe
