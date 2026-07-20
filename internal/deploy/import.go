@@ -79,6 +79,8 @@ func (e *Engine) ImportConfigAsProject(path, projectName string) (*ImportResult,
 		return nil, fmt.Errorf("get default environment: %w", err)
 	}
 
+	report.Merge(rebaseImportedPaths(specs, path, projectPath))
+
 	raw, _ := os.ReadFile(path)
 	nodes, r := e.stampSpecsAsNodes(project.ID, env.ID, specs, adapter.Format(), string(raw), 0, 0)
 	report.Merge(r)
@@ -92,9 +94,11 @@ func (e *Engine) ImportConfigIntoProject(projectID, environmentID uint, path str
 	if err != nil {
 		return nil, err
 	}
-	if _, err := e.store.GetProject(projectID); err != nil {
+	project, err := e.store.GetProject(projectID)
+	if err != nil {
 		return nil, fmt.Errorf("project not found: %w", err)
 	}
+	report.Merge(rebaseImportedPaths(specs, path, project.Path))
 	raw, _ := os.ReadFile(path)
 	nodes, r := e.stampSpecsAsNodes(projectID, environmentID, specs, adapter.Format(), string(raw), x, y)
 	report.Merge(r)
@@ -241,10 +245,133 @@ func servicePreview(s cloudconfig.ServiceSpec) ServicePreview {
 	return p
 }
 
+// rebaseImportedPaths rewrites Compose-style relative paths so Draft resolves
+// them the same way Compose does: against the config file's directory, then
+// stores build contexts as project-relative (or absolute when outside the
+// project) and bind-mount sources as absolute host paths.
+//
+// Without this, importing compose from a subdirectory (or into an existing
+// project whose root is not the compose dir) treats `context: ./api` as
+// `<project>/api` instead of `<composeDir>/api`.
+func rebaseImportedPaths(specs []cloudconfig.ServiceSpec, configPath, projectPath string) cloudconfig.Report {
+	var rep cloudconfig.Report
+	if len(specs) == 0 {
+		return rep
+	}
+	absProject, err := filepath.Abs(projectPath)
+	if err != nil {
+		rep.Add(cloudconfig.KindManual, "path_rebase", "",
+			fmt.Sprintf("Could not resolve project path %q; left imported paths unchanged: %v", projectPath, err))
+		return rep
+	}
+	absProject = filepath.Clean(absProject)
+	absConfigDir, err := filepath.Abs(filepath.Dir(configPath))
+	if err != nil {
+		rep.Add(cloudconfig.KindManual, "path_rebase", "",
+			fmt.Sprintf("Could not resolve config directory for %q; left imported paths unchanged: %v", configPath, err))
+		return rep
+	}
+	absConfigDir = filepath.Clean(absConfigDir)
+
+	for i := range specs {
+		spec := &specs[i]
+		if spec.Build != nil {
+			ctx := strings.TrimSpace(spec.Build.Context)
+			if ctx == "" {
+				ctx = "."
+			}
+			absCtx := resolveAgainstBase(absConfigDir, ctx)
+			rel, ok := relInsideBase(absProject, absCtx)
+			if ok {
+				spec.Build.Context = rel
+			} else {
+				spec.Build.Context = absCtx
+				rep.Add(cloudconfig.KindInfo, "path_outside_project", spec.Name,
+					fmt.Sprintf("Build context %q resolves outside the project; stored as an absolute path.", ctx))
+			}
+			if before, after := ctx, spec.Build.Context; before != after && before != "./"+after && normalizeImportedPath(before) != after {
+				rep.Add(cloudconfig.KindTransformed, "build_context_path", spec.Name,
+					fmt.Sprintf("Build context %q → %q (relative to compose file, then project).", before, after))
+			}
+		}
+		for j := range spec.Volumes {
+			v := &spec.Volumes[j]
+			t := v.Type
+			if t == "" {
+				t = cloudconfig.VolumeBind
+			}
+			if t != cloudconfig.VolumeBind {
+				continue
+			}
+			src := strings.TrimSpace(v.Source)
+			if src == "" || looksLikeNamedVolume(src) {
+				continue
+			}
+			absSrc := resolveAgainstBase(absConfigDir, src)
+			if absSrc != src {
+				rep.Add(cloudconfig.KindTransformed, "bind_mount_path", spec.Name,
+					fmt.Sprintf("Bind mount %q → %q (relative to compose file).", src, absSrc))
+			}
+			v.Source = absSrc
+		}
+	}
+	return rep
+}
+
+// resolveAgainstBase joins a possibly-relative path to base when it is not
+// absolute. Absolute inputs are cleaned and returned unchanged.
+func resolveAgainstBase(base, p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return filepath.Clean(base)
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Clean(filepath.Join(base, p))
+}
+
+// relInsideBase returns the slash-form path of target relative to base when
+// target is base or a descendant. "." means target == base.
+func relInsideBase(base, target string) (string, bool) {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.Clean(rel)
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+// looksLikeNamedVolume reports compose volume sources that are Docker volume
+// names rather than host paths (no separators, not "."/"..", not absolute).
+func looksLikeNamedVolume(src string) bool {
+	if filepath.IsAbs(src) {
+		return false
+	}
+	if src == "." || src == ".." {
+		return false
+	}
+	if strings.ContainsAny(src, `/\`) {
+		return false
+	}
+	return true
+}
+
 // normalizeImportedPath cleans an imported build-context path to the
 // project-relative form Draft stores ("./web" → "web", "." → "").
+// Absolute paths are kept absolute (cleaned) so contexts outside the project
+// still resolve at deploy time.
 func normalizeImportedPath(p string) string {
 	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
 	p = strings.TrimPrefix(p, "./")
 	if p == "." {
 		return ""

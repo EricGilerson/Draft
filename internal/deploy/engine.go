@@ -482,7 +482,13 @@ func rebaseUnderSource(projectPath, sourcePath, p string) (string, error) {
 func resolveBuildContextPlan(projectPath, serviceRootSetting, dockerfilePath string) (buildContextPlan, error) {
 	serviceRoot := projectPath
 	if rel := strings.TrimSpace(serviceRootSetting); rel != "" {
-		serviceRoot = filepath.Join(projectPath, rel)
+		// Absolute service_root is allowed for imports whose compose context
+		// resolved outside the Draft project folder.
+		if filepath.IsAbs(rel) {
+			serviceRoot = rel
+		} else {
+			serviceRoot = filepath.Join(projectPath, rel)
+		}
 	}
 
 	absDockerfile := dockerfilePath

@@ -38,6 +38,9 @@ func (s *Store) GetServiceRoot(nodeID string, projectID uint) (string, error) {
 		return "", err
 	}
 
+	if filepath.IsAbs(rel) {
+		return filepath.Clean(rel), nil
+	}
 	return filepath.Join(project.Path, rel), nil
 }
 
