@@ -240,7 +240,7 @@ Important model details:
 - Project listing with multi-environment service rollups (`ListProjectServicesSummary`).
 - **Multi-environment projects**: create / rename / set-default / delete environments; canvas is per-environment; `EnvironmentSwitcher` in the project chrome.
 - **Environment stack ops**: start / stop / redeploy all services in an environment (independent per node; no depends-on ordering).
-- **Duplicate environment** with per-stateful-service data choices: `fresh` | `share` | `clone` (clone supports `consistent` vs `quick` consistency).
+- **Duplicate environment** with per-stateful-service data choices: `fresh` | `share` | `clone` (clone supports `consistent` vs `quick` consistency), plus optional per-repo branch/ref/PR pins stamped onto copied services’ `git_branch` at create.
 - Canvas nodes with persisted positions, rename, delete-with-preview, and add-service flow via template wizard or blank node.
 - Project settings dialog: project metadata + project-level env vars.
 
@@ -448,7 +448,7 @@ Shared tail for all paths: resolve env (including `{{project.*}}` / `{{secret.*}
 
 ## Not Yet Implemented
 
-- Branch/worktree UX beyond the current pinned-ref deploy path (sandboxes can pin per-repo refs at create, but there is no first-class worktree workspace model).
+- Managing on-disk `git worktree` checkouts for editing (branch deploy is already covered by pinned refs, sandbox create pins, and durable env duplicate pins).
 - Explicit depends-on edges beyond inferred `@{Service…}` connection waves for stack start (graph is derived from env refs today).
 - Secrets-at-rest encryption (deferred; local desktop threat model similar to a committed `.env` once the filesystem is owned).
 

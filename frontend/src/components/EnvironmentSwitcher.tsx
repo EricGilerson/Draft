@@ -1,11 +1,12 @@
-import {useEffect, useRef, useState} from 'react';
-import {Clock3, FlaskConical, GitCompare, MoreHorizontal, Package, Play, Plus, Power, RefreshCw, Trash2} from 'lucide-react';
+import {useEffect, useMemo, useRef, useState} from 'react';
+import {Clock3, FlaskConical, GitBranch, GitCompare, MoreHorizontal, Package, Play, Plus, Power, RefreshCw, Trash2} from 'lucide-react';
 import {
     CreateEnvironment,
     DeleteEnvironment,
     DeleteSandbox,
     DuplicateEnvironment,
     ListEnvironments,
+    ListSandboxSourceRepos,
     ListSandboxes,
     PreviewEnvironmentDuplicate,
     PreviewSandboxPurge,
@@ -23,8 +24,40 @@ import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import ExportDraftPackDialog from './ExportDraftPackDialog';
 import SandboxExtendControl from './SandboxExtendControl';
+import {Skeleton} from './Skeleton';
 import SyncConfigDialog from './SyncConfigDialog';
 import './EnvironmentSwitcher.css';
+
+/** Per-repo source picker for duplicate create (keep / branch / PR). */
+type RepoSourceDraft = {
+    repoRoot: string;
+    mode: 'keep' | 'branch' | 'pr';
+    ref: string;
+    commitSha: string;
+    prNumber: number;
+    prTitle: string;
+};
+
+function repoLeaf(path: string): string {
+    const cleaned = path.replace(/[\\/]+$/, '');
+    const parts = cleaned.split(/[\\/]/);
+    return parts[parts.length - 1] || path;
+}
+
+function draftsFromSourceRepos(repos: deploy.SandboxSourceRepos | null): Record<string, RepoSourceDraft> {
+    const next: Record<string, RepoSourceDraft> = {};
+    for (const repo of repos?.repositories ?? []) {
+        next[repo.repoRoot] = {
+            repoRoot: repo.repoRoot,
+            mode: 'keep',
+            ref: repo.defaultRef || 'HEAD',
+            commitSha: '',
+            prNumber: 0,
+            prTitle: '',
+        };
+    }
+    return next;
+}
 
 function sandboxExpiryLabel(value: unknown): string {
     const date = new Date(value as string | number | Date);
@@ -141,8 +174,22 @@ export default function EnvironmentSwitcher({
     const [choices, setChoices] = useState<Record<string, ChoiceState>>({});
     /** Opt-in start after duplicate (off by default — durable envs can be heavy). */
     const [startAfter, setStartAfter] = useState(false);
+    const [sourceRepos, setSourceRepos] = useState<deploy.SandboxSourceRepos | null>(null);
+    const [repoDrafts, setRepoDrafts] = useState<Record<string, RepoSourceDraft>>({});
+    const [sourceReposLoading, setSourceReposLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
+
+    const repositoryPins = useMemo(() => {
+        return Object.values(repoDrafts)
+            .filter((draft) => draft.mode !== 'keep' && (draft.ref.trim() || draft.commitSha.trim() || draft.prNumber > 0))
+            .map((draft) => deploy.SandboxRepositoryRef.createFrom({
+                repoRoot: draft.repoRoot,
+                ref: draft.ref.trim() || (draft.prNumber > 0 ? `pr-${draft.prNumber}` : draft.commitSha.trim()),
+                commitSha: draft.commitSha.trim() || undefined,
+                prNumber: draft.mode === 'pr' && draft.prNumber > 0 ? draft.prNumber : undefined,
+            }));
+    }, [repoDrafts]);
     const [menuEnvId, setMenuEnvId] = useState<number | null>(null);
     const [renameEnv, setRenameEnv] = useState<store.Environment | null>(null);
     const [renameValue, setRenameValue] = useState('');
@@ -178,6 +225,61 @@ export default function EnvironmentSwitcher({
         return () => document.removeEventListener('mousedown', onDoc);
     }, [menuEnvId]);
 
+    // Prefetch step-2 data while the user is still on step 1 so Source code
+    // and service choices are ready when they click Next.
+    useEffect(() => {
+        if (!dialogOpen || sourceId === SOURCE_BLANK) {
+            if (sourceId === SOURCE_BLANK) {
+                setStateful([]);
+                setChoices({});
+                setSourceRepos(null);
+                setRepoDrafts({});
+                setSourceReposLoading(false);
+            }
+            return;
+        }
+        const envId = Number(sourceId);
+        let cancelled = false;
+        setStateful([]);
+        setChoices({});
+        setSourceRepos(null);
+        setRepoDrafts({});
+        setSourceReposLoading(true);
+        PreviewEnvironmentDuplicate(envId)
+            .then((list) => {
+                if (cancelled) return;
+                const rows = list ?? [];
+                setStateful(rows);
+                const next: Record<string, ChoiceState> = {};
+                for (const row of rows) {
+                    next[row.nodeId] = {mode: 'fresh', consistency: 'consistent'};
+                }
+                setChoices(next);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setStateful([]);
+                setChoices({});
+            });
+        ListSandboxSourceRepos(envId)
+            .then((repos) => {
+                if (cancelled) return;
+                setSourceRepos(repos);
+                setRepoDrafts(draftsFromSourceRepos(repos));
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setSourceRepos(null);
+                setRepoDrafts({});
+            })
+            .finally(() => {
+                if (!cancelled) setSourceReposLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [dialogOpen, sourceId]);
+
     const openNewDialog = () => {
         setName('');
         setError('');
@@ -186,6 +288,9 @@ export default function EnvironmentSwitcher({
         setStateful([]);
         setChoices({});
         setStartAfter(false);
+        setSourceRepos(null);
+        setRepoDrafts({});
+        setSourceReposLoading(false);
         setSourceId(
             selectedEnvironmentId != null ? String(selectedEnvironmentId) : SOURCE_BLANK,
         );
@@ -202,23 +307,38 @@ export default function EnvironmentSwitcher({
         setStateful([]);
         setChoices({});
         setStartAfter(false);
+        setSourceRepos(null);
+        setRepoDrafts({});
+        setSourceReposLoading(false);
     };
 
-    const loadStateful = (envId: number) => {
-        PreviewEnvironmentDuplicate(envId)
-            .then((list) => {
-                const rows = list ?? [];
-                setStateful(rows);
-                const next: Record<string, ChoiceState> = {};
-                for (const row of rows) {
-                    next[row.nodeId] = {mode: 'fresh', consistency: 'consistent'};
-                }
-                setChoices(next);
-            })
-            .catch(() => {
-                setStateful([]);
-                setChoices({});
-            });
+    const updateRepoDraft = (repoRoot: string, patch: Partial<RepoSourceDraft>) => {
+        setRepoDrafts((current) => {
+            const base = current[repoRoot] ?? {
+                repoRoot,
+                mode: 'keep' as const,
+                ref: '',
+                commitSha: '',
+                prNumber: 0,
+                prTitle: '',
+            };
+            return {...current, [repoRoot]: {...base, ...patch, repoRoot}};
+        });
+    };
+
+    const applyPrToDraft = (repo: deploy.SandboxSourceRepo, prNumber: number) => {
+        const pr = (repo.pullRequests ?? []).find((item) => item.number === prNumber);
+        if (!pr) {
+            updateRepoDraft(repo.repoRoot, {mode: 'pr', prNumber: 0, prTitle: '', ref: '', commitSha: ''});
+            return;
+        }
+        updateRepoDraft(repo.repoRoot, {
+            mode: 'pr',
+            prNumber: pr.number,
+            prTitle: pr.title,
+            ref: pr.headRef,
+            commitSha: pr.headSha || '',
+        });
     };
 
     const goNext = () => {
@@ -227,7 +347,6 @@ export default function EnvironmentSwitcher({
             submit();
             return;
         }
-        loadStateful(Number(sourceId));
         setStep(2);
     };
 
@@ -253,7 +372,7 @@ export default function EnvironmentSwitcher({
         if (isDuplicate) onDuplicating?.(true);
 
         if (isDuplicate) {
-            DuplicateEnvironment(Number(sourceId), name.trim(), dataChoices, startAfter)
+            DuplicateEnvironment(Number(sourceId), name.trim(), dataChoices, startAfter, repositoryPins)
                 .then((result) => {
                     const env = result.environment;
                     closeDialog();
@@ -688,7 +807,7 @@ export default function EnvironmentSwitcher({
 
             {dialogOpen && (
                 <Dialog
-                    title={step === 1 ? 'New environment' : 'Service data'}
+                    title={step === 1 ? 'New environment' : 'Service data & source'}
                     onClose={closeDialog}
                     footer={
                         <>
@@ -753,7 +872,7 @@ export default function EnvironmentSwitcher({
                                 <p className="environment-source-hint">
                                     {sourceId === SOURCE_BLANK
                                         ? 'Start with no services. You can add them after creating.'
-                                        : 'Clone services and settings. On the next step choose Fresh copy or Share for each service (and Clone data when volumes exist).'}
+                                        : 'Clone services and settings. Next: choose Fresh / Share / Clone per service, and optionally pin copied services to a branch or PR.'}
                                 </p>
                             </div>
                         </>
@@ -873,6 +992,155 @@ export default function EnvironmentSwitcher({
                                     })}
                                 </ul>
                             )}
+
+                            <section className="environment-source-section">
+                                <h3 className="environment-source-section-title">Source code</h3>
+                                <p className="environment-source-hint">
+                                    Optionally pin <strong>Fresh</strong> / <strong>Clone</strong> copies to a branch, ref, or PR.
+                                    Shared services keep the source environment&apos;s code. Leave on keep to copy existing pins.
+                                    Change later in each service&apos;s Settings.
+                                </p>
+                                {sourceReposLoading ? (
+                                    <div className="environment-source-skeleton">
+                                        {Array.from({length: 1}, (_, i) => (
+                                            <div key={i} className="environment-source-repo">
+                                                <div className="environment-source-repo-head">
+                                                    <GitBranch size={14}/>
+                                                    <Skeleton width="28%" height={13}/>
+                                                    <Skeleton width="42%" height={10}/>
+                                                </div>
+                                                <Skeleton width="48%" height={10}/>
+                                                <Skeleton width="78%" height={28} style={{marginTop: 4}}/>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : !(sourceRepos?.repositories?.length) ? (
+                                    <p className="settings-hint">
+                                        No git repositories found for services in this environment. Image-only services skip this section.
+                                    </p>
+                                ) : (
+                                    (sourceRepos.repositories ?? []).map((repo) => {
+                                        const draft = repoDrafts[repo.repoRoot] ?? {
+                                            repoRoot: repo.repoRoot,
+                                            mode: 'keep' as const,
+                                            ref: repo.defaultRef || 'HEAD',
+                                            commitSha: '',
+                                            prNumber: 0,
+                                            prTitle: '',
+                                        };
+                                        const branches = repo.branches ?? [];
+                                        const prs = repo.pullRequests ?? [];
+                                        return (
+                                            <div className="environment-source-repo" key={repo.repoRoot}>
+                                                <div className="environment-source-repo-head">
+                                                    <GitBranch size={14}/>
+                                                    <strong title={repo.repoRoot}>{repoLeaf(repo.repoRoot)}</strong>
+                                                    <span className="environment-source-repo-path" title={repo.repoRoot}>{repo.repoRoot}</span>
+                                                </div>
+                                                <p className="environment-source-hint">
+                                                    Services: {(repo.serviceLabels ?? []).join(', ') || '—'}
+                                                    {repo.defaultRef ? ` · source pin ${repo.defaultRef}` : ''}
+                                                </p>
+                                                <div className="environment-source-modes">
+                                                    <label className="environment-source-mode">
+                                                        <input
+                                                            type="radio"
+                                                            name={`env-src-mode-${repo.repoRoot}`}
+                                                            checked={draft.mode === 'keep'}
+                                                            onChange={() => updateRepoDraft(repo.repoRoot, {
+                                                                mode: 'keep',
+                                                                ref: repo.defaultRef || 'HEAD',
+                                                                commitSha: '',
+                                                                prNumber: 0,
+                                                                prTitle: '',
+                                                            })}
+                                                        />
+                                                        Keep source pins
+                                                    </label>
+                                                    <label className="environment-source-mode">
+                                                        <input
+                                                            type="radio"
+                                                            name={`env-src-mode-${repo.repoRoot}`}
+                                                            checked={draft.mode === 'branch'}
+                                                            onChange={() => updateRepoDraft(repo.repoRoot, {
+                                                                mode: 'branch',
+                                                                prNumber: 0,
+                                                                prTitle: '',
+                                                                ref: draft.ref || repo.defaultRef || 'HEAD',
+                                                            })}
+                                                        />
+                                                        Branch / ref
+                                                    </label>
+                                                    {repo.pullRequestsAvailable ? (
+                                                        <label className="environment-source-mode">
+                                                            <input
+                                                                type="radio"
+                                                                name={`env-src-mode-${repo.repoRoot}`}
+                                                                checked={draft.mode === 'pr'}
+                                                                onChange={() => updateRepoDraft(repo.repoRoot, {mode: 'pr'})}
+                                                            />
+                                                            Pull request
+                                                        </label>
+                                                    ) : (
+                                                        <span
+                                                            className="environment-source-mode environment-source-mode--disabled"
+                                                            title={repo.pullRequestsError || 'GitHub CLI unavailable'}
+                                                        >
+                                                            PRs unavailable
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {draft.mode === 'branch' && (
+                                                    <div className="environment-source-controls">
+                                                        <select
+                                                            className="input settings-select"
+                                                            value={branches.includes(draft.ref) ? draft.ref : ''}
+                                                            onChange={(e) => updateRepoDraft(repo.repoRoot, {ref: e.target.value, commitSha: ''})}
+                                                        >
+                                                            <option value="">Select branch…</option>
+                                                            {branches.map((branch) => (
+                                                                <option key={branch} value={branch}>{branch}</option>
+                                                            ))}
+                                                        </select>
+                                                        <input
+                                                            className="input"
+                                                            value={draft.ref}
+                                                            onChange={(e) => updateRepoDraft(repo.repoRoot, {ref: e.target.value, commitSha: ''})}
+                                                            placeholder="branch, tag, or SHA"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {draft.mode === 'pr' && repo.pullRequestsAvailable && (
+                                                    <div className="environment-source-controls">
+                                                        <select
+                                                            className="input settings-select"
+                                                            value={draft.prNumber || ''}
+                                                            onChange={(e) => applyPrToDraft(repo, Number(e.target.value) || 0)}
+                                                        >
+                                                            <option value="">Select open PR…</option>
+                                                            {prs.map((pr) => (
+                                                                <option key={pr.number} value={pr.number}>
+                                                                    #{pr.number} {pr.title}{pr.headRef ? ` (${pr.headRef})` : ''}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        {draft.prNumber > 0 && (
+                                                            <p className="environment-source-hint" style={{margin: 0}}>
+                                                                Head {draft.ref || '—'}
+                                                                {draft.commitSha ? ` · ${draft.commitSha.slice(0, 12)}` : ''}
+                                                                {draft.prTitle ? ` · ${draft.prTitle}` : ''}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                {!repo.pullRequestsAvailable && repo.pullRequestsError && (
+                                                    <p className="settings-hint">PRs: {repo.pullRequestsError}</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </section>
                         </div>
                     )}
                 </Dialog>

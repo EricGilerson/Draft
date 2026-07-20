@@ -440,16 +440,17 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceEnvironmentID uint                       `json:"sourceEnvironmentId"`
-		NewName             string                     `json:"newName"`
-		Choices             []deploy.ServiceDataChoice `json:"choices"`
-		StartAfter          bool                       `json:"startAfter"`
+		SourceEnvironmentID uint                         `json:"sourceEnvironmentId"`
+		NewName             string                       `json:"newName"`
+		Choices             []deploy.ServiceDataChoice   `json:"choices"`
+		StartAfter          bool                         `json:"startAfter"`
+		Repositories        []deploy.SandboxRepositoryRef `json:"repositories,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
 	// Detach from the request context so clone-data choices can finish after a client timeout.
-	out, err := s.engine.DuplicateEnvironmentWithChoices(context.Background(), req.SourceEnvironmentID, req.NewName, req.Choices, req.StartAfter)
+	out, err := s.engine.DuplicateEnvironmentWithChoices(context.Background(), req.SourceEnvironmentID, req.NewName, req.Choices, req.StartAfter, req.Repositories)
 	if err != nil {
 		writeError(w, err)
 		return

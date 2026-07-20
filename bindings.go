@@ -233,8 +233,10 @@ func (a *App) DeleteEnvironment(environmentID uint) error {
 // control per-stateful-service data mode (fresh / share / clone); nil or empty
 // means all fresh. When startAfter is true, services are started after
 // materialize; duplication still succeeds when start fails (see StartError).
+// repositories optionally stamps git_branch on copied services (sandbox-style
+// branch/PR pins at create only; omitted repos keep the source pin).
 // Deployment history, routes, and port leases are not copied.
-func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice, startAfter bool) (*deploy.DuplicateEnvironmentResult, error) {
+func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice, startAfter bool, repositories []deploy.SandboxRepositoryRef) (*deploy.DuplicateEnvironmentResult, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {
 		return nil, err
@@ -242,7 +244,7 @@ func (a *App) DuplicateEnvironment(sourceEnvironmentID uint, newName string, cho
 	if c == nil {
 		return nil, errNoStore
 	}
-	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices, startAfter)
+	return c.DuplicateEnvironment(a.ctx, sourceEnvironmentID, newName, choices, startAfter, repositories)
 }
 
 // PreviewEnvironmentDuplicate lists services for the new-env data wizard

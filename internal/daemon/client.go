@@ -292,13 +292,14 @@ func (c *Client) ApplySync(ctx context.Context, req deploy.SyncRequest, mode str
 	return &out, nil
 }
 
-func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice, startAfter bool) (*deploy.DuplicateEnvironmentResult, error) {
+func (c *Client) DuplicateEnvironment(ctx context.Context, sourceEnvironmentID uint, newName string, choices []deploy.ServiceDataChoice, startAfter bool, repositories []deploy.SandboxRepositoryRef) (*deploy.DuplicateEnvironmentResult, error) {
 	var out deploy.DuplicateEnvironmentResult
 	body := map[string]any{
 		"sourceEnvironmentId": sourceEnvironmentID,
 		"newName":             newName,
 		"choices":             choices,
 		"startAfter":          startAfter,
+		"repositories":        repositories,
 	}
 	// Duplicate with clone-data choices can copy multiple volumes; keep the UI waiting.
 	// Start-after also kicks off deploys inline (kickoff only), so keep the long timeout.

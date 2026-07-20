@@ -99,7 +99,7 @@ Import / export / refresh `.env` files. Most edits are **staged** until the next
 
 ### Multi-environment without reinventing Compose
 
-- Create blank envs or **duplicate based on** another (`Fresh` · `Share` · `Clone`).
+- Create blank envs or **duplicate based on** another (`Fresh` · `Share` · `Clone`), with an optional per-repo branch / ref / PR pin on copied services.
 - **Share** attaches a root container onto another env’s network (one Postgres, many consumers).
 - **Linked services** put an alias node in one env that points at a root in another.
 - Sync config between environments; start / stop / redeploy the whole stack.
@@ -291,7 +291,7 @@ Stock Wails template notes live in [`README.wails.md`](./README.wails.md). Want 
 
 ## Current limitations
 
-- No first-class branch/worktree workspace model (pinned refs + sandbox repo pins only).
+- Draft does not manage on-disk `git worktree` checkouts for editing; branch deploys use pinned refs (per-service Settings, sandbox create, or durable env duplicate).
 - Explicit depends-on edges are not first-class; stack start orders by inferred `@{Service…}` connections.
 - Secrets remain plaintext in local SQLite (same class of risk as a local `.env` once the machine is owned).
 

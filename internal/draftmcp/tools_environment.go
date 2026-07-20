@@ -34,7 +34,7 @@ func environmentTools() []toolDef {
 			}
 			return c.PreviewEnvironmentDuplicate(ctx, id)
 		}),
-		withHandler(tool("draft_duplicate_environment", "Duplicate an environment.", map[string]any{"sourceEnvironmentId": uintSchema("Source ID"), "newName": stringsSchema("New environment name"), "choices": map[string]any{"type": "array"}, "startAfter": map[string]any{"type": "boolean"}}, "sourceEnvironmentId", "newName"), func(ctx context.Context, args map[string]any) (any, error) {
+		withHandler(tool("draft_duplicate_environment", "Duplicate an environment. Optional repositories stamps git_branch on copied services (branch/PR per repo); omit to keep source pins. Shared aliases are not pinned.", map[string]any{"sourceEnvironmentId": uintSchema("Source ID"), "newName": stringsSchema("New environment name"), "choices": map[string]any{"type": "array"}, "startAfter": map[string]any{"type": "boolean"}, "repositories": map[string]any{"type": "array", "description": "Optional SandboxRepositoryRef pins (repoRoot, ref, commitSha?, prNumber?)"}}, "sourceEnvironmentId", "newName"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)
 			if e != nil {
 				return nil, e
@@ -53,7 +53,15 @@ func environmentTools() []toolDef {
 			}{&choices}); e != nil {
 				return nil, e
 			}
-			return c.DuplicateEnvironment(ctx, id, name, choices, optionalBool(args, "startAfter"))
+			var repositories []deploy.SandboxRepositoryRef
+			if raw, ok := args["repositories"]; ok && raw != nil {
+				if e = decodeArgs(map[string]any{"repositories": raw}, &struct {
+					Repositories *[]deploy.SandboxRepositoryRef `json:"repositories"`
+				}{&repositories}); e != nil {
+					return nil, e
+				}
+			}
+			return c.DuplicateEnvironment(ctx, id, name, choices, optionalBool(args, "startAfter"), repositories)
 		}),
 		withHandler(tool("draft_preview_sync", "Preview configuration sync between environments/services. Set createMissing=true to plan adding source-only services onto the target (clone + restamp). Does not delete target-only services. Secrets masked unless includeSecrets=true.", map[string]any{"request": map[string]any{"type": "object"}, "includeSecrets": map[string]any{"type": "boolean"}}, "request"), func(ctx context.Context, args map[string]any) (any, error) {
 			c, e := getClient(ctx)

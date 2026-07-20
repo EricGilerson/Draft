@@ -346,27 +346,9 @@ func (e *Engine) CreateSandbox(ctx context.Context, req SandboxCreateRequest) (*
 		return nil, err
 	}
 
-	// Source labels are unique per environment, so they safely identify the
-	// duplicate for branch pinning.
-	targetNodes, err := e.store.ListNodesByEnvironment(env.ID)
-	if err != nil {
+	if err := e.pinCopiedNodesToRepositories(ctx, toDuplicate, env.ID, preview.Repositories); err != nil {
 		cleanup()
 		return nil, err
-	}
-	targetByLabel := make(map[string]store.CanvasNode, len(targetNodes))
-	for _, n := range targetNodes {
-		targetByLabel[n.Label] = n
-	}
-	for _, sourceNode := range toDuplicate {
-		target, ok := targetByLabel[sourceNode.Label]
-		if !ok {
-			cleanup()
-			return nil, fmt.Errorf("sandbox duplicate missing service %q", sourceNode.Label)
-		}
-		if err := e.pinSandboxNodeToRepository(ctx, target.ID, sourceNode.ID, preview.Repositories); err != nil {
-			cleanup()
-			return nil, err
-		}
 	}
 
 	out := &SandboxCreateResult{Sandbox: sandbox}
@@ -1199,7 +1181,65 @@ func looksLikeGitObjectID(s string) bool {
 	return true
 }
 
+// resolveExplicitRepositoryPins resolves caller-supplied branch/PR overrides.
+// Empty input yields nil (keep copied git_branch). Unlike sandbox plan
+// resolution, this does not inherit source pins — omit a repo to leave it alone.
+func (e *Engine) resolveExplicitRepositoryPins(ctx context.Context, overrides []SandboxRepositoryRef) ([]store.SandboxRepositorySource, error) {
+	if len(overrides) == 0 {
+		return nil, nil
+	}
+	out := make([]store.SandboxRepositorySource, 0, len(overrides))
+	seen := map[string]struct{}{}
+	for _, o := range overrides {
+		repoRoot := filepath.Clean(strings.TrimSpace(o.RepoRoot))
+		if repoRoot == "" || repoRoot == "." {
+			continue
+		}
+		if _, ok := seen[repoRoot]; ok {
+			continue
+		}
+		seen[repoRoot] = struct{}{}
+		resolved, err := e.resolveSandboxRef(ctx, repoRoot, o.Ref, o.CommitSHA, o.PRNumber)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s: %w", repoRoot, err)
+		}
+		out = append(out, *resolved)
+	}
+	return out, nil
+}
+
+// pinCopiedNodesToRepositories stamps git_branch on independent copies that
+// match the given repo roots. Shared/linked aliases are skipped. Source labels
+// identify duplicates (unique within an environment).
+func (e *Engine) pinCopiedNodesToRepositories(ctx context.Context, sourceNodes []store.CanvasNode, newEnvID uint, repositories []store.SandboxRepositorySource) error {
+	if len(repositories) == 0 {
+		return nil
+	}
+	targetNodes, err := e.store.ListNodesByEnvironment(newEnvID)
+	if err != nil {
+		return err
+	}
+	targetByLabel := make(map[string]store.CanvasNode, len(targetNodes))
+	for _, n := range targetNodes {
+		targetByLabel[n.Label] = n
+	}
+	for _, sourceNode := range sourceNodes {
+		target, ok := targetByLabel[sourceNode.Label]
+		if !ok {
+			return fmt.Errorf("duplicate missing service %q", sourceNode.Label)
+		}
+		if err := e.pinSandboxNodeToRepository(ctx, target.ID, sourceNode.ID, repositories); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *Engine) pinSandboxNodeToRepository(ctx context.Context, targetNodeID, sourceNodeID string, repositories []store.SandboxRepositorySource) error {
+	// Shared aliases keep the root's code; do not rewrite their git_branch.
+	if link, _ := e.GetServiceLink(targetNodeID); link != nil {
+		return nil
+	}
 	target, err := e.store.GetNode(targetNodeID)
 	if err != nil {
 		return err

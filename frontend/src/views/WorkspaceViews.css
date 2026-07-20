@@ -66,6 +66,10 @@
     margin-top: 14px;
 }
 
+.overview-sandbox-attention {
+    margin: 0 0 14px;
+}
+
 .panel {
     overflow: hidden;
 }

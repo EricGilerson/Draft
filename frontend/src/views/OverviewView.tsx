@@ -246,7 +246,7 @@ export default function OverviewView({
                 </div>
 
                 {urgentSandboxes.length > 0 && (
-                    <section className="panel" style={{marginTop: 14}}>
+                    <section className="panel overview-sandbox-attention">
                         <div className="panel-header">
                             <div>
                                 <h2 className="panel-title">Sandbox attention</h2>

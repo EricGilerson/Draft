@@ -39,7 +39,7 @@ type DuplicateEnvironmentResult struct {
 // nodes were created under it) is deleted so no half-duplicated environment
 // is left behind.
 func (e *Engine) DuplicateEnvironment(sourceEnvironmentID uint, newName string, choices ...ServiceDataChoice) (*store.Environment, error) {
-	res, err := e.DuplicateEnvironmentWithChoices(context.Background(), sourceEnvironmentID, newName, choices, false)
+	res, err := e.DuplicateEnvironmentWithChoices(context.Background(), sourceEnvironmentID, newName, choices, false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,12 @@ func (e *Engine) DuplicateEnvironment(sourceEnvironmentID uint, newName string, 
 // When startAfter is true, copied services are deployed after materialize
 // (async kickoff per node). Duplication still succeeds when start fails —
 // see DuplicateEnvironmentResult.StartError.
-func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvironmentID uint, newName string, choices []ServiceDataChoice, startAfter bool) (*DuplicateEnvironmentResult, error) {
+//
+// repositories, when non-empty, resolves each ref and stamps git_branch on
+// independent copies that match those repo roots (same pin plumbing as
+// sandboxes). Shared/linked aliases are skipped. Empty/nil keeps whatever
+// git_branch was copied from the source.
+func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvironmentID uint, newName string, choices []ServiceDataChoice, startAfter bool, repositories []SandboxRepositoryRef) (*DuplicateEnvironmentResult, error) {
 	sourceEnv, err := e.store.GetEnvironment(sourceEnvironmentID)
 	if err != nil {
 		return nil, fmt.Errorf("source environment not found: %w", err)
@@ -74,12 +79,22 @@ func (e *Engine) DuplicateEnvironmentWithChoices(ctx context.Context, sourceEnvi
 		choiceBySource[c.SourceNodeID] = c
 	}
 
+	pins, err := e.resolveExplicitRepositoryPins(ctx, repositories)
+	if err != nil {
+		return nil, err
+	}
+
 	newEnv, err := e.store.CreateEnvironment(sourceEnv.ProjectID, newName)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := e.duplicateNodesInto(ctx, sourceNodes, newEnv, choiceBySource); err != nil {
+		_ = e.store.DeleteEnvironment(newEnv.ID)
+		return nil, err
+	}
+
+	if err := e.pinCopiedNodesToRepositories(ctx, sourceNodes, newEnv.ID, pins); err != nil {
 		_ = e.store.DeleteEnvironment(newEnv.ID)
 		return nil, err
 	}
