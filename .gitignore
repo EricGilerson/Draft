@@ -4,3 +4,9 @@ frontend/dist
 frontend/package.json.md5
 Draft.exe
 /.gocache
+
+# Local release-signing material and credentials.
+/.env
+/*.certSigningRequest
+/*.cer
+/*.p12
