@@ -10,13 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"Draft/internal/deploy"
 	"Draft/internal/dockerwatch"
+	"Draft/internal/executil"
 	"Draft/internal/networking"
 	"Draft/internal/store"
 
@@ -1221,7 +1221,7 @@ func launchDaemon() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "--daemon")
+	cmd := executil.Command(exe, "--daemon")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {

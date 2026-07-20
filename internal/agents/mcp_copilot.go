@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // GitHub Copilot CLI user MCP config: ~/.copilot/mcp-config.json
@@ -23,7 +24,7 @@ import (
 //	}
 
 func copilotMCPConfigured(ctx context.Context, agentBin, draftCmd string, draftArgs []string) (bool, error) {
-	cmd := exec.CommandContext(ctx, agentBin, "mcp", "list")
+	cmd := executil.CommandContext(ctx, agentBin, "mcp", "list")
 	cmd.Env = childEnv()
 	if out, err := cmd.CombinedOutput(); err == nil {
 		text := strings.ToLower(string(out))
@@ -48,7 +49,7 @@ func copilotConfigHasDraft(draftCmd string, draftArgs []string) (bool, error) {
 func copilotMCPAdd(ctx context.Context, agentBin, draftCmd string, draftArgs []string) error {
 	args := []string{"mcp", "add", DraftMCPServerName, "--", draftCmd}
 	args = append(args, draftArgs...)
-	cmd := exec.CommandContext(ctx, agentBin, args...)
+	cmd := executil.CommandContext(ctx, agentBin, args...)
 	cmd.Env = childEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {

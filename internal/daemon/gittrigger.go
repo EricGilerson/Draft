@@ -8,11 +8,11 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"Draft/internal/executil"
 	"Draft/internal/gitsrc"
 )
 
@@ -168,7 +168,7 @@ func parsePrePush(r io.Reader) []gitRef {
 
 func gitOutput(ctx context.Context, repoPath string, args ...string) string {
 	full := append([]string{"-C", repoPath}, args...)
-	out, err := exec.CommandContext(ctx, "git", full...).Output()
+	out, err := executil.CommandContext(ctx, "git", full...).Output()
 	if err != nil {
 		return ""
 	}

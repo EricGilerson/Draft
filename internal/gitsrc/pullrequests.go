@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // PullRequest is a local-view of a GitHub pull request discovered via the
@@ -40,7 +42,7 @@ func CheckPullRequestsAvailable(ctx context.Context, path string) PullRequestsSt
 		return PullRequestsStatus{Available: false, Reason: "GitHub CLI (gh) not found on PATH"}
 	}
 	// `gh repo view` fails fast when the remote is not GitHub or auth is missing.
-	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "nameWithOwner")
+	cmd := executil.CommandContext(ctx, "gh", "repo", "view", "--json", "nameWithOwner")
 	cmd.Dir = path
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -72,7 +74,7 @@ func ListPullRequests(ctx context.Context, path string, limit int) ([]PullReques
 		return nil, fmt.Errorf("GitHub CLI (gh) not found on PATH")
 	}
 
-	cmd := exec.CommandContext(ctx, "gh", "pr", "list",
+	cmd := executil.CommandContext(ctx, "gh", "pr", "list",
 		"--state", "open",
 		"--limit", fmt.Sprintf("%d", limit),
 		"--json", "number,title,headRefName,headRefOid,url,author",
@@ -198,7 +200,7 @@ func EnsurePullRequestRef(ctx context.Context, path string, prNumber int) (strin
 		return shortRef, nil
 	}
 
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "fetch", "--no-tags", remote, src+":"+dest)
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "fetch", "--no-tags", remote, src+":"+dest)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

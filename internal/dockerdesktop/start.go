@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 type commandRunner func(context.Context, string, ...string) error
@@ -60,7 +62,7 @@ func (s starter) fallbacks() []startAttempt {
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := executil.CommandContext(ctx, name, args...)
 	return cmd.Run()
 }
 

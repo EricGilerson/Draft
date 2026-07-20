@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // ErrSubmoduleObjectsMissing is returned when a submodule gitlink's commit is
@@ -35,7 +36,7 @@ func ListGitlinks(ctx context.Context, repoPath, treeish string) ([]Gitlink, err
 }
 
 func listGitlinksAt(ctx context.Context, gitDir, treeish string) ([]Gitlink, error) {
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "ls-tree", "-r", treeish)
+	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "ls-tree", "-r", treeish)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -104,7 +105,7 @@ func HasCommit(ctx context.Context, gitDir, sha string) bool {
 	if sha == "" || gitDir == "" {
 		return false
 	}
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "cat-file", "-e", sha+"^{commit}")
+	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "cat-file", "-e", sha+"^{commit}")
 	return cmd.Run() == nil
 }
 
@@ -179,7 +180,7 @@ func ArchiveSubmoduleToDir(ctx context.Context, gitDir, sha, destDir string) err
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", sha)
+	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", sha)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -283,7 +284,7 @@ func writeArchiveWithSubmodulesAt(ctx context.Context, worktreeOrGitDir, gitDir,
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", treeish)
+	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", treeish)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -379,12 +380,12 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 	}
 
 	cleanup = func() {
-		cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", wtDir)
+		cmd := executil.Command("git", "-C", repoPath, "worktree", "remove", "--force", wtDir)
 		_ = cmd.Run()
 		_ = os.RemoveAll(wtDir)
 	}
 
-	addCmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "add", "--detach", wtDir, ref)
+	addCmd := executil.CommandContext(ctx, "git", "-C", repoPath, "worktree", "add", "--detach", wtDir, ref)
 	var addErr bytes.Buffer
 	addCmd.Stderr = &addErr
 	if err := addCmd.Run(); err != nil {
@@ -396,7 +397,7 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 		return "", nil, fmt.Errorf("git worktree add: %s", msg)
 	}
 
-	subCmd := exec.CommandContext(ctx, "git", "-C", wtDir, "submodule", "update", "--init", "--recursive")
+	subCmd := executil.CommandContext(ctx, "git", "-C", wtDir, "submodule", "update", "--init", "--recursive")
 	var subErr bytes.Buffer
 	subCmd.Stderr = &subErr
 	subCmd.Stdout = &subErr
@@ -413,13 +414,13 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 }
 
 func resolveGitDir(ctx context.Context, path string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--absolute-git-dir")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "rev-parse", "--absolute-git-dir")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
 		// Bare module directories sometimes need --git-dir=. when -C is the git dir.
-		cmd2 := exec.CommandContext(ctx, "git", "--git-dir", path, "rev-parse", "--absolute-git-dir")
+		cmd2 := executil.CommandContext(ctx, "git", "--git-dir", path, "rev-parse", "--absolute-git-dir")
 		var stderr2 bytes.Buffer
 		cmd2.Stderr = &stderr2
 		out2, err2 := cmd2.Output()

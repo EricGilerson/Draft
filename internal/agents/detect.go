@@ -3,12 +3,13 @@ package agents
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"Draft/internal/executil"
 )
 
 type agentSpec struct {
@@ -218,7 +219,7 @@ func windowsPathExts() []string {
 func probeVersion(ctx context.Context, bin string) string {
 	cctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, "--version")
+	cmd := executil.CommandContext(cctx, bin, "--version")
 	cmd.Env = childEnv()
 	b, err := cmd.CombinedOutput()
 	if err != nil {

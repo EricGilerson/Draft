@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // IsDraftMCPConfigured reports whether the agent already points at Draft's MCP.
@@ -60,7 +61,7 @@ func EnsureDraftMCP(ctx context.Context, id AgentID, agentBin, draftCmd string, 
 
 func claudeMCPConfigured(ctx context.Context, agentBin, draftCmd string, draftArgs []string) (bool, error) {
 	// Prefer CLI list when available.
-	cmd := exec.CommandContext(ctx, agentBin, "mcp", "list")
+	cmd := executil.CommandContext(ctx, agentBin, "mcp", "list")
 	cmd.Env = childEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -104,7 +105,7 @@ func claudeConfigHasDraft(draftCmd string, draftArgs []string) (bool, error) {
 func claudeMCPAdd(ctx context.Context, agentBin, draftCmd string, draftArgs []string) error {
 	args := []string{"mcp", "add", "--scope", "user", DraftMCPServerName, "--", draftCmd}
 	args = append(args, draftArgs...)
-	cmd := exec.CommandContext(ctx, agentBin, args...)
+	cmd := executil.CommandContext(ctx, agentBin, args...)
 	cmd.Env = childEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {

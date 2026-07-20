@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 func grokMCPConfigured(ctx context.Context, agentBin, draftCmd string, draftArgs []string) (bool, error) {
-	cmd := exec.CommandContext(ctx, agentBin, "mcp", "list")
+	cmd := executil.CommandContext(ctx, agentBin, "mcp", "list")
 	cmd.Env = childEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil && strings.Contains(strings.ToLower(string(out)), DraftMCPServerName) {
@@ -41,7 +42,7 @@ func grokMCPConfigured(ctx context.Context, agentBin, draftCmd string, draftArgs
 func grokMCPAdd(ctx context.Context, agentBin, draftCmd string, draftArgs []string) error {
 	args := []string{"mcp", "add", DraftMCPServerName, "--", draftCmd}
 	args = append(args, draftArgs...)
-	cmd := exec.CommandContext(ctx, agentBin, args...)
+	cmd := executil.CommandContext(ctx, agentBin, args...)
 	cmd.Env = childEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {

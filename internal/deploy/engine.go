@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"Draft/internal/executil"
 	"Draft/internal/gitsrc"
 	"Draft/internal/ignore"
 	"Draft/internal/networking"
@@ -38,21 +39,21 @@ import (
 )
 
 type Engine struct {
-	store       *store.Store
-	router      *networking.Router
-	emit        func(event string, data any)
-	logDir      string
-	execCommand func(context.Context, string, ...string) *exec.Cmd
-	mu          sync.Mutex
-	active      map[string]context.CancelFunc // nodeID → cancel build
-	watchMu     sync.Mutex
-	watchers    map[string]context.CancelFunc // nodeID → cancel container wait
-	watchGen    map[string]uint64             // nodeID → generation (avoid comparing funcs)
-	logsMu      sync.Mutex
-	logSubs     map[string]context.CancelFunc // nodeID → cancel log stream
-	statsMu     sync.Mutex
-	stats       map[string][]MetricPoint
-	activityMu  sync.Mutex
+	store          *store.Store
+	router         *networking.Router
+	emit           func(event string, data any)
+	logDir         string
+	execCommand    func(context.Context, string, ...string) *exec.Cmd
+	mu             sync.Mutex
+	active         map[string]context.CancelFunc // nodeID → cancel build
+	watchMu        sync.Mutex
+	watchers       map[string]context.CancelFunc // nodeID → cancel container wait
+	watchGen       map[string]uint64             // nodeID → generation (avoid comparing funcs)
+	logsMu         sync.Mutex
+	logSubs        map[string]context.CancelFunc // nodeID → cancel log stream
+	statsMu        sync.Mutex
+	stats          map[string][]MetricPoint
+	activityMu     sync.Mutex
 	lastProxyTouch map[string]time.Time // nodeID → last sandbox activity touch
 }
 
@@ -63,7 +64,7 @@ func New(s *store.Store, router *networking.Router, logDir string, emit func(str
 		router:         router,
 		emit:           emit,
 		logDir:         logDir,
-		execCommand:    exec.CommandContext,
+		execCommand:    executil.CommandContext,
 		active:         make(map[string]context.CancelFunc),
 		watchers:       make(map[string]context.CancelFunc),
 		watchGen:       make(map[string]uint64),

@@ -17,10 +17,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // Event identifies which git event should trigger a deploy.
@@ -64,7 +65,7 @@ const marker = "draft-managed-hook"
 // hooksDir resolves the repository's hooks directory, honoring core.hooksPath
 // and worktree layouts via `git rev-parse --git-path hooks`.
 func hooksDir(ctx context.Context, repoPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--git-path", "hooks")
+	cmd := executil.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--git-path", "hooks")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -320,7 +321,7 @@ func excludeBlockEnd(file string) string   { return "# " + marker + " end event=
 // gitDir resolves the repository's git directory (e.g. ".git") as an absolute
 // path via `git rev-parse --absolute-git-dir`.
 func gitDir(ctx context.Context, repoPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--absolute-git-dir")
+	cmd := executil.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--absolute-git-dir")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -449,7 +450,7 @@ func pathIsUnder(p, base string) bool {
 // hooks dir is under .git (the default) or outside the worktree, ok is false
 // and no excludes are needed.
 func excludePatterns(ctx context.Context, repoPath, hookPath string) (hookPat, origPat string, ok bool) {
-	rootOut, err := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--show-toplevel").Output()
+	rootOut, err := executil.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", "", false
 	}

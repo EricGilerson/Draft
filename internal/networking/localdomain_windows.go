@@ -4,8 +4,9 @@ package networking
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 func localDNSAddr() string { return "127.0.0.1:53" }
@@ -19,7 +20,7 @@ func removeLocalDomainResolver() error {
 }
 
 func localDomainResolverInstalled() (bool, error) {
-	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", `(Get-DnsClientNrptRule -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -eq 'Draft Local Domains' -and $_.Comment -eq 'Draft managed local domain'} | Measure-Object).Count`).CombinedOutput()
+	out, err := executil.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", `(Get-DnsClientNrptRule -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -eq 'Draft Local Domains' -and $_.Comment -eq 'Draft managed local domain'} | Measure-Object).Count`).CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("inspect Draft DNS rule: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -31,7 +32,7 @@ func runElevatedPowerShell(script string) error {
 	// never runs its normal daemon elevated.
 	encoded := strings.ReplaceAll(script, `'`, `''`)
 	launcher := "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -NonInteractive -Command \"" + encoded + "\"'"
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", launcher).CombinedOutput()
+	out, err := executil.Command("powershell", "-NoProfile", "-Command", launcher).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("local .draft authorization: %w: %s", err, strings.TrimSpace(string(out)))
 	}

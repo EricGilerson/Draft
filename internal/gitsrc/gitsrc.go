@@ -15,9 +15,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"Draft/internal/executil"
 )
 
 // ErrNotRepo is returned when the given path is not inside a git working tree.
@@ -26,7 +27,7 @@ var ErrNotRepo = errors.New("not a git repository")
 // RepoRoot returns the top-level working-tree directory for path. The path may
 // itself be the repo root or any descendant within the working tree.
 func RepoRoot(ctx context.Context, path string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "rev-parse", "--show-toplevel")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -49,7 +50,7 @@ func RepoRoot(ctx context.Context, path string) (string, error) {
 
 // IsRepo reports whether path is inside a git working tree.
 func IsRepo(path string) bool {
-	cmd := exec.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree")
+	cmd := executil.Command("git", "-C", path, "rev-parse", "--is-inside-work-tree")
 	out, err := cmd.Output()
 	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
@@ -94,7 +95,7 @@ func ListBranches(ctx context.Context, path string) ([]string, error) {
 }
 
 func listRefs(ctx context.Context, path, prefix string) ([]string, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "for-each-ref", "--format=%(refname:short)", prefix)
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "for-each-ref", "--format=%(refname:short)", prefix)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -169,7 +170,7 @@ func splitRemoteRef(ctx context.Context, path, ref string) (remote, branch strin
 }
 
 func repoRemotes(ctx context.Context, path string) []string {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "remote")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "remote")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -186,7 +187,7 @@ func repoRemotes(ctx context.Context, path string) []string {
 
 // VerifyRef checks that ref resolves to a commit in the repository at path.
 func VerifyRef(ctx context.Context, path, ref string) error {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("branch or ref %q not found in repository", ref)
 	}
@@ -200,7 +201,7 @@ func ResolveSHA(ctx context.Context, path, ref string) (string, error) {
 	if !IsRepo(path) {
 		return "", ErrNotRepo
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("ref %q not found in repository", ref)
@@ -214,7 +215,7 @@ func ResolveSHA(ctx context.Context, path, ref string) (string, error) {
 // returned ref is suitable for ResolveSHA; callers should treat a resolve error
 // as "nothing pushed yet" rather than fatal.
 func UpstreamRef(ctx context.Context, path, branch string) string {
-	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
+	cmd := executil.CommandContext(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", branch+"@{upstream}")
 	out, err := cmd.Output()
 	if up := strings.TrimSpace(string(out)); err == nil && up != "" {
 		return up
@@ -256,7 +257,7 @@ func ArchiveToDir(ctx context.Context, repoPath, treeish, destDir string) error 
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", treeish)
+	cmd := executil.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", treeish)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

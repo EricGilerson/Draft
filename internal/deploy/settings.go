@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"Draft/internal/executil"
+
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-units"
@@ -23,16 +25,16 @@ type containerOverrides struct {
 	StopSignal string
 	Labels     map[string]string
 
-	RestartPolicy container.RestartPolicy
-	Healthcheck   *container.HealthConfig
-	Resources     container.Resources
-	Mounts        []mount.Mount
-	Privileged    bool
-	Init          *bool
+	RestartPolicy  container.RestartPolicy
+	Healthcheck    *container.HealthConfig
+	Resources      container.Resources
+	Mounts         []mount.Mount
+	Privileged     bool
+	Init           *bool
 	ReadonlyRootfs bool
-	CapAdd        []string
-	CapDrop       []string
-	StopTimeout   *int
+	CapAdd         []string
+	CapDrop        []string
+	StopTimeout    *int
 }
 
 type buildOverrides struct {
@@ -42,9 +44,9 @@ type buildOverrides struct {
 }
 
 type lifecycleHooks struct {
-	PreBuild  string
-	PostBuild string
-	PreDeploy string
+	PreBuild   string
+	PostBuild  string
+	PreDeploy  string
 	PostDeploy string
 }
 
@@ -220,9 +222,9 @@ func runLifecycleHook(ctx context.Context, label, cmd, workDir string, logFn fun
 
 	var c *exec.Cmd
 	if runtime.GOOS == "windows" {
-		c = exec.CommandContext(ctx, "cmd", "/C", cmd)
+		c = executil.CommandContext(ctx, "cmd", "/C", cmd)
 	} else {
-		c = exec.CommandContext(ctx, "sh", "-c", cmd)
+		c = executil.CommandContext(ctx, "sh", "-c", cmd)
 	}
 	c.Dir = workDir
 
@@ -318,4 +320,3 @@ func keepImagesPolicy(settings map[string]string) string {
 		return keepImagesLast
 	}
 }
-
