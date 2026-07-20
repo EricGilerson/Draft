@@ -140,5 +140,27 @@ func childEnv() []string {
 			out = append(out, "Path="+aug)
 		}
 	}
+	// Finder/LaunchServices-launched macOS apps do not inherit a terminal's
+	// TERM/COLORTERM values. The agent runs inside a real PTY, so advertise its
+	// capabilities explicitly; otherwise many CLIs intentionally disable their
+	// color UI even though xterm can render it. Preserve a caller's non-empty
+	// terminal selection, but never propagate the deliberately minimal "dumb".
+	out = defaultTerminalEnv(out, "TERM", "xterm-256color", true)
+	out = defaultTerminalEnv(out, "COLORTERM", "truecolor", false)
 	return out
+}
+
+func defaultTerminalEnv(env []string, key, value string, replaceDumb bool) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if !strings.HasPrefix(entry, prefix) {
+			continue
+		}
+		current := strings.TrimSpace(strings.TrimPrefix(entry, prefix))
+		if current == "" || (replaceDumb && strings.EqualFold(current, "dumb")) {
+			env[i] = prefix + value
+		}
+		return env
+	}
+	return append(env, prefix+value)
 }

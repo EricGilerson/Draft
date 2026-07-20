@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+func TestClientCompatibilityRequiresCurrentDaemonProtocol(t *testing.T) {
+	current := &Client{state: State{Protocol: daemonProtocolVersion}}
+	if !current.IsCompatible() {
+		t.Fatal("current daemon protocol should be compatible")
+	}
+	legacy := &Client{state: State{Protocol: 0}}
+	if legacy.IsCompatible() {
+		t.Fatal("legacy daemon state must be replaced")
+	}
+}
+
 func TestDiscoveryListCreateProjectAndNodes(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	ts := newIPv4Server(t, srv.routes())

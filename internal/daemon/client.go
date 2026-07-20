@@ -30,7 +30,12 @@ type Client struct {
 
 func Ensure(ctx context.Context) (*Client, error) {
 	if c, err := NewClientFromState(); err == nil && c.Ping(ctx) == nil {
-		return c, nil
+		if c.IsCompatible() {
+			return c, nil
+		}
+		if err := c.stopIncompatibleDaemon(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if err := launchDaemon(); err != nil {
 		return nil, err
@@ -54,6 +59,43 @@ func Ensure(ctx context.Context) (*Client, error) {
 		lastErr = fmt.Errorf("daemon did not become ready")
 	}
 	return nil, lastErr
+}
+
+// IsCompatible reports whether this daemon implements the API expected by the
+// current desktop binary. State files from earlier releases have Protocol=0.
+func (c *Client) IsCompatible() bool {
+	return c != nil && c.state.Protocol == daemonProtocolVersion
+}
+
+// stopIncompatibleDaemon stops only the process that both owns this state file
+// and answers its authenticated health endpoint. The PID verification prevents
+// an old state file from targeting an unrelated process after PID reuse.
+func (c *Client) stopIncompatibleDaemon(ctx context.Context) error {
+	var health struct {
+		PID int `json:"pid"`
+	}
+	if err := c.get(ctx, "/health", &health); err != nil {
+		return fmt.Errorf("check incompatible daemon: %w", err)
+	}
+	if c.state.PID <= 0 || health.PID != c.state.PID {
+		return fmt.Errorf("incompatible daemon state does not match its running process")
+	}
+	proc, err := os.FindProcess(c.state.PID)
+	if err != nil {
+		return fmt.Errorf("find incompatible daemon: %w", err)
+	}
+	if err := proc.Kill(); err != nil {
+		return fmt.Errorf("stop incompatible daemon: %w", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.Ping(ctx) != nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("incompatible daemon did not stop")
 }
 
 func NewClientFromState() (*Client, error) {

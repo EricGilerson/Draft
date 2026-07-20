@@ -110,7 +110,7 @@ func (a *App) startDaemonEvents() {
 
 func (a *App) ensureDaemon() (*daemon.Client, error) {
 	if a.daemon != nil {
-		if err := a.daemon.Ping(a.ctx); err == nil {
+		if err := a.daemon.Ping(a.ctx); err == nil && a.daemon.IsCompatible() {
 			return a.daemon, nil
 		}
 	}

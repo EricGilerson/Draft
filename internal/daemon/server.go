@@ -26,12 +26,16 @@ import (
 const (
 	tokenHeader = "X-Draft-Token"
 	idleTimeout = 30 * time.Minute
+	// daemonProtocolVersion changes whenever a desktop client requires daemon
+	// routes or behavior that older daemon processes do not provide.
+	daemonProtocolVersion = 1
 )
 
 type State struct {
-	Addr  string `json:"addr"`
-	Token string `json:"token"`
-	PID   int    `json:"pid"`
+	Addr     string `json:"addr"`
+	Token    string `json:"token"`
+	PID      int    `json:"pid"`
+	Protocol int    `json:"protocol"`
 }
 
 type Server struct {
@@ -101,7 +105,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.state = State{Addr: listener.Addr().String(), Token: token, PID: os.Getpid()}
+	s.state = State{Addr: listener.Addr().String(), Token: token, PID: os.Getpid(), Protocol: daemonProtocolVersion}
 	if err := s.writeState(); err != nil {
 		return err
 	}
@@ -440,10 +444,10 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDuplicateEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceEnvironmentID uint                         `json:"sourceEnvironmentId"`
-		NewName             string                       `json:"newName"`
-		Choices             []deploy.ServiceDataChoice   `json:"choices"`
-		StartAfter          bool                         `json:"startAfter"`
+		SourceEnvironmentID uint                          `json:"sourceEnvironmentId"`
+		NewName             string                        `json:"newName"`
+		Choices             []deploy.ServiceDataChoice    `json:"choices"`
+		StartAfter          bool                          `json:"startAfter"`
 		Repositories        []deploy.SandboxRepositoryRef `json:"repositories,omitempty"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -747,8 +751,8 @@ func (s *Server) handlePreviewLinkToSharedRoot(w http.ResponseWriter, r *http.Re
 
 func (s *Server) handleLinkToSharedRoot(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NodeID     string                  `json:"nodeId"`
-		RootNodeID string                  `json:"rootNodeId"`
+		NodeID     string                   `json:"nodeId"`
+		RootNodeID string                   `json:"rootNodeId"`
 		Volumes    deploy.VolumeDisposition `json:"volumes"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -932,7 +936,7 @@ func (s *Server) handleConfigExportToPath(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleDraftPackExportService(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		NodeID  string                      `json:"nodeId"`
+		NodeID  string                        `json:"nodeId"`
 		Options deploy.DraftPackExportOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -948,7 +952,7 @@ func (s *Server) handleDraftPackExportService(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleDraftPackExportEnvironment(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		EnvironmentID uint                        `json:"environmentId"`
+		EnvironmentID uint                          `json:"environmentId"`
 		Options       deploy.DraftPackExportOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -964,7 +968,7 @@ func (s *Server) handleDraftPackExportEnvironment(w http.ResponseWriter, r *http
 
 func (s *Server) handleDraftPackExportProject(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProjectID uint                        `json:"projectId"`
+		ProjectID uint                          `json:"projectId"`
 		Options   deploy.DraftPackExportOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -980,12 +984,12 @@ func (s *Server) handleDraftPackExportProject(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleDraftPackExportToPath(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Scope         string                      `json:"scope"`
-		NodeID        string                      `json:"nodeId"`
-		ProjectID     uint                        `json:"projectId"`
-		EnvironmentID uint                        `json:"environmentId"`
+		Scope         string                        `json:"scope"`
+		NodeID        string                        `json:"nodeId"`
+		ProjectID     uint                          `json:"projectId"`
+		EnvironmentID uint                          `json:"environmentId"`
 		Options       deploy.DraftPackExportOptions `json:"options"`
-		DestPath      string                      `json:"destPath"`
+		DestPath      string                        `json:"destPath"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
@@ -1000,7 +1004,7 @@ func (s *Server) handleDraftPackExportToPath(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) handleDraftPackImportPreview(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path    string                      `json:"path"`
+		Path    string                         `json:"path"`
 		Options deploy.DraftPackPreviewOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -1016,7 +1020,7 @@ func (s *Server) handleDraftPackImportPreview(w http.ResponseWriter, r *http.Req
 
 func (s *Server) handleDraftPackImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Path    string                      `json:"path"`
+		Path    string                        `json:"path"`
 		Options deploy.DraftPackImportOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -1032,7 +1036,7 @@ func (s *Server) handleDraftPackImport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDraftPackImportPreviewJSON(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		JSON    string                        `json:"json"`
+		JSON    string                         `json:"json"`
 		Options deploy.DraftPackPreviewOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
@@ -1048,7 +1052,7 @@ func (s *Server) handleDraftPackImportPreviewJSON(w http.ResponseWriter, r *http
 
 func (s *Server) handleDraftPackImportJSON(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		JSON    string                       `json:"json"`
+		JSON    string                        `json:"json"`
 		Options deploy.DraftPackImportOptions `json:"options"`
 	}
 	if !decodeJSON(w, r, &req) {
