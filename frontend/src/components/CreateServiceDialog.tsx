@@ -372,7 +372,14 @@ export default function CreateServiceDialog({projectId, environmentId, onClose, 
                                                     </div>
                                                     <div className="csd-template-card-copy">
                                                         <span className="csd-template-card-name">{t.name}</span>
-                                                        <span className="csd-template-card-sub">
+                                                        <span
+                                                            className="csd-template-card-sub"
+                                                            title={
+                                                                t.mode === 'image' && t.image
+                                                                    ? t.image
+                                                                    : t.description || undefined
+                                                            }
+                                                        >
                                                             {t.mode === 'image' && t.image
                                                                 ? t.image
                                                                 : `:${t.port || '—'}`}
