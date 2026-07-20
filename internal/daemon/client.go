@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,7 +29,21 @@ type Client struct {
 	http  *http.Client
 }
 
+const daemonStartupLockName = "daemon-start.lock"
+
+var (
+	daemonStartupLockRetry      = 50 * time.Millisecond
+	daemonStartupLockTimeout    = 10 * time.Second
+	daemonStartupLockStaleAfter = 30 * time.Second
+)
+
 func Ensure(ctx context.Context) (*Client, error) {
+	release, err := acquireDaemonStartupLock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	if c, err := NewClientFromState(); err == nil && c.Ping(ctx) == nil {
 		if c.IsCompatible() {
 			return c, nil
@@ -59,6 +74,49 @@ func Ensure(ctx context.Context) (*Client, error) {
 		lastErr = fmt.Errorf("daemon did not become ready")
 	}
 	return nil, lastErr
+}
+
+// acquireDaemonStartupLock serializes daemon replacement across desktop-app,
+// hook, and CLI processes. Without it, concurrent callers can each replace an
+// incompatible daemon and leave separate proxies with divergent route maps.
+func acquireDaemonStartupLock(ctx context.Context) (func(), error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, daemonStartupLockName)
+	deadline := time.Now().Add(daemonStartupLockTimeout)
+
+	for {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(file, "%d\n", os.Getpid())
+			_ = file.Close()
+			return func() { _ = os.Remove(path) }, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("create daemon startup lock: %w", err)
+		}
+
+		// A caller that crashed before its deferred cleanup must not prevent
+		// Draft from starting forever. The lock covers only a short launch and
+		// state-file handoff, so a 30-second-old file is abandoned safely.
+		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > daemonStartupLockStaleAfter {
+			_ = os.Remove(path)
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("timed out waiting for daemon startup")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(daemonStartupLockRetry):
+		}
+	}
 }
 
 // IsCompatible reports whether this daemon implements the API expected by the

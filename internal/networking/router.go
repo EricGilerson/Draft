@@ -30,11 +30,11 @@ type Router struct {
 
 	// draft DNS verify/install cache — LocalDomainStatus must stay cheap for UI
 	// (canvas health, overview) and must not shell out / LookupHost on every call.
-	draftInstalled      bool
-	draftInstalledOK    bool
-	draftVerified       bool
-	draftVerifiedOK     bool
-	draftVerifiedAt     time.Time
+	draftInstalled        bool
+	draftInstalledOK      bool
+	draftVerified         bool
+	draftVerifiedOK       bool
+	draftVerifiedAt       time.Time
 	draftVerifyRefreshing bool
 }
 
@@ -194,17 +194,19 @@ func (r *Router) RestoreHTTPRoute(hostname string, projectID uint, nodeID string
 	if hostname == "" || projectID == 0 || nodeID == "" || targetPort == 0 {
 		return ErrInvalidRestoreRoute
 	}
-	if _, err := r.store.GetRoute(hostname); err != nil {
-		if _, createErr := r.store.CreateRoute(&store.Route{
-			Hostname:   hostname,
-			ProjectID:  projectID,
-			NodeID:     nodeID,
-			Protocol:   "http",
-			TargetHost: targetHost,
-			TargetPort: targetPort,
-		}); createErr != nil {
-			return createErr
-		}
+	// Startup reconciliation can overlap only when an older process is being
+	// replaced. Upsert makes the durable record converge on the live container
+	// and, crucially, lets this router install its in-memory aliases even if a
+	// competing reconciler wrote the same route first.
+	if _, err := r.store.UpsertRoute(&store.Route{
+		Hostname:   hostname,
+		ProjectID:  projectID,
+		NodeID:     nodeID,
+		Protocol:   "http",
+		TargetHost: targetHost,
+		TargetPort: targetPort,
+	}); err != nil {
+		return err
 	}
 	r.setHTTPRouteAliases(hostname, ProxyTarget{Host: targetHost, Port: targetPort})
 	return nil

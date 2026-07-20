@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestClientCompatibilityRequiresCurrentDaemonProtocol(t *testing.T) {
@@ -14,6 +16,40 @@ func TestClientCompatibilityRequiresCurrentDaemonProtocol(t *testing.T) {
 	legacy := &Client{state: State{Protocol: 0}}
 	if legacy.IsCompatible() {
 		t.Fatal("legacy daemon state must be replaced")
+	}
+}
+
+func TestDaemonStartupLockSerializesCallers(t *testing.T) {
+	configDir := t.TempDir()
+	oldConfigDir := userConfigDir
+	oldRetry := daemonStartupLockRetry
+	oldTimeout := daemonStartupLockTimeout
+	userConfigDir = func() (string, error) { return configDir, nil }
+	daemonStartupLockRetry = time.Millisecond
+	daemonStartupLockTimeout = time.Second
+	t.Cleanup(func() {
+		userConfigDir = oldConfigDir
+		daemonStartupLockRetry = oldRetry
+		daemonStartupLockTimeout = oldTimeout
+	})
+
+	release, err := acquireDaemonStartupLock(context.Background())
+	if err != nil {
+		t.Fatalf("acquire first lock: %v", err)
+	}
+	defer release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := acquireDaemonStartupLock(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second lock error = %v, want context deadline", err)
+	}
+
+	release()
+	if release, err := acquireDaemonStartupLock(context.Background()); err != nil {
+		t.Fatalf("acquire after release: %v", err)
+	} else {
+		release()
 	}
 }
 

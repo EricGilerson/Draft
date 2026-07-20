@@ -316,6 +316,31 @@ func TestRouterReloadOnStart(t *testing.T) {
 	}
 }
 
+func TestRouterRestoreHTTPRouteUpdatesExistingRoute(t *testing.T) {
+	s := openTestStore(t)
+	r := newTestRouter(t, s)
+	hostname := "api.app.default.a3f2.draft.local"
+	if _, err := s.CreateRoute(&store.Route{
+		Hostname: hostname, ProjectID: 1, NodeID: "n1", Protocol: "http", TargetHost: "127.0.0.1", TargetPort: 3000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.RestoreHTTPRoute(hostname, 1, "n1", "127.0.0.1", 4000); err != nil {
+		t.Fatalf("RestoreHTTPRoute: %v", err)
+	}
+	route, err := r.Lookup(hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.TargetPort != 4000 {
+		t.Fatalf("target port = %d, want 4000", route.TargetPort)
+	}
+	if !r.proxy.HasRoute(hostname) {
+		t.Fatal("restored route was not added to the proxy")
+	}
+}
+
 func TestRouterDefaultEnvironment(t *testing.T) {
 	s := openTestStore(t)
 	r := newTestRouter(t, s)
