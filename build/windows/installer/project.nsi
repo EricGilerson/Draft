@@ -66,9 +66,12 @@ ManifestDPIAware true
 
 !insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
 
-## The following two statements can be used to sign the installer and the uninstaller. The path to the binaries are provided in %1
-#!uninstfinalize 'signtool --file "%1"'
-#!finalize 'signtool --file "%1"'
+## The release workflow enables this after Trusted Signing has installed its
+## PowerShell module. The first Wails packaging pass intentionally leaves it
+## disabled because it runs before release credentials are available.
+!ifdef DRAFT_SIGN_UNINSTALLER
+!uninstfinalize 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\..\scripts\sign-nsis-uninstaller.ps1" "%1"'
+!endif
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.

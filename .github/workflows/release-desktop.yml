@@ -354,9 +354,20 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - name: Repackage NSIS installer with signed exe
+      - name: Verify signed Draft.exe
+        shell: pwsh
+        run: ./scripts/verify-authenticode.ps1 -Path build/bin/Draft.exe
+
+      - name: Repackage NSIS installer with signed app and uninstaller
         id: nsis
         shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CERTIFICATE_PROFILE: ${{ secrets.AZURE_CERTIFICATE_PROFILE }}
         run: |
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $makensis)) {
@@ -365,7 +376,7 @@ jobs:
           Get-ChildItem build\bin\Draft-*-installer.exe -ErrorAction SilentlyContinue | Remove-Item -Force
           Push-Location build\windows\installer
           try {
-            & $makensis "/DARG_WAILS_AMD64_BINARY=..\..\bin\Draft.exe" "project.nsi"
+            & $makensis "/DDRAFT_SIGN_UNINSTALLER" "/DARG_WAILS_AMD64_BINARY=..\..\bin\Draft.exe" "project.nsi"
             if ($LASTEXITCODE -ne 0) { throw "makensis failed with $LASTEXITCODE" }
           } finally {
             Pop-Location
@@ -389,6 +400,10 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+
+      - name: Verify signed NSIS installer
+        shell: pwsh
+        run: ./scripts/verify-authenticode.ps1 -Path "${{ steps.nsis.outputs.path }}"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
