@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
+import {AlertTriangle, Check, ChevronDown, ChevronRight, ClipboardPaste, Copy, Download, Eye, EyeOff, Link2, Plus, RefreshCw, Trash2, Upload, FileSearch} from 'lucide-react';
 import {
-    SetEnvVar, SetNodeSetting, SelectFile,
+    SetEnvVar, SetNodeSetting, SelectFile, StageEnvVarChanges,
     GetServiceRoot, SuggestEnvFile, ImportEnvFile, RefreshEnvFile, ExportEnvFile,
     PreviewEnvVars, ListReferenceTargets,
     InspectDockerfileBuildInfo, ListProjectEnvVars, ListAppSecrets,
@@ -13,6 +13,7 @@ import {computeBuildEnvWarnings} from '../lib/buildEnvWarnings';
 import {computeReferenceIssues, computePublicReferenceWarnings} from '../lib/referenceIssues';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import PasteEnvDialog from './PasteEnvDialog';
 import {Skeleton} from './Skeleton';
 import './VariablesTab.css';
 
@@ -213,6 +214,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         envDraft,
         setEnvDraftUpsert,
         setEnvDraftDelete,
+        omitEnvDraftKeys,
         isSessionDirty,
         hasStagedChanges,
         reload,
@@ -236,6 +238,7 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
     const [buildInfo, setBuildInfo] = useState<deploy.DockerfileBuildInfo | null>(null);
     const [projectVars, setProjectVars] = useState<store.ProjectEnvVar[]>([]);
     const [appSecrets, setAppSecrets] = useState<store.AppSecret[]>([]);
+    const [pasteOpen, setPasteOpen] = useState(false);
     const fieldRefs = useRef<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
     const {alert, confirm} = useAppDialog();
 
@@ -500,6 +503,29 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
         setNewValue('');
         setSyncResult(null);
         setSyncError('');
+    };
+
+    // Paste dialog says "Stage selected" — write through StageEnvVarChanges so
+    // rows land in staged config immediately (same as ServiceDraftBar → Stage),
+    // then reload so the list and draft bar reflect backend state without an
+    // extra click. Session draft keys that were just staged are dropped so the
+    // bar doesn't stay on "Unsaved edits" for values already staged.
+    const applyPastedEnv = async (entries: {key: string; value: string}[]) => {
+        if (entries.length === 0) return;
+        const upserts = entries.map((entry) => {
+            const existing = vars.find((v) => v.key === entry.key);
+            return store.EnvVarStageUpsert.createFrom({
+                key: entry.key,
+                value: entry.value,
+                scope: existing?.scope || 'runtime',
+            });
+        });
+        await StageEnvVarChanges(nodeId, upserts, []);
+        omitEnvDraftKeys(entries.map((e) => e.key));
+        setSyncResult(null);
+        setSyncError('');
+        await reload();
+        await loadPreviews();
     };
 
     const removeVar = async (key: string) => {
@@ -922,6 +948,13 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
                         <Plus size={14}/> Add
                     </button>
                     <button
+                        className="btn btn-ghost"
+                        onClick={() => setPasteOpen(true)}
+                        title="Paste multiple KEY=value lines, review, then stage them"
+                    >
+                        <ClipboardPaste size={14}/> Paste
+                    </button>
+                    <button
                         className={`btn btn-ghost ${linker?.mode === 'new' ? 'var-toggle--active' : ''}`}
                         onClick={() => linker?.mode === 'new' ? closeLinker() : openNewLinker()}
                         disabled={!canLink}
@@ -1121,6 +1154,17 @@ export default function VariablesTab({nodeId, projectId, projectPath}: Variables
 
             {hasStagedChanges && (
                 <p className="variables-staged-hint">Staged variable changes will apply on the next deploy.</p>
+            )}
+
+            {pasteOpen && (
+                <PasteEnvDialog
+                    title="Paste variables"
+                    description="Paste KEY=value lines from a .env file or shell export. Review each row, then stage the selected ones onto this service. Staged values apply on the next deploy — no extra Stage click needed."
+                    existing={vars.map((v) => ({key: v.key, value: v.value}))}
+                    applyLabel="Stage selected"
+                    onClose={() => setPasteOpen(false)}
+                    onApply={applyPastedEnv}
+                />
             )}
         </div>
     );

@@ -1981,6 +1981,15 @@ func (a *App) DiscardStagedChanges(nodeID string) error {
 	return a.store.DiscardAllStagedChanges(nodeID)
 }
 
+// DiscardStagedChangesPartial clears only the named staged setting and env keys.
+// Empty slices are no-ops for that side.
+func (a *App) DiscardStagedChangesPartial(nodeID string, settingKeys, envKeys []string) error {
+	if a.store == nil {
+		return errNoStore
+	}
+	return a.store.DiscardStagedChangesPartial(nodeID, settingKeys, envKeys)
+}
+
 // PreviewStagedChanges returns warnings/errors for proposed staged settings.
 func (a *App) PreviewStagedChanges(nodeID string, proposedSettings map[string]string) (*deploy.StagedChangePreview, error) {
 	if a.store == nil {

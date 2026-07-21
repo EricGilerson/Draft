@@ -26,6 +26,13 @@
     gap: 10px;
 }
 
+.project-settings-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
 .project-settings-saved {
     font-size: 0.75rem;
     color: #3fb950;

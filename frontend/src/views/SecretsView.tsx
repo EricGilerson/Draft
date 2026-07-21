@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {Eye, EyeOff, KeyRound, Pencil, Plus, Trash2} from 'lucide-react';
+import {ClipboardPaste, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2} from 'lucide-react';
 import {
     ListAppSecrets, SetAppSecret, DeleteAppSecret, ListAppSecretUsages,
     DeployService,
@@ -8,6 +8,7 @@ import {deploy, store} from '../../wailsjs/go/models';
 import {useAppDialog} from '../components/AppDialogProvider';
 import PageHeader from '../components/PageHeader';
 import Dialog from '../components/Dialog';
+import PasteEnvDialog from '../components/PasteEnvDialog';
 import ScopedValueUsages from '../components/ScopedValueUsages';
 import {SkeletonListCards} from '../components/Skeleton';
 import './SecretsView.css';
@@ -22,6 +23,7 @@ export default function SecretsView() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [editor, setEditor] = useState<EditorMode>({kind: 'closed'});
+    const [pasteOpen, setPasteOpen] = useState(false);
     const {confirm} = useAppDialog();
 
     const refresh = useCallback(() => {
@@ -63,9 +65,14 @@ export default function SecretsView() {
                         <h2 className="secrets-section-title">
                             <KeyRound size={14}/> App secrets
                         </h2>
-                        <button type="button" className="btn btn-primary" onClick={() => setEditor({kind: 'app-add'})}>
-                            <Plus size={14}/> Add
-                        </button>
+                        <div className="secrets-section-actions">
+                            <button type="button" className="btn btn-ghost" onClick={() => setPasteOpen(true)} title="Paste multiple KEY=value lines">
+                                <ClipboardPaste size={14}/> Paste
+                            </button>
+                            <button type="button" className="btn btn-primary" onClick={() => setEditor({kind: 'app-add'})}>
+                                <Plus size={14}/> Add
+                            </button>
+                        </div>
                     </div>
                     <p className="secrets-section-hint">Referenced from any service as <code>{'{{secret.KEY}}'}</code></p>
                     {loading ? (
@@ -100,6 +107,22 @@ export default function SecretsView() {
                     mode={editor}
                     onClose={() => setEditor({kind: 'closed'})}
                     onSaved={refresh}
+                />
+            )}
+
+            {pasteOpen && (
+                <PasteEnvDialog
+                    title="Paste app secrets"
+                    description="Paste KEY=value lines to create or update app-wide secrets. Services reference them as {{secret.KEY}}."
+                    existing={appSecrets.map((s) => ({key: s.key, value: s.value}))}
+                    applyLabel="Save selected"
+                    onClose={() => setPasteOpen(false)}
+                    onApply={async (entries) => {
+                        for (const entry of entries) {
+                            await SetAppSecret(entry.key, entry.value, '');
+                        }
+                        refresh();
+                    }}
                 />
             )}
         </div>

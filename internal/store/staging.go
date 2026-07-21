@@ -197,6 +197,55 @@ func (s *Store) DiscardAllStagedChanges(nodeID string) error {
 	})
 }
 
+// DiscardStagedChangesPartial removes only the named staged settings and/or env
+// keys. Empty slices are no-ops for that side. Unknown keys are ignored.
+func (s *Store) DiscardStagedChangesPartial(nodeID string, settingKeys, envKeys []string) error {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return ErrInvalidNode
+	}
+	settings := uniqueTrimmedNonEmpty(settingKeys)
+	envs := uniqueTrimmedNonEmpty(envKeys)
+	if len(settings) == 0 && len(envs) == 0 {
+		return nil
+	}
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if len(settings) > 0 {
+			if err := tx.Where("node_id = ? AND key IN ?", nodeID, settings).
+				Delete(&NodeSettingStaged{}).Error; err != nil {
+				return err
+			}
+		}
+		if len(envs) > 0 {
+			if err := tx.Where("node_id = ? AND key IN ?", nodeID, envs).
+				Delete(&EnvVarStaged{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func uniqueTrimmedNonEmpty(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+	return out
+}
+
 func (s *Store) HasStagedChanges(nodeID string) (bool, error) {
 	return s.hasMeaningfulStagedChanges(nodeID)
 }

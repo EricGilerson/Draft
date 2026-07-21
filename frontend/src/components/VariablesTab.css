@@ -414,6 +414,7 @@
 
 .var-add {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     align-items: center;
     padding-top: 12px;

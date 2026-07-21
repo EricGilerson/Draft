@@ -235,6 +235,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/node/stage-settings", s.handleStageNodeSettings)
 	mux.HandleFunc("/node/stage-env", s.handleStageEnvVarChanges)
 	mux.HandleFunc("/node/discard-staged", s.handleDiscardStagedChanges)
+	mux.HandleFunc("/node/discard-staged-partial", s.handleDiscardStagedChangesPartial)
 	mux.HandleFunc("/node/preview-staged", s.handlePreviewStagedChanges)
 	mux.HandleFunc("/config/import-preview", s.handleConfigImportPreview)
 	mux.HandleFunc("/config/import-as-project", s.handleConfigImportAsProject)
@@ -1220,6 +1221,20 @@ func (s *Server) handleDiscardStagedChanges(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeError(w, s.store.DiscardAllStagedChanges(req.NodeID))
+}
+
+type discardStagedPartialRequest struct {
+	NodeID       string   `json:"nodeId"`
+	SettingKeys  []string `json:"settingKeys"`
+	EnvKeys      []string `json:"envKeys"`
+}
+
+func (s *Server) handleDiscardStagedChangesPartial(w http.ResponseWriter, r *http.Request) {
+	var req discardStagedPartialRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	writeError(w, s.store.DiscardStagedChangesPartial(req.NodeID, req.SettingKeys, req.EnvKeys))
 }
 
 type previewStagedRequest struct {

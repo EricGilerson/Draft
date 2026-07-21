@@ -12,6 +12,11 @@
     padding: 24px;
 }
 
+/* Stacked dialogs (e.g. paste-env over project settings) sit above the base layer. */
+.dialog-overlay ~ .dialog-overlay {
+    z-index: 110;
+}
+
 .dialog {
     width: 100%;
     max-width: 720px;
@@ -64,6 +69,10 @@
     max-height: 420px;
     overflow: auto;
     padding: 18px;
+}
+
+.dialog--wide .dialog-body {
+    max-height: min(70vh, 640px);
 }
 
 .dialog-copy {

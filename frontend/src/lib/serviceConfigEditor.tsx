@@ -11,6 +11,7 @@ import {
 import {
     DeployService,
     DiscardStagedChanges,
+    DiscardStagedChangesPartial,
     GetEnvVars,
     GetNodeConfigStatus,
     PreviewStagedChanges,
@@ -53,13 +54,20 @@ type ServiceConfigEditorContextValue = {
     updateDraftSetting: (key: string, value: string) => void;
     updateDraftSettings: (patch: Record<string, string>) => void;
     discardSessionDraft: () => void;
+    /** Drop specific unsaved setting keys and/or env draft keys. */
+    discardSessionDraftPartial: (settingKeys: string[], envKeys: string[]) => void;
     setEnvDraftUpsert: (upsert: EnvDraftUpsert) => void;
+    setEnvDraftUpserts: (upserts: EnvDraftUpsert[]) => void;
     setEnvDraftDelete: (key: string, remove: boolean) => void;
+    /** Drop session-draft upserts/deletes for the given keys (e.g. after staging them). */
+    omitEnvDraftKeys: (keys: string[]) => void;
     clearEnvDraft: () => void;
     reload: () => Promise<void>;
     previewStage: () => Promise<deploy.StagedChangePreview>;
     stageChanges: () => Promise<void>;
     discardStaged: () => Promise<void>;
+    /** Discard only the named staged setting/env keys (backend). */
+    discardStagedPartial: (settingKeys: string[], envKeys: string[]) => Promise<void>;
     stageAndDeploy: () => Promise<void>;
 };
 
@@ -200,11 +208,46 @@ export function ServiceConfigEditorProvider({
         setEnvDraft(emptyEnvDraft());
     }, []);
 
+    const discardSessionDraftPartial = useCallback((settingKeys: string[], envKeys: string[]) => {
+        if (settingKeys.length > 0) {
+            const drop = new Set(settingKeys);
+            setDraftSettings((prev) => {
+                const next = {...prev};
+                for (const k of drop) delete next[k];
+                return next;
+            });
+        }
+        if (envKeys.length > 0) {
+            const drop = new Set(envKeys);
+            setEnvDraft((prev) => ({
+                upserts: Object.fromEntries(
+                    Object.entries(prev.upserts).filter(([k]) => !drop.has(k)),
+                ),
+                deleteKeys: prev.deleteKeys.filter((k) => !drop.has(k)),
+            }));
+        }
+    }, []);
+
     const setEnvDraftUpsert = useCallback((upsert: EnvDraftUpsert) => {
         setEnvDraft((prev) => ({
             upserts: {...prev.upserts, [upsert.key]: upsert},
             deleteKeys: prev.deleteKeys.filter((k) => k !== upsert.key),
         }));
+    }, []);
+
+    const setEnvDraftUpserts = useCallback((upserts: EnvDraftUpsert[]) => {
+        if (upserts.length === 0) return;
+        setEnvDraft((prev) => {
+            const nextUpserts = {...prev.upserts};
+            const drop = new Set(upserts.map((u) => u.key));
+            for (const u of upserts) {
+                nextUpserts[u.key] = u;
+            }
+            return {
+                upserts: nextUpserts,
+                deleteKeys: prev.deleteKeys.filter((k) => !drop.has(k)),
+            };
+        });
     }, []);
 
     const setEnvDraftDelete = useCallback((key: string, remove: boolean) => {
@@ -224,6 +267,17 @@ export function ServiceConfigEditorProvider({
                 : [...prev.deleteKeys, key];
             return {upserts: nextUpserts, deleteKeys: nextDeletes};
         });
+    }, []);
+
+    const omitEnvDraftKeys = useCallback((keys: string[]) => {
+        if (keys.length === 0) return;
+        const drop = new Set(keys);
+        setEnvDraft((prev) => ({
+            upserts: Object.fromEntries(
+                Object.entries(prev.upserts).filter(([k]) => !drop.has(k)),
+            ),
+            deleteKeys: prev.deleteKeys.filter((k) => !drop.has(k)),
+        }));
     }, []);
 
     const clearEnvDraft = useCallback(() => {
@@ -272,6 +326,17 @@ export function ServiceConfigEditorProvider({
         }
     }, [nodeId, reload]);
 
+    const discardStagedPartial = useCallback(async (settingKeys: string[], envKeys: string[]) => {
+        if (settingKeys.length === 0 && envKeys.length === 0) return;
+        setStaging(true);
+        try {
+            await DiscardStagedChangesPartial(nodeId, settingKeys, envKeys);
+            await reload();
+        } finally {
+            setStaging(false);
+        }
+    }, [nodeId, reload]);
+
     const stageAndDeploy = useCallback(async () => {
         await stageChanges();
         await DeployService(nodeId);
@@ -296,13 +361,17 @@ export function ServiceConfigEditorProvider({
         updateDraftSetting,
         updateDraftSettings,
         discardSessionDraft,
+        discardSessionDraftPartial,
         setEnvDraftUpsert,
+        setEnvDraftUpserts,
         setEnvDraftDelete,
+        omitEnvDraftKeys,
         clearEnvDraft,
         reload,
         previewStage,
         stageChanges,
         discardStaged,
+        discardStagedPartial,
         stageAndDeploy,
     }), [
         nodeId,
@@ -323,13 +392,17 @@ export function ServiceConfigEditorProvider({
         updateDraftSetting,
         updateDraftSettings,
         discardSessionDraft,
+        discardSessionDraftPartial,
         setEnvDraftUpsert,
+        setEnvDraftUpserts,
         setEnvDraftDelete,
+        omitEnvDraftKeys,
         clearEnvDraft,
         reload,
         previewStage,
         stageChanges,
         discardStaged,
+        discardStagedPartial,
         stageAndDeploy,
     ]);
 

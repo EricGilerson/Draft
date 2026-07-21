@@ -562,6 +562,12 @@ func (c *Client) DiscardStagedChanges(ctx context.Context, nodeID string) error 
 	return c.postNode(ctx, "/node/discard-staged", nodeID)
 }
 
+func (c *Client) DiscardStagedChangesPartial(ctx context.Context, nodeID string, settingKeys, envKeys []string) error {
+	return c.postJSON(ctx, "/node/discard-staged-partial", map[string]any{
+		"nodeId": nodeID, "settingKeys": settingKeys, "envKeys": envKeys,
+	}, nil)
+}
+
 func (c *Client) PreviewStagedChanges(ctx context.Context, nodeID string, proposedSettings map[string]string) (*deploy.StagedChangePreview, error) {
 	var out deploy.StagedChangePreview
 	if err := c.postJSON(ctx, "/node/preview-staged", map[string]any{

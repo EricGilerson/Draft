@@ -61,6 +61,8 @@ export function DeployService(arg1:string):Promise<void>;
 
 export function DiscardStagedChanges(arg1:string):Promise<void>;
 
+export function DiscardStagedChangesPartial(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<void>;
+
 export function DuplicateEnvironment(arg1:number,arg2:string,arg3:Array<deploy.ServiceDataChoice>,arg4:boolean,arg5:Array<deploy.SandboxRepositoryRef>):Promise<deploy.DuplicateEnvironmentResult>;
 
 export function ExportConfig(arg1:string,arg2:string):Promise<deploy.ExportResult>;

@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {AlertTriangle, Eye, EyeOff, Pencil, Plus, Trash2} from 'lucide-react';
+import {AlertTriangle, ClipboardPaste, Eye, EyeOff, Pencil, Plus, Trash2} from 'lucide-react';
 import {
     ListProjectEnvVars, SetProjectEnvVar, DeleteProjectEnvVar,
     ListProjectEnvVarUsages, DeployService,
@@ -10,6 +10,7 @@ import {deploy, store} from '../../wailsjs/go/models';
 import SandboxHoursInput from './SandboxHoursInput';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
+import PasteEnvDialog from './PasteEnvDialog';
 import ScopedValueUsages from './ScopedValueUsages';
 import {Skeleton, SkeletonListCards} from './Skeleton';
 import './VariablesTab.css';
@@ -40,6 +41,7 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
     const [loadingVars, setLoadingVars] = useState(true);
     const [varError, setVarError] = useState<string | null>(null);
     const [editor, setEditor] = useState<EditorMode>({kind: 'closed'});
+    const [pasteOpen, setPasteOpen] = useState(false);
 
     const [deleting, setDeleting] = useState(false);
     const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -103,7 +105,16 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
             });
     };
 
+    const applyPastedProjectVars = async (entries: {key: string; value: string}[]) => {
+        setVarError(null);
+        for (const entry of entries) {
+            await SetProjectEnvVar(project.id, entry.key, entry.value, '', false);
+        }
+        loadVars();
+    };
+
     return (
+        <>
         <Dialog title={`Project settings · ${project.name}`} onClose={onClose}>
             <div className="project-settings">
                 <section className="project-settings-section">
@@ -135,9 +146,14 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                 <section className="project-settings-section">
                     <div className="secrets-section-head">
                         <h3 className="project-settings-section-title">Shared values</h3>
-                        <button type="button" className="btn btn-primary" onClick={() => setEditor({kind: 'add'})}>
-                            <Plus size={14}/> Add
-                        </button>
+                        <div className="project-settings-head-actions">
+                            <button type="button" className="btn btn-ghost" onClick={() => setPasteOpen(true)} title="Paste multiple KEY=value lines">
+                                <ClipboardPaste size={14}/> Paste
+                            </button>
+                            <button type="button" className="btn btn-primary" onClick={() => setEditor({kind: 'add'})}>
+                                <Plus size={14}/> Add
+                            </button>
+                        </div>
                     </div>
                     <p className="settings-hint">
                         Project-scoped values referenced from services in this project as <code>{'{{project.KEY}}'}</code>.
@@ -203,6 +219,18 @@ export default function ProjectSettingsDialog({project, onClose, onProjectUpdate
                 />
             )}
         </Dialog>
+
+        {pasteOpen && (
+            <PasteEnvDialog
+                title="Paste project values"
+                description="Paste KEY=value lines to create or update project-scoped values. Services reference them as {{project.KEY}}."
+                existing={vars.map((v) => ({key: v.key, value: v.value}))}
+                applyLabel="Save selected"
+                onClose={() => setPasteOpen(false)}
+                onApply={applyPastedProjectVars}
+            />
+        )}
+        </>
     );
 }
 
