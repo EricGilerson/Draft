@@ -322,6 +322,8 @@ func (e *Engine) startContainerAndRegister(
 	e.emitBuildLog(nodeID, "==> Deployed successfully!")
 
 	e.promoteStagedAfterSuccessfulDeploy(ctx, nodeID, node.ProjectID)
+	// A deferred hook target is consumed only after a successful cutover.
+	_ = e.store.SetNodeSetting(nodeID, DeferredBuildSHA, "")
 
 	// Persist template-owned generated values after every deploy. These values
 	// are concrete at rest, but derive from hostname/port identity; refreshing

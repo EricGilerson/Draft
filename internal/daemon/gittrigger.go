@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"Draft/internal/deploy"
 	"Draft/internal/executil"
 	"Draft/internal/gitsrc"
 )
@@ -239,6 +240,19 @@ func (s *Server) reconcileGitTriggers(ctx context.Context, req recheckRequest) {
 			continue
 		}
 		if !s.shouldDeploy(node.ID, candidateSHA) {
+			continue
+		}
+		// A stopped service must not wake Docker merely because its tracked
+		// branch advanced. Persist the exact commit; the next explicit Start
+		// consumes it and performs the rebuild. Running/building services keep
+		// the established immediate-redeploy behavior below.
+		active, activeErr := s.store.ActiveDeployment(node.ID)
+		if activeErr == nil && active == nil {
+			if err := s.store.SetNodeSetting(node.ID, deploy.DeferredBuildSHA, candidateSHA); err != nil {
+				log.Printf("[git-trigger] defer %s: %v", node.ID, err)
+				continue
+			}
+			log.Printf("[git-trigger] %s: branch %q at %s → deferred for stopped node %s", req.Event, tracked, short(candidateSHA), node.ID)
 			continue
 		}
 		log.Printf("[git-trigger] %s: branch %q at %s → deploying node %s", req.Event, tracked, short(candidateSHA), node.ID)

@@ -57,6 +57,11 @@ type Engine struct {
 	lastProxyTouch map[string]time.Time // nodeID → last sandbox activity touch
 }
 
+// DeferredBuildSHA records a commit reported by a git hook while a service is
+// stopped. The next explicit Start builds that commit instead of waking Docker
+// at hook time.
+const DeferredBuildSHA = "deferred_build_sha"
+
 func New(s *store.Store, router *networking.Router, logDir string, emit func(string, any)) *Engine {
 	os.MkdirAll(logDir, 0o755)
 	return &Engine{
@@ -176,6 +181,12 @@ func (e *Engine) runDeployWith(ctx context.Context, nodeID string, settingsOverr
 	}
 	for k, v := range settingsOverride {
 		settings[k] = v
+	}
+	if sha := strings.TrimSpace(settings[DeferredBuildSHA]); sha != "" {
+		// A commit arrived while stopped: it is newer than the cached artifact.
+		settings["git_branch"] = sha
+	} else if e.tryResumeStopped(ctx, nodeID, settings) {
+		return
 	}
 
 	// Linked (virtualized) services do not run a local container.
@@ -1628,14 +1639,11 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 	e.stopContainerWatch(nodeID)
 
 	if dep.ContainerID != "" {
-		cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &stopTimeout})
-		if err := removeContainerAndWait(ctx, cli, dep.ContainerID); err != nil {
-			return err
-		}
-	}
-
-	if dep.ImageTag != "" {
-		if err := removeDraftDeploymentImage(ctx, cli, dep.ImageTag); err != nil {
+		// Deliberate Stop is a suspension, not teardown. A stopped container and
+		// its image use disk but no runtime CPU, and allow a later Start to avoid
+		// rebuilding. Docker Desktop Resource Saver can still stop its VM once no
+		// containers are running.
+		if err := cli.ContainerStop(ctx, dep.ContainerID, container.StopOptions{Timeout: &stopTimeout}); err != nil && !errdefs.IsNotFound(err) {
 			return err
 		}
 	}
@@ -1648,6 +1656,82 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 
 	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
 	return nil
+}
+
+// tryResumeStopped restores an intentionally stopped container without
+// rebuilding. It returns true once it has handled the start attempt (including
+// a resume failure); a missing container deliberately falls through to the
+// normal build path, which also covers a user manually deleting the artifact.
+func (e *Engine) tryResumeStopped(ctx context.Context, nodeID string, settings map[string]string) bool {
+	dep, err := e.store.LatestDeployment(nodeID)
+	if err != nil || dep == nil || dep.Status != "stopped" || dep.ContainerID == "" {
+		return false
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return false
+	}
+	defer cli.Close()
+	inspect, err := cli.ContainerInspect(ctx, dep.ContainerID)
+	if err != nil || inspect.State == nil {
+		return false
+	}
+	if inspect.State.Running {
+		return false
+	}
+
+	e.emitBuildLog(nodeID, "==> Resuming stopped container (no rebuild)...")
+	dep.Status = "starting"
+	dep.LastSeenAt = ptrTime(time.Now())
+	_ = e.store.UpdateDeployment(dep)
+	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "starting"})
+	if err := cli.ContainerStart(ctx, dep.ContainerID, container.StartOptions{}); err != nil {
+		e.failDeployment(dep, nodeID, "resume container: "+err.Error())
+		return true
+	}
+	inspect, err = cli.ContainerInspect(ctx, dep.ContainerID)
+	if err != nil || inspect.State == nil || !inspect.State.Running {
+		e.failDeployment(dep, nodeID, "resume container: container did not start")
+		return true
+	}
+	dep.HostPort = firstHostPort(inspect.NetworkSettings.Ports)
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		e.failDeployment(dep, nodeID, "resume node: "+err.Error())
+		return true
+	}
+	addr, err := e.computeNodeAddress(node)
+	if err != nil {
+		e.failDeployment(dep, nodeID, "resume address: "+err.Error())
+		return true
+	}
+	uid, err := e.store.EnsureNodeUID(nodeID)
+	if err == nil && e.router != nil {
+		protocol := strings.TrimSpace(settings["route_protocol"])
+		if protocol == "" {
+			protocol = "http"
+		}
+		reg, regErr := e.router.Register(networking.RegisterRequest{Service: addr.ServiceName, Project: addr.ProjectName, ProjectID: node.ProjectID, NodeID: nodeID, UID: uid, Environment: addr.Environment, Sandbox: addr.Sandbox, Protocol: protocol, TargetHost: "127.0.0.1", TargetPort: dep.HostPort, PreferPort: dep.HostPort})
+		if regErr != nil {
+			e.failDeployment(dep, nodeID, "resume route: "+regErr.Error())
+			return true
+		}
+		dep.Hostname = reg.Hostname
+		if reg.HostPort > 0 {
+			dep.HostPort = reg.HostPort
+		}
+	}
+	if err := e.EnsureServiceLinkNetworks(ctx, nodeID); err != nil {
+		e.emitBuildLog(nodeID, "    warning: shared-network attach: "+err.Error())
+	}
+	now := time.Now()
+	dep.Status, dep.Error = "running", ""
+	dep.ContainerStartedAt, dep.ContainerStoppedAt, dep.FinishedAt, dep.LastSeenAt = &now, nil, nil, &now
+	_ = e.store.UpdateDeployment(dep)
+	e.emitStatus(nodeID, StatusEvent{DeploymentID: dep.ID, Status: "running", Hostname: dep.Hostname, HostPort: dep.HostPort})
+	e.startContainerWatch(dep, nodeID)
+	e.emitBuildLog(nodeID, "==> Resumed successfully!")
+	return true
 }
 
 func (e *Engine) Restart(ctx context.Context, nodeID string) error {
@@ -1861,10 +1945,8 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 				dep.ExitCode = &exitCode
 			}
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
-			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
-			if dep.ImageTag != "" {
-				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
-			}
+			// Preserve an intentionally stopped runtime as the no-build resume
+			// artifact. Delete/failed-exit paths remain responsible for cleanup.
 		} else if inspect.State != nil && inspect.State.ExitCode != 0 {
 			dep.Status = "failed"
 			dep.Error = fmt.Sprintf("container exited with code %d", inspect.State.ExitCode)
