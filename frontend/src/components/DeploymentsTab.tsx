@@ -1,4 +1,4 @@
-import {ChevronDown, ChevronRight, AlertCircle, RotateCw} from 'lucide-react';
+import {ChevronDown, ChevronRight, AlertCircle, GitCommitHorizontal, RotateCw} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 import {GetDeployments, GetBuildLog, RollbackDeployment, RollbackEligibility} from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
@@ -6,6 +6,12 @@ import {useAppDialog} from './AppDialogProvider';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 import {Skeleton} from './Skeleton';
+
+/** Short form for list rows; full SHA stays in title/tooltip. */
+function shortSha(sha?: string): string {
+    const value = (sha ?? '').trim();
+    return value ? value.slice(0, 7) : '';
+}
 
 function DeployHistorySkeleton() {
     return (
@@ -93,7 +99,7 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
             title: 'Redeploy this version?',
             message: `Roll back to deployment #${dep.sequence ?? dep.id}?`,
             detail: elig?.method === 'rebuild-sha'
-                ? `Image was not retained. Draft will rebuild from commit ${(dep.sourceSha || '').slice(0, 8)} using current service settings.`
+                ? `Image was not retained. Draft will rebuild from commit ${shortSha(dep.sourceSha) || 'unknown'} using current service settings.`
                 : elig?.method === 're-pull'
                     ? 'Draft will re-pull this image and replace the current deployment.'
                     : 'A new deployment will run this image and replace the current one.',
@@ -139,6 +145,8 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                             ? 'Roll back to this deployment'
                             : `Not rollback-able: ${elig.reason}`
                         : 'Checking rollback eligibility…';
+                    const sha = (dep.sourceSha || '').trim();
+                    const shaShort = shortSha(sha);
                     return (
                     <div key={dep.id} className="deploy-entry">
                         <div className="deploy-entry-header" onClick={() => toggleExpand(dep)}>
@@ -146,6 +154,12 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                                 {expandedId === dep.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                                 <StatusBadge status={dep.status} />
                                 <span className="deploy-entry-tag mono">{dep.imageTag || `#${dep.id}`}</span>
+                                {shaShort && (
+                                    <span className="deploy-entry-sha mono" title={sha}>
+                                        <GitCommitHorizontal size={12} aria-hidden />
+                                        {shaShort}
+                                    </span>
+                                )}
                             </div>
                             <div className="deploy-entry-actions">
                                 <span className="deploy-entry-time" title={new Date(dep.createdAt).toLocaleString()}>
@@ -175,6 +189,21 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                                         {dep.error}
                                     </div>
                                 )}
+                                <div className="deploy-entry-meta">
+                                    {sha ? (
+                                        <div className="deploy-entry-meta-row">
+                                            <span className="deploy-entry-meta-label">Commit</span>
+                                            <code className="deploy-entry-meta-value mono" title={sha}>{sha}</code>
+                                        </div>
+                                    ) : (
+                                        <div className="deploy-entry-meta-row">
+                                            <span className="deploy-entry-meta-label">Source</span>
+                                            <span className="deploy-entry-meta-value deploy-entry-meta-value--muted">
+                                                Working tree (no commit recorded)
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
                                 {buildLog ? (
                                     <div className="log-viewer log-viewer--history">
                                         {buildLog.split('\n').filter(Boolean).map((line, i) => {

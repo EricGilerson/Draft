@@ -496,6 +496,21 @@
     color: var(--text-muted);
 }
 
+.deploy-entry-sha {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    font-size: 0.64rem;
+    color: var(--text-faint);
+    letter-spacing: 0.01em;
+}
+
+.deploy-entry-sha > svg {
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
 .deploy-entry-actions {
     display: flex;
     align-items: center;
@@ -519,6 +534,46 @@
     padding: 8px 10px;
     border-top: 1px solid var(--border);
     background: var(--bg);
+}
+
+.deploy-entry-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.deploy-entry-meta-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    font-size: 0.68rem;
+    line-height: 1.4;
+}
+
+.deploy-entry-meta-label {
+    flex-shrink: 0;
+    width: 52px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.deploy-entry-meta-value {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-size: 0.68rem;
+}
+
+.deploy-entry-meta-value--muted {
+    color: var(--text-faint);
+    font-family: inherit;
 }
 
 .deploy-entry-error {
