@@ -1,6 +1,6 @@
 import {LoaderCircle, RefreshCw} from 'lucide-react';
 import {useEffect, useState} from 'react';
-import {GetAppSettings, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
+import {GetAppSettings, GetAppVersion, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import {SkeletonSettings} from '../components/Skeleton';
@@ -85,6 +85,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const [proxyPort, setProxyPort] = useState(DEFAULT_PROXY_PORT);
     const [proxyFallbackPort, setProxyFallbackPort] = useState(DEFAULT_PROXY_PORT);
     const [domainStatus, setDomainStatus] = useState<networking.LocalDomainStatus | null>(null);
+    const [appVersion, setAppVersion] = useState<string | null>(null);
 
     const applySettings = (settings: main.AppSettings | null | undefined) => {
         if (!settings) return;
@@ -105,10 +106,12 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
             }),
             // Settings is the rare place that should re-probe; hot UI uses the cache.
             RefreshLocalDomainStatus().catch(() => GetLocalDomainStatus().catch(() => null)),
+            GetAppVersion().catch(() => null),
         ])
-            .then(([settings, status]) => {
+            .then(([settings, status, version]) => {
                 applySettings(settings);
                 setDomainStatus(status);
+                setAppVersion(typeof version === 'string' && version.trim() ? version.trim() : null);
             })
             .catch((e) => setError(typeof e === 'string' ? e : e?.message || 'Could not load settings'))
             .finally(() => setLoading(false));
@@ -188,7 +191,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
 
             <div className="workspace-body workspace-narrow">
                 {loading ? (
-                    <SkeletonSettings sections={2} rowsPerSection={3} />
+                    <SkeletonSettings sections={3} rowsPerSection={3} />
                 ) : (
                     <>
                         {error && (
@@ -345,6 +348,17 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                         <RefreshCw size={14}/> Refresh status
                                     </button>
                                 </div>
+                            </SettingsRow>
+                        </SettingsSection>
+
+                        <SettingsSection title="About">
+                            <SettingsRow
+                                label="Version"
+                                description="Installed Draft build."
+                            >
+                                <span className="settings-status-value settings-version-value">
+                                    {appVersion ?? 'Unknown'}
+                                </span>
                             </SettingsRow>
                         </SettingsSection>
                     </>

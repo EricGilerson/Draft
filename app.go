@@ -85,6 +85,12 @@ func (a *App) checkForUpdate() {
 	}
 }
 
+// GetAppVersion returns the running Draft build version (ldflags-stamped on
+// release builds; defaults to the local-dev value in version.go).
+func (a *App) GetAppVersion() string {
+	return appVersion
+}
+
 // UpdateStatus returns the current staged-update state.
 func (a *App) UpdateStatus() appupdate.Status {
 	if a.updater == nil {

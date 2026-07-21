@@ -154,6 +154,10 @@ export function GetAppSettings() {
   return window['go']['main']['App']['GetAppSettings']();
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetBuildLog(arg1) {
   return window['go']['main']['App']['GetBuildLog'](arg1);
 }

@@ -341,6 +341,11 @@
     color: var(--text);
 }
 
+.settings-version-value {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+
 .settings-status-meta {
     font-size: 0.7rem;
     font-family: var(--mono);
