@@ -22,6 +22,7 @@
     padding: 8px 12px;
     border-bottom: 1px solid var(--border, #23282f);
     flex-shrink: 0;
+    flex-wrap: wrap;
 }
 
 .shell-shell-label {
@@ -51,8 +52,82 @@
 .shell-status--closed { color: var(--text-muted, #8b949e); }
 .shell-status--error { color: #f85149; }
 
-.shell-reconnect {
+.shell-env-insert {
+    position: relative;
+    flex: 1 1 160px;
+    min-width: 140px;
+    max-width: 280px;
+}
+
+.shell-env-input {
+    width: 100%;
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.shell-env-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    max-height: 220px;
+    overflow: auto;
+    border: 1px solid var(--border, #23282f);
+    border-radius: 8px;
+    background: var(--surface, #12161c);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.shell-env-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: var(--text, #c9d1d9);
+    font-family: Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.shell-env-option:hover,
+.shell-env-option--active {
+    background: rgba(212, 184, 132, 0.12);
+    color: rgba(244, 226, 188, 0.95);
+}
+
+.shell-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     margin-left: auto;
+}
+
+.shell-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.shell-font-size {
+    min-width: 18px;
+    text-align: center;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted, #8b949e);
+}
+
+.shell-reconnect {
+    margin-left: 4px;
 }
 
 .shell-error {

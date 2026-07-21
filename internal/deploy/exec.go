@@ -144,8 +144,17 @@ func (e *Engine) ExecAttach(ctx context.Context, nodeID, shell string) (*ExecSes
 		return nil, err
 	}
 
+	// bash/zsh need -i for reliable readline/$VAR Tab completion; ash/sh
+	// (BusyBox) often reject unknown flags, so leave those as bare binaries.
+	cmd := []string{shell}
+	switch shell {
+	case "bash", "zsh":
+		cmd = []string{shell, "-i"}
+	}
+
 	createResp, err := cli.ContainerExecCreate(ctx, dep.ContainerID, container.ExecOptions{
-		Cmd:          []string{shell},
+		Cmd:          cmd,
+		Env:          []string{"TERM=xterm-256color"},
 		AttachStdin:  true,
 		AttachStdout: true,
 		AttachStderr: true,

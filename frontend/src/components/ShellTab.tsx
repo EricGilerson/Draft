@@ -1,9 +1,9 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState, type KeyboardEvent} from 'react';
 import {Terminal as XTerm} from '@xterm/xterm';
 import {FitAddon} from '@xterm/addon-fit';
-import {Play, Square} from 'lucide-react';
+import {Eraser, Minus, Play, Plus, Square} from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
-import {MintShellAttach, RunCommand} from '../../wailsjs/go/main/App';
+import {GetEnvVars, MintShellAttach, RunCommand} from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import {useLinkedServiceTarget} from '../lib/linkedService';
 import './ShellTab.css';
@@ -12,8 +12,36 @@ type ShellTabProps = {
     nodeId: string;
 };
 
-const DEFAULT_SHELL = 'sh';
-const SHELLS = ['sh', 'bash', 'ash', 'zsh'];
+const DEFAULT_SHELL = 'bash';
+const SHELLS = ['bash', 'sh', 'ash', 'zsh'];
+
+/** Draft-injected runtime keys always present after a successful deploy. */
+const DRAFT_ENV_KEYS = [
+    'DRAFT_SERVICE_PORT',
+    'DRAFT_INTERNAL_HOSTNAME',
+    'DRAFT_INTERNAL_URL',
+    'DRAFT_PUBLIC_HOSTNAME',
+    'DRAFT_PUBLIC_URL',
+    'DRAFT_SERVICE_NAME',
+    'DRAFT_PROJECT_NAME',
+    'DRAFT_ENVIRONMENT',
+];
+
+const FONT_STORAGE_KEY = 'draft:shell-font-size';
+const FONT_MIN = 11;
+const FONT_MAX = 20;
+const FONT_DEFAULT = 13;
+
+function readFontSize(): number {
+    const raw = localStorage.getItem(FONT_STORAGE_KEY);
+    const n = raw ? Number(raw) : FONT_DEFAULT;
+    if (!Number.isFinite(n)) return FONT_DEFAULT;
+    return Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(n)));
+}
+
+function isRuntimeScope(scope: string | undefined): boolean {
+    return scope === 'runtime' || scope === 'both' || !scope;
+}
 
 // ShellTab opens a live, interactive TTY in the service's running container
 // via a WebSocket to the daemon's /exec/attach endpoint, rendered with xterm.js.
@@ -28,9 +56,20 @@ export default function ShellTab({nodeId}: ShellTabProps) {
     const wsRef = useRef<WebSocket | null>(null);
     const [shell, setShell] = useState<string>(DEFAULT_SHELL);
     const shellRef = useRef<string>(shell);
+    const [sessionKey, setSessionKey] = useState(0);
     const [status, setStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting');
+    const statusRef = useRef(status);
     const [error, setError] = useState<string | null>(null);
+    const [fontSize, setFontSize] = useState(readFontSize);
+    const fontSizeRef = useRef(fontSize);
     const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
+
+    // Env insert typeahead — service runtime vars + DRAFT_* keys.
+    const [envKeys, setEnvKeys] = useState<string[]>([]);
+    const [envQuery, setEnvQuery] = useState('');
+    const [envOpen, setEnvOpen] = useState(false);
+    const [envHighlight, setEnvHighlight] = useState(0);
+    const envBoxRef = useRef<HTMLDivElement>(null);
 
     // One-shot "Run" bar state: run a command (e.g. `npm run migrate`) in the
     // running container without leaving the tab. Output is captured (not TTY'd)
@@ -44,10 +83,86 @@ export default function ShellTab({nodeId}: ShellTabProps) {
     const runHistoryRef = useRef<string[]>([]);
 
     useEffect(() => { shellRef.current = shell; }, [shell]);
+    useEffect(() => { fontSizeRef.current = fontSize; }, [fontSize]);
+    useEffect(() => { statusRef.current = status; }, [status]);
 
-    // (Re)connect whenever the node or chosen shell changes. Each connection
-    // owns its own xterm instance so a reconnect always starts from a clean
-    // terminal rather than a half-written one.
+    useEffect(() => {
+        if (linkLoading) return;
+        let cancelled = false;
+        GetEnvVars(targetNodeId)
+            .then((vars) => {
+                if (cancelled) return;
+                const keys = new Set<string>(DRAFT_ENV_KEYS);
+                for (const v of vars ?? []) {
+                    if (v?.key && isRuntimeScope(v.scope)) keys.add(v.key);
+                }
+                setEnvKeys([...keys].sort((a, b) => a.localeCompare(b)));
+            })
+            .catch(() => {
+                if (!cancelled) setEnvKeys([...DRAFT_ENV_KEYS]);
+            });
+        return () => { cancelled = true; };
+    }, [targetNodeId, linkLoading, sessionKey]);
+
+    const filteredEnvKeys = useMemo(() => {
+        const q = envQuery.trim().replace(/^\$/, '').toLowerCase();
+        if (!q) return envKeys.slice(0, 40);
+        return envKeys.filter((k) => k.toLowerCase().includes(q)).slice(0, 40);
+    }, [envKeys, envQuery]);
+
+    useEffect(() => {
+        setEnvHighlight(0);
+    }, [envQuery, envOpen]);
+
+    useEffect(() => {
+        if (!envOpen) return;
+        const onDoc = (e: MouseEvent) => {
+            if (!envBoxRef.current?.contains(e.target as Node)) setEnvOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+    }, [envOpen]);
+
+    const insertIntoTerm = (text: string) => {
+        const term = termInstanceRef.current;
+        const ws = wsRef.current;
+        if (!term || statusRef.current !== 'open') return;
+        try {
+            term.paste(text);
+        } catch {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                try { ws.send(text); } catch { /* ignore */ }
+            }
+        }
+        term.focus();
+    };
+
+    const insertEnvKey = (key: string) => {
+        insertIntoTerm(`$${key}`);
+        setEnvQuery('');
+        setEnvOpen(false);
+    };
+
+    const clearTerminal = () => {
+        termInstanceRef.current?.clear();
+        termInstanceRef.current?.focus();
+    };
+
+    const bumpFont = (delta: number) => {
+        setFontSize((prev) => {
+            const next = Math.min(FONT_MAX, Math.max(FONT_MIN, prev + delta));
+            localStorage.setItem(FONT_STORAGE_KEY, String(next));
+            const term = termInstanceRef.current;
+            if (term) {
+                term.options.fontSize = next;
+                try { fitRef.current?.fit(); } catch { /* ignore */ }
+            }
+            return next;
+        });
+    };
+
+    // (Re)connect whenever the node, shell, or sessionKey changes. Each
+    // connection owns its own xterm instance so a reconnect always starts clean.
     useEffect(() => {
         if (linkLoading) {
             setStatus('connecting');
@@ -66,7 +181,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
 
             term = new XTerm({
                 convertEol: true,
-                fontSize: 13,
+                fontSize: fontSizeRef.current,
                 fontFamily: 'Menlo, Consolas, "DejaVu Sans Mono", monospace',
                 cursorBlink: true,
                 scrollback: 5000,
@@ -104,7 +219,6 @@ export default function ShellTab({nodeId}: ShellTabProps) {
                 if (cancelled) return;
                 setStatus('open');
                 term!.clear();
-                // Resize pty to the terminal's current cols/rows.
                 sendResize(term!, ws);
             };
             ws.onmessage = (ev) => {
@@ -130,16 +244,36 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             });
             const resizeDisp = term.onResize(() => sendResize(term!, ws));
 
-            // Re-fit on container resize.
+            const hostEl = termRef.current;
+            const onKey = (ev: globalThis.KeyboardEvent) => {
+                if (!(ev.ctrlKey || ev.metaKey) || ev.key.toLowerCase() !== 'v') return;
+                if (statusRef.current !== 'open') return;
+                // Explicit paste for WebView reliability (esp. Windows).
+                ev.preventDefault();
+                void (async () => {
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (!text || !term || statusRef.current !== 'open') return;
+                        try {
+                            term.paste(text);
+                        } catch {
+                            if (ws.readyState === WebSocket.OPEN) ws.send(text);
+                        }
+                    } catch { /* ignore */ }
+                })();
+            };
+            hostEl.addEventListener('keydown', onKey);
+
             const ro = new ResizeObserver(() => {
                 try { fit!.fit(); } catch { /* ignore */ }
             });
-            ro.observe(termRef.current);
+            ro.observe(hostEl);
 
             cleanup = () => {
                 dataDisp.dispose();
                 resizeDisp.dispose();
                 ro.disconnect();
+                hostEl.removeEventListener('keydown', onKey);
                 try { ws.close(); } catch { /* ignore */ }
             };
         }
@@ -155,7 +289,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             fitRef.current = null;
             wsRef.current = null;
         };
-    }, [targetNodeId, shell, linkLoading]);
+    }, [targetNodeId, shell, linkLoading, sessionKey]);
 
     function sendResize(term: XTerm, ws: WebSocket) {
         if (ws.readyState !== WebSocket.OPEN) return;
@@ -164,13 +298,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
         } catch { /* ignore */ }
     }
 
-    const reconnect = () => {
-        // Toggling shell to the same value would skip the effect; force a
-        // remount by flipping to a sentinel then back.
-        const cur = shellRef.current;
-        setShell(cur + ' ');
-        setTimeout(() => setShell(cur), 0);
-    };
+    const reconnect = () => setSessionKey((k) => k + 1);
 
     const runCommand = () => {
         const trimmed = cmd.trim();
@@ -197,6 +325,30 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             });
     };
 
+    const onEnvKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setEnvOpen(true);
+            setEnvHighlight((i) => Math.min(i + 1, Math.max(filteredEnvKeys.length - 1, 0)));
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setEnvHighlight((i) => Math.max(i - 1, 0));
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const key = filteredEnvKeys[envHighlight] ?? filteredEnvKeys[0];
+            if (key) insertEnvKey(key);
+            return;
+        }
+        if (e.key === 'Escape') {
+            setEnvOpen(false);
+            return;
+        }
+    };
+
     return (
         <div className="shell-tab">
             {isLinked && (
@@ -211,9 +363,80 @@ export default function ShellTab({nodeId}: ShellTabProps) {
                     {SHELLS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <span className={`shell-status shell-status--${status}`}>{status}</span>
-                <button className="btn btn-ghost shell-reconnect" onClick={reconnect} title="Reconnect the shell" disabled={linkLoading}>
-                    Reconnect
-                </button>
+
+                <div className="shell-env-insert" ref={envBoxRef}>
+                    <input
+                        className="input shell-env-input"
+                        type="text"
+                        value={envQuery}
+                        disabled={status !== 'open'}
+                        placeholder="Insert $VAR…"
+                        title="Type to find a runtime env key, then Enter to insert $KEY into the shell"
+                        onChange={(e) => {
+                            setEnvQuery(e.target.value);
+                            setEnvOpen(true);
+                        }}
+                        onFocus={() => setEnvOpen(true)}
+                        onKeyDown={onEnvKeyDown}
+                    />
+                    {envOpen && status === 'open' && filteredEnvKeys.length > 0 && (
+                        <ul className="shell-env-menu" role="listbox">
+                            {filteredEnvKeys.map((key, i) => (
+                                <li key={key}>
+                                    <button
+                                        type="button"
+                                        className={'shell-env-option' + (i === envHighlight ? ' shell-env-option--active' : '')}
+                                        onMouseEnter={() => setEnvHighlight(i)}
+                                        onClick={() => insertEnvKey(key)}
+                                    >
+                                        ${key}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+
+                <div className="shell-toolbar-actions">
+                    <button
+                        type="button"
+                        className="btn btn-ghost shell-tool-btn"
+                        onClick={() => bumpFont(-1)}
+                        disabled={fontSize <= FONT_MIN}
+                        title="Decrease font size"
+                    >
+                        <Minus size={13}/>
+                    </button>
+                    <span className="shell-font-size" title="Terminal font size">{fontSize}</span>
+                    <button
+                        type="button"
+                        className="btn btn-ghost shell-tool-btn"
+                        onClick={() => bumpFont(1)}
+                        disabled={fontSize >= FONT_MAX}
+                        title="Increase font size"
+                    >
+                        <Plus size={13}/>
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost shell-tool-btn"
+                        onClick={clearTerminal}
+                        disabled={status !== 'open'}
+                        title="Clear terminal"
+                    >
+                        <Eraser size={13}/>
+                        Clear
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-ghost shell-reconnect"
+                        onClick={reconnect}
+                        title="Reconnect the shell"
+                        disabled={linkLoading}
+                    >
+                        Reconnect
+                    </button>
+                </div>
             </div>
             {error && <p className="form-error shell-error">{error}</p>}
             <div className="shell-runbar">
