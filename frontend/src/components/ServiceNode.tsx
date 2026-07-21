@@ -1,3 +1,4 @@
+import {memo} from 'react';
 import {Handle, Position, type NodeProps} from '@xyflow/react';
 import {AlertCircle, Box, FolderOpen, HardDrive} from 'lucide-react';
 import TemplateIcon from './TemplateIcon';
@@ -21,7 +22,6 @@ type ServiceNodeData = {
     icon?: string;
     iconColor?: string;
     volumes?: ServiceNodeVolume[];
-    selectedVolumeIndex?: number;
     hasReferenceIssues?: boolean;
     /** Most recent deploy attempt failed (may still show running from prior). */
     lastDeployFailed?: boolean;
@@ -74,9 +74,10 @@ function formatBytes(n: number): string {
     return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export default function ServiceNode({id, data}: NodeProps) {
+function ServiceNode({id, data}: NodeProps) {
     const d = data as ServiceNodeData;
     const selection = useCanvasSelection();
+    const selectedVolume = selection?.selectedVolume;
     const label = d.label || 'unnamed';
     const status = d.status || 'stopped';
     const statusLoading = status === 'loading';
@@ -182,7 +183,7 @@ export default function ServiceNode({id, data}: NodeProps) {
             {volumes.length > 0 && (
                 <div className="service-node-volumes">
                     {volumes.map((vol) => {
-                        const selected = d.selectedVolumeIndex === vol.index;
+                        const selected = selectedVolume?.parentNodeId === id && selectedVolume.index === vol.index;
                         const detail = [
                             vol.isNamed ? 'Named volume' : 'Bind mount',
                             vol.readOnly ? 'read-only' : '',
@@ -219,3 +220,5 @@ export default function ServiceNode({id, data}: NodeProps) {
         </div>
     );
 }
+
+export default memo(ServiceNode);

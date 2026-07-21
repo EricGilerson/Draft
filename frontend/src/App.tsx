@@ -71,6 +71,12 @@ function App() {
         setSummariesByProject(next);
     }, []);
 
+    const refreshOneProjectSummary = useCallback(async (projectId: number) => {
+        const summary = await ListProjectServicesSummary(projectId).catch(() => null);
+        if (!summary) return;
+        setSummariesByProject((prev) => ({...prev, [projectId]: summary}));
+    }, []);
+
     const refreshProjects = useCallback(async () => {
         setLoading(true);
         try {
@@ -99,11 +105,37 @@ function App() {
     }, []);
 
     useEffect(() => {
-        const unsubscribe = EventsOn('deploy:status', () => {
-            refreshProjectSummaries(projectsRef.current);
+        const pendingProjectIds = new Set<number>();
+        let timer: number | null = null;
+        const flush = () => {
+            timer = null;
+            const ids = [...pendingProjectIds];
+            pendingProjectIds.clear();
+            if (ids.length === 0) {
+                void refreshProjectSummaries(projectsRef.current);
+                return;
+            }
+            if (ids.length >= projectsRef.current.length && projectsRef.current.length > 0) {
+                void refreshProjectSummaries(projectsRef.current);
+                return;
+            }
+            for (const id of ids) {
+                void refreshOneProjectSummary(id);
+            }
+        };
+        const unsubscribe = EventsOn('deploy:status', (payload: any) => {
+            const projectId = Number(payload?.projectId);
+            if (Number.isFinite(projectId) && projectId > 0) {
+                pendingProjectIds.add(projectId);
+            }
+            if (timer !== null) window.clearTimeout(timer);
+            timer = window.setTimeout(flush, 250);
         });
-        return unsubscribe;
-    }, [refreshProjectSummaries]);
+        return () => {
+            unsubscribe();
+            if (timer !== null) window.clearTimeout(timer);
+        };
+    }, [refreshProjectSummaries, refreshOneProjectSummary]);
 
     useEffect(() => {
         UpdateStatus().then((status) => setUpdate(status ?? {state: 'unavailable'})).catch(() => setUpdate({state: 'unavailable'}));

@@ -8,6 +8,7 @@ export type SelectedVolume = {
 
 type CanvasSelectionContextValue = {
     selectVolume: (volume: SelectedVolume) => void;
+    selectedVolume: SelectedVolume | null;
 };
 
 export const CanvasSelectionContext = createContext<CanvasSelectionContextValue | null>(null);

@@ -372,11 +372,11 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 }
             }),
         );
+        const byId = new Map(results);
         setServiceNodes((prev) =>
             prev.map((n) => {
-                const entry = results.find(([id]) => id === n.id);
-                if (!entry) return n;
-                const h = entry[1];
+                if (!byId.has(n.id)) return n;
+                const h = byId.get(n.id);
                 if (!h) {
                     // Health miss: leave real statuses alone, but clear the
                     // first-paint "loading" placeholder so nodes don't stick.
@@ -488,7 +488,6 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     const nodes = useMemo(
         () => serviceNodes.map((n) => ({
             ...n,
-            selected: n.id === selectedNodeId,
             data: {
                 ...n.data,
                 volumes: buildServiceVolumes(
@@ -496,12 +495,9 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     managedVolumesByNode[n.id] || [],
                     volumePendingByNode[n.id] || false,
                 ),
-                selectedVolumeIndex: selectedVolume?.parentNodeId === n.id
-                    ? selectedVolume.index
-                    : undefined,
             },
         })),
-        [serviceNodes, volumeMountsByNode, managedVolumesByNode, volumePendingByNode, selectedNodeId, selectedVolume],
+        [serviceNodes, volumeMountsByNode, managedVolumesByNode, volumePendingByNode],
     );
 
     const edges = connectionEdges;
@@ -619,12 +615,19 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
 
     // Connections are read-only edges derived from variable references
     // (@{Label.ATTR} tokens) across the project's env vars — there's no
-    // drag-to-connect on the canvas. Refetched whenever the detail panel's
-    // selection changes, since that's when a service's variables were just
-    // edited.
+    // drag-to-connect on the canvas. Refetch when topology labels change or
+    // the detail panel closes/opens after edits — not on health/status churn.
+    const connectionTopologyKey = useMemo(
+        () => serviceNodes.map((n) => `${n.id}\u0000${n.data.label ?? ''}`).join('\n'),
+        [serviceNodes],
+    );
+    const serviceNodesRef = useRef(serviceNodes);
+    serviceNodesRef.current = serviceNodes;
+
     useEffect(() => {
-        const nodeIds = new Set(serviceNodes.map((n) => n.id));
-        const labelById = new Map(serviceNodes.map((n) => [n.id, n.data.label]));
+        const currentNodes = serviceNodesRef.current;
+        const nodeIds = new Set(currentNodes.map((n) => n.id));
+        const labelById = new Map(currentNodes.map((n) => [n.id, n.data.label]));
         GetEnvironmentConnections(environmentId)
             .then((conns) => {
                 // Group same-pair connections into a single edge — a pair can have
@@ -665,7 +668,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 setConnectionEdges(flowEdges);
             })
             .catch(() => {});
-    }, [environmentId, selectedNodeId, selectedVolume, setConnectionEdges, serviceNodes]);
+    }, [environmentId, selectedNodeId, selectedVolume, connectionTopologyKey, setConnectionEdges]);
 
     useEffect(() => {
         refreshReferenceIssueNodes();
@@ -867,8 +870,8 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
         || 'Service';
 
     const canvasSelection = useMemo(
-        () => ({selectVolume}),
-        [selectVolume],
+        () => ({selectVolume, selectedVolume}),
+        [selectVolume, selectedVolume],
     );
     const hasSandboxTestRun = sandboxTestRun?.sandbox?.environmentId === environmentId;
     const rerunSandboxTest = async (mode: 'steps' | 'fresh') => {

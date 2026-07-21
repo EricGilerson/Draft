@@ -40,6 +40,10 @@ type EnvironmentStackResult struct {
 
 const stackNodeReadyTimeout = 5 * time.Minute
 
+// Cap concurrent Docker builds/pulls within a dependency wave so "start all"
+// and sandbox materialize do not fan out unbounded tar streams + builds.
+const maxStackDeployConcurrency = 2
+
 // RunEnvironmentStack applies action to every canvas node in environmentID.
 // Deploy/redeploy kick off asynchronously (same as single-service Deploy) but
 // wait for each dependency wave to become ready before starting the next.
@@ -81,12 +85,25 @@ func (e *Engine) RunEnvironmentStack(ctx context.Context, environmentID uint, ac
 
 	for _, wave := range waves {
 		var wg sync.WaitGroup
+		var sem chan struct{}
+		if action == StackStart || action == StackRedeploy {
+			sem = make(chan struct{}, maxStackDeployConcurrency)
+		}
 		for _, nodeID := range wave {
 			i := indexByID[nodeID]
 			node := nodes[i]
 			wg.Add(1)
 			go func(i int, node store.CanvasNode) {
 				defer wg.Done()
+				if sem != nil {
+					select {
+					case sem <- struct{}{}:
+						defer func() { <-sem }()
+					case <-ctx.Done():
+						out.Results[i].Error = ctx.Err().Error()
+						return
+					}
+				}
 				var opErr error
 				switch action {
 				case StackStart, StackRedeploy:

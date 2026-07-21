@@ -1308,13 +1308,20 @@ func (e *Engine) streamBuildOutput(ctx context.Context, reader io.Reader, logFil
 
 	e.emitBuildLog(nodeID, "==> Building image...")
 
+	var written int64
 	for scanner.Scan() {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		line := scanner.Text()
-		logFile.WriteString(line + "\n")
+		if written < maxBuildLogBytes {
+			n, _ := logFile.WriteString(line + "\n")
+			written += int64(n)
+			if written >= maxBuildLogBytes {
+				_, _ = logFile.WriteString("\n==> build log truncated (size limit)\n")
+			}
+		}
 
 		var msg struct {
 			Stream string `json:"stream"`
@@ -2017,14 +2024,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 }
 
 func (e *Engine) GetBuildLog(deploymentID uint) (string, error) {
-	data, err := os.ReadFile(e.logPath(deploymentID))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return string(data), nil
+	return readBuildLogTail(e.logPath(deploymentID), maxBuildLogBytes)
 }
 
 func (e *Engine) GetDeployments(nodeID string) ([]store.Deployment, error) {
@@ -2039,9 +2039,67 @@ func (e *Engine) logPath(deploymentID uint) string {
 	return filepath.Join(e.logDir, fmt.Sprintf("%d.log", deploymentID))
 }
 
+// removeBuildLogs deletes on-disk build logs for the given deployments.
+func (e *Engine) removeBuildLogs(deps []store.Deployment) {
+	for _, d := range deps {
+		_ = os.Remove(e.logPath(d.ID))
+	}
+}
+
+// maxBuildLogBytes caps durable build logs and GetBuildLog responses so a
+// verbose Docker build cannot balloon daemon RSS or the config dir forever.
+const maxBuildLogBytes = 2 << 20 // 2 MiB
+
+func readBuildLogTail(path string, maxBytes int64) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	size := info.Size()
+	if size <= 0 {
+		return "", nil
+	}
+	offset := int64(0)
+	readSize := size
+	if size > maxBytes {
+		offset = size - maxBytes
+		readSize = maxBytes
+	}
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return "", err
+	}
+	data := make([]byte, readSize)
+	n, err := io.ReadFull(f, data)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
+	}
+	data = data[:n]
+	if offset > 0 {
+		// Drop a possible partial first line after the seek.
+		if i := bytes.IndexByte(data, '\n'); i >= 0 && i+1 < len(data) {
+			data = data[i+1:]
+		}
+		return "==> build log truncated (showing tail)\n" + string(data), nil
+	}
+	return string(data), nil
+}
+
 func (e *Engine) emitStatus(nodeID string, ev StatusEvent) {
 	e.emit("deploy:status:"+nodeID, ev)
-	e.emit("deploy:status", map[string]any{"nodeId": nodeID, "event": ev})
+	payload := map[string]any{"nodeId": nodeID, "event": ev}
+	if node, err := e.store.GetNode(nodeID); err == nil && node != nil {
+		payload["projectId"] = node.ProjectID
+	}
+	e.emit("deploy:status", payload)
 }
 
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)

@@ -396,6 +396,35 @@ func TestGetBuildLogExists(t *testing.T) {
 	}
 }
 
+func TestGetBuildLogTailCapsLargeFile(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+
+	var b strings.Builder
+	b.WriteString("HEAD_SHOULD_DROP\n")
+	for b.Len() < int(maxBuildLogBytes)+1024 {
+		b.WriteString("keep-me-line\n")
+	}
+	b.WriteString("TAIL_MARKER\n")
+	if err := os.WriteFile(e.logPath(43), []byte(b.String()), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	log, err := e.GetBuildLog(43)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(log, "HEAD_SHOULD_DROP") {
+		t.Fatal("expected oversized head to be truncated away")
+	}
+	if !strings.Contains(log, "TAIL_MARKER") {
+		t.Fatal("expected tail of oversized log")
+	}
+	if !strings.Contains(log, "truncated") {
+		t.Fatal("expected truncation marker")
+	}
+}
+
 func TestGetBuildLogMissing(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

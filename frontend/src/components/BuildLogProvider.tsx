@@ -20,16 +20,17 @@ type NodeBuildState = {
 };
 
 const DEFAULT_STATE: NodeBuildState = {lines: [], deploying: false, version: 0, pendingAction: null, uploadProgress: null};
+const MAX_NODE_ENTRIES = 48;
 
 type BuildLogStore = {
     nodes: Map<string, NodeBuildState>;
-    listeners: Set<() => void>;
+    listeners: Map<string, Set<() => void>>;
     setPendingAction: (nodeId: string, action: PendingAction) => void;
 };
 
 const BuildLogContext = createContext<BuildLogStore>({
     nodes: new Map(),
-    listeners: new Set(),
+    listeners: new Map(),
     setPendingAction: () => {},
 });
 
@@ -39,9 +40,19 @@ export function useBuildLog(nodeId: string): NodeBuildState & {setPendingAction:
 
     useEffect(() => {
         const listener = () => rerender(n => n + 1);
-        store.listeners.add(listener);
-        return () => { store.listeners.delete(listener); };
-    }, [store]);
+        let set = store.listeners.get(nodeId);
+        if (!set) {
+            set = new Set();
+            store.listeners.set(nodeId, set);
+        }
+        set.add(listener);
+        return () => {
+            set!.delete(listener);
+            if (set!.size === 0) {
+                store.listeners.delete(nodeId);
+            }
+        };
+    }, [store, nodeId]);
 
     const state = store.nodes.get(nodeId) ?? DEFAULT_STATE;
     return {...state, setPendingAction: (action: PendingAction) => store.setPendingAction(nodeId, action)};
@@ -50,12 +61,14 @@ export function useBuildLog(nodeId: string): NodeBuildState & {setPendingAction:
 export function BuildLogProvider({children}: {children: ReactNode}) {
     const storeRef = useRef<BuildLogStore>({
         nodes: new Map(),
-        listeners: new Set(),
+        listeners: new Map(),
         setPendingAction: () => {},
     });
+    const pendingLinesRef = useRef(new Map<string, string[]>());
+    const flushScheduledRef = useRef(false);
 
-    const notify = () => {
-        storeRef.current.listeners.forEach(fn => fn());
+    const notify = (nodeId: string) => {
+        storeRef.current.listeners.get(nodeId)?.forEach(fn => fn());
     };
 
     const getOrCreate = (nodeId: string): NodeBuildState => {
@@ -63,17 +76,59 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
         if (!s) {
             s = {lines: [], deploying: false, version: 0, pendingAction: null, uploadProgress: null};
             storeRef.current.nodes.set(nodeId, s);
+            pruneIdleNodes();
         }
         return s;
+    };
+
+    const pruneIdleNodes = () => {
+        const nodes = storeRef.current.nodes;
+        if (nodes.size <= MAX_NODE_ENTRIES) return;
+        for (const [id, state] of nodes) {
+            if (nodes.size <= MAX_NODE_ENTRIES) break;
+            if (state.deploying) continue;
+            if ((storeRef.current.listeners.get(id)?.size ?? 0) > 0) continue;
+            nodes.delete(id);
+            pendingLinesRef.current.delete(id);
+        }
     };
 
     const setPendingAction = (nodeId: string, action: PendingAction) => {
         const s = getOrCreate(nodeId);
         s.pendingAction = action;
-        notify();
+        notify(nodeId);
     };
 
     storeRef.current.setPendingAction = setPendingAction;
+
+    const flushPendingLines = () => {
+        flushScheduledRef.current = false;
+        const pending = pendingLinesRef.current;
+        if (pending.size === 0) return;
+        pendingLinesRef.current = new Map();
+        for (const [nodeId, lines] of pending) {
+            if (lines.length === 0) continue;
+            const s = getOrCreate(nodeId);
+            s.lines.push(...lines);
+            if (s.lines.length > 2000) {
+                s.lines = s.lines.slice(-1500);
+            }
+            notify(nodeId);
+        }
+    };
+
+    const queueBuildLine = (nodeId: string, line: string) => {
+        let bucket = pendingLinesRef.current.get(nodeId);
+        if (!bucket) {
+            bucket = [];
+            pendingLinesRef.current.set(nodeId, bucket);
+        }
+        bucket.push(line);
+        if (!flushScheduledRef.current) {
+            flushScheduledRef.current = true;
+            requestAnimationFrame(flushPendingLines);
+        }
+    };
 
     useEffect(() => {
         const unsubStatus = EventsOn('deploy:status', (payload: any) => {
@@ -86,10 +141,11 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
             }
             s.version++;
             if (ev.status === 'building') {
+                pendingLinesRef.current.delete(nodeId);
                 s.lines = [];
                 s.uploadProgress = null;
             }
-            notify();
+            notify(nodeId);
             if ((ev.status === 'building' || ev.status === 'starting') && ev.deploymentId) {
                 GetBuildLog(ev.deploymentId).then(log => {
                     const current = getOrCreate(nodeId);
@@ -103,7 +159,7 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
                         }
                     });
                     current.lines = lines.slice(-1500);
-                    notify();
+                    notify(nodeId);
                 }).catch(() => {});
             }
         });
@@ -111,12 +167,7 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
         const unsubBuild = EventsOn('build:log', (payload: any) => {
             const nodeId: string = payload.nodeId;
             const logLine = payload.line;
-            const s = getOrCreate(nodeId);
-            s.lines = [...s.lines, logLine.line];
-            if (s.lines.length > 2000) {
-                s.lines = s.lines.slice(-1500);
-            }
-            notify();
+            queueBuildLine(nodeId, logLine.line);
         });
 
         const unsubUpload = EventsOn('deploy:upload-progress', (payload: any) => {
@@ -132,7 +183,7 @@ export function BuildLogProvider({children}: {children: ReactNode}) {
                     indeterminate: !!payload.indeterminate,
                 };
             }
-            notify();
+            notify(nodeId);
         });
 
         return () => { unsubStatus(); unsubBuild(); unsubUpload(); };

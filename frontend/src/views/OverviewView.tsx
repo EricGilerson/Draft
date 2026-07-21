@@ -44,6 +44,10 @@ function formatSandboxExpiry(value: any): string {
     return ms >= 0 ? `in ${days}d` : `${days}d ago`;
 }
 
+function projectIdsKey(projects: ProjectSummary[]) {
+    return projects.map((summary) => summary.project.id).join(',');
+}
+
 const ACTIVITY_COLORS: Record<ActivityPreview['type'], string> = {
     start: STATUS_COLORS.running,
     stop: STATUS_COLORS.stopped,
@@ -143,6 +147,7 @@ export default function OverviewView({
     onOpenProject,
 }: OverviewViewProps) {
     const [urgentSandboxes, setUrgentSandboxes] = useState<UrgentSandbox[]>([]);
+    const projectKey = projectIdsKey(projects);
 
     useEffect(() => {
         let cancelled = false;
@@ -167,7 +172,9 @@ export default function OverviewView({
             setUrgentSandboxes(flat);
         });
         return () => { cancelled = true; };
-    }, [loading, projects]);
+        // projects is read for names/ids; projectKey gates re-fetch on membership only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, projectKey]);
 
     const runningServices = projects.flatMap((project) => project.services).filter((service) => service.status === 'running').length;
     const totalServices = projects.flatMap((project) => project.services).length;

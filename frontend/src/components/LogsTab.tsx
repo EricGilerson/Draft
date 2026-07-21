@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {memo, useCallback, useEffect, useRef, useState} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {GetContainerLogHistory} from '../../wailsjs/go/main/App';
 import {useBuildLog} from './BuildLogProvider';
@@ -18,7 +18,7 @@ type LogEntry = {line: string; stream: string; timestamp?: string};
 
 const INITIAL_LOG_TAIL = 200;
 const LOG_HISTORY_PAGE_SIZE = 500;
-const MAX_RENDERED_LOG_LINES = 10000;
+const MAX_RENDERED_LOG_LINES = 2000;
 
 function entryKey(entry: LogEntry) {
     return `${entry.timestamp || ''}\u0000${entry.stream}\u0000${entry.line}`;
@@ -42,6 +42,14 @@ function mergeHistory(history: LogEntry[], current: LogEntry[]) {
     return [...older, ...current];
 }
 
+const LogLine = memo(function LogLine({entry}: {entry: LogEntry}) {
+    return (
+        <div className={`log-line ${entry.stream === 'stderr' ? 'log-line--error' : ''}`}>
+            {entry.line}
+        </div>
+    );
+});
+
 export default function LogsTab({nodeId}: {nodeId: string}) {
     const [lines, setLines] = useState<LogEntry[]>([]);
     const [streaming, setStreaming] = useState(false);
@@ -53,6 +61,8 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
     const loadingHistory = useRef(false);
     const hasMoreHistory = useRef(true);
     const [historyLoading, setHistoryLoading] = useState(false);
+    const pendingRef = useRef<LogEntry[]>([]);
+    const flushScheduledRef = useRef(false);
     const {deploying} = useBuildLog(nodeId);
     const {loading: linkLoading, isLinked, linkInfo, targetNodeId} = useLinkedServiceTarget(nodeId);
 
@@ -66,6 +76,8 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
         loadingHistory.current = false;
         hasMoreHistory.current = true;
         setHistoryLoading(false);
+        pendingRef.current = [];
+        flushScheduledRef.current = false;
     }, [nodeId, targetNodeId]);
 
     useEffect(() => {
@@ -77,6 +89,17 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
         }
         let cancelled = false;
         let retryTimer: number | null = null;
+
+        const flushPending = () => {
+            flushScheduledRef.current = false;
+            if (cancelled || pendingRef.current.length === 0) return;
+            const batch = pendingRef.current;
+            pendingRef.current = [];
+            setLines(prev => {
+                const next = prev.length === 0 ? batch : prev.concat(batch);
+                return next.length > MAX_RENDERED_LOG_LINES ? next.slice(-MAX_RENDERED_LOG_LINES) : next;
+            });
+        };
 
         const start = async (attempt = 0) => {
             if (deploying) {
@@ -118,10 +141,11 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
 
         const eventName = 'container:log:' + targetNodeId;
         const unsubscribe = EventsOn(eventName, (ev: any) => {
-            setLines(prev => {
-                const next = [...prev, {line: ev.line, stream: ev.stream, timestamp: ev.timestamp}];
-                return next.length > MAX_RENDERED_LOG_LINES ? next.slice(-MAX_RENDERED_LOG_LINES) : next;
-            });
+            pendingRef.current.push({line: ev.line, stream: ev.stream, timestamp: ev.timestamp});
+            if (!flushScheduledRef.current) {
+                flushScheduledRef.current = true;
+                requestAnimationFrame(flushPending);
+            }
         });
 
         return () => {
@@ -204,9 +228,7 @@ export default function LogsTab({nodeId}: {nodeId: string}) {
                     </span>
                 )}
                 {lines.map((entry, i) => (
-                    <div key={i} className={`log-line ${entry.stream === 'stderr' ? 'log-line--error' : ''}`}>
-                        {entry.line}
-                    </div>
+                    <LogLine key={i} entry={entry} />
                 ))}
             </div>
         </div>

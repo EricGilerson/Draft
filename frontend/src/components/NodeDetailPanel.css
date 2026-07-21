@@ -568,6 +568,8 @@
 
 .log-line {
     min-height: 1em;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 1.6em;
 }
 
 .log-line--error {

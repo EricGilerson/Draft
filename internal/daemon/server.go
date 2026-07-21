@@ -1530,8 +1530,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ch, unsubscribe := s.hub.subscribe()
 	defer unsubscribe()
 
-	s.emitActiveSnapshots(ch)
-	flusher.Flush()
+	// Write snapshots straight to the response. Pushing them through the hub
+	// channel can block forever once active deployments exceed half the buffer
+	// (2 events each, cap 128).
+	s.writeActiveSnapshots(w, flusher)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -1544,30 +1546,32 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) emitActiveSnapshots(ch chan Event) {
+func (s *Server) writeActiveSnapshots(w http.ResponseWriter, flusher http.Flusher) {
 	deps, err := s.store.ListActiveDeployments()
 	if err != nil {
 		return
 	}
 	for _, dep := range deps {
-		ch <- Event{Name: "deploy:status:" + dep.NodeID, Data: deploy.StatusEvent{
+		status := deploy.StatusEvent{
 			DeploymentID: dep.ID,
 			Status:       dep.Status,
 			Hostname:     dep.Hostname,
 			HostPort:     dep.HostPort,
 			Error:        dep.Error,
-		}}
-		ch <- Event{Name: "deploy:status", Data: map[string]any{
-			"nodeId": dep.NodeID,
-			"event": deploy.StatusEvent{
-				DeploymentID: dep.ID,
-				Status:       dep.Status,
-				Hostname:     dep.Hostname,
-				HostPort:     dep.HostPort,
-				Error:        dep.Error,
-			},
-		}}
+		}
+		global := map[string]any{"nodeId": dep.NodeID, "event": status}
+		if node, err := s.store.GetNode(dep.NodeID); err == nil && node != nil {
+			global["projectId"] = node.ProjectID
+		}
+		for _, ev := range []Event{
+			{Name: "deploy:status:" + dep.NodeID, Data: status},
+			{Name: "deploy:status", Data: global},
+		} {
+			payload, _ := json.Marshal(ev)
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+		}
 	}
+	flusher.Flush()
 }
 
 func (s *Server) watchDocker(ctx context.Context) {
@@ -1584,11 +1588,25 @@ func (s *Server) watchDocker(ctx context.Context) {
 				"image":  ev.Raw.Actor.Attributes["image"],
 			})
 			if string(ev.Raw.Type) == "container" {
-				s.engine.HandleDockerContainerEvent(string(ev.Raw.Action), ev.Raw.Actor.Attributes)
+				action := string(ev.Raw.Action)
+				attrs := copyStringMap(ev.Raw.Actor.Attributes)
+				// Exit cleanup talks to Docker; keep the watch pump non-blocking.
+				go s.engine.HandleDockerContainerEvent(action, attrs)
 			}
 		}
 	})
 	s.watch.Run(ctx)
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *Server) stopWhenIdle(ctx context.Context, cancel context.CancelFunc) {
