@@ -851,3 +851,42 @@ func TestApplyContainerExitResultCrashMarksFailed(t *testing.T) {
 		t.Fatalf("ExitCode = %#v, want 137", dep.ExitCode)
 	}
 }
+
+func TestApplyContainerExitResultUnexpectedCleanExitMarksFailed(t *testing.T) {
+	// Postgres (and similar) can exit 0 after a bad volume cutover when the
+	// previous container deletes postmaster.pid. That must not look like Stop.
+	dep := &store.Deployment{Status: "running"}
+
+	applyContainerExitResult(dep, 0, nil)
+
+	if dep.Status != "failed" {
+		t.Fatalf("Status = %q, want failed", dep.Status)
+	}
+	if dep.Error != "container exited unexpectedly (code 0)" {
+		t.Fatalf("Error = %q", dep.Error)
+	}
+	if dep.ExitCode == nil || *dep.ExitCode != 0 {
+		t.Fatalf("ExitCode = %#v, want 0", dep.ExitCode)
+	}
+}
+
+func TestIsDraftManagedImageTag(t *testing.T) {
+	cases := []struct {
+		tag  string
+		want bool
+	}{
+		{"draft-app-main-api:3", true},
+		{"draft-app-main-api:3-previous", true},
+		{"postgres:16-alpine", false},
+		{"postgres:16-alpine-previous", false},
+		{"redis:7", false},
+		{"ghcr.io/org/img:1", false},
+		{"", false},
+		{"draft-only", false}, // no tag separator
+	}
+	for _, tc := range cases {
+		if got := isDraftManagedImageTag(tc.tag); got != tc.want {
+			t.Errorf("isDraftManagedImageTag(%q) = %v, want %v", tc.tag, got, tc.want)
+		}
+	}
+}

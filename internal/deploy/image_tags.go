@@ -16,6 +16,19 @@ import (
 // live and -previous names (see stopPrevious).
 const previousTagSuffix = "-previous"
 
+// isDraftManagedImageTag reports whether tag is a Draft-built deployment image
+// (draft-…:N or draft-…:N-previous). Image-mode services store the upstream
+// pull ref (e.g. postgres:16-alpine) on Deployment.ImageTag — those must never
+// be retagged or force-removed by retention/finalize paths.
+func isDraftManagedImageTag(tag string) bool {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return false
+	}
+	// draftImageTag format: draft-{project}-{environment}-{service}:{sequence}
+	return strings.HasPrefix(tag, "draft-") && strings.Contains(tag, ":")
+}
+
 // draftPreviousImageTag returns the rollback retention tag for a live Draft
 // image tag.
 //
@@ -57,10 +70,11 @@ func (e *Engine) resolveLocalDraftImageRef(ctx context.Context, cli *client.Clie
 // retainImageForRollback keeps a just-superseded build identifiable for
 // rollback: ensure it is tagged …:N-previous and drop the live …:N name so the
 // Docker tab shows a clear "previous" tag rather than an untagged image (or a
-// second live-looking name). No-op when the image is already missing.
+// second live-looking name). No-op when the image is already missing or when
+// liveTag is an upstream pull ref (image-mode), not a Draft-built tag.
 func retainImageForRollback(ctx context.Context, cli *client.Client, liveTag string) error {
 	liveTag = strings.TrimSpace(liveTag)
-	if liveTag == "" || cli == nil {
+	if liveTag == "" || cli == nil || !isDraftManagedImageTag(liveTag) {
 		return nil
 	}
 	prev := draftPreviousImageTag(liveTag)
@@ -90,9 +104,11 @@ func retainImageForRollback(ctx context.Context, cli *client.Client, liveTag str
 // removeDraftDeploymentImage deletes a deployment's Draft-built image under
 // both its live and -previous tags. Used when the image is no longer the N-1
 // rollback candidate (N-2+), on keep_images=none, service delete, and stop.
+// No-op for upstream image-mode refs so finalize/stopPrevious never force-
+// removes postgres:… (or similar) while another container may still need it.
 func removeDraftDeploymentImage(ctx context.Context, cli *client.Client, liveTag string) error {
 	liveTag = strings.TrimSpace(liveTag)
-	if liveTag == "" || cli == nil {
+	if liveTag == "" || cli == nil || !isDraftManagedImageTag(liveTag) {
 		return nil
 	}
 	prev := draftPreviousImageTag(liveTag)

@@ -28,6 +28,16 @@ import (
 // the locally-built tag for build mode, or settings["image"] for image mode.
 // hooksWorkDir is the directory lifecycle hooks run in (service root for build
 // mode, project root for image mode).
+//
+// Cutover strategy depends on mounts:
+//   - No volumes (stateless): blue-green — start + ready the new container
+//     while the previous keeps serving, then retire the previous.
+//   - Any volume/bind mounts (stateful): stop-before-start — the previous
+//     container is fully stopped before the new one starts. Datastores like
+//     Postgres cannot safely share a data directory: the old postmaster's
+//     clean shutdown deletes postmaster.pid, and ~60s later the new instance
+//     exits cleanly ("lock file is invalid") which Draft used to surface as
+//     a mysterious "stopped" status.
 func (e *Engine) startContainerAndRegister(
 	ctx context.Context,
 	cli *client.Client,
@@ -77,6 +87,48 @@ func (e *Engine) startContainerAndRegister(
 	containerName := draftContainerName(projectName, environment, serviceName, dep.Sequence)
 	networkName := draftNetworkName(node.ProjectID, projectName, environment)
 
+	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
+		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())
+		return
+	}
+	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
+
+	// Resolve auto-named volumes against this node's identity and create them
+	// in Docker (idempotent). Bind mounts and volumes with an explicit name
+	// pass through unchanged. Done here — right before ContainerCreate — so
+	// both the build and image deploy paths get it for free, and so the Docker
+	// client we already opened is reused.
+	resolvedMounts, err := e.ensureNamedVolumes(ctx, cli, node, addr, uid, ParseVolumeSpecs(settings["volume_mounts"]))
+	if err != nil {
+		e.failDeployment(dep, nodeID, "volume setup failed: "+err.Error())
+		return
+	}
+	overrides.Mounts = resolvedMounts
+	if len(resolvedMounts) > 0 {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Volumes: %d", len(resolvedMounts)))
+	}
+
+	// Stateful services must not run two containers against the same mounts.
+	// Stop the previous deployment (and release its TCP lease/route) before we
+	// lease ports or start the new container. Stateless services keep blue-green.
+	exclusiveMounts := len(resolvedMounts) > 0
+	previousStoppedEarly := false
+	if exclusiveMounts {
+		e.emitBuildLog(nodeID, "==> Stopping previous deployment before start (volume safety)...")
+		// Drop the old exit watcher first so its finalize path does not race
+		// stopPrevious (and so it cannot treat the intentional stop as a crash).
+		e.stopContainerWatch(nodeID)
+		// keepHostname "" forces route/lease release so TCP preferred ports
+		// (e.g. 5432) are free for the new container.
+		if err := e.stopPrevious(ctx, cli, nodeID, dep.ID, ""); err != nil {
+			log.Printf("[deploy] warning: stop previous before start: %v", err)
+			e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))
+		} else {
+			e.emitBuildLog(nodeID, "    Done")
+		}
+		previousStoppedEarly = true
+	}
+
 	// For TCP, lease the host port and create the route up front so we can bind
 	// the container to it. On any failure after this point, the deferred
 	// cleanup unregisters the pre-registered route and frees the lease.
@@ -116,27 +168,6 @@ func (e *Engine) startContainerAndRegister(
 			_ = e.router.Unregister(preRegisteredHostname)
 		}
 	}()
-
-	if err := ensureDraftNetwork(ctx, cli, networkName, node.ProjectID, projectName, environment); err != nil {
-		e.failDeployment(dep, nodeID, "docker network setup failed: "+err.Error())
-		return
-	}
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Network: %s", networkName))
-
-	// Resolve auto-named volumes against this node's identity and create them
-	// in Docker (idempotent). Bind mounts and volumes with an explicit name
-	// pass through unchanged. Done here — right before ContainerCreate — so
-	// both the build and image deploy paths get it for free, and so the Docker
-	// client we already opened is reused.
-	resolvedMounts, err := e.ensureNamedVolumes(ctx, cli, node, addr, uid, ParseVolumeSpecs(settings["volume_mounts"]))
-	if err != nil {
-		e.failDeployment(dep, nodeID, "volume setup failed: "+err.Error())
-		return
-	}
-	overrides.Mounts = resolvedMounts
-	if len(resolvedMounts) > 0 {
-		e.emitBuildLog(nodeID, fmt.Sprintf("    Volumes: %d", len(resolvedMounts)))
-	}
 
 	labels := map[string]string{
 		"draft.project":     fmt.Sprintf("%d", node.ProjectID),
@@ -240,22 +271,31 @@ func (e *Engine) startContainerAndRegister(
 	e.emitBuildLog(nodeID, fmt.Sprintf("    Listening on 127.0.0.1:%d (container port %s)", hostPort, portStr))
 
 	// Verify the new container is actually serving before switching traffic to
-	// it. Until Register() runs below, the route still points at the previous
-	// deployment, so this wait causes no downtime for existing traffic.
+	// it. On the blue-green path the route still points at the previous
+	// container until Register() below, so the wait is invisible to traffic.
+	// On the volume-safe path the previous container is already gone.
 	e.emitBuildLog(nodeID, "==> Waiting for new container to become ready...")
 	if err := e.waitForReady(ctx, cli, createResp.ID, hostPort); err != nil {
-		// The new container never became ready: tear it down and leave the
-		// previous deployment serving untouched (automatic rollback).
 		e.emitBuildLog(nodeID, fmt.Sprintf("    New container not ready: %v", err))
-		e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
+		if previousStoppedEarly {
+			e.emitBuildLog(nodeID, "    Previous deployment was already stopped for volume safety; no automatic rollback.")
+		} else {
+			// Stateless blue-green: tear down the failed new container and leave
+			// the previous deployment serving untouched.
+			e.emitBuildLog(nodeID, "    Keeping the previous deployment; no traffic was switched.")
+		}
 		stopTO := stopTimeoutForSettings(settings)
 		cli.ContainerStop(context.Background(), createResp.ID, container.StopOptions{Timeout: &stopTO})
 		_ = removeContainerAndWait(context.Background(), cli, createResp.ID)
-		// Only the failed new build's image — never the N-1 -previous candidate.
-		if dep.ImageTag != "" {
+		// Only Draft-built tags for a failed new build — never upstream image-mode refs.
+		if isDraftManagedImageTag(dep.ImageTag) {
 			_ = removeImageAndWait(context.Background(), cli, dep.ImageTag)
 		}
-		e.failDeployment(dep, nodeID, "new container did not become ready: "+err.Error()+" (previous deployment left running)")
+		msg := "new container did not become ready: " + err.Error()
+		if !previousStoppedEarly {
+			msg += " (previous deployment left running)"
+		}
+		e.failDeployment(dep, nodeID, msg)
 		return
 	}
 	e.emitBuildLog(nodeID, "    Ready")
@@ -302,8 +342,14 @@ func (e *Engine) startContainerAndRegister(
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: could not record deployment inputs: %v", err))
 	}
 
-	// Traffic now flows to the new container; retire the previous deployment(s).
-	e.emitBuildLog(nodeID, "==> Retiring previous deployment...")
+	// Retire any remaining previous deployments (image retention, leftover
+	// containers). On the volume-safe path containers/routes are already gone;
+	// stopPrevious is idempotent for terminal rows and still applies keep_images.
+	if !previousStoppedEarly {
+		e.emitBuildLog(nodeID, "==> Retiring previous deployment...")
+	} else {
+		e.emitBuildLog(nodeID, "==> Cleaning up previous deployment artifacts...")
+	}
 	if err := e.stopPrevious(ctx, cli, nodeID, dep.ID, dep.Hostname); err != nil {
 		log.Printf("[deploy] warning: retire previous: %v", err)
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Warning: %v", err))

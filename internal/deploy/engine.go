@@ -1174,13 +1174,17 @@ func applyContainerExitResult(dep *store.Deployment, exitCode int, waitErr error
 		return
 	}
 	dep.ExitCode = &exitCode
+	// Any non-intentional exit is a failure — including code 0. Datastores
+	// (Postgres especially) can shut down "cleanly" after a bad cutover
+	// (e.g. shared volume lock file deleted by the previous container) and
+	// must not look like a deliberate Stop.
 	if exitCode != 0 {
 		dep.Status = "failed"
 		dep.Error = fmt.Sprintf("container exited with code %d", exitCode)
 		return
 	}
-	dep.Status = "stopped"
-	dep.Error = ""
+	dep.Status = "failed"
+	dep.Error = "container exited unexpectedly (code 0)"
 }
 
 func removeImageAndWait(ctx context.Context, cli *client.Client, imageTag string) error {
@@ -1957,23 +1961,25 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 			dep.OOMKilled = inspect.State.OOMKilled
 			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
 			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
-			if dep.ImageTag != "" {
-				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
-			}
+			_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 		} else {
-			dep.Status = "stopped"
+			// Unexpected clean exit (not an intentional Stop) — surface as failed
+			// so UI does not look like a deliberate suspension.
+			dep.Status = "failed"
+			dep.Error = "container exited unexpectedly (code 0)"
 			dep.FinishedAt = ptrTime(time.Now())
 			dep.ContainerStoppedAt = dep.FinishedAt
 			if inspect.State != nil {
 				exitCode := inspect.State.ExitCode
 				dep.ExitCode = &exitCode
 				dep.OOMKilled = inspect.State.OOMKilled
+			} else {
+				exitCode := 0
+				dep.ExitCode = &exitCode
 			}
-			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "stopped"})
+			e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: "failed", Error: dep.Error})
 			cli.ContainerRemove(ctx, c.ID, container.RemoveOptions{})
-			if dep.ImageTag != "" {
-				_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
-			}
+			_ = removeDraftDeploymentImage(ctx, cli, dep.ImageTag)
 		}
 		e.store.UpdateDeployment(dep)
 	}
