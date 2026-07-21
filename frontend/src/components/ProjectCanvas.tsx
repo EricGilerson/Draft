@@ -1081,7 +1081,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
             )}
 
             {selectedNode && !selectedVolume && (
-                <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640} storageKey="draft:node-detail-width">
+                <ResizablePanel side="right" defaultWidth={960} minWidth={360} maxWidth={960} storageKey="draft:node-detail-width-v2">
                     <NodeDetailPanel
                         nodeId={selectedNode.id}
                         nodeLabel={(selectedNode.data.label as string) || selectedNode.id}
