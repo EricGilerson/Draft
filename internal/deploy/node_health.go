@@ -16,15 +16,25 @@ import (
 // DockerHealth is the raw Docker healthcheck status ("starting"|"healthy"|
 // "unhealthy"|"") — empty when the container has no healthcheck configured.
 // RouteProtocol is "http" (default) or "tcp" and drives how PublicURL is shaped.
+//
+// Status reflects the live/active deployment (a previous container may still be
+// running after a failed rebuild). LastDeploy* describe the most recent attempt
+// so Overview and the canvas can surface silent failures without collapsing the
+// runtime status to "failed".
 type NodeHealth struct {
-	NodeID        string `json:"nodeId"`
-	Status        string `json:"status"`
-	DockerHealth  string `json:"dockerHealth"`
-	HostPort      int    `json:"hostPort"`
-	Hostname      string `json:"hostname"`
-	InternalURL   string `json:"internalUrl"`
-	PublicURL     string `json:"publicUrl"`
-	RouteProtocol string `json:"routeProtocol"`
+	NodeID             string `json:"nodeId"`
+	Status             string `json:"status"`
+	DockerHealth       string `json:"dockerHealth"`
+	HostPort           int    `json:"hostPort"`
+	Hostname           string `json:"hostname"`
+	InternalURL        string `json:"internalUrl"`
+	PublicURL          string `json:"publicUrl"`
+	RouteProtocol      string `json:"routeProtocol"`
+	LastDeploymentID   uint   `json:"lastDeploymentId,omitempty"`
+	LastDeployStatus   string `json:"lastDeployStatus,omitempty"`
+	LastDeployError    string `json:"lastDeployError,omitempty"`
+	LastDeployFailed   bool   `json:"lastDeployFailed"`
+	LastDeploySequence int    `json:"lastDeploySequence,omitempty"`
 }
 
 // GetNodeHealth returns the live health + URL state for a single node. It does
@@ -53,6 +63,18 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 		protocol = "http"
 	}
 	out.RouteProtocol = protocol
+
+	// Always expose the newest deployment attempt — ActiveDeployment skips
+	// failed/stopped rows so a bad rebuild would otherwise be invisible while
+	// an older container keeps running.
+	if len(deployments) > 0 {
+		latest := deployments[0]
+		out.LastDeploymentID = latest.ID
+		out.LastDeployStatus = latest.Status
+		out.LastDeployError = latest.Error
+		out.LastDeploySequence = latest.Sequence
+		out.LastDeployFailed = latest.Status == "failed"
+	}
 
 	var active *store.Deployment
 	for i := range deployments {

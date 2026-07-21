@@ -211,6 +211,21 @@
     margin-top: 1px;
 }
 
+.overview-deploy-failure {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.overview-build-log--failed .deploy-log-title {
+    color: var(--red);
+}
+
+.overview-build-log--failed .log-viewer {
+    border-color: rgba(239, 111, 104, 0.25);
+    max-height: 220px;
+}
+
 .overview-actions {
     display: flex;
     gap: 8px;

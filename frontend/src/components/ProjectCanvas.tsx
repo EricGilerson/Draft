@@ -385,6 +385,8 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 }
                 // GetNodeHealth mirrors root status for linked aliases, so this is
                 // the durable source of truth on load — not just live SSE.
+                // Status is the live/active container; lastDeployFailed is separate
+                // so a failed rebuild still shows a red indicator while running.
                 const status = h.status
                     ? serviceStatusFromDeployment(h.status)
                     : n.data.status === 'loading' ? 'stopped' : n.data.status;
@@ -393,6 +395,8 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     data: {
                         ...n.data,
                         status,
+                        lastDeployFailed: !!h.lastDeployFailed,
+                        lastDeployError: h.lastDeployError || undefined,
                         health: h.dockerHealth || undefined,
                         hostPort: h.hostPort || undefined,
                         publicUrl: h.publicUrl || undefined,
@@ -684,9 +688,19 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     const isAliasOfRoot = n.data.linkedRootNodeId === nodeId;
                     if (!isSelf && !isAliasOfRoot) return n;
                     affectedIds.push(n.id);
+                    // Track latest-attempt failure separately from live status.
+                    // A failed rebuild must not permanently replace "running" —
+                    // refreshNodeHealth restores the active container status and
+                    // lastDeployFailed flag from the store.
+                    const failPatch =
+                        deployStatus === 'failed'
+                            ? {lastDeployFailed: true as const}
+                            : deployStatus === 'building' || deployStatus === 'pending' || deployStatus === 'starting' || deployStatus === 'running' || deployStatus === 'built'
+                                ? {lastDeployFailed: false as const, lastDeployError: undefined}
+                                : {};
                     if (isAliasOfRoot && !isSelf) {
                         // Aliases have no local deployment id; only mirror status.
-                        return {...n, data: {...n.data, status: uiStatus}};
+                        return {...n, data: {...n.data, status: uiStatus, ...failPatch}};
                     }
                     const currentId = typeof n.data?.deploymentId === 'number' ? n.data.deploymentId : undefined;
                     if (typeof deploymentId === 'number' && typeof currentId === 'number' && deploymentId < currentId) {
@@ -694,12 +708,13 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     }
                     return {
                         ...n,
-                        data: {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId},
+                        data: {...n.data, status: uiStatus, deploymentId: deploymentId ?? currentId, ...failPatch},
                     };
                 });
                 return next;
             });
             // Refresh health/URL once the container is up or on its way up.
+            // Also on failed: restores live status (may still be running) + lastDeployFailed.
             if (deployStatus === 'running' || deployStatus === 'starting' || deployStatus === 'stopped' || deployStatus === 'failed') {
                 // Always include the event node; aliases get health from root via API.
                 const ids = affectedIds.length > 0 ? affectedIds : [nodeId];

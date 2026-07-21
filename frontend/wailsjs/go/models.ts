@@ -1268,6 +1268,11 @@ export namespace deploy {
 	    internalUrl: string;
 	    publicUrl: string;
 	    routeProtocol: string;
+	    lastDeploymentId?: number;
+	    lastDeployStatus?: string;
+	    lastDeployError?: string;
+	    lastDeployFailed: boolean;
+	    lastDeploySequence?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new NodeHealth(source);
@@ -1283,6 +1288,11 @@ export namespace deploy {
 	        this.internalUrl = source["internalUrl"];
 	        this.publicUrl = source["publicUrl"];
 	        this.routeProtocol = source["routeProtocol"];
+	        this.lastDeploymentId = source["lastDeploymentId"];
+	        this.lastDeployStatus = source["lastDeployStatus"];
+	        this.lastDeployError = source["lastDeployError"];
+	        this.lastDeployFailed = source["lastDeployFailed"];
+	        this.lastDeploySequence = source["lastDeploySequence"];
 	    }
 	}
 	export class PruneReport {

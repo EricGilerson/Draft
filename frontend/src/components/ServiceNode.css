@@ -79,8 +79,24 @@
 }
 
 .service-node--failed .service-node-status,
-.service-node--error .service-node-status {
+.service-node--error .service-node-status,
+.service-node--deploy-failed .service-node-status {
     color: var(--red);
+}
+
+/* Latest deploy failed while an older container may still be running. */
+.service-node--deploy-failed {
+    border-color: rgba(239, 111, 104, 0.45);
+    border-left-color: var(--red);
+    box-shadow:
+        var(--inset-line),
+        0 0 0 1px rgba(239, 111, 104, 0.12),
+        0 7px 16px rgba(0, 0, 0, 0.22);
+}
+
+.service-node--deploy-failed:hover {
+    border-color: rgba(239, 111, 104, 0.65);
+    border-left-color: var(--red);
 }
 
 .service-node--building .service-node-status,
@@ -250,7 +266,8 @@
     pointer-events: none;
 }
 
-.service-node-ref-warning {
+.service-node-ref-warning,
+.service-node-deploy-fail {
     position: absolute;
     top: -7px;
     right: -7px;
@@ -266,6 +283,24 @@
     box-shadow: 0 0 0 2px rgba(8, 9, 7, 0.85);
     cursor: help;
     z-index: 2;
+}
+
+.service-node-deploy-fail {
+    border-color: rgba(239, 111, 104, 0.75);
+    background: rgba(160, 36, 32, 0.96);
+    color: #ffd0cc;
+    animation: service-node-deploy-fail-pulse 2.4s ease-in-out infinite;
+}
+
+.service-node-ref-warning--offset {
+    right: 14px;
+    z-index: 1;
+    opacity: 0.92;
+}
+
+@keyframes service-node-deploy-fail-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(8, 9, 7, 0.85), 0 0 0 0 rgba(239, 111, 104, 0); }
+    50% { box-shadow: 0 0 0 2px rgba(8, 9, 7, 0.85), 0 0 0 4px rgba(239, 111, 104, 0.28); }
 }
 
 .service-node-linked-badge {

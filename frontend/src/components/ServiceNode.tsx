@@ -23,6 +23,9 @@ type ServiceNodeData = {
     volumes?: ServiceNodeVolume[];
     selectedVolumeIndex?: number;
     hasReferenceIssues?: boolean;
+    /** Most recent deploy attempt failed (may still show running from prior). */
+    lastDeployFailed?: boolean;
+    lastDeployError?: string;
     health?: string;
     hostPort?: number;
     publicUrl?: string;
@@ -80,15 +83,41 @@ export default function ServiceNode({id, data}: NodeProps) {
     const icon = d.icon;
     const volumes = d.volumes ?? [];
     const hasReferenceIssues = d.hasReferenceIssues ?? false;
+    const lastDeployFailed = d.lastDeployFailed ?? false;
+    const lastDeployError = d.lastDeployError || 'Latest deployment failed';
     const health = d.health;
     const url = statusLoading ? null : hostLabel(d.publicUrl, d.hostPort);
     const chipClass = healthClass(health);
+    // Corner badges: deploy failure takes priority (more urgent than ref issues).
+    // When both, stack them slightly.
+    const showDeployFailBadge = lastDeployFailed && !statusLoading;
+    const showRefBadge = hasReferenceIssues && !statusLoading;
 
     return (
-        <div className={`service-node service-node--${status}${volumes.length > 0 ? ' service-node--has-volumes' : ''}${statusLoading ? ' service-node--status-loading' : ''}`}>
-            {hasReferenceIssues && (
+        <div
+            className={[
+                'service-node',
+                `service-node--${status}`,
+                volumes.length > 0 ? 'service-node--has-volumes' : '',
+                statusLoading ? 'service-node--status-loading' : '',
+                lastDeployFailed ? 'service-node--deploy-failed' : '',
+            ].filter(Boolean).join(' ')}
+        >
+            {showDeployFailBadge && (
                 <span
-                    className="service-node-ref-warning"
+                    className="service-node-deploy-fail"
+                    title={
+                        status === 'running' || status === 'starting'
+                            ? `${lastDeployError} (previous instance may still be running)`
+                            : lastDeployError
+                    }
+                >
+                    <AlertCircle size={14} strokeWidth={2.25} />
+                </span>
+            )}
+            {showRefBadge && (
+                <span
+                    className={`service-node-ref-warning${showDeployFailBadge ? ' service-node-ref-warning--offset' : ''}`}
                     title="This service has broken variable references. Open Variables to fix them."
                 >
                     <AlertCircle size={14} strokeWidth={2.25} />
@@ -135,7 +164,10 @@ export default function ServiceNode({id, data}: NodeProps) {
                         {statusLoading ? (
                             <span className="service-node-status-skel" aria-label="Loading status" />
                         ) : (
-                            <span className="service-node-status">{status}</span>
+                            <span className="service-node-status">
+                                {status}
+                                {lastDeployFailed && status !== 'failed' ? ' · deploy failed' : ''}
+                            </span>
                         )}
                     </span>
                     <span

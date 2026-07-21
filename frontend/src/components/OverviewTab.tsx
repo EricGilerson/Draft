@@ -3,7 +3,7 @@ import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
-    GetActiveDeployment, GetLocalDomainStatus, GetNodeConfigStatus, GetServiceStaleness,
+    GetActiveDeployment, GetBuildLog, GetDeployments, GetLocalDomainStatus, GetNodeConfigStatus, GetServiceStaleness,
     GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService, UnlinkService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
@@ -21,13 +21,28 @@ type OverviewTabProps = {
     onServicesChanged?: () => void;
 };
 
+/** Parse a persisted Docker build-log file into display lines (JSON stream / raw). */
+function parseBuildLogText(log: string): string[] {
+    if (!log) return [];
+    return log.split('\n').filter(Boolean).map((line) => {
+        try {
+            const obj = JSON.parse(line);
+            return String(obj.error || obj.stream || obj.status || line).replace(/\n$/, '');
+        } catch {
+            return line;
+        }
+    });
+}
+
 /** Load runtime status for Overview. Linked aliases have no local deployment —
  *  status/hostnames come from GetNodeHealth (root-mirrored); container/image
- *  details come from the root's active deployment when linked. */
+ *  details come from the root's active deployment when linked.
+ *  latest is the most recent deploy attempt (may be failed while active still runs). */
 async function loadLinkedAwareRuntime(nodeId: string): Promise<{
     linkInfo: deploy.LinkedServiceInfo | null;
     health: deploy.NodeHealth | null;
     deployment: store.Deployment | null;
+    latest: store.Deployment | null;
 }> {
     let linkInfo: deploy.LinkedServiceInfo | null = null;
     try {
@@ -50,11 +65,29 @@ async function loadLinkedAwareRuntime(nodeId: string): Promise<{
     } catch {
         deployment = null;
     }
-    return {linkInfo, health, deployment};
+    let latest: store.Deployment | null = null;
+    try {
+        const deps = await GetDeployments(depNodeId);
+        latest = deps?.[0] || null;
+    } catch {
+        latest = null;
+    }
+    // Prefer health's last-deploy fields when list is empty but health knows.
+    if (!latest && health?.lastDeploymentId) {
+        latest = {
+            id: health.lastDeploymentId,
+            status: health.lastDeployStatus || 'failed',
+            error: health.lastDeployError || '',
+            sequence: health.lastDeploySequence || 0,
+        } as store.Deployment;
+    }
+    return {linkInfo, health, deployment, latest};
 }
 
 export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProps) {
     const [deployment, setDeployment] = useState<store.Deployment | null>(null);
+    const [latestDeployment, setLatestDeployment] = useState<store.Deployment | null>(null);
+    const [failedBuildLines, setFailedBuildLines] = useState<string[]>([]);
     const [health, setHealth] = useState<deploy.NodeHealth | null>(null);
     const [runtimeReady, setRuntimeReady] = useState(false);
     const [error, setError] = useState('');
@@ -65,6 +98,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [linkInfo, setLinkInfo] = useState<deploy.LinkedServiceInfo | null>(null);
     const {confirm} = useAppDialog();
     const buildLogRef = useRef<HTMLDivElement>(null);
+    const failedLogRef = useRef<HTMLDivElement>(null);
     const autoScroll = useRef(true);
     const {lines: buildLines, deploying, version, pendingAction, setPendingAction, uploadProgress} = useBuildLog(nodeId);
 
@@ -83,19 +117,54 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [promoting, setPromoting] = useState(false);
     const actionsBusy = !!pendingAction || promoting || unlinking;
 
+    const applyRuntime = async (
+        nodeIdToLoad: string,
+        opts?: {clearActionError?: boolean; cancelled?: () => boolean},
+    ) => {
+        const isCancelled = () => opts?.cancelled?.() === true;
+        const {linkInfo: link, health: h, deployment: d, latest} = await loadLinkedAwareRuntime(nodeIdToLoad);
+        if (isCancelled()) return;
+
+        setLinkInfo(link);
+        setHealth(h);
+        setDeployment(d);
+        setLatestDeployment(latest);
+        setRuntimeReady(true);
+
+        const lastFailed = !!(h?.lastDeployFailed || latest?.status === 'failed');
+        if (lastFailed) {
+            const msg = latest?.error || h?.lastDeployError || 'Deployment failed';
+            setError(msg);
+            const failedId = latest?.id || h?.lastDeploymentId;
+            if (failedId) {
+                try {
+                    const log = await GetBuildLog(failedId);
+                    if (isCancelled()) return;
+                    setFailedBuildLines(parseBuildLogText(log));
+                } catch {
+                    if (!isCancelled()) setFailedBuildLines([]);
+                }
+            } else {
+                setFailedBuildLines([]);
+            }
+        } else {
+            if (opts?.clearActionError !== false) {
+                setError('');
+            }
+            setFailedBuildLines([]);
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
         setRuntimeReady(false);
         setHealth(null);
         setDeployment(null);
+        setLatestDeployment(null);
+        setFailedBuildLines([]);
         setLinkInfo(null);
-        loadLinkedAwareRuntime(nodeId).then(({linkInfo: link, health: h, deployment: d}) => {
-            if (cancelled) return;
-            setLinkInfo(link);
-            setHealth(h);
-            setDeployment(d);
-            setRuntimeReady(true);
-        });
+        setError('');
+        void applyRuntime(nodeId, {cancelled: () => cancelled});
         GetNodeConfigStatus(nodeId).then((status) => {
             if (cancelled) return;
             const applied = status?.appliedSettings || {};
@@ -115,18 +184,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     useEffect(() => {
         if (version === 0) return;
         let cancelled = false;
-        loadLinkedAwareRuntime(nodeId).then(({linkInfo: link, health: h, deployment: d}) => {
+        void applyRuntime(nodeId, {cancelled: () => cancelled}).then(() => {
             if (cancelled) return;
-            setLinkInfo(link);
-            setHealth(h);
-            setDeployment(d);
-            setRuntimeReady(true);
             GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
-            if (h?.status === 'failed' || d?.status === 'failed') {
-                setError(d?.error || 'Deployment failed');
-            } else {
-                setError('');
-            }
         });
         GetNodeConfigStatus(nodeId).then((status) => {
             if (cancelled) return;
@@ -147,11 +207,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             const id: string | undefined = payload?.nodeId;
             if (!id) return;
             if (id !== nodeId && !(rootId && id === rootId)) return;
-            loadLinkedAwareRuntime(nodeId).then(({linkInfo: link, health: h, deployment: d}) => {
-                setLinkInfo(link);
-                setHealth(h);
-                setDeployment(d);
-            });
+            void applyRuntime(nodeId);
         });
         return () => { unsubscribe(); };
     }, [nodeId, linkInfo?.isLinked, linkInfo?.rootNodeId]);
@@ -161,6 +217,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             buildLogRef.current.scrollTop = buildLogRef.current.scrollHeight;
         }
     }, [buildLines]);
+
+    useEffect(() => {
+        if (failedLogRef.current) {
+            failedLogRef.current.scrollTop = failedLogRef.current.scrollHeight;
+        }
+    }, [failedBuildLines]);
 
     const handleBuildLogScroll = () => {
         if (!buildLogRef.current) return;
@@ -190,11 +252,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         setPromoting(true);
         try {
             await PromoteLinkedService(nodeId, seed, consistency);
-            const runtime = await loadLinkedAwareRuntime(nodeId);
-            setLinkInfo(runtime.linkInfo);
-            setHealth(runtime.health);
-            setDeployment(runtime.deployment);
-            setRuntimeReady(true);
+            await applyRuntime(nodeId);
             onServicesChanged?.();
             setPromoteCloneOpen(false);
         } catch (e: any) {
@@ -224,11 +282,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
             await UnlinkService(nodeId, become);
             onServicesChanged?.();
             if (become === 'fresh') {
-                const runtime = await loadLinkedAwareRuntime(nodeId);
-                setLinkInfo(runtime.linkInfo);
-                setHealth(runtime.health);
-                setDeployment(runtime.deployment);
-                setRuntimeReady(true);
+                await applyRuntime(nodeId);
             }
         } catch (e: any) {
             setError(typeof e === 'string' ? e : e?.message || 'Unlink failed');
@@ -282,11 +336,19 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     // alias DNS names; for normal nodes it matches the active deployment.
     // Until the first load finishes, avoid defaulting to "stopped" — that flash
     // is wrong when a service is already running.
+    // Status is the live container; lastDeployFailed is a separate signal so a
+    // failed rebuild does not hide an older still-running instance.
     const status = runtimeReady
         ? (health?.status || deployment?.status || 'stopped')
         : '';
+    const lastDeployFailed = !!(
+        health?.lastDeployFailed
+        || latestDeployment?.status === 'failed'
+    );
+    const lastDeployError = latestDeployment?.error || health?.lastDeployError || error || 'Deployment failed';
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
+    const previousStillRunning = lastDeployFailed && isRunning;
     const routeProtocol = (health?.routeProtocol || settings.route_protocol || 'http').toLowerCase();
     const isTCP = routeProtocol === 'tcp';
     const hostPort = health?.hostPort || deployment?.hostPort || 0;
@@ -301,6 +363,15 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         ? (isTCP ? `127.0.0.1:${hostPort}` : `http://127.0.0.1:${hostPort}`)
         : '';
     const displayHostname = displayHost;
+
+    // Live stream while building; otherwise prefer the failed attempt's log so
+    // Overview still shows what went wrong after reload / when a prior container runs.
+    const showLiveBuild = deploying || (buildLines.length > 0 && !lastDeployFailed);
+    const showFailedBuild = lastDeployFailed && !deploying;
+    const failedLogLines = failedBuildLines.length > 0
+        ? failedBuildLines
+        : (lastDeployFailed && buildLines.length > 0 ? buildLines : []);
+    const failedSeq = latestDeployment?.sequence || health?.lastDeploySequence || 0;
 
     const handleOpenDeployment = () => {
         if (!publicURL || isTCP) return;
@@ -341,7 +412,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         <div className="overview-tab">
             <div className="overview-status-row">
                 {runtimeReady && status ? (
-                    <StatusBadge status={status} />
+                    <>
+                        <StatusBadge status={status} />
+                        {lastDeployFailed && status !== 'failed' && (
+                            <StatusBadge status="failed" />
+                        )}
+                    </>
                 ) : (
                     <span className="status-badge status-badge--pending" aria-busy="true">
                         <Loader2 size={11} className="spin" />
@@ -387,17 +463,43 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 </div>
             )}
 
-            {error && (
-                <div className="overview-error">
-                    <AlertCircle size={13} />
-                    <span>{error}</span>
+            {lastDeployFailed && (
+                <div className="overview-deploy-failure">
+                    <div className="overview-error">
+                        <AlertCircle size={13} />
+                        <span>
+                            {previousStillRunning
+                                ? `Latest deploy failed${failedSeq ? ` (#${failedSeq})` : ''}; previous instance is still running. `
+                                : `Deploy failed${failedSeq ? ` (#${failedSeq})` : ''}. `}
+                            {lastDeployError}
+                        </span>
+                    </div>
+                    {showFailedBuild && (
+                        <div className="overview-build-log overview-build-log--failed">
+                            <h4 className="deploy-log-title">Failed build output</h4>
+                            <div className="log-viewer log-viewer--build" ref={failedLogRef}>
+                                {failedLogLines.length === 0 ? (
+                                    <span className="deploy-empty">No build log available for this failure.</span>
+                                ) : (
+                                    failedLogLines.map((line, i) => (
+                                        <div
+                                            key={i}
+                                            className={`log-line${/error|failed|ERROR/i.test(line) ? ' log-line--error' : ''}`}
+                                        >
+                                            {line}
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
-            {deployment?.error && status === 'failed' && !error && (
+            {!lastDeployFailed && error && (
                 <div className="overview-error">
                     <AlertCircle size={13} />
-                    <span>{deployment.error}</span>
+                    <span>{error}</span>
                 </div>
             )}
 
@@ -536,7 +638,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 </div>
             )}
 
-            {(deploying || buildLines.length > 0) && (
+            {showLiveBuild && (
                 <div className="overview-build-log">
                     <h4 className="deploy-log-title">
                         {deploying ? 'Build output' : 'Last build output'}
