@@ -58,6 +58,24 @@ func TestShellTicketExpired(t *testing.T) {
 	}
 }
 
+func TestShellTicketPurgeExpiredLocked(t *testing.T) {
+	st := newShellTicketStore()
+	ticket, _, err := st.mint("node-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.mu.Lock()
+	entry := st.tickets[ticket]
+	entry.ExpiresAt = time.Now().UTC().Add(-time.Second)
+	st.tickets[ticket] = entry
+	st.purgeExpiredLocked(time.Now().UTC())
+	_, ok := st.tickets[ticket]
+	st.mu.Unlock()
+	if ok {
+		t.Fatal("expired ticket should be purged")
+	}
+}
+
 func TestExecAttachRejectsDaemonTokenInQuery(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	srv.shellTickets = newShellTicketStore()

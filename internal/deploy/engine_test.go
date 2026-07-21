@@ -37,6 +37,19 @@ func newTestEngine(t *testing.T, s *store.Store) (*Engine, *eventCollector) {
 	logDir := filepath.Join(t.TempDir(), "logs")
 	col := &eventCollector{}
 	e := New(s, r, logDir, col.emit)
+	// Image-mode stamp auto-deploys in a background goroutine and can hold
+	// Windows log-file handles past test assertions. Cancel + wait before
+	// TempDir / store cleanup so RemoveAll does not fail with a sharing violation.
+	t.Cleanup(func() {
+		e.CancelActiveBuilds()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(e.ActiveBuilds()) == 0 {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 	return e, col
 }
 

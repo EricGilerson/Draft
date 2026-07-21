@@ -94,6 +94,16 @@ func newTestServer(t *testing.T) (*Server, *store.Store, string) {
 		disableDocker: true,
 		disableIdle:   true,
 	}
+	t.Cleanup(func() {
+		engine.CancelActiveBuilds()
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			if len(engine.ActiveBuilds()) == 0 {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 	return srv, s, logDir
 }
 

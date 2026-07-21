@@ -353,3 +353,44 @@ func TestDirOnlyPatternMatchesDescendants(t *testing.T) {
 		t.Fatal("cache.txt file should not match dir-only cache pattern")
 	}
 }
+
+func TestScanContextTreeAncestorsWithoutSiblingWalk(t *testing.T) {
+	root := t.TempDir()
+	service := filepath.Join(root, "services", "api")
+	if err := os.MkdirAll(service, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Sibling tree must not be walked when scanning ancestors of the context root.
+	sibling := filepath.Join(root, "services", "other")
+	if err := os.MkdirAll(filepath.Join(sibling, "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".dockerignore"), []byte("*.log\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(service, ".dockerignore"), []byte("tmp/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sibling, "deep", ".dockerignore"), []byte("should-not-load\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := New()
+	n, err := m.ScanContextTree(service, root, ".dockerignore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 2 {
+		t.Fatalf("expected context + ancestor ignore files, got %d", n)
+	}
+	if !m.Match("app.log", false) {
+		t.Fatal("root .dockerignore should apply")
+	}
+	if !m.Match("tmp", true) {
+		t.Fatal("service .dockerignore should apply")
+	}
+	if m.Match("should-not-load", false) {
+		t.Fatal("sibling ignore file must not be loaded")
+	}
+}
+

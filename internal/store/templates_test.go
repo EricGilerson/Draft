@@ -38,15 +38,20 @@ func TestSeedBuiltinsReconcilesExistingBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTemplates: %v", err)
 	}
-	var next *ServiceTemplate
+	var nextID uint
 	for i := range list {
 		if list[i].Name == "Next.js" {
-			next = &list[i]
+			nextID = list[i].ID
 			break
 		}
 	}
-	if next == nil {
+	if nextID == 0 {
 		t.Fatal("Next.js template not seeded")
+	}
+	// ListTemplates omits Dockerfile blobs; load full body for reconcile checks.
+	next, err := s.GetTemplate(nextID)
+	if err != nil {
+		t.Fatalf("GetTemplate: %v", err)
 	}
 	original := next.Dockerfile
 	if !strings.Contains(original, "next start") && !strings.Contains(original, `"npm", "start"`) {
@@ -71,6 +76,34 @@ func TestSeedBuiltinsReconcilesExistingBuiltin(t *testing.T) {
 	}
 	if !got.Builtin {
 		t.Error("reconciled template lost Builtin flag")
+	}
+}
+
+func TestListTemplatesOmitsDockerfile(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var nextID uint
+	for _, tpl := range list {
+		if tpl.Name == "Next.js" {
+			if tpl.Dockerfile != "" {
+				t.Fatalf("ListTemplates should omit Dockerfile, got %d bytes", len(tpl.Dockerfile))
+			}
+			nextID = tpl.ID
+			break
+		}
+	}
+	if nextID == 0 {
+		t.Fatal("Next.js not found")
+	}
+	full, err := s.GetTemplate(nextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.Dockerfile == "" {
+		t.Fatal("GetTemplate should include Dockerfile body")
 	}
 }
 
