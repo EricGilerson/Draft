@@ -36,6 +36,31 @@ func (s *Store) GetNodeSettings(nodeID string) (map[string]string, error) {
 	return m, nil
 }
 
+// GetNodeSettingsByNodes returns settings for many nodes in one query.
+// Missing nodes are present as empty maps.
+func (s *Store) GetNodeSettingsByNodes(nodeIDs []string) (map[string]map[string]string, error) {
+	out := make(map[string]map[string]string, len(nodeIDs))
+	for _, id := range nodeIDs {
+		out[id] = map[string]string{}
+	}
+	if len(nodeIDs) == 0 {
+		return out, nil
+	}
+	var settings []NodeSetting
+	if err := s.DB.Where("node_id IN ?", nodeIDs).Find(&settings).Error; err != nil {
+		return nil, err
+	}
+	for _, ns := range settings {
+		m := out[ns.NodeID]
+		if m == nil {
+			m = map[string]string{}
+			out[ns.NodeID] = m
+		}
+		m[ns.Key] = ns.Value
+	}
+	return out, nil
+}
+
 // DeleteNodeSettings removes all settings for a node.
 func (s *Store) DeleteNodeSettings(nodeID string) error {
 	return s.DB.Delete(&NodeSetting{}, "node_id = ?", nodeID).Error

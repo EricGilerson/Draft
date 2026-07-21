@@ -1319,6 +1319,17 @@ func (a *App) GetDeployments(nodeID string) ([]store.Deployment, error) {
 	return c.GetDeployments(a.ctx, nodeID)
 }
 
+func (a *App) GetDeploymentsPage(nodeID string, limit, offset int) (*deploy.DeploymentListPage, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.GetDeploymentsPage(a.ctx, nodeID, limit, offset)
+}
+
 func (a *App) GetActiveDeployment(nodeID string) (*store.Deployment, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {

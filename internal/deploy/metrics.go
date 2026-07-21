@@ -114,13 +114,19 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 	if err != nil {
 		return ServiceMetrics{}, err
 	}
-	deployments, err := e.store.ListDeployments(nodeID)
+	deployments, err := e.store.ListDeploymentsLimited(nodeID, recentDeployWindow)
+	if err != nil {
+		return ServiceMetrics{}, err
+	}
+	totalCount, err := e.store.CountDeployments(nodeID)
 	if err != nil {
 		return ServiceMetrics{}, err
 	}
 
 	desiredPort, _ := strconv.Atoi(strings.TrimSpace(settings["service_port"]))
 	serviceType := serviceTypeFromPort(desiredPort)
+	summary := summarizeDeploymentHistory(deployments)
+	summary.TotalDeployments = int(totalCount)
 	metrics := ServiceMetrics{
 		NodeID:      nodeID,
 		ServiceName: node.Label,
@@ -130,7 +136,7 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		Reachability: ReachabilityCheck{
 			Status: "not_running",
 		},
-		DeploymentSummary: summarizeDeploymentHistory(deployments),
+		DeploymentSummary: summary,
 		RecentDeployments: buildTimelineItems(deployments),
 		Events:            buildRuntimeEvents(deployments),
 		LivePoints:        e.metricSeries(nodeID),
@@ -141,12 +147,9 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		metrics.Status = latest.Status
 	}
 
-	var active *store.Deployment
-	for i := range deployments {
-		if deployments[i].Status != "stopped" && deployments[i].Status != "failed" {
-			active = &deployments[i]
-			break
-		}
+	active, err := e.store.ActiveDeployment(nodeID)
+	if err != nil {
+		return ServiceMetrics{}, err
 	}
 	if active == nil && len(deployments) > 0 {
 		active = &deployments[0]
@@ -175,22 +178,16 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		return metrics, nil
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		metrics.LiveMetricsError = "Could not connect to Docker."
 		return metrics, nil
 	}
-	defer cli.Close()
 
-	inspect, _, inspectErr := cli.ContainerInspectWithRaw(ctx, active.ContainerID, true)
+	// Skip size calculation (expensive); SizeRootFs/SizeRw stay zero unless needed.
+	inspect, inspectErr := cli.ContainerInspect(ctx, active.ContainerID)
 	if inspectErr == nil {
 		metrics.RestartCount = inspect.RestartCount
-		if inspect.SizeRootFs != nil {
-			metrics.ImageSizeBytes = *inspect.SizeRootFs
-		}
-		if inspect.SizeRw != nil {
-			metrics.WritableSizeBytes = *inspect.SizeRw
-		}
 		if inspect.State != nil {
 			metrics.OOMKilled = inspect.State.OOMKilled || metrics.OOMKilled
 			if inspect.State.Health != nil {
@@ -205,7 +202,7 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 		metrics.LiveMetricsError = "Container inspect failed."
 	}
 
-	point, pointErr := e.collectLiveMetricPoint(ctx, active)
+	point, pointErr := e.collectLiveMetricPoint(ctx, cli, active)
 	if pointErr == nil {
 		metrics.LivePoints = e.recordMetricPoint(nodeID, point)
 		metrics.LatestPoint = &point
@@ -217,12 +214,14 @@ func (e *Engine) GetServiceMetrics(ctx context.Context, nodeID string) (ServiceM
 	return metrics, nil
 }
 
-func (e *Engine) collectLiveMetricPoint(ctx context.Context, dep *store.Deployment) (MetricPoint, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return MetricPoint{}, err
+func (e *Engine) collectLiveMetricPoint(ctx context.Context, cli *client.Client, dep *store.Deployment) (MetricPoint, error) {
+	if cli == nil {
+		var err error
+		cli, err = e.dockerClient()
+		if err != nil {
+			return MetricPoint{}, err
+		}
 	}
-	defer cli.Close()
 
 	resp, err := cli.ContainerStatsOneShot(ctx, dep.ContainerID)
 	if err != nil {

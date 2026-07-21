@@ -132,17 +132,28 @@ func listEnvironmentServices(s *store.Store, env store.Environment) (Environment
 		Services:  make([]ProjectService, 0, len(nodes)),
 		Status:    "stopped",
 	}
+	if len(nodes) == 0 {
+		return sum, nil
+	}
+	nodeIDs := make([]string, len(nodes))
+	for i, node := range nodes {
+		nodeIDs[i] = node.ID
+	}
+	settingsByNode, err := s.GetNodeSettingsByNodes(nodeIDs)
+	if err != nil {
+		return EnvironmentServices{}, err
+	}
+	activeByNode, err := s.ListActiveDeploymentsByNodes(nodeIDs)
+	if err != nil {
+		return EnvironmentServices{}, err
+	}
 	var latest *time.Time
 	for _, node := range nodes {
-		settings, err := s.GetNodeSettings(node.ID)
-		if err != nil {
-			return EnvironmentServices{}, err
+		settings := settingsByNode[node.ID]
+		if settings == nil {
+			settings = map[string]string{}
 		}
-		dep, err := s.ActiveDeployment(node.ID)
-		if err != nil {
-			return EnvironmentServices{}, err
-		}
-		svc := projectServiceFromNode(node, env, settings, dep)
+		svc := projectServiceFromNode(node, env, settings, activeByNode[node.ID])
 		sum.Services = append(sum.Services, svc)
 		switch svc.Status {
 		case "running":

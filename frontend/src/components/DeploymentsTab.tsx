@@ -1,16 +1,17 @@
 import {ChevronDown, ChevronRight, AlertCircle, GitCommitHorizontal, RotateCw} from 'lucide-react';
-import {useEffect, useRef, useState} from 'react';
-import {GetDeployments, GetBuildLog, RollbackDeployment, RollbackEligibility} from '../../wailsjs/go/main/App';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {GetDeploymentsPage, GetBuildLog, RollbackDeployment, RollbackEligibility} from '../../wailsjs/go/main/App';
 import {store, deploy} from '../../wailsjs/go/models';
 import {useAppDialog} from './AppDialogProvider';
 import {useBuildLog} from './BuildLogProvider';
 import StatusBadge from './StatusBadge';
 import {Skeleton} from './Skeleton';
 
+const PAGE_SIZE = 50;
+
 /** Short form for list rows; full SHA stays in title/tooltip. */
 function shortSha(sha?: string): string {
-    const value = (sha ?? '').trim();
-    return value ? value.slice(0, 7) : '';
+    return (sha ?? '').trim().slice(0, 7);
 }
 
 function DeployHistorySkeleton() {
@@ -37,7 +38,10 @@ function DeployHistorySkeleton() {
 
 export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     const [deployments, setDeployments] = useState<store.Deployment[]>([]);
+    const [total, setTotal] = useState(0);
+    const [hasMore, setHasMore] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [expandedId, setExpandedId] = useState<number | null>(null);
     const [buildLog, setBuildLog] = useState('');
     const [eligibility, setEligibility] = useState<Record<number, deploy.RollbackEligibility>>({});
@@ -47,7 +51,7 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
     const {lines: liveBuildLines, deploying, version} = useBuildLog(nodeId);
     const {confirm} = useAppDialog();
 
-    const refreshEligibility = () => {
+    const refreshEligibility = useCallback(() => {
         RollbackEligibility(nodeId)
             .then((items) => {
                 const map: Record<number, deploy.RollbackEligibility> = {};
@@ -55,22 +59,46 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                 setEligibility(map);
             })
             .catch(() => setEligibility({}));
-    };
+    }, [nodeId]);
+
+    const applyPage = useCallback((page: deploy.DeploymentListPage, append: boolean) => {
+        const rows = page.deployments ?? [];
+        setDeployments((prev) => {
+            if (!append) return rows;
+            const seen = new Set(prev.map((d) => d.id));
+            return [...prev, ...rows.filter((d) => !seen.has(d.id))];
+        });
+        setTotal(page.total ?? 0);
+        setHasMore(!!page.hasMore);
+    }, []);
+
+    const loadPage = useCallback(async (offset: number, append: boolean) => {
+        if (append) setLoadingMore(true);
+        else setLoading(true);
+        try {
+            const page = await GetDeploymentsPage(nodeId, PAGE_SIZE, offset);
+            applyPage(page ?? deploy.DeploymentListPage.createFrom({deployments: [], total: 0, limit: PAGE_SIZE, offset, hasMore: false}), append);
+        } finally {
+            if (append) setLoadingMore(false);
+            else setLoading(false);
+        }
+    }, [nodeId, applyPage]);
 
     useEffect(() => {
-        setLoading(true);
         setDeployments([]);
-        GetDeployments(nodeId)
-            .then(d => setDeployments(d || []))
-            .finally(() => setLoading(false));
+        setTotal(0);
+        setHasMore(false);
+        setExpandedId(null);
+        setBuildLog('');
+        void loadPage(0, false);
         refreshEligibility();
-    }, [nodeId]);
+    }, [nodeId, loadPage, refreshEligibility]);
 
     useEffect(() => {
         if (version === 0) return;
-        GetDeployments(nodeId).then(d => setDeployments(d || []));
+        void loadPage(0, false);
         refreshEligibility();
-    }, [nodeId, version]);
+    }, [nodeId, version, loadPage, refreshEligibility]);
 
     useEffect(() => {
         if (buildLogRef.current) {
@@ -89,7 +117,9 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
         setExpandedId(dep.id);
         setBuildLog('');
         const log = await GetBuildLog(dep.id);
-        setBuildLog(log);
+        // Cap rendered history so expanding an old fat build does not freeze the tab.
+        const lines = (log || '').split('\n').filter(Boolean);
+        setBuildLog(lines.length > 1500 ? lines.slice(-1500).join('\n') : (log || ''));
     };
 
     const handleRollback = async (dep: store.Deployment) => {
@@ -115,6 +145,11 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
             });
     };
 
+    const loadMore = () => {
+        if (loadingMore || !hasMore) return;
+        void loadPage(deployments.length, true);
+    };
+
     return (
         <div className="deployments-tab">
             {isBuilding && liveBuildLines.length > 0 && (
@@ -129,7 +164,14 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
             )}
 
             <div className="deploy-history">
-                <h4 className="deploy-history-title">History</h4>
+                <h4 className="deploy-history-title">
+                    History
+                    {total > 0 && (
+                        <span className="deploy-history-count">
+                            {deployments.length} of {total}
+                        </span>
+                    )}
+                </h4>
                 {rollbackError && (
                     <div className="deploy-entry-error"><AlertCircle size={12}/> {rollbackError}</div>
                 )}
@@ -225,6 +267,18 @@ export default function DeploymentsTab({nodeId}: {nodeId: string}) {
                     </div>
                     );
                 })}
+                {hasMore && (
+                    <div className="deploy-history-more">
+                        <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={loadMore}
+                            disabled={loadingMore}
+                        >
+                            {loadingMore ? 'Loading…' : 'Load more'}
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );

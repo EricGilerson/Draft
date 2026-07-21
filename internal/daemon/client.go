@@ -588,6 +588,19 @@ func (c *Client) GetDeployments(ctx context.Context, nodeID string) ([]store.Dep
 	return out, err
 }
 
+func (c *Client) GetDeploymentsPage(ctx context.Context, nodeID string, limit, offset int) (*deploy.DeploymentListPage, error) {
+	var out deploy.DeploymentListPage
+	q := fmt.Sprintf("/deployments?nodeId=%s&limit=%d&offset=%d", url.QueryEscape(nodeID), limit, offset)
+	err := c.get(ctx, q, &out)
+	if err != nil {
+		return nil, err
+	}
+	if out.Deployments == nil {
+		out.Deployments = []store.Deployment{}
+	}
+	return &out, nil
+}
+
 func (c *Client) GetActiveDeployment(ctx context.Context, nodeID string) (*store.Deployment, error) {
 	var out *store.Deployment
 	err := c.get(ctx, "/active-deployment?nodeId="+url.QueryEscape(nodeID), &out)

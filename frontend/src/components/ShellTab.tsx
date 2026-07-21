@@ -31,6 +31,12 @@ const FONT_STORAGE_KEY = 'draft:shell-font-size';
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 13;
+const MAX_RUN_OUTPUT_CHARS = 200_000;
+
+function truncateRunOutput(text: string): string {
+    if (!text || text.length <= MAX_RUN_OUTPUT_CHARS) return text;
+    return text.slice(text.length - MAX_RUN_OUTPUT_CHARS) + '\n==> output truncated (display limit)\n';
+}
 
 function readFontSize(): number {
     const raw = localStorage.getItem(FONT_STORAGE_KEY);
@@ -245,6 +251,7 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             const resizeDisp = term.onResize(() => sendResize(term!, ws));
 
             const hostEl = termRef.current;
+            let fitTimer = 0;
             const onKey = (ev: globalThis.KeyboardEvent) => {
                 if (!(ev.ctrlKey || ev.metaKey) || ev.key.toLowerCase() !== 'v') return;
                 if (statusRef.current !== 'open') return;
@@ -265,11 +272,21 @@ export default function ShellTab({nodeId}: ShellTabProps) {
             hostEl.addEventListener('keydown', onKey);
 
             const ro = new ResizeObserver(() => {
-                try { fit!.fit(); } catch { /* ignore */ }
+                if (fitTimer) window.clearTimeout(fitTimer);
+                fitTimer = window.setTimeout(() => {
+                    fitTimer = 0;
+                    try {
+                        fit!.fit();
+                        if (term && ws.readyState === WebSocket.OPEN) {
+                            sendResize(term, ws);
+                        }
+                    } catch { /* ignore */ }
+                }, 100);
             });
             ro.observe(hostEl);
 
             cleanup = () => {
+                if (fitTimer) window.clearTimeout(fitTimer);
                 dataDisp.dispose();
                 resizeDisp.dispose();
                 ro.disconnect();
@@ -313,9 +330,9 @@ export default function ShellTab({nodeId}: ShellTabProps) {
         RunCommand(targetNodeId, argv, workDir.trim())
             .then((res: deploy.RunCommandResult) => {
                 setRunning(false);
-                setRunOutput(res.output || '');
+                setRunOutput(truncateRunOutput(res.output || ''));
                 setRunExit(res.exitCode);
-                if (res.error) setRunOutput((prev) => (prev ? prev + '\n' : '') + `[error] ${res.error}`);
+                if (res.error) setRunOutput((prev) => truncateRunOutput((prev ? prev + '\n' : '') + `[error] ${res.error}`));
             })
             .catch((e: any) => {
                 setRunning(false);

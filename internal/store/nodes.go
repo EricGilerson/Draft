@@ -160,31 +160,36 @@ func (s *Store) UpdateNode(id string, x, y float64, label string) error {
 			// through a rename rather than silently leaving @{old-name.X} broken.
 			oldToken := "@{" + node.Label + "."
 			newToken := "@{" + label + "."
-			var peers []CanvasNode
-			if err := tx.Where("environment_id = ?", node.EnvironmentID).Find(&peers).Error; err != nil {
+			var peerIDs []string
+			if err := tx.Model(&CanvasNode{}).Where("environment_id = ?", node.EnvironmentID).Pluck("id", &peerIDs).Error; err != nil {
 				return err
 			}
-			for _, peer := range peers {
+			if len(peerIDs) > 0 {
+				like := "%" + oldToken + "%"
 				var vars []EnvVar
-				if err := tx.Where("node_id = ?", peer.ID).Find(&vars).Error; err != nil {
+				if err := tx.Where("node_id IN ? AND value LIKE ?", peerIDs, like).Find(&vars).Error; err != nil {
 					return err
 				}
 				for _, variable := range vars {
-					if updated := strings.ReplaceAll(variable.Value, oldToken, newToken); updated != variable.Value {
-						if err := tx.Model(&EnvVar{}).Where("node_id = ? AND key = ?", peer.ID, variable.Key).Update("value", updated).Error; err != nil {
-							return err
-						}
+					updated := strings.ReplaceAll(variable.Value, oldToken, newToken)
+					if updated == variable.Value {
+						continue
+					}
+					if err := tx.Model(&EnvVar{}).Where("node_id = ? AND key = ?", variable.NodeID, variable.Key).Update("value", updated).Error; err != nil {
+						return err
 					}
 				}
 				var staged []EnvVarStaged
-				if err := tx.Where("node_id = ?", peer.ID).Find(&staged).Error; err != nil {
+				if err := tx.Where("node_id IN ? AND value LIKE ?", peerIDs, like).Find(&staged).Error; err != nil {
 					return err
 				}
 				for _, variable := range staged {
-					if updated := strings.ReplaceAll(variable.Value, oldToken, newToken); updated != variable.Value {
-						if err := tx.Model(&EnvVarStaged{}).Where("node_id = ? AND key = ?", peer.ID, variable.Key).Update("value", updated).Error; err != nil {
-							return err
-						}
+					updated := strings.ReplaceAll(variable.Value, oldToken, newToken)
+					if updated == variable.Value {
+						continue
+					}
+					if err := tx.Model(&EnvVarStaged{}).Where("node_id = ? AND key = ?", variable.NodeID, variable.Key).Update("value", updated).Error; err != nil {
+						return err
 					}
 				}
 			}

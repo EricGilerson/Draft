@@ -242,6 +242,17 @@ func (s *Store) DueSandboxes(now time.Time) ([]Sandbox, error) {
 	err := s.DB.Where("status IN ? AND expires_at <= ?", []string{"active", "warning"}, now).Order("expires_at asc").Find(&rows).Error
 	return rows, err
 }
+
+// ListSandboxesForLifecycle returns sandboxes that may need a reconcile pass:
+// live ones (for warning/expiry/idle-suspend) plus expired/cleanup_failed for purge/retry.
+func (s *Store) ListSandboxesForLifecycle() ([]Sandbox, error) {
+	var rows []Sandbox
+	err := s.DB.
+		Where("status IN ?", []string{"active", "warning", "suspended", "expired", "cleanup_failed"}).
+		Order("expires_at asc").
+		Find(&rows).Error
+	return rows, err
+}
 func (s *Store) DeleteSandboxByEnvironment(environmentID uint) error {
 	sandbox, err := s.GetSandboxByEnvironment(environmentID)
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -16,10 +16,11 @@ var (
 
 // ListTemplates returns all templates, built-ins first then user templates,
 // each group ordered by name. Built-ins come first so the library presents the
-// curated defaults above user-created entries.
+// curated defaults above user-created entries. Dockerfile blobs are omitted —
+// load them via GetTemplate when editing/stamping.
 func (s *Store) ListTemplates() ([]ServiceTemplate, error) {
 	var templates []ServiceTemplate
-	if err := s.DB.Order("builtin desc, name asc").Find(&templates).Error; err != nil {
+	if err := s.DB.Omit("Dockerfile").Order("builtin desc, name asc").Find(&templates).Error; err != nil {
 		return nil, err
 	}
 	return templates, nil

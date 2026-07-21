@@ -305,16 +305,22 @@ func TestStreamBuildOutputSuccess(t *testing.T) {
 
 	var nodeEvents []emittedEvent
 	for _, ev := range col.get() {
-		if ev.Name == "build:log:test-node" {
-			nodeEvents = append(nodeEvents, ev)
+		if ev.Name != "build:log" {
+			continue
 		}
+		m, ok := ev.Data.(map[string]any)
+		if !ok || m["nodeId"] != "test-node" {
+			continue
+		}
+		nodeEvents = append(nodeEvents, ev)
 	}
 	// 1 "Building image..." + 3 stream lines = 4
 	if len(nodeEvents) != 4 {
-		t.Fatalf("expected 4 per-node log events, got %d", len(nodeEvents))
+		t.Fatalf("expected 4 build log events, got %d", len(nodeEvents))
 	}
 	for _, ev := range nodeEvents {
-		ll := ev.Data.(LogLine)
+		m := ev.Data.(map[string]any)
+		ll := m["line"].(LogLine)
 		if ll.Stream != "build" {
 			t.Errorf("expected stream=build, got %s", ll.Stream)
 		}
@@ -351,13 +357,18 @@ func TestStreamBuildOutputError(t *testing.T) {
 
 	var nodeEvents []emittedEvent
 	for _, ev := range col.get() {
-		if ev.Name == "build:log:test-node" {
-			nodeEvents = append(nodeEvents, ev)
+		if ev.Name != "build:log" {
+			continue
 		}
+		m, ok := ev.Data.(map[string]any)
+		if !ok || m["nodeId"] != "test-node" {
+			continue
+		}
+		nodeEvents = append(nodeEvents, ev)
 	}
 	// 1 "Building image..." + 1 stream + 1 error = 3
 	if len(nodeEvents) != 3 {
-		t.Fatalf("expected 3 per-node log events, got %d", len(nodeEvents))
+		t.Fatalf("expected 3 build log events, got %d", len(nodeEvents))
 	}
 }
 
@@ -578,6 +589,32 @@ func TestGetDeploymentsDelegates(t *testing.T) {
 	}
 	if active == nil || active.Status != "running" {
 		t.Fatalf("expected running active deployment, got %+v", active)
+	}
+}
+
+func TestGetDeploymentsPage(t *testing.T) {
+	s := openTestStore(t)
+	s.DB.Create(&store.Project{Name: "proj", Path: "/proj"})
+	s.DB.Create(&store.CanvasNode{ID: "n1", ProjectID: 1, Label: "svc"})
+	for i := 0; i < 3; i++ {
+		if _, err := s.CreateDeployment(&store.Deployment{NodeID: "n1", ProjectID: 1, Status: "stopped"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e, _ := newTestEngine(t, s)
+	page, err := e.GetDeploymentsPage("n1", 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 3 || len(page.Deployments) != 2 || !page.HasMore {
+		t.Fatalf("page = %+v", page)
+	}
+	page2, err := e.GetDeploymentsPage("n1", 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page2.Total != 3 || len(page2.Deployments) != 1 || page2.HasMore {
+		t.Fatalf("page2 = %+v", page2)
 	}
 }
 

@@ -5,15 +5,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-const maxContainerLogHistoryTail = 10000
+const (
+	maxContainerLogHistoryTail = 10000
+	maxContainerLogHistoryBytes = 4 << 20 // 4 MiB demux cap
+)
 
 // GetContainerLogHistory returns a non-following Docker log snapshot. The
 // requested tail is capped so a scroll gesture cannot accidentally pull an
@@ -27,11 +30,10 @@ func (e *Engine) GetContainerLogHistory(ctx context.Context, nodeID string, tail
 	if err != nil || dep == nil || dep.ContainerID == "" {
 		return nil, fmt.Errorf("no active container for log history")
 	}
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		return nil, err
 	}
-	defer cli.Close()
 
 	reader, err := cli.ContainerLogs(ctx, dep.ContainerID, container.LogsOptions{
 		ShowStdout: true,
@@ -44,8 +46,9 @@ func (e *Engine) GetContainerLogHistory(ctx context.Context, nodeID string, tail
 	}
 	defer reader.Close()
 
+	limited := &io.LimitedReader{R: reader, N: maxContainerLogHistoryBytes}
 	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, reader); err != nil {
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, limited); err != nil && err != io.EOF {
 		return nil, err
 	}
 	lines := append(scanContainerLogLines(stdout.Bytes(), "stdout"), scanContainerLogLines(stderr.Bytes(), "stderr")...)

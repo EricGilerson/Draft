@@ -57,10 +57,18 @@ export default function HostnameHealth() {
                 });
         };
         load();
-        const id = window.setInterval(load, 30_000);
+        const id = window.setInterval(load, 60_000);
+        const onFocus = () => load();
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') load();
+        };
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onVisibility);
         return () => {
             cancelled = true;
             window.clearInterval(id);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onVisibility);
         };
     }, []);
 

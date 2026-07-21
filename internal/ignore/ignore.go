@@ -324,6 +324,51 @@ func matchDoublestar(pat, name string) bool {
 
 // ---- scanning ----
 
+// ScanContextTree walks tarRoot for ignore files named target, and also checks
+// ancestor directories up to scanCeiling (typically the project root) without
+// walking sibling trees outside the build context.
+func (m *Matcher) ScanContextTree(tarRoot, scanCeiling, target string) (int, error) {
+	tarRoot = filepath.Clean(tarRoot)
+	scanCeiling = filepath.Clean(scanCeiling)
+	if !isAncestorOrSame(scanCeiling, tarRoot) {
+		scanCeiling = tarRoot
+	}
+
+	count := 0
+	// Descendants within the context root.
+	n, err := m.ScanDir(tarRoot, tarRoot, target)
+	count += n
+	if err != nil {
+		return count, err
+	}
+
+	// Ancestors from parent(tarRoot) up to scanCeiling (inclusive).
+	cur := filepath.Clean(filepath.Dir(tarRoot))
+	for {
+		if !isAncestorOrSame(scanCeiling, cur) && cur != scanCeiling {
+			break
+		}
+		ignorePath := filepath.Join(cur, target)
+		if info, err := os.Stat(ignorePath); err == nil && !info.IsDir() {
+			prefix, prefixErr := filepath.Rel(cur, tarRoot)
+			if prefixErr == nil {
+				if err := m.addFile(ignorePath, "", filepath.ToSlash(prefix)); err == nil {
+					count++
+				}
+			}
+		}
+		if cur == scanCeiling {
+			break
+		}
+		parent := filepath.Clean(filepath.Dir(cur))
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return count, nil
+}
+
 // ScanDir walks scanRoot looking for files named target (e.g. ".gitignore" or
 // ".dockerignore") and adds each one to m. tarRoot is the directory that will
 // be tarred; pattern bases are computed relative to it.

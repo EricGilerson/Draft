@@ -167,6 +167,7 @@ func (e *Engine) DeleteService(ctx context.Context, nodeID string) error {
 		}
 	}
 	e.removeBuildLogs(deployments)
+	e.clearNodeRuntimeState(nodeID)
 
 	if err := e.router.UnregisterNode(nodeID); err != nil {
 		return fmt.Errorf("unregister routes: %w", err)

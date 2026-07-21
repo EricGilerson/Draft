@@ -266,9 +266,14 @@ CMD ["true"]
 	// Also check that build log events were emitted
 	var buildLogEvents []emittedEvent
 	for _, ev := range col.get() {
-		if ev.Name == "build:log:svc1" {
-			buildLogEvents = append(buildLogEvents, ev)
+		if ev.Name != "build:log" {
+			continue
 		}
+		m, ok := ev.Data.(map[string]any)
+		if !ok || m["nodeId"] != "svc1" {
+			continue
+		}
+		buildLogEvents = append(buildLogEvents, ev)
 	}
 	if len(buildLogEvents) == 0 {
 		t.Error("expected build:log events to be emitted")

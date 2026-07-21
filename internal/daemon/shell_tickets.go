@@ -22,7 +22,19 @@ type shellTicketStore struct {
 }
 
 func newShellTicketStore() *shellTicketStore {
-	return &shellTicketStore{tickets: make(map[string]shellTicket)}
+	st := &shellTicketStore{tickets: make(map[string]shellTicket)}
+	go st.purgeLoop()
+	return st
+}
+
+func (st *shellTicketStore) purgeLoop() {
+	ticker := time.NewTicker(shellTicketTTL)
+	defer ticker.Stop()
+	for range ticker.C {
+		st.mu.Lock()
+		st.purgeExpiredLocked(time.Now().UTC())
+		st.mu.Unlock()
+	}
 }
 
 func (st *shellTicketStore) mint(nodeID, shell string) (ticket string, expiresAt time.Time, err error) {

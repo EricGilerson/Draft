@@ -5,9 +5,6 @@ import (
 	"strings"
 
 	"Draft/internal/networking"
-	"Draft/internal/store"
-
-	"github.com/docker/docker/client"
 )
 
 // NodeHealth is a lightweight, canvas-friendly subset of service state: just
@@ -53,7 +50,7 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 		isLinked = true
 	}
 
-	deployments, err := e.store.ListDeployments(healthNodeID)
+	latest, err := e.store.LatestDeployment(healthNodeID)
 	if err != nil {
 		return out, err
 	}
@@ -67,8 +64,7 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 	// Always expose the newest deployment attempt — ActiveDeployment skips
 	// failed/stopped rows so a bad rebuild would otherwise be invisible while
 	// an older container keeps running.
-	if len(deployments) > 0 {
-		latest := deployments[0]
+	if latest != nil {
 		out.LastDeploymentID = latest.ID
 		out.LastDeployStatus = latest.Status
 		out.LastDeployError = latest.Error
@@ -76,15 +72,12 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 		out.LastDeployFailed = latest.Status == "failed"
 	}
 
-	var active *store.Deployment
-	for i := range deployments {
-		if deployments[i].Status != "stopped" && deployments[i].Status != "failed" {
-			active = &deployments[i]
-			break
-		}
+	active, err := e.store.ActiveDeployment(healthNodeID)
+	if err != nil {
+		return out, err
 	}
-	if active == nil && len(deployments) > 0 {
-		active = &deployments[0]
+	if active == nil && latest != nil {
+		active = latest
 	}
 	if active == nil {
 		return out, nil
@@ -112,11 +105,10 @@ func (e *Engine) GetNodeHealth(ctx context.Context, nodeID string) (NodeHealth, 
 		return out, nil
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		return out, nil
 	}
-	defer cli.Close()
 
 	inspect, err := cli.ContainerInspect(ctx, active.ContainerID)
 	if err != nil {

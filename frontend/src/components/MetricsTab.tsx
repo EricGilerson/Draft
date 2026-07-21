@@ -61,10 +61,24 @@ export default function MetricsTab({nodeId}: {nodeId: string}) {
         };
 
         void load(true);
-        intervalId = window.setInterval(() => void load(false), 3000);
+        const schedule = () => {
+            const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+            const delay = hidden ? 15_000 : 3000;
+            intervalId = window.setTimeout(() => {
+                void load(false).then(() => {
+                    if (!cancelled) schedule();
+                });
+            }, delay);
+        };
+        schedule();
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') void load(false);
+        };
+        document.addEventListener('visibilitychange', onVisibility);
         return () => {
             cancelled = true;
-            if (intervalId !== null) window.clearInterval(intervalId);
+            if (intervalId !== null) window.clearTimeout(intervalId);
+            document.removeEventListener('visibilitychange', onVisibility);
         };
     }, [targetNodeId, linkLoading]);
 

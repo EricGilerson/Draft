@@ -62,12 +62,15 @@ func setupSubmoduleDeploy(t *testing.T, parentDir string) (*Engine, *store.Store
 
 func collectBuildLog(col *eventCollector, nodeID string) string {
 	var b strings.Builder
-	prefix := "build:log:" + nodeID
 	for _, ev := range col.get() {
-		if ev.Name != prefix {
+		if ev.Name != "build:log" {
 			continue
 		}
-		switch data := ev.Data.(type) {
+		m, ok := ev.Data.(map[string]any)
+		if !ok || m["nodeId"] != nodeID {
+			continue
+		}
+		switch data := m["line"].(type) {
 		case LogLine:
 			b.WriteString(data.Line)
 			b.WriteByte('\n')

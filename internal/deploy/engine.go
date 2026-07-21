@@ -55,6 +55,8 @@ type Engine struct {
 	stats          map[string][]MetricPoint
 	activityMu     sync.Mutex
 	lastProxyTouch map[string]time.Time // nodeID → last sandbox activity touch
+	dockerMu       sync.Mutex
+	docker         *client.Client
 }
 
 // DeferredBuildSHA records a commit reported by a git hook while a service is
@@ -77,6 +79,38 @@ func New(s *store.Store, router *networking.Router, logDir string, emit func(str
 		stats:          make(map[string][]MetricPoint),
 		lastProxyTouch: make(map[string]time.Time),
 	}
+}
+
+// dockerClient returns a process-wide Docker client, recreating it if the
+// previous handle is gone. Callers must not Close the returned client.
+func (e *Engine) dockerClient() (*client.Client, error) {
+	e.dockerMu.Lock()
+	defer e.dockerMu.Unlock()
+	if e.docker != nil {
+		return e.docker, nil
+	}
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, err
+	}
+	e.docker = cli
+	return cli, nil
+}
+
+// clearNodeRuntimeState drops per-node in-memory caches after a service delete.
+func (e *Engine) clearNodeRuntimeState(nodeID string) {
+	e.statsMu.Lock()
+	delete(e.stats, nodeID)
+	e.statsMu.Unlock()
+	e.activityMu.Lock()
+	delete(e.lastProxyTouch, nodeID)
+	e.activityMu.Unlock()
+	e.logsMu.Lock()
+	if cancel, ok := e.logSubs[nodeID]; ok {
+		cancel()
+		delete(e.logSubs, nodeID)
+	}
+	e.logsMu.Unlock()
 }
 
 // ActiveBuilds returns a stable snapshot of deployments that are still owned
@@ -695,12 +729,12 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 	matcher := ignore.New()
 	if settings["use_dockerignore"] == "true" {
 		e.emitBuildLog(nodeID, "==> Scanning for .dockerignore files...")
-		n, _ := matcher.ScanDir(projectPath, plan.ContextRoot, ".dockerignore")
+		n, _ := matcher.ScanContextTree(plan.ContextRoot, projectPath, ".dockerignore")
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .dockerignore file(s)", n))
 	}
 	if settings["use_gitignore"] == "true" {
 		e.emitBuildLog(nodeID, "==> Scanning for .gitignore files...")
-		n, _ := matcher.ScanDir(projectPath, plan.ContextRoot, ".gitignore")
+		n, _ := matcher.ScanContextTree(plan.ContextRoot, projectPath, ".gitignore")
 		e.emitBuildLog(nodeID, fmt.Sprintf("    Found %d .gitignore file(s)", n))
 	}
 
@@ -713,7 +747,11 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		return fmt.Errorf("cannot create build context: %w", err)
 	}
 	defer buildContext.Close()
-	e.emitBuildLog(nodeID, fmt.Sprintf("    Done: %d files, %.1f MB in %s", fileCount, float64(totalBytes)/(1024*1024), time.Since(packStart).Round(time.Millisecond)))
+	if totalBytes > 0 {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Done: %d files, %.1f MB in %s", fileCount, float64(totalBytes)/(1024*1024), time.Since(packStart).Round(time.Millisecond)))
+	} else {
+		e.emitBuildLog(nodeID, fmt.Sprintf("    Streaming build context (started %s)", time.Since(packStart).Round(time.Millisecond)))
+	}
 
 	e.emitBuildLog(nodeID, "==> Sending build context to Docker...")
 	e.emitBuildLog(nodeID, fmt.Sprintf("    docker build -t %s -f %s", imageTag, plan.RelativeDockerfile))
@@ -723,13 +761,19 @@ func (e *Engine) buildImageLegacy(ctx context.Context, cli *client.Client, logFi
 		reader:     buildContext,
 		totalBytes: totalBytes,
 		onProgress: func(sent int64, total int64) {
-			pct := int(float64(sent) / float64(total) * 100)
-			e.emit("deploy:upload-progress", map[string]any{
-				"nodeId":     nodeID,
-				"percent":    pct,
-				"sentBytes":  sent,
-				"totalBytes": total,
-			})
+			payload := map[string]any{
+				"nodeId":    nodeID,
+				"sentBytes": sent,
+			}
+			if total > 0 {
+				payload["percent"] = int(float64(sent) / float64(total) * 100)
+				payload["totalBytes"] = total
+			} else {
+				payload["indeterminate"] = true
+				payload["percent"] = 0
+				payload["totalBytes"] = 0
+			}
+			e.emit("deploy:upload-progress", payload)
 		},
 	}
 
@@ -1288,16 +1332,25 @@ func (w *lineEmitterWriter) flushLocked() {
 func (u *uploadTracker) Read(p []byte) (int, error) {
 	n, err := u.reader.Read(p)
 	u.sent += int64(n)
+	if u.onProgress == nil || n == 0 {
+		return n, err
+	}
 	if u.totalBytes > 0 {
 		pct := int(float64(u.sent) / float64(u.totalBytes) * 100)
 		// Report at every 10% increment
 		step := pct / 10
 		if step > u.lastPct/10 {
 			u.lastPct = pct
-			if u.onProgress != nil {
-				u.onProgress(u.sent, u.totalBytes)
-			}
+			u.onProgress(u.sent, u.totalBytes)
 		}
+		return n, err
+	}
+	// Indeterminate: report about every 4 MiB so the UI still moves.
+	const chunk = 4 << 20
+	step := int(u.sent / chunk)
+	if step > u.lastPct {
+		u.lastPct = step
+		u.onProgress(u.sent, 0)
 	}
 	return n, err
 }
@@ -1517,7 +1570,7 @@ func (e *Engine) HandleDockerContainerEvent(action string, attrs map[string]stri
 	}
 	applyContainerExitResult(dep, exitCode, nil)
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		now := time.Now()
 		dep.FinishedAt = &now
@@ -1526,7 +1579,6 @@ func (e *Engine) HandleDockerContainerEvent(action string, attrs map[string]stri
 		e.emitStatus(dep.NodeID, StatusEvent{DeploymentID: dep.ID, Status: dep.Status, Error: dep.Error})
 		return
 	}
-	defer cli.Close()
 
 	e.stopContainerWatch(dep.NodeID)
 	e.finalizeContainerExit(context.Background(), cli, dep, dep.NodeID)
@@ -2028,7 +2080,54 @@ func (e *Engine) GetBuildLog(deploymentID uint) (string, error) {
 }
 
 func (e *Engine) GetDeployments(nodeID string) ([]store.Deployment, error) {
-	return e.store.ListDeployments(nodeID)
+	// Convenience first page for Overview / MCP. Deployments tab uses GetDeploymentsPage.
+	return e.store.ListDeploymentsLimited(nodeID, defaultDeploymentsPageSize)
+}
+
+const (
+	defaultDeploymentsPageSize = 50
+	maxDeploymentsPageSize     = 100
+)
+
+// DeploymentListPage is a paginated slice of a node's deploy history.
+type DeploymentListPage struct {
+	Deployments []store.Deployment `json:"deployments"`
+	Total       int64              `json:"total"`
+	Limit       int                `json:"limit"`
+	Offset      int                `json:"offset"`
+	HasMore     bool               `json:"hasMore"`
+}
+
+// GetDeploymentsPage returns a window of deployments plus total/hasMore so the
+// UI can page through long histories without loading every row.
+func (e *Engine) GetDeploymentsPage(nodeID string, limit, offset int) (*DeploymentListPage, error) {
+	if limit <= 0 {
+		limit = defaultDeploymentsPageSize
+	}
+	if limit > maxDeploymentsPageSize {
+		limit = maxDeploymentsPageSize
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	total, err := e.store.CountDeployments(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	deps, err := e.store.ListDeploymentsPage(nodeID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	if deps == nil {
+		deps = []store.Deployment{}
+	}
+	return &DeploymentListPage{
+		Deployments: deps,
+		Total:       total,
+		Limit:       limit,
+		Offset:      offset,
+		HasMore:     int64(offset+len(deps)) < total,
+	}, nil
 }
 
 func (e *Engine) GetActiveDeployment(nodeID string) (*store.Deployment, error) {
@@ -2105,9 +2204,10 @@ func (e *Engine) emitStatus(nodeID string, ev StatusEvent) {
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 func (e *Engine) emitBuildLog(nodeID string, line string) {
-	line = ansiRe.ReplaceAllString(line, "")
+	if strings.Contains(line, "\x1b") {
+		line = ansiRe.ReplaceAllString(line, "")
+	}
 	ll := LogLine{Line: line, Stream: "build"}
-	e.emit("build:log:"+nodeID, ll)
 	e.emit("build:log", map[string]any{"nodeId": nodeID, "line": ll})
 }
 
@@ -2309,47 +2409,18 @@ func tarDirectoryWithProgress(dir string, matcher *ignore.Matcher, progress func
 		return false
 	}
 
-	var fileCount int
-	var totalBytes int64
-
-	// First pass: stat-only walk to count files and bytes.
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if skipEntry(rel, info.IsDir()) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !info.IsDir() {
-			fileCount++
-			totalBytes += info.Size()
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, 0, 0, err
-	}
-
-	if progress != nil {
-		progress(fileCount, totalBytes)
-	}
-
-	// Second pass: build the tar archive.
+	// Single walk: pack while counting. totalBytes is unknown up front so upload
+	// progress is indeterminate; packaging progress still streams via callback.
 	pr, pw := io.Pipe()
+	counts := make(chan struct {
+		files int
+		bytes int64
+	}, 1)
 	go func() {
 		gw := gzip.NewWriter(pw)
 		tw := tar.NewWriter(gw)
+		var fileCount int
+		var totalBytes int64
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -2386,14 +2457,42 @@ func tarDirectoryWithProgress(dir string, matcher *ignore.Matcher, progress func
 			if err != nil {
 				return err
 			}
-			defer f.Close()
-			_, err = io.Copy(tw, f)
-			return err
+			_, copyErr := io.Copy(tw, f)
+			closeErr := f.Close()
+			if copyErr != nil {
+				return copyErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+			fileCount++
+			totalBytes += info.Size()
+			if progress != nil && (fileCount == 1 || fileCount%250 == 0) {
+				progress(fileCount, totalBytes)
+			}
+			return nil
 		})
+		counts <- struct {
+			files int
+			bytes int64
+		}{fileCount, totalBytes}
+		close(counts)
+		if progress != nil && err == nil {
+			progress(fileCount, totalBytes)
+		}
 		tw.Close()
 		gw.Close()
 		pw.CloseWithError(err)
 	}()
+
+	// Non-blocking peek: usually still 0; callers treat 0 as indeterminate upload.
+	var fileCount int
+	var totalBytes int64
+	select {
+	case c := <-counts:
+		fileCount, totalBytes = c.files, c.bytes
+	default:
+	}
 	return pr, fileCount, totalBytes, nil
 }
 

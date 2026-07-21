@@ -78,11 +78,63 @@ func (s *Store) DeleteDeploymentsByNode(nodeID string) error {
 }
 
 func (s *Store) ListDeployments(nodeID string) ([]Deployment, error) {
+	return s.ListDeploymentsLimited(nodeID, 0)
+}
+
+// ListDeploymentsLimited returns recent deployments for a node. limit <= 0
+// means unbounded (used by teardown/rollback paths that must see every row).
+func (s *Store) ListDeploymentsLimited(nodeID string, limit int) ([]Deployment, error) {
+	return s.ListDeploymentsPage(nodeID, limit, 0)
+}
+
+// ListDeploymentsPage returns a window of deployments ordered newest-first.
+// limit <= 0 means unbounded (offset ignored). offset < 0 is treated as 0.
+func (s *Store) ListDeploymentsPage(nodeID string, limit, offset int) ([]Deployment, error) {
 	var deployments []Deployment
-	if err := s.DB.Where("node_id = ?", nodeID).Order("created_at desc").Find(&deployments).Error; err != nil {
+	q := s.DB.Where("node_id = ?", nodeID).Order("created_at desc, id desc")
+	if limit > 0 {
+		if offset < 0 {
+			offset = 0
+		}
+		q = q.Limit(limit).Offset(offset)
+	}
+	if err := q.Find(&deployments).Error; err != nil {
 		return nil, err
 	}
 	return deployments, nil
+}
+
+// CountDeployments returns how many deployment rows exist for a node.
+func (s *Store) CountDeployments(nodeID string) (int64, error) {
+	var count int64
+	if err := s.DB.Model(&Deployment{}).Where("node_id = ?", nodeID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// ListActiveDeploymentsByNodes returns the newest non-terminal deployment for
+// each requested node ID (at most one row per node).
+func (s *Store) ListActiveDeploymentsByNodes(nodeIDs []string) (map[string]*Deployment, error) {
+	out := make(map[string]*Deployment, len(nodeIDs))
+	if len(nodeIDs) == 0 {
+		return out, nil
+	}
+	var deployments []Deployment
+	if err := s.DB.
+		Where("node_id IN ? AND status NOT IN ?", nodeIDs, []string{"stopped", "failed", "interrupted"}).
+		Order("created_at desc").
+		Find(&deployments).Error; err != nil {
+		return nil, err
+	}
+	for i := range deployments {
+		d := &deployments[i]
+		if _, ok := out[d.NodeID]; ok {
+			continue
+		}
+		out[d.NodeID] = d
+	}
+	return out, nil
 }
 
 func (s *Store) ListAllDeployments() ([]Deployment, error) {

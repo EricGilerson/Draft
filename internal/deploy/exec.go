@@ -7,14 +7,13 @@ import (
 	"net"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // ExecSession is an interactive exec attached to a running service container.
 // Conn is the bidirectional TTY stream: bytes written to it become the
 // process's stdin, bytes read from it are merged stdout/stderr. Close tears
-// down the exec attach and the Docker client.
+// down the exec attach (the shared Docker client is left open).
 type ExecSession struct {
 	Conn   net.Conn
 	resize func(ctx context.Context, cols, rows uint) error
@@ -45,17 +44,30 @@ type RunCommandResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
+const maxRunCommandOutputBytes = 2 << 20 // 2 MiB
+
 type commandOutputWriter struct {
-	buf *bytes.Buffer
-	on  func(string)
+	buf       *bytes.Buffer
+	on        func(string)
+	maxBytes  int
+	truncated bool
 }
 
-func (w commandOutputWriter) Write(p []byte) (int, error) {
-	n, err := w.buf.Write(p)
-	if n > 0 && w.on != nil {
-		w.on(string(p[:n]))
+func (w *commandOutputWriter) Write(p []byte) (int, error) {
+	if w.maxBytes > 0 && w.buf.Len() >= w.maxBytes {
+		w.truncated = true
+		return len(p), nil
 	}
-	return n, err
+	chunk := p
+	if w.maxBytes > 0 && w.buf.Len()+len(p) > w.maxBytes {
+		chunk = p[:w.maxBytes-w.buf.Len()]
+		w.truncated = true
+	}
+	n, err := w.buf.Write(chunk)
+	if n > 0 && w.on != nil {
+		w.on(string(chunk[:n]))
+	}
+	return len(p), err
 }
 
 // RunCommand executes a one-shot, non-interactive command in the active
@@ -79,11 +91,10 @@ func (e *Engine) RunCommandStream(ctx context.Context, nodeID string, cmd []stri
 		return RunCommandResult{}, fmt.Errorf("cmd is empty")
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		return RunCommandResult{}, err
 	}
-	defer cli.Close()
 
 	opts := container.ExecOptions{
 		Cmd:          cmd,
@@ -109,18 +120,21 @@ func (e *Engine) RunCommandStream(ctx context.Context, nodeID string, cmd []stri
 	// With Tty=false Docker sends multiplexed stdout/stderr frames. Sending the
 	// raw stream to the UI leaks its binary frame headers as replacement glyphs.
 	var output bytes.Buffer
-	writer := commandOutputWriter{buf: &output, on: onOutput}
+	writer := &commandOutputWriter{buf: &output, on: onOutput, maxBytes: maxRunCommandOutputBytes}
 	_, err = stdcopy.StdCopy(writer, writer, hijack.Reader)
 	if err != nil {
 		return RunCommandResult{}, fmt.Errorf("exec read: %w", err)
 	}
-	out := output.Bytes()
+	out := output.String()
+	if writer.truncated {
+		out += "\n==> output truncated (size limit)\n"
+	}
 
 	inspect, err := cli.ContainerExecInspect(ctx, createResp.ID)
 	if err != nil {
-		return RunCommandResult{Output: string(out)}, err
+		return RunCommandResult{Output: out}, err
 	}
-	return RunCommandResult{ExitCode: inspect.ExitCode, Output: string(out)}, nil
+	return RunCommandResult{ExitCode: inspect.ExitCode, Output: out}, nil
 }
 
 // ExecAttach creates an interactive exec instance running `shell` inside the
@@ -139,7 +153,7 @@ func (e *Engine) ExecAttach(ctx context.Context, nodeID, shell string) (*ExecSes
 		return nil, fmt.Errorf("service is not running")
 	}
 
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	cli, err := e.dockerClient()
 	if err != nil {
 		return nil, err
 	}
@@ -161,13 +175,11 @@ func (e *Engine) ExecAttach(ctx context.Context, nodeID, shell string) (*ExecSes
 		Tty:          true,
 	})
 	if err != nil {
-		cli.Close()
 		return nil, fmt.Errorf("exec create: %w", err)
 	}
 
 	hijack, err := cli.ContainerExecAttach(ctx, createResp.ID, container.ExecAttachOptions{Tty: true})
 	if err != nil {
-		cli.Close()
 		return nil, fmt.Errorf("exec attach: %w", err)
 	}
 
@@ -178,7 +190,6 @@ func (e *Engine) ExecAttach(ctx context.Context, nodeID, shell string) (*ExecSes
 		},
 		close: func() error {
 			hijack.Close()
-			cli.Close()
 			return nil
 		},
 	}, nil

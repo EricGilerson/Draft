@@ -1292,57 +1292,51 @@ func sandboxTimes(now time.Time, plan SandboxPlan) (time.Time, time.Time, time.T
 // reconcile window (for example graceHours=0). When SuspendIdleHours > 0 on
 // the frozen plan, idle active/warning sandboxes are suspended before expiry.
 func (e *Engine) ReconcileSandboxLifecycle(ctx context.Context, now time.Time) error {
-	projects, err := e.store.ListProjects()
+	sandboxes, err := e.store.ListSandboxesForLifecycle()
 	if err != nil {
 		return err
 	}
-	for _, project := range projects {
-		sandboxes, err := e.store.ListSandboxes(project.ID)
-		if err != nil {
-			return err
+	for _, sandbox := range sandboxes {
+		status := sandbox.Status
+		plan, _ := parseSandboxPlan(sandbox.PlanJSON)
+
+		// Idle auto-suspend: only while still live (not expired/suspended).
+		if (status == "active" || status == "warning") && plan.SuspendIdleHours > 0 {
+			last := sandbox.CreatedAt
+			if sandbox.LastActivityAt != nil {
+				last = *sandbox.LastActivityAt
+			}
+			idleFor := now.Sub(last.UTC())
+			if idleFor >= time.Duration(plan.SuspendIdleHours)*time.Hour {
+				if _, err := e.SuspendSandbox(ctx, sandbox.ID); err != nil {
+					log.Printf("[sandbox] idle suspend %d: %v", sandbox.ID, err)
+				} else {
+					status = "suspended"
+				}
+			}
 		}
-		for _, sandbox := range sandboxes {
-			status := sandbox.Status
-			plan, _ := parseSandboxPlan(sandbox.PlanJSON)
 
-			// Idle auto-suspend: only while still live (not expired/suspended).
-			if (status == "active" || status == "warning") && plan.SuspendIdleHours > 0 {
-				last := sandbox.CreatedAt
-				if sandbox.LastActivityAt != nil {
-					last = *sandbox.LastActivityAt
-				}
-				idleFor := now.Sub(last.UTC())
-				if idleFor >= time.Duration(plan.SuspendIdleHours)*time.Hour {
-					if _, err := e.SuspendSandbox(ctx, sandbox.ID); err != nil {
-						log.Printf("[sandbox] idle suspend %d: %v", sandbox.ID, err)
-					} else {
-						status = "suspended"
-					}
-				}
+		// Warning only applies while the sandbox is still considered live.
+		if status == "active" && !sandbox.WarnAt.After(now) {
+			if err := e.store.UpdateSandboxStatus(sandbox.ID, "warning", nil); err != nil {
+				return err
 			}
-
-			// Warning only applies while the sandbox is still considered live.
-			if status == "active" && !sandbox.WarnAt.After(now) {
-				if err := e.store.UpdateSandboxStatus(sandbox.ID, "warning", nil); err != nil {
-					return err
-				}
-				status = "warning"
+			status = "warning"
+		}
+		// Suspended sandboxes still expire on schedule so they are not left
+		// around forever after the user stops them and walks away.
+		if (status == "active" || status == "warning" || status == "suspended") && !sandbox.ExpiresAt.After(now) {
+			if err := e.store.UpdateSandboxStatus(sandbox.ID, "expired", nil); err != nil {
+				return err
 			}
-			// Suspended sandboxes still expire on schedule so they are not left
-			// around forever after the user stops them and walks away.
-			if (status == "active" || status == "warning" || status == "suspended") && !sandbox.ExpiresAt.After(now) {
-				if err := e.store.UpdateSandboxStatus(sandbox.ID, "expired", nil); err != nil {
-					return err
-				}
-				status = "expired"
-			}
-			// cleanup_failed is retriable: a prior purge attempt may have failed
-			// because Docker was down mid-delete. Continue other sandboxes on
-			// failure so one stuck purge does not block the project.
-			if (status == "expired" || status == "cleanup_failed") && !sandbox.GraceEndsAt.After(now) {
-				if err := e.DeleteSandbox(ctx, sandbox.ID); err != nil {
-					log.Printf("[sandbox] purge %d: %v", sandbox.ID, err)
-				}
+			status = "expired"
+		}
+		// cleanup_failed is retriable: a prior purge attempt may have failed
+		// because Docker was down mid-delete. Continue other sandboxes on
+		// failure so one stuck purge does not block the project.
+		if (status == "expired" || status == "cleanup_failed") && !sandbox.GraceEndsAt.After(now) {
+			if err := e.DeleteSandbox(ctx, sandbox.ID); err != nil {
+				log.Printf("[sandbox] purge %d: %v", sandbox.ID, err)
 			}
 		}
 	}

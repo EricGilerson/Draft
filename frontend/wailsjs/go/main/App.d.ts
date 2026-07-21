@@ -99,6 +99,8 @@ export function GetDefaultEnvironment(arg1:number):Promise<store.Environment>;
 
 export function GetDeployments(arg1:string):Promise<Array<store.Deployment>>;
 
+export function GetDeploymentsPage(arg1:string,arg2:number,arg3:number):Promise<deploy.DeploymentListPage>;
+
 export function GetDockerDiskUsage():Promise<types.DiskUsage>;
 
 export function GetEnvVars(arg1:string):Promise<Array<store.EnvVar>>;

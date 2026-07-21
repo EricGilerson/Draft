@@ -30,6 +30,25 @@ func (s *Store) ListEnvVars(nodeID string) ([]EnvVar, error) {
 	return vars, nil
 }
 
+// ListEnvVarsByNodes returns env vars for many nodes in one query, keyed by node ID.
+func (s *Store) ListEnvVarsByNodes(nodeIDs []string) (map[string][]EnvVar, error) {
+	out := make(map[string][]EnvVar, len(nodeIDs))
+	for _, id := range nodeIDs {
+		out[id] = nil
+	}
+	if len(nodeIDs) == 0 {
+		return out, nil
+	}
+	var vars []EnvVar
+	if err := s.DB.Where("node_id IN ?", nodeIDs).Order("key asc").Find(&vars).Error; err != nil {
+		return nil, err
+	}
+	for _, v := range vars {
+		out[v.NodeID] = append(out[v.NodeID], v)
+	}
+	return out, nil
+}
+
 // GetEnvVar returns a single env var by node and key, or gorm.ErrRecordNotFound
 // if it doesn't exist.
 func (s *Store) GetEnvVar(nodeID, key string) (*EnvVar, error) {

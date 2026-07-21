@@ -1,5 +1,6 @@
 import {
     createContext,
+    startTransition,
     useCallback,
     useContext,
     useEffect,
@@ -185,15 +186,17 @@ export function ServiceConfigEditorProvider({
         if (isImmediateSetting(key)) {
             return;
         }
-        setDraftSettings((prev) => {
-            const committed = mergeSettings(appliedSettings, stagedSettings);
-            if (settingsValuesEqual(committed[key] || '', value)) {
-                if (!(key in prev)) return prev;
-                const next = {...prev};
-                delete next[key];
-                return next;
-            }
-            return {...prev, [key]: value};
+        startTransition(() => {
+            setDraftSettings((prev) => {
+                const committed = mergeSettings(appliedSettings, stagedSettings);
+                if (settingsValuesEqual(committed[key] || '', value)) {
+                    if (!(key in prev)) return prev;
+                    const next = {...prev};
+                    delete next[key];
+                    return next;
+                }
+                return {...prev, [key]: value};
+            });
         });
     }, [appliedSettings, stagedSettings]);
 
@@ -229,24 +232,28 @@ export function ServiceConfigEditorProvider({
     }, []);
 
     const setEnvDraftUpsert = useCallback((upsert: EnvDraftUpsert) => {
-        setEnvDraft((prev) => ({
-            upserts: {...prev.upserts, [upsert.key]: upsert},
-            deleteKeys: prev.deleteKeys.filter((k) => k !== upsert.key),
-        }));
+        startTransition(() => {
+            setEnvDraft((prev) => ({
+                upserts: {...prev.upserts, [upsert.key]: upsert},
+                deleteKeys: prev.deleteKeys.filter((k) => k !== upsert.key),
+            }));
+        });
     }, []);
 
     const setEnvDraftUpserts = useCallback((upserts: EnvDraftUpsert[]) => {
         if (upserts.length === 0) return;
-        setEnvDraft((prev) => {
-            const nextUpserts = {...prev.upserts};
-            const drop = new Set(upserts.map((u) => u.key));
-            for (const u of upserts) {
-                nextUpserts[u.key] = u;
-            }
-            return {
-                upserts: nextUpserts,
-                deleteKeys: prev.deleteKeys.filter((k) => !drop.has(k)),
-            };
+        startTransition(() => {
+            setEnvDraft((prev) => {
+                const nextUpserts = {...prev.upserts};
+                const drop = new Set(upserts.map((u) => u.key));
+                for (const u of upserts) {
+                    nextUpserts[u.key] = u;
+                }
+                return {
+                    upserts: nextUpserts,
+                    deleteKeys: prev.deleteKeys.filter((k) => !drop.has(k)),
+                };
+            });
         });
     }, []);
 

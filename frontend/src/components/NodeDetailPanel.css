@@ -418,6 +418,26 @@
     letter-spacing: 0.03em;
 }
 
+.deploy-history-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.deploy-history-count {
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-faint);
+}
+
+.deploy-history-more {
+    display: flex;
+    justify-content: center;
+    padding: 4px 0 2px;
+}
+
 .deploy-history {
     display: flex;
     flex-direction: column;

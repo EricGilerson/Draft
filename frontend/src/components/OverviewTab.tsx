@@ -22,9 +22,9 @@ type OverviewTabProps = {
 };
 
 /** Parse a persisted Docker build-log file into display lines (JSON stream / raw). */
-function parseBuildLogText(log: string): string[] {
+function parseBuildLogText(log: string, maxLines = 1500): string[] {
     if (!log) return [];
-    return log.split('\n').filter(Boolean).map((line) => {
+    const lines = log.split('\n').filter(Boolean).map((line) => {
         try {
             const obj = JSON.parse(line);
             return String(obj.error || obj.stream || obj.status || line).replace(/\n$/, '');
@@ -32,6 +32,12 @@ function parseBuildLogText(log: string): string[] {
             return line;
         }
     });
+    return lines.length > maxLines ? lines.slice(-maxLines) : lines;
+}
+
+function truncateOutput(text: string, maxChars = 200_000): string {
+    if (!text || text.length <= maxChars) return text;
+    return text.slice(text.length - maxChars) + '\n==> output truncated (display limit)\n';
 }
 
 /** Load runtime status for Overview. Linked aliases have no local deployment —
@@ -396,9 +402,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         RunCommand(nodeId, argv, runWorkDir.trim())
             .then((res: deploy.RunCommandResult) => {
                 setRunRunning(false);
-                setRunOutput(res.output || '');
+                setRunOutput(truncateOutput(res.output || ''));
                 setRunExit(res.exitCode);
-                if (res.error) setRunOutput((prev) => (prev ? prev + '\n' : '') + `[error] ${res.error}`);
+                if (res.error) setRunOutput((prev) => truncateOutput((prev ? prev + '\n' : '') + `[error] ${res.error}`));
             })
             .catch((e: any) => {
                 setRunRunning(false);

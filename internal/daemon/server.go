@@ -1383,6 +1383,29 @@ func (s *Server) handleLogHistory(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeployments(w http.ResponseWriter, r *http.Request) {
 	nodeID := r.URL.Query().Get("nodeId")
+	limitStr := strings.TrimSpace(r.URL.Query().Get("limit"))
+	offsetStr := strings.TrimSpace(r.URL.Query().Get("offset"))
+	// Paginated response when limit/offset are present (Deployments tab).
+	if limitStr != "" || offsetStr != "" {
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil && limitStr != "" {
+			http.Error(w, "limit must be a number", http.StatusBadRequest)
+			return
+		}
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil && offsetStr != "" {
+			http.Error(w, "offset must be a number", http.StatusBadRequest)
+			return
+		}
+		page, err := s.engine.GetDeploymentsPage(nodeID, limit, offset)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, page)
+		return
+	}
+	// Legacy array response for Overview / MCP first-page convenience.
 	deps, err := s.engine.GetDeployments(nodeID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1580,22 +1603,51 @@ func (s *Server) watchDocker(ctx context.Context) {
 			s.hub.publish("docker:status", ev.Daemon)
 		}
 		if ev.Raw != nil {
-			s.hub.publish("docker:activity", map[string]string{
-				"type":   string(ev.Raw.Type),
-				"action": string(ev.Raw.Action),
-				"actor":  ev.Raw.Actor.ID,
-				"name":   ev.Raw.Actor.Attributes["name"],
-				"image":  ev.Raw.Actor.Attributes["image"],
-			})
-			if string(ev.Raw.Type) == "container" {
-				action := string(ev.Raw.Action)
-				attrs := copyStringMap(ev.Raw.Actor.Attributes)
+			typ := string(ev.Raw.Type)
+			action := string(ev.Raw.Action)
+			attrs := ev.Raw.Actor.Attributes
+			if shouldPublishDockerActivity(typ, action, attrs) {
+				s.hub.publish("docker:activity", map[string]string{
+					"type":   typ,
+					"action": action,
+					"actor":  ev.Raw.Actor.ID,
+					"name":   attrs["name"],
+					"image":  attrs["image"],
+				})
+			}
+			if typ == "container" {
+				attrsCopy := copyStringMap(attrs)
 				// Exit cleanup talks to Docker; keep the watch pump non-blocking.
-				go s.engine.HandleDockerContainerEvent(action, attrs)
+				go s.engine.HandleDockerContainerEvent(action, attrsCopy)
 			}
 		}
 	})
 	s.watch.Run(ctx)
+}
+
+func shouldPublishDockerActivity(typ, action string, attrs map[string]string) bool {
+	switch typ {
+	case "container", "image", "network", "volume":
+	default:
+		return false
+	}
+	if attrs == nil {
+		return typ == "container"
+	}
+	if attrs["draft.deployment"] != "" || attrs["draft.managed"] == "true" {
+		return true
+	}
+	if strings.HasPrefix(attrs["name"], "draft-") || strings.HasPrefix(attrs["image"], "draft-") {
+		return true
+	}
+	// Keep meaningful container lifecycle noise; drop image layer pull spam.
+	if typ == "container" {
+		switch strings.ToLower(action) {
+		case "start", "die", "destroy", "oom", "kill", "stop", "restart":
+			return true
+		}
+	}
+	return false
 }
 
 func copyStringMap(in map[string]string) map[string]string {

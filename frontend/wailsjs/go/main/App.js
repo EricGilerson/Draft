@@ -178,6 +178,10 @@ export function GetDeployments(arg1) {
   return window['go']['main']['App']['GetDeployments'](arg1);
 }
 
+export function GetDeploymentsPage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetDeploymentsPage'](arg1, arg2, arg3);
+}
+
 export function GetDockerDiskUsage() {
   return window['go']['main']['App']['GetDockerDiskUsage']();
 }

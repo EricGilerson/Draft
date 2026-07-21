@@ -19,8 +19,17 @@ type SecretUsage struct {
 	ReceivesViaInjection bool   `json:"receivesViaInjection,omitempty"`
 }
 
+type secretUsageIndex struct {
+	nodesByID    map[string]*store.CanvasNode
+	nodesByLabel map[uint]map[string]*store.CanvasNode // environmentID → label → node
+	envVars      map[string]map[string]string          // nodeID → key → value
+	settings     map[string]map[string]string          // nodeID → settings
+	projectVars  map[string]string
+	active       map[string]*store.Deployment
+}
+
 // ListAppSecretUsages returns every service whose env var values reference
-// {{secret.key}} directly.
+// {{secret.key}} directly or via @{Service}/{{project}} indirection.
 func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -38,27 +47,27 @@ func (e *Engine) ListAppSecretUsages(key string) ([]SecretUsage, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, node := range nodes {
-			vars, err := e.store.ListEnvVars(node.ID)
-			if err != nil {
-				return nil, err
-			}
-			for _, v := range vars {
-				if !e.valueDependsOnToken(&node, v.Value, token, map[string]bool{node.ID: true}) {
+		idx, err := e.buildSecretUsageIndex(project.ID, nodes)
+		if err != nil {
+			return nil, err
+		}
+		for i := range nodes {
+			node := &nodes[i]
+			for keyName, value := range idx.envVars[node.ID] {
+				if !valueDependsOnTokenIndexed(idx, node, value, token, map[string]bool{node.ID: true}) {
 					continue
 				}
-				usageKey := fmt.Sprintf("%s:%s", node.ID, v.Key)
+				usageKey := fmt.Sprintf("%s:%s", node.ID, keyName)
 				if seen[usageKey] {
 					continue
 				}
-				running, _ := e.isNodeRunning(node.ID)
 				out = append(out, SecretUsage{
 					ProjectID:   project.ID,
 					ProjectName: project.Name,
 					NodeID:      node.ID,
 					NodeLabel:   node.Label,
-					VarKey:      v.Key,
-					IsRunning:   running,
+					VarKey:      keyName,
+					IsRunning:   isIndexedNodeRunning(idx, node.ID),
 				})
 				seen[usageKey] = true
 			}
@@ -104,29 +113,29 @@ func (e *Engine) ListProjectEnvVarUsages(projectID uint, key string) ([]SecretUs
 	if err != nil {
 		return nil, err
 	}
+	idx, err := e.buildSecretUsageIndex(projectID, nodes)
+	if err != nil {
+		return nil, err
+	}
 	var out []SecretUsage
 	seen := make(map[string]bool)
-	for _, node := range nodes {
-		vars, err := e.store.ListEnvVars(node.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, v := range vars {
-			if !e.valueDependsOnToken(&node, v.Value, token, map[string]bool{node.ID: true}) {
+	for i := range nodes {
+		node := &nodes[i]
+		for keyName, value := range idx.envVars[node.ID] {
+			if !valueDependsOnTokenIndexed(idx, node, value, token, map[string]bool{node.ID: true}) {
 				continue
 			}
-			usageKey := fmt.Sprintf("%s:%s", node.ID, v.Key)
+			usageKey := fmt.Sprintf("%s:%s", node.ID, keyName)
 			if seen[usageKey] {
 				continue
 			}
-			running, _ := e.isNodeRunning(node.ID)
 			out = append(out, SecretUsage{
 				ProjectID:   projectID,
 				ProjectName: project.Name,
 				NodeID:      node.ID,
 				NodeLabel:   node.Label,
-				VarKey:      v.Key,
-				IsRunning:   running,
+				VarKey:      keyName,
+				IsRunning:   isIndexedNodeRunning(idx, node.ID),
 			})
 			seen[usageKey] = true
 		}
@@ -134,10 +143,89 @@ func (e *Engine) ListProjectEnvVarUsages(projectID uint, key string) ([]SecretUs
 	return out, nil
 }
 
+func (e *Engine) buildSecretUsageIndex(projectID uint, nodes []store.CanvasNode) (*secretUsageIndex, error) {
+	idx := &secretUsageIndex{
+		nodesByID:    make(map[string]*store.CanvasNode, len(nodes)),
+		nodesByLabel: make(map[uint]map[string]*store.CanvasNode),
+		envVars:      make(map[string]map[string]string, len(nodes)),
+		settings:     map[string]map[string]string{},
+		projectVars:  map[string]string{},
+		active:       map[string]*store.Deployment{},
+	}
+	nodeIDs := make([]string, len(nodes))
+	for i := range nodes {
+		n := &nodes[i]
+		nodeIDs[i] = n.ID
+		idx.nodesByID[n.ID] = n
+		byLabel := idx.nodesByLabel[n.EnvironmentID]
+		if byLabel == nil {
+			byLabel = map[string]*store.CanvasNode{}
+			idx.nodesByLabel[n.EnvironmentID] = byLabel
+		}
+		byLabel[n.Label] = n
+	}
+	varsByNode, err := e.store.ListEnvVarsByNodes(nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	for nodeID, vars := range varsByNode {
+		m := make(map[string]string, len(vars))
+		for _, v := range vars {
+			m[v.Key] = v.Value
+		}
+		idx.envVars[nodeID] = m
+	}
+	settingsByNode, err := e.store.GetNodeSettingsByNodes(nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	idx.settings = settingsByNode
+	projectVars, err := e.store.ListProjectEnvVars(projectID)
+	if err != nil {
+		return nil, err
+	}
+	for _, pv := range projectVars {
+		idx.projectVars[pv.Key] = pv.Value
+	}
+	active, err := e.store.ListActiveDeploymentsByNodes(nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	idx.active = active
+	return idx, nil
+}
+
+func isIndexedNodeRunning(idx *secretUsageIndex, nodeID string) bool {
+	dep := idx.active[nodeID]
+	return dep != nil && dep.Status == "running"
+}
+
+func indexedReferenceEnvVarNodeID(idx *secretUsageIndex, targetNodeID string) string {
+	settings := idx.settings[targetNodeID]
+	if link := ParseServiceLink(settings[SettingServiceLink]); link != nil && strings.TrimSpace(link.RootNodeID) != "" {
+		return link.RootNodeID
+	}
+	return targetNodeID
+}
+
 // valueDependsOnToken follows the same service-reference graph used during
 // deployment resolution. This makes shared-value usage lists include indirect
 // consumers such as api -> @{db.DATABASE_URL} -> {{secret.DB_PASSWORD}}.
 func (e *Engine) valueDependsOnToken(node *store.CanvasNode, raw, token string, visited map[string]bool) bool {
+	idx, err := e.buildSecretUsageIndex(node.ProjectID, []store.CanvasNode{*node})
+	if err != nil {
+		return strings.Contains(raw, token)
+	}
+	// Include sibling nodes in the same environment for @{Label} resolution.
+	if peers, err := e.store.ListNodesByEnvironment(node.EnvironmentID); err == nil {
+		if full, err := e.buildSecretUsageIndex(node.ProjectID, peers); err == nil {
+			idx = full
+		}
+	}
+	return valueDependsOnTokenIndexed(idx, node, raw, token, visited)
+}
+
+func valueDependsOnTokenIndexed(idx *secretUsageIndex, node *store.CanvasNode, raw, token string, visited map[string]bool) bool {
 	if strings.Contains(raw, token) {
 		return true
 	}
@@ -146,39 +234,37 @@ func (e *Engine) valueDependsOnToken(node *store.CanvasNode, raw, token string, 
 		if visited[marker] {
 			continue
 		}
-		projectValue, err := e.store.GetProjectEnvVar(node.ProjectID, match[1])
-		if err == nil {
-			visited[marker] = true
-			depends := e.valueDependsOnToken(node, projectValue.Value, token, visited)
-			delete(visited, marker)
-			if depends {
-				return true
-			}
+		projectValue, ok := idx.projectVars[match[1]]
+		if !ok {
+			continue
+		}
+		visited[marker] = true
+		depends := valueDependsOnTokenIndexed(idx, node, projectValue, token, visited)
+		delete(visited, marker)
+		if depends {
+			return true
 		}
 	}
 	for _, match := range refPattern.FindAllStringSubmatch(raw, -1) {
-		target, err := e.store.GetNodeByLabel(node.EnvironmentID, match[1])
-		if err != nil || visited[target.ID] {
+		target := idx.nodesByLabel[node.EnvironmentID][match[1]]
+		if target == nil || visited[target.ID] {
 			continue
 		}
 		attr := match[2]
 		if isGeneratedAttr(attr) {
 			continue
 		}
-		resolveID, err := referenceEnvVarNodeID(e.store, target.ID)
-		if err != nil {
+		resolveID := indexedReferenceEnvVarNodeID(idx, target.ID)
+		value, ok := idx.envVars[resolveID][attr]
+		if !ok {
 			continue
 		}
-		value, err := e.store.GetEnvVar(resolveID, attr)
-		if err != nil {
-			continue
-		}
-		resolvedNode, err := e.store.GetNode(resolveID)
-		if err != nil {
-			continue
+		resolvedNode := idx.nodesByID[resolveID]
+		if resolvedNode == nil {
+			resolvedNode = target
 		}
 		visited[resolveID] = true
-		depends := e.valueDependsOnToken(resolvedNode, value.Value, token, visited)
+		depends := valueDependsOnTokenIndexed(idx, resolvedNode, value, token, visited)
 		delete(visited, resolveID)
 		if depends {
 			return true

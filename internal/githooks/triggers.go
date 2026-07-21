@@ -117,39 +117,55 @@ func ReconcileRepoHooks(ctx context.Context, s *store.Store, repoRoot string) er
 	}
 
 	wantCommit, wantPush, wantPull := false, false, false
+	type nodeProj struct {
+		node      store.CanvasNode
+		projectID uint
+	}
+	var candidates []nodeProj
 	for _, project := range projects {
 		nodes, err := s.ListNodes(project.ID)
 		if err != nil {
 			return err
 		}
 		for _, node := range nodes {
-			root, err := s.ResolveGitRepoRoot(ctx, node.ID, project.ID)
-			if err != nil || !storePathEqual(root, repoRoot) {
-				continue
+			candidates = append(candidates, nodeProj{node: node, projectID: project.ID})
+		}
+	}
+	nodeIDs := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		nodeIDs = append(nodeIDs, c.node.ID)
+	}
+	settingsByNode, err := s.GetNodeSettingsByNodes(nodeIDs)
+	if err != nil {
+		return err
+	}
+	for _, c := range candidates {
+		root, err := s.ResolveGitRepoRoot(ctx, c.node.ID, c.projectID)
+		if err != nil || !storePathEqual(root, repoRoot) {
+			continue
+		}
+		settings := settingsByNode[c.node.ID]
+		if settings == nil {
+			continue
+		}
+		branch := strings.TrimSpace(settings["git_branch"])
+		if branch == "" {
+			continue
+		}
+		if canonical := gitsrc.PreferLocalRef(ctx, repoRoot, branch); canonical != "" && canonical != branch {
+			if err := s.SetNodeSetting(c.node.ID, "git_branch", canonical); err != nil {
+				return err
 			}
-			settings, err := s.GetNodeSettings(node.ID)
-			if err != nil {
-				continue
-			}
-			branch := strings.TrimSpace(settings["git_branch"])
-			if branch == "" {
-				continue
-			}
-			if canonical := gitsrc.PreferLocalRef(ctx, repoRoot, branch); canonical != "" && canonical != branch {
-				if err := s.SetNodeSetting(node.ID, "git_branch", canonical); err != nil {
-					return err
-				}
-				settings["git_branch"] = canonical
-			}
-			switch strings.TrimSpace(settings["deploy_trigger"]) {
-			case "on_commit":
-				wantCommit = true
-			case "on_push":
-				wantPush = true
-			}
-			if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" {
-				wantPull = true
-			}
+			settings["git_branch"] = canonical
+		}
+		switch strings.TrimSpace(settings["deploy_trigger"]) {
+		case "on_commit":
+			wantCommit = true
+		case "on_push":
+			wantPush = true
+		}
+		if strings.TrimSpace(settings["redeploy_on_pull"]) == "true" {
+			wantPull = true
 		}
 	}
 

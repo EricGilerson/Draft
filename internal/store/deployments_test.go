@@ -191,6 +191,38 @@ func TestListDeploymentsEmpty(t *testing.T) {
 	}
 }
 
+func TestListDeploymentsPage(t *testing.T) {
+	s := openTemp(t)
+	s.DB.Create(&Project{Name: "p1", Path: "/p1"})
+	s.DB.Create(&CanvasNode{ID: "n1", ProjectID: 1, Label: "svc"})
+	for i := 0; i < 5; i++ {
+		if _, err := s.CreateDeployment(&Deployment{NodeID: "n1", ProjectID: 1, Status: "stopped"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page1, err := s.ListDeploymentsPage("n1", 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+	page2, err := s.ListDeploymentsPage("n1", 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2))
+	}
+	if page1[0].ID == page2[0].ID {
+		t.Fatal("expected distinct pages")
+	}
+	total, err := s.CountDeployments("n1")
+	if err != nil || total != 5 {
+		t.Fatalf("total = %d err=%v, want 5", total, err)
+	}
+}
+
 func TestCreateDeploymentAssignsPerNodeSequence(t *testing.T) {
 	s := openTemp(t)
 	s.DB.Create(&Project{Name: "p1", Path: "/p1"})
