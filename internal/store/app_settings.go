@@ -17,6 +17,9 @@ const (
 	// AppSettingLocalDraftDomainEnabled records whether Draft's optional,
 	// machine-local *.draft resolver has been installed and enabled.
 	AppSettingLocalDraftDomainEnabled = "local_draft_domain_enabled"
+	// AppSettingLocalHTTPSEnabled records whether Draft's loopback TLS proxy
+	// and its locally trusted CA are enabled.
+	AppSettingLocalHTTPSEnabled = "local_https_enabled"
 	// Reverse-proxy listen preference: try port 80 for clean URLs, optionally a
 	// user fallback, or a fixed custom primary (+ same fallback), then ephemeral.
 	AppSettingProxyPortMode     = "proxy_port_mode"
@@ -49,6 +52,7 @@ func DefaultAppSettings() map[string]string {
 		AppSettingCompactSidebar:          "false",
 		AppSettingLocalDomainPreference:   LocalDomainPrefAuto,
 		AppSettingLocalDraftDomainEnabled: "false",
+		AppSettingLocalHTTPSEnabled:       "false",
 		// Prefer 80 for clean URLs; if taken, use the fixed fallback (not an
 		// ephemeral OS port) so public URLs stay stable across daemon restarts.
 		AppSettingProxyPortMode:     ProxyPortModePrefer80Fallback,
@@ -142,7 +146,7 @@ func normalizeAppSetting(key, value string) string {
 			return "true"
 		}
 		return "false"
-	case AppSettingLocalDraftDomainEnabled:
+	case AppSettingLocalDraftDomainEnabled, AppSettingLocalHTTPSEnabled:
 		if value == "1" || strings.EqualFold(value, "true") || value == "yes" {
 			return "true"
 		}

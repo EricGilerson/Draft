@@ -137,11 +137,7 @@ func (e *Engine) computeNodeAddressWithSettings(node *store.CanvasNode, effectiv
 			}
 		}
 	} else if e.router != nil {
-		if localDomain.ProxyPort == 80 {
-			publicURL = "http://" + publicHostname
-		} else if localDomain.ProxyPort > 0 {
-			publicURL = fmt.Sprintf("http://%s:%d", publicHostname, localDomain.ProxyPort)
-		}
+		publicURL = networking.BestServiceURL(hostname, 0, protocol, localDomain)
 	}
 
 	return NodeAddress{

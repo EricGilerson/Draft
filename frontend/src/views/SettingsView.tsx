@@ -1,6 +1,6 @@
 import {LoaderCircle, RefreshCw} from 'lucide-react';
 import {useEffect, useState} from 'react';
-import {GetAppSettings, GetAppVersion, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled} from '../../wailsjs/go/main/App';
+import {GetAppSettings, GetAppVersion, GetLocalDomainStatus, RefreshLocalDomainStatus, SetAppSettings, SetLocalDraftDomainEnabled, SetLocalHTTPSEnabled} from '../../wailsjs/go/main/App';
 import {main, networking} from '../../wailsjs/go/models';
 import PageHeader from '../components/PageHeader';
 import {SkeletonSettings} from '../components/Skeleton';
@@ -81,6 +81,7 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
     const [localDomainPreference, setLocalDomainPreference] = useState('auto');
     const [localDraftDomainEnabled, setLocalDraftDomainEnabled] = useState(false);
     const [localDraftDomainPending, setLocalDraftDomainPending] = useState<boolean | null>(null);
+    const [localHTTPSPending, setLocalHTTPSPending] = useState<boolean | null>(null);
     const [proxyPortMode, setProxyPortMode] = useState('prefer80_fallback');
     const [proxyPort, setProxyPort] = useState(DEFAULT_PROXY_PORT);
     const [proxyFallbackPort, setProxyFallbackPort] = useState(DEFAULT_PROXY_PORT);
@@ -134,6 +135,25 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
             setDomainStatus(status);
         } finally {
             setLocalDraftDomainPending(null);
+            setSaving(false);
+        }
+    };
+
+    const setLocalHTTPS = async (enabled: boolean) => {
+        setSaving(true);
+        setLocalHTTPSPending(enabled);
+        setError(null);
+        setSavedFlash(false);
+        try {
+            const status = await SetLocalHTTPSEnabled(enabled);
+            setDomainStatus(status);
+            setSavedFlash(true);
+            setTimeout(() => setSavedFlash(false), 2000);
+        } catch (e: any) {
+            setError(typeof e === 'string' ? e : e?.message || 'Could not update local HTTPS');
+            setDomainStatus(await GetLocalDomainStatus().catch(() => null));
+        } finally {
+            setLocalHTTPSPending(null);
             setSaving(false);
         }
     };
@@ -258,6 +278,36 @@ export default function SettingsView({onSettingsChanged}: SettingsViewProps) {
                                     {domainStatus?.dnsError && (
                                         <span className="settings-status-error">{domainStatus.dnsError}</span>
                                     )}
+                                </div>
+                            )}
+                            <SettingsRow
+                                label="Local HTTPS"
+                                description="Trust a Draft-only local certificate authority and serve routed HTTP services over HTTPS on this computer. Draft never exposes these services to the internet."
+                                className={localHTTPSPending !== null ? 'settings-row--pending' : undefined}
+                            >
+                                <Toggle
+                                    checked={!!domainStatus?.httpsEnabled}
+                                    disabled={saving}
+                                    onChange={(value) => void setLocalHTTPS(value)}
+                                />
+                            </SettingsRow>
+                            {localHTTPSPending !== null && (
+                                <div className="settings-local-domain-progress" role="status" aria-live="polite">
+                                    <LoaderCircle size={14} className="spin"/>
+                                    <span className="settings-status-value">
+                                        {localHTTPSPending
+                                            ? 'Enabling local HTTPS — waiting for permission to trust Draft’s local certificate…'
+                                            : 'Disabling local HTTPS — removing Draft’s trusted certificate…'}
+                                    </span>
+                                </div>
+                            )}
+                            {domainStatus?.httpsEnabled && (
+                                <div className="settings-local-domain-status" role="status">
+                                    <span className="settings-status-value">
+                                        {domainStatus.httpsTrusted ? 'Local HTTPS is trusted and active' : 'Local HTTPS needs attention'}
+                                    </span>
+                                    {domainStatus.httpsAddr && <span className="settings-status-meta">HTTPS {domainStatus.httpsAddr}</span>}
+                                    {domainStatus.httpsError && <span className="settings-status-error">{domainStatus.httpsError}</span>}
                                 </div>
                             )}
                             <SettingsRow

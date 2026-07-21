@@ -4047,6 +4047,11 @@ export namespace networking {
 	    dnsVerified: boolean;
 	    dnsAddr: string;
 	    dnsError: string;
+	    httpsEnabled: boolean;
+	    httpsTrusted: boolean;
+	    httpsAddr: string;
+	    httpsPort: number;
+	    httpsError: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalDomainStatus(source);
@@ -4068,6 +4073,11 @@ export namespace networking {
 	        this.dnsVerified = source["dnsVerified"];
 	        this.dnsAddr = source["dnsAddr"];
 	        this.dnsError = source["dnsError"];
+	        this.httpsEnabled = source["httpsEnabled"];
+	        this.httpsTrusted = source["httpsTrusted"];
+	        this.httpsAddr = source["httpsAddr"];
+	        this.httpsPort = source["httpsPort"];
+	        this.httpsError = source["httpsError"];
 	    }
 	}
 

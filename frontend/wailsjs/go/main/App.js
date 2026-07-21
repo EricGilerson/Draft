@@ -594,6 +594,10 @@ export function SetLocalDraftDomainEnabled(arg1) {
   return window['go']['main']['App']['SetLocalDraftDomainEnabled'](arg1);
 }
 
+export function SetLocalHTTPSEnabled(arg1) {
+  return window['go']['main']['App']['SetLocalHTTPSEnabled'](arg1);
+}
+
 export function SetNodeSetting(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetNodeSetting'](arg1, arg2, arg3);
 }

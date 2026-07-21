@@ -24,14 +24,22 @@ func HostnameWithSuffix(hostname, suffix string) string {
 
 // PublicURLWithSuffix is PublicURL but uses an explicit public suffix.
 func PublicURLWithSuffix(hostname string, proxyPort int, suffix string) string {
+	return PublicURLWithScheme(hostname, proxyPort, suffix, "http")
+}
+
+// PublicURLWithScheme is PublicURLWithSuffix with an explicit HTTP scheme.
+func PublicURLWithScheme(hostname string, proxyPort int, suffix, scheme string) string {
 	if hostname == "" || proxyPort <= 0 {
 		return ""
 	}
-	publicHost := HostnameWithSuffix(hostname, suffix)
-	if proxyPort == 80 {
-		return fmt.Sprintf("http://%s", publicHost)
+	if scheme != "https" {
+		scheme = "http"
 	}
-	return fmt.Sprintf("http://%s:%d", publicHost, proxyPort)
+	publicHost := HostnameWithSuffix(hostname, suffix)
+	if (scheme == "http" && proxyPort == 80) || (scheme == "https" && proxyPort == 443) {
+		return fmt.Sprintf("%s://%s", scheme, publicHost)
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, publicHost, proxyPort)
 }
 
 // PublicTCPEndpointWithSuffix is PublicTCPEndpoint with an explicit suffix.
@@ -71,6 +79,9 @@ func BestServiceURL(hostname string, hostPort int, protocol string, local LocalD
 	}
 	if local.Mode == "localhost-port" || local.ProxyPort <= 0 {
 		return LoopbackURL(hostPort, protocol)
+	}
+	if hostname != "" && local.HTTPSTrusted && local.HTTPSPort > 0 {
+		return PublicURLWithScheme(hostname, local.HTTPSPort, suffix, "https")
 	}
 	if hostname != "" && local.ProxyPort > 0 {
 		return PublicURLWithSuffix(hostname, local.ProxyPort, suffix)

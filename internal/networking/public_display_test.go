@@ -55,3 +55,11 @@ func TestBestServiceURLTCP(t *testing.T) {
 		t.Fatalf("tcp = %q", got)
 	}
 }
+
+func TestBestServiceURLUsesTrustedLocalHTTPS(t *testing.T) {
+	host := "api.app.default.abcd.draft.local"
+	got := BestServiceURL(host, 0, "http", LocalDomainStatus{Mode: "public-hostname-port", PublicSuffix: LocalSuffix, ProxyPort: 38473, HTTPSTrusted: true, HTTPSPort: 38474})
+	if got != "https://api.app.default.abcd.draft:38474" {
+		t.Fatalf("got %q", got)
+	}
+}

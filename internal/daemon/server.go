@@ -264,6 +264,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/local-domain", s.handleLocalDomain)
 	mux.HandleFunc("/local-domain/enable", s.handleEnableLocalDomain)
 	mux.HandleFunc("/local-domain/disable", s.handleDisableLocalDomain)
+	mux.HandleFunc("/local-https/enable", s.handleEnableLocalHTTPS)
+	mux.HandleFunc("/local-https/disable", s.handleDisableLocalHTTPS)
 	mux.HandleFunc("/env", s.handleGetEnv)
 	mux.HandleFunc("/env/set", s.handleSetEnv)
 	mux.HandleFunc("/env/delete", s.handleDeleteEnv)
@@ -1461,6 +1463,40 @@ func (s *Server) handleDisableLocalDomain(w http.ResponseWriter, r *http.Request
 		return
 	}
 	status, err := s.router.DisableLocalDraftDomain()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, status)
+}
+
+func (s *Server) handleEnableLocalHTTPS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.router == nil {
+		http.Error(w, "local router unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	status, err := s.router.EnableLocalHTTPS()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, status)
+}
+
+func (s *Server) handleDisableLocalHTTPS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.router == nil {
+		http.Error(w, "local router unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	status, err := s.router.DisableLocalHTTPS()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

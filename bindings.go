@@ -1830,6 +1830,19 @@ func (a *App) SetLocalDraftDomainEnabled(enabled bool) (networking.LocalDomainSt
 	return c.DisableLocalDraftDomain(a.ctx)
 }
 
+// SetLocalHTTPSEnabled installs or removes Draft's locally trusted CA and
+// enables HTTPS only on the loopback reverse proxy.
+func (a *App) SetLocalHTTPSEnabled(enabled bool) (networking.LocalDomainStatus, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return networking.LocalDomainStatus{}, err
+	}
+	if enabled {
+		return c.EnableLocalHTTPS(a.ctx)
+	}
+	return c.DisableLocalHTTPS(a.ctx)
+}
+
 // SetAppSettings merges the provided preferences into the store.
 func (a *App) SetAppSettings(settings AppSettings) (*AppSettings, error) {
 	if a.store == nil {

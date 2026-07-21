@@ -2,11 +2,13 @@ package networking
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,13 +22,16 @@ var ErrInvalidRestoreRoute = errors.New("restore route requires hostname, projec
 // host-facing route table. Consumers call Register/Unregister and the Router
 // handles the rest.
 type Router struct {
-	store       *store.Store
-	proxy       *Proxy
-	syncHostsTo func([]HostsEntry) error
-	mu          sync.RWMutex
-	hostsError  string
-	dns         LocalDNS
-	dnsError    string
+	store        *store.Store
+	proxy        *Proxy
+	syncHostsTo  func([]HostsEntry) error
+	mu           sync.RWMutex
+	hostsError   string
+	dns          LocalDNS
+	dnsError     string
+	httpsCA      *LocalCA
+	httpsError   string
+	httpsTrusted bool
 
 	// draft DNS verify/install cache — LocalDomainStatus must stay cheap for UI
 	// (canvas health, overview) and must not shell out / LookupHost on every call.
@@ -57,6 +62,11 @@ type LocalDomainStatus struct {
 	DNSVerified       bool   `json:"dnsVerified"`
 	DNSAddr           string `json:"dnsAddr"`
 	DNSError          string `json:"dnsError"`
+	HTTPSEnabled      bool   `json:"httpsEnabled"`
+	HTTPSTrusted      bool   `json:"httpsTrusted"`
+	HTTPSAddr         string `json:"httpsAddr"`
+	HTTPSPort         int    `json:"httpsPort"`
+	HTTPSError        string `json:"httpsError"`
 }
 
 // NewRouter creates a Router backed by the given store. The proxy listens on
@@ -88,6 +98,16 @@ func (r *Router) Start() error {
 		} else {
 			// Seed verify cache without blocking daemon startup on DNS.
 			r.kickDraftVerifyRefresh()
+		}
+	}
+	if enabled, _ := r.store.GetAppSetting(store.AppSettingLocalHTTPSEnabled); enabled == "true" {
+		if err := r.startLocalHTTPS(); err != nil {
+			r.setHTTPSError(err)
+		} else {
+			r.refreshLocalHTTPSTrust()
+			if r.localHTTPSTrusted() {
+				r.proxy.SetHTTPSRedirect(parsePort(r.proxy.TLSAddr()))
+			}
 		}
 	}
 	return nil
@@ -279,12 +299,23 @@ func (r *Router) localDomainStatus(forceVerify bool) LocalDomainStatus {
 	r.mu.RLock()
 	hostsError := r.hostsError
 	dnsError := r.dnsError
+	httpsError := r.httpsError
+	httpsTrusted := r.httpsTrusted
 	r.mu.RUnlock()
 
 	enabled, _ := r.store.GetAppSetting(store.AppSettingLocalDraftDomainEnabled)
 	draftOn := enabled == "true"
 	dnsAddr := r.dns.Addr()
 	listening := dnsAddr != ""
+	httpsEnabled, _ := r.store.GetAppSetting(store.AppSettingLocalHTTPSEnabled)
+	httpsAddr := r.proxy.TLSAddr()
+	httpsPort := parsePort(httpsAddr)
+	if forceVerify && httpsEnabled == "true" && httpsAddr != "" && r.httpsCA != nil {
+		r.refreshLocalHTTPSTrust()
+		r.mu.RLock()
+		httpsTrusted, httpsError = r.httpsTrusted, r.httpsError
+		r.mu.RUnlock()
+	}
 
 	// Setting off → resolv.sh (or localhost preference). No install shell-out,
 	// no DNS probe; enable/disable owns that state transition.
@@ -338,7 +369,142 @@ func (r *Router) localDomainStatus(forceVerify bool) LocalDomainStatus {
 		DNSVerified:       verified,
 		DNSAddr:           dnsAddr,
 		DNSError:          dnsError,
+		HTTPSEnabled:      httpsEnabled == "true",
+		HTTPSTrusted:      httpsTrusted,
+		HTTPSAddr:         httpsAddr,
+		HTTPSPort:         httpsPort,
+		HTTPSError:        httpsError,
 	}
+}
+
+// EnableLocalHTTPS creates (or reuses) Draft's per-machine CA, asks the OS to
+// trust only its public root, then starts a TLS listener on loopback. It never
+// exposes a service beyond the local machine.
+func (r *Router) EnableLocalHTTPS() (LocalDomainStatus, error) {
+	if err := r.startLocalHTTPS(); err != nil {
+		r.setHTTPSError(err)
+		return r.LocalDomainStatus(), err
+	}
+	rootPath, err := localCARootPath()
+	if err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	trusted, trustErr := localHTTPSRootTrusted(rootPath, r.httpsCA.rootSHA1())
+	if trustErr != nil {
+		r.setHTTPSError(trustErr)
+		return r.LocalDomainStatus(), trustErr
+	}
+	if trusted {
+		if err := r.store.SetAppSetting(store.AppSettingLocalHTTPSEnabled, "true"); err != nil {
+			return r.LocalDomainStatus(), err
+		}
+		r.setHTTPSError(nil)
+		r.setHTTPSTrusted(true)
+		r.proxy.SetHTTPSRedirect(parsePort(r.proxy.TLSAddr()))
+		return r.LocalDomainStatus(), nil
+	}
+	if err := installLocalHTTPSRoot(rootPath, r.httpsCA.rootSHA1()); err != nil {
+		r.setHTTPSError(err)
+		return r.LocalDomainStatus(), err
+	}
+	if err := r.store.SetAppSetting(store.AppSettingLocalHTTPSEnabled, "true"); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	r.setHTTPSError(nil)
+	r.setHTTPSTrusted(true)
+	r.proxy.SetHTTPSRedirect(parsePort(r.proxy.TLSAddr()))
+	return r.LocalDomainStatus(), nil
+}
+
+// DisableLocalHTTPS removes the Draft-owned trust anchor. The HTTP router and
+// all service routes remain available; restart is required to release the TLS
+// listener because the daemon's normal settings model is restart-oriented.
+func (r *Router) DisableLocalHTTPS() (LocalDomainStatus, error) {
+	if r.httpsCA != nil {
+		rootPath, err := localCARootPath()
+		if err != nil {
+			return r.LocalDomainStatus(), err
+		}
+		if err := removeLocalHTTPSRoot(rootPath, r.httpsCA.rootSHA1()); err != nil {
+			r.setHTTPSError(err)
+			return r.LocalDomainStatus(), err
+		}
+	}
+	if err := r.store.SetAppSetting(store.AppSettingLocalHTTPSEnabled, "false"); err != nil {
+		return r.LocalDomainStatus(), err
+	}
+	r.setHTTPSError(nil)
+	r.setHTTPSTrusted(false)
+	r.proxy.SetHTTPSRedirect(0)
+	return r.LocalDomainStatus(), nil
+}
+
+func (r *Router) startLocalHTTPS() error {
+	if r.proxy.TLSAddr() != "" {
+		return nil
+	}
+	ca, _, err := loadOrCreateLocalCA()
+	if err != nil {
+		return err
+	}
+	r.httpsCA = ca
+	getCertificate := func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(hello.ServerName), "."))
+		if host == "" || !r.proxy.HasRoute(host) {
+			return nil, fmt.Errorf("Draft local HTTPS: no route for TLS name %q", host)
+		}
+		certPEM, keyPEM, err := ca.certificatePEM(host)
+		if err != nil {
+			return nil, err
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, err
+		}
+		return &cert, nil
+	}
+	var lastErr error
+	for _, port := range []int{localHTTPSPort, localHTTPSFallbackPort} {
+		if err := r.proxy.StartTLS(fmt.Sprintf("127.0.0.1:%d", port), getCertificate); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+func (r *Router) setHTTPSError(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err == nil {
+		r.httpsError = ""
+	} else {
+		r.httpsError = err.Error()
+	}
+}
+
+func (r *Router) setHTTPSTrusted(v bool) { r.mu.Lock(); r.httpsTrusted = v; r.mu.Unlock() }
+
+func (r *Router) localHTTPSTrusted() bool { r.mu.RLock(); defer r.mu.RUnlock(); return r.httpsTrusted }
+
+func (r *Router) refreshLocalHTTPSTrust() {
+	if r.httpsCA == nil {
+		return
+	}
+	path, err := localCARootPath()
+	if err != nil {
+		r.setHTTPSError(err)
+		r.setHTTPSTrusted(false)
+		return
+	}
+	ok, err := localHTTPSRootTrusted(path, r.httpsCA.rootSHA1())
+	if err != nil {
+		r.setHTTPSError(err)
+	} else {
+		r.setHTTPSError(nil)
+	}
+	r.setHTTPSTrusted(ok)
 }
 
 // EnableLocalDraftDomain starts the loopback DNS responder before requesting

@@ -981,6 +981,18 @@ func (c *Client) DisableLocalDraftDomain(ctx context.Context) (networking.LocalD
 	return out, c.postJSONWithTimeout(ctx, "/local-domain/disable", map[string]any{}, &out, 2*time.Minute)
 }
 
+func (c *Client) EnableLocalHTTPS(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	err := c.postJSONWithTimeout(ctx, "/local-https/enable", map[string]any{}, &out, 2*time.Minute)
+	return out, err
+}
+
+func (c *Client) DisableLocalHTTPS(ctx context.Context) (networking.LocalDomainStatus, error) {
+	var out networking.LocalDomainStatus
+	err := c.postJSONWithTimeout(ctx, "/local-https/disable", map[string]any{}, &out, 2*time.Minute)
+	return out, err
+}
+
 func (c *Client) SuggestEnvFile(ctx context.Context, nodeID string, projectID uint) (string, error) {
 	var out struct{ Path string }
 	body, _ := json.Marshal(map[string]any{"nodeId": nodeID, "projectId": projectID})
