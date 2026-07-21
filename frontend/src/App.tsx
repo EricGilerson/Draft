@@ -48,6 +48,7 @@ function App() {
     const [settingsProject, setSettingsProject] = useState<store.Project | null>(null);
     const [compactSidebar, setCompactSidebar] = useState(false);
     const [sandboxSource, setSandboxSource] = useState<{projectId: number; environmentId: number} | null>(null);
+    const [activeSandboxTestRunId, setActiveSandboxTestRunId] = useState<number | null>(null);
     const [update, setUpdate] = useState<UpdateState>({state: 'checking'});
     const projectsRef = useRef<store.Project[]>([]);
     const requestedEnvironmentRef = useRef<{projectId: number; environmentId: number} | null>(null);
@@ -287,6 +288,8 @@ function App() {
                                         <ProjectCanvas
                                             project={selectedProject}
                                             environmentId={selectedEnvironmentId}
+                                            sandboxTestRunId={activeSandboxTestRunId}
+                                            onDismissSandboxTestRun={() => setActiveSandboxTestRunId(null)}
                                             onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
                                             initialVolumeFocus={pendingVolumeFocus}
                                             onVolumeFocusApplied={() => setPendingVolumeFocus(null)}
@@ -311,6 +314,7 @@ function App() {
                                             setSelectedEnvironmentId(environmentId);
                                             setSandboxSource(null);
                                         }}
+                                        onTestRunStarted={setActiveSandboxTestRunId}
                                         onReturnToSource={() => setSandboxSource(null)}
                                     />
                                 )}
@@ -351,6 +355,7 @@ function App() {
                                     setSandboxSource(null);
                                     setSelectedProject(project);
                                 }}
+                                onTestRunStarted={setActiveSandboxTestRunId}
                             />
                         ) : view === 'templates' ? (
                             <TemplatesView/>

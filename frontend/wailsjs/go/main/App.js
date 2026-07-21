@@ -634,6 +634,10 @@ export function StartLogStream(arg1) {
   return window['go']['main']['App']['StartLogStream'](arg1);
 }
 
+export function StartTestingSandbox(arg1) {
+  return window['go']['main']['App']['StartTestingSandbox'](arg1);
+}
+
 export function StopAgentSession(arg1) {
   return window['go']['main']['App']['StopAgentSession'](arg1);
 }

@@ -490,6 +490,74 @@
     background: var(--surface);
 }
 
+.sandbox-detail--summary {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+}
+
+.sandbox-detail-summary-line {
+    padding: 12px 13px;
+    border-radius: 7px;
+    background: var(--surface-2, var(--bg));
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+
+.sandbox-detail-section {
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.sandbox-detail-section h3 {
+    margin: 0 0 10px;
+    color: var(--text);
+    font-size: .82rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+}
+
+.sandbox-detail-section p { margin: 0; }
+
+.sandbox-detail-list {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.sandbox-detail-list li {
+    display: flex;
+    gap: 9px;
+    align-items: baseline;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: .8rem;
+}
+
+.sandbox-detail-list code {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.sandbox-detail-steps li {
+    display: grid;
+    grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr);
+    align-items: start;
+    padding: 9px 10px;
+    border-radius: 6px;
+    background: var(--surface-2, var(--bg));
+}
+
+.sandbox-detail-steps strong { color: var(--text); }
+.sandbox-detail-steps code { white-space: pre-wrap; line-height: 1.45; }
+.sandbox-detail-latest-run { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; }
+.sandbox-detail-latest-run h3 { grid-column: 1 / -1; margin-bottom: 0; }
+.sandbox-detail-latest-run .btn { grid-column: 2; grid-row: 2; }
+
 .sandbox-page-actions {
     display: inline-flex;
     align-items: center;
@@ -633,29 +701,54 @@
 .sandbox-run-steps {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
 .sandbox-run-step {
-    padding: 12px;
+    padding: 13px 14px;
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.018);
 }
 
+.sandbox-run-step--passed { border-left: 3px solid var(--success); }
+.sandbox-run-step--failed { border-left: 3px solid var(--danger); }
+.sandbox-run-step-head { display: flex; align-items: center; gap: 10px; }
+.sandbox-run-step--passed .sandbox-run-step-head > svg { color: var(--success); }
+.sandbox-run-step--failed .sandbox-run-step-head > svg { color: var(--danger); }
+.sandbox-run-step-head > div { display: grid; gap: 2px; }
+.sandbox-run-step-head strong { color: var(--text); font-size: .92rem; }
+.sandbox-run-step-head span { color: var(--text-muted); font-size: .73rem; }
+.sandbox-run-step-duration { margin-left: auto; white-space: nowrap; }
+
+.sandbox-test-result { margin-top: 4px; }
+.sandbox-test-result-head { display: flex; align-items: center; gap: 11px; padding: 14px 15px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.sandbox-test-result-head--passed { border-left: 3px solid var(--success); }
+.sandbox-test-result-head--failed { border-left: 3px solid var(--danger); }
+.sandbox-test-result-head--passed > svg { color: var(--success); }
+.sandbox-test-result-head--failed > svg { color: var(--danger); }
+.sandbox-test-result-head div { display: grid; gap: 3px; }
+.sandbox-test-result-head strong { font-size: 1rem; }
+.sandbox-test-result-head span { color: var(--text-muted); font-size: .75rem; }
+.sandbox-test-result-error { margin: 10px 0 0; color: var(--danger); font-size: .82rem; }
+.sandbox-test-result-section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 20px 0 9px; }
+.sandbox-test-result-section-head h3 { margin: 0; font-size: .82rem; text-transform: uppercase; letter-spacing: .07em; }
+.sandbox-test-result-section-head span { color: var(--text-muted); font-size: .76rem; }
+
 .sandbox-run-output {
-    margin: 8px 0 0;
-    padding: 10px 12px;
-    max-height: 220px;
+    margin: 11px 0 0 27px;
+    padding: 11px 12px;
+    max-height: 200px;
     overflow: auto;
-    border-radius: var(--radius);
-    background: var(--surface-2, var(--surface));
+    border-radius: 6px;
+    background: #151513;
     border: 1px solid var(--border);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 0.72rem;
-    line-height: 1.45;
+    font-size: .77rem;
+    line-height: 1.5;
     white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .sandbox-run-error {

@@ -355,6 +355,14 @@ func (c *Client) RunTestingSandbox(ctx context.Context, req deploy.SandboxTestRu
 	return &out, nil
 }
 
+func (c *Client) StartTestingSandbox(ctx context.Context, req deploy.SandboxTestRunRequest) (*deploy.SandboxTestRunResult, error) {
+	var out deploy.SandboxTestRunResult
+	if err := c.postJSON(ctx, "/sandbox/test/start", req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) ListSandboxTestRuns(ctx context.Context, projectID uint, limit int) ([]store.SandboxTestRun, error) {
 	var out []store.SandboxTestRun
 	if err := c.postJSON(ctx, "/sandbox/test/runs", map[string]any{"projectId": projectID, "limit": limit}, &out); err != nil {

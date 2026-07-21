@@ -1,13 +1,14 @@
 package deploy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 // ExecSession is an interactive exec attached to a running service container.
@@ -86,12 +87,14 @@ func (e *Engine) RunCommand(ctx context.Context, nodeID string, cmd []string, wo
 	}
 	defer hijack.Close()
 
-	// With Tty=false the hijacked stream is multiplexed (stdout/stderr frames).
-	// stdcopy demultiplexes into a single combined buffer for display.
-	out, err := io.ReadAll(hijack.Reader)
+	// With Tty=false Docker sends multiplexed stdout/stderr frames. Sending the
+	// raw stream to the UI leaks its binary frame headers as replacement glyphs.
+	var stdout, stderr bytes.Buffer
+	_, err = stdcopy.StdCopy(&stdout, &stderr, hijack.Reader)
 	if err != nil {
 		return RunCommandResult{}, fmt.Errorf("exec read: %w", err)
 	}
+	out := append(stdout.Bytes(), stderr.Bytes()...)
 
 	inspect, err := cli.ContainerExecInspect(ctx, createResp.ID)
 	if err != nil {

@@ -46,14 +46,17 @@ type SandboxTestStepResult struct {
 	// DurationMs is wall time spent waiting for the command (and readiness for
 	// the first attempt), not including prior deploy time.
 	DurationMs int64 `json:"durationMs"`
+	// Status is queued while the sandbox is being prepared, running while the
+	// command is attached, and passed/failed once its result is durable.
+	Status string `json:"status,omitempty"`
 }
 
 // SandboxTestRunResult is the API response for a completed (or failed) suite.
 type SandboxTestRunResult struct {
-	Run     store.SandboxTestRun     `json:"run"`
-	Sandbox *store.Sandbox           `json:"sandbox,omitempty"`
-	Steps   []SandboxTestStepResult  `json:"steps"`
-	Stack   *EnvironmentStackResult  `json:"stack,omitempty"`
+	Run     store.SandboxTestRun    `json:"run"`
+	Sandbox *store.Sandbox          `json:"sandbox,omitempty"`
+	Steps   []SandboxTestStepResult `json:"steps"`
+	Stack   *EnvironmentStackResult `json:"stack,omitempty"`
 }
 
 // ListSandboxTestRuns returns recent runs for a project (history after cleanup).
@@ -99,7 +102,39 @@ func (e *Engine) RunTestingSandbox(ctx context.Context, req SandboxTestRunReques
 	return e.runTestingSandboxFresh(ctx, req)
 }
 
+// StartTestingSandbox creates the durable run and its sandbox, then continues
+// the expensive deploy/readiness/step work in the daemon. This lets callers
+// move to the sandbox canvas immediately and poll the same durable run.
+// Fresh mode is deliberately required: steps mode already has a live canvas
+// and remains synchronous until it gets its own run monitor entry point.
+func (e *Engine) StartTestingSandbox(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, error) {
+	if req.Mode != "" && req.Mode != SandboxTestRunFresh {
+		return nil, fmt.Errorf("start testing sandbox requires fresh mode")
+	}
+	prepared, plan, err := e.prepareTestingSandboxFresh(ctx, req)
+	if err != nil {
+		return prepared, err
+	}
+	go func() {
+		// The HTTP/Wails request ends as soon as the canvas can be opened; do
+		// not let that cancellation terminate the daemon-owned test run.
+		_, _ = e.executeTestingSandbox(context.WithoutCancel(ctx), &prepared.Run, prepared.Sandbox, plan)
+	}()
+	return prepared, nil
+}
+
 func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, error) {
+	prepared, plan, err := e.prepareTestingSandboxFresh(ctx, req)
+	if err != nil {
+		return prepared, err
+	}
+	return e.executeTestingSandbox(ctx, &prepared.Run, prepared.Sandbox, plan)
+}
+
+// prepareTestingSandboxFresh persists a run before doing asynchronous work and
+// returns as soon as the sandbox environment exists. The initial queued steps
+// make a newly-created run inspectable even if Draft quits during deployment.
+func (e *Engine) prepareTestingSandboxFresh(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, SandboxPlan, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		name = "test-run"
@@ -119,10 +154,10 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 	// create fails later.
 	preview, err := e.PreviewSandbox(ctx, createReq)
 	if err != nil {
-		return nil, err
+		return nil, SandboxPlan{}, err
 	}
 	if preview.Plan.Purpose != SandboxPurposeTest {
-		return nil, fmt.Errorf("testing sandbox requires purpose=test")
+		return nil, SandboxPlan{}, fmt.Errorf("testing sandbox requires purpose=test")
 	}
 
 	planJSON, _ := json.Marshal(preview.Plan)
@@ -134,11 +169,11 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 		Mode:                string(SandboxTestRunFresh),
 		Status:              "running",
 		PlanJSON:            string(planJSON),
-		StepsJSON:           "[]",
+		StepsJSON:           testStepResultsJSON(preview.Plan.Steps),
 		StartedAt:           time.Now().UTC(),
 	}
 	if _, err := e.store.CreateSandboxTestRun(run); err != nil {
-		return nil, err
+		return nil, SandboxPlan{}, err
 	}
 
 	// Replace previous live instance when rerunning a known sandbox id.
@@ -147,8 +182,8 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 	createReq.StartOnCreate = false
 	created, err := e.CreateSandbox(ctx, createReq)
 	if err != nil {
-		e.finishTestRun(run, "failed", nil, err.Error())
-		return &SandboxTestRunResult{Run: *run}, err
+		e.finishTestRun(run, "failed", queuedTestStepResults(preview.Plan.Steps), err.Error())
+		return &SandboxTestRunResult{Run: *run}, SandboxPlan{}, err
 	}
 	sandbox := created.Sandbox
 	run.SandboxID = sandbox.ID
@@ -158,8 +193,7 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 		_ = e.DeleteSandbox(ctx, previousID)
 	}
 
-	result, err := e.executeTestingSandbox(ctx, run, sandbox, preview.Plan)
-	return result, err
+	return &SandboxTestRunResult{Run: *run, Sandbox: sandbox, Steps: queuedTestStepResults(preview.Plan.Steps)}, preview.Plan, nil
 }
 
 func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, error) {
@@ -207,7 +241,7 @@ func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunR
 		Mode:                string(SandboxTestRunSteps),
 		Status:              "running",
 		PlanJSON:            string(planJSON),
-		StepsJSON:           "[]",
+		StepsJSON:           testStepResultsJSON(plan.Steps),
 		StartedAt:           time.Now().UTC(),
 	}
 	if _, err := e.store.CreateSandboxTestRun(run); err != nil {
@@ -227,7 +261,8 @@ func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunR
 }
 
 func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTestRun, sandbox *store.Sandbox, plan SandboxPlan) (*SandboxTestRunResult, error) {
-	out := &SandboxTestRunResult{Run: *run, Sandbox: sandbox, Steps: []SandboxTestStepResult{}}
+	out := &SandboxTestRunResult{Run: *run, Sandbox: sandbox, Steps: queuedTestStepResults(plan.Steps)}
+	e.saveTestRunProgress(run, out.Steps)
 
 	// Start every service in the sandbox environment. Deploy is async, so we
 	// poll for running containers before executing steps.
@@ -263,17 +298,23 @@ func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTe
 	}
 
 	allPassed := true
-	for _, step := range plan.Steps {
+	for i, step := range plan.Steps {
 		stepRes := SandboxTestStepResult{
 			Name:         step.Name,
 			ServiceLabel: step.ServiceLabel,
+			Status:       "running",
 		}
+		// Replace the queued entry before attaching to Docker so a reader can
+		// see exactly which command is currently running.
+		out.Steps[i] = stepRes
+		e.saveTestRunProgress(run, out.Steps)
 		node, ok := byLabel[step.ServiceLabel]
 		if !ok {
 			stepRes.Error = fmt.Sprintf("service %q not found in sandbox", step.ServiceLabel)
 			stepRes.ExitCode = -1
 			allPassed = false
-			out.Steps = append(out.Steps, stepRes)
+			stepRes.Status = "failed"
+			out.Steps[i] = stepRes
 			break
 		}
 		stepRes.NodeID = node.ID
@@ -292,21 +333,26 @@ func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTe
 		if cmdErr != nil {
 			stepRes.Error = cmdErr.Error()
 			allPassed = false
-			out.Steps = append(out.Steps, stepRes)
+			stepRes.Status = "failed"
+			out.Steps[i] = stepRes
 			break
 		}
 		if cmdRes.Error != "" {
 			stepRes.Error = cmdRes.Error
 			allPassed = false
-			out.Steps = append(out.Steps, stepRes)
+			stepRes.Status = "failed"
+			out.Steps[i] = stepRes
 			break
 		}
 		if cmdRes.ExitCode != 0 {
 			allPassed = false
-			out.Steps = append(out.Steps, stepRes)
+			stepRes.Status = "failed"
+			out.Steps[i] = stepRes
 			break
 		}
-		out.Steps = append(out.Steps, stepRes)
+		stepRes.Status = "passed"
+		out.Steps[i] = stepRes
+		e.saveTestRunProgress(run, out.Steps)
 	}
 
 	status := "passed"
@@ -357,6 +403,35 @@ func (e *Engine) finishTestRun(run *store.SandboxTestRun, status string, steps [
 	run.FinishedAt = &now
 	if steps == nil {
 		steps = []SandboxTestStepResult{}
+	}
+	if raw, err := json.Marshal(steps); err == nil {
+		run.StepsJSON = string(raw)
+	}
+	_ = e.store.UpdateSandboxTestRun(run)
+}
+
+func queuedTestStepResults(steps []SandboxStep) []SandboxTestStepResult {
+	out := make([]SandboxTestStepResult, len(steps))
+	for i, step := range steps {
+		out[i] = SandboxTestStepResult{Name: step.Name, ServiceLabel: step.ServiceLabel, Status: "queued"}
+	}
+	return out
+}
+
+func testStepResultsJSON(steps []SandboxStep) string {
+	raw, err := json.Marshal(queuedTestStepResults(steps))
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+// saveTestRunProgress deliberately updates the same history row after every
+// state change. Polling readers therefore see current work and a daemon crash
+// still leaves an honest partial record instead of an empty completed-looking run.
+func (e *Engine) saveTestRunProgress(run *store.SandboxTestRun, steps []SandboxTestStepResult) {
+	if run == nil {
+		return
 	}
 	if raw, err := json.Marshal(steps); err == nil {
 		run.StepsJSON = string(raw)

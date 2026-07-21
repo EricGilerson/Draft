@@ -18,6 +18,7 @@ import {
     ResumeSandbox,
     RunTestingSandbox,
     SaveSandboxProfile,
+    StartTestingSandbox,
     SuspendSandbox,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
@@ -33,6 +34,7 @@ type Props = {
     projects: store.Project[];
     initialSource?: {projectId: number; environmentId: number} | null;
     onOpenSandbox: (projectId: number, environmentId: number) => void;
+    onTestRunStarted?: (runId: number) => void;
     onReturnToSource?: (projectId: number, environmentId: number) => void;
     dialogOnly?: boolean;
 };
@@ -85,6 +87,12 @@ function stepsFromPlan(plan: any): StepDraft[] {
         cmd: Array.isArray(step.cmd) ? step.cmd.join(' ') : '',
         workDir: step.workDir ?? '',
     }));
+}
+
+// Older run records may contain Docker's TTY=false multiplex frame bytes.
+// New runs are decoded by the daemon; this keeps existing history readable.
+function cleanTestOutput(value: string): string {
+    return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
 }
 
 function stepsToPlan(steps: StepDraft[]): deploy.SandboxStep[] {
@@ -142,7 +150,7 @@ function draftsFromSourceRepos(repos: deploy.SandboxSourceRepos | null): Record<
     return next;
 }
 
-export default function SandboxesView({projects, initialSource, onOpenSandbox, onReturnToSource, dialogOnly = false}: Props) {
+export default function SandboxesView({projects, initialSource, onOpenSandbox, onTestRunStarted, onReturnToSource, dialogOnly = false}: Props) {
     const [sandboxes, setSandboxes] = useState<store.Sandbox[]>([]);
     const [testRuns, setTestRuns] = useState<store.SandboxTestRun[]>([]);
     const [projectId, setProjectId] = useState<number>(initialSource?.projectId ?? projects[0]?.id ?? 0);
@@ -517,7 +525,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         setBusy(true); setError('');
         try {
             if (purpose === 'test') {
-                const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+                const result = await StartTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
                     name: name.trim(),
                     sourceEnvironmentId: sourceId,
                     profileId: profileId || undefined,
@@ -528,9 +536,9 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                 setOpen(false);
                 setName('');
                 setLinks('');
-                setRunResult(result);
                 await refresh();
                 if (result.sandbox) {
+                    onTestRunStarted?.(result.run.id);
                     onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
                     onReturnToSource?.(result.sandbox.projectId, result.sandbox.environmentId);
                 }
@@ -580,16 +588,16 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         try {
             let plan: any = {};
             try { plan = JSON.parse(profile.planJson || '{}'); } catch { plan = {}; }
-            const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+            const result = await StartTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
                 name: profile.name,
                 sourceEnvironmentId: sourceId,
                 profileId: profile.id,
                 plan: deploy.SandboxPlan.createFrom({...plan, purpose: 'test'}),
                 mode: 'fresh',
             }));
-            setRunResult(result);
             await refresh();
             if (result.sandbox) {
+                onTestRunStarted?.(result.run.id);
                 onOpenSandbox(result.sandbox.projectId, result.sandbox.environmentId);
             }
         } catch (e) {
@@ -1249,41 +1257,44 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     </>
                 }
             >
-                <div className="sandbox-detail">
-                    <p>
+                <div className="sandbox-detail sandbox-detail--summary">
+                    <div className="sandbox-detail-summary-line">
                         Source: <strong>{detail.source.name}</strong> · {purposeLabel(detail.sandbox.purpose)} · {sandboxLifecycleLabel(detail.sandbox)}
-                    </p>
-                    <h3 className="project-settings-section-title">Services</h3>
-                    <ul>
+                    </div>
+                    <section className="sandbox-detail-section">
+                    <h3>Services</h3>
+                    <ul className="sandbox-detail-list">
                         {(detail.plan.services ?? []).map((rule) => (
-                            <li key={rule.sourceNodeId}>{rule.sourceNodeId}: {rule.mode}{rule.dataMode ? ` · ${rule.dataMode}` : ''}</li>
+                            <li key={rule.sourceNodeId}><code>{rule.sourceNodeId}</code><span>{rule.mode}{rule.dataMode ? ` · ${rule.dataMode}` : ''}</span></li>
                         ))}
                     </ul>
+                    </section>
                     {(detail.plan.steps?.length ?? 0) > 0 && (
-                        <>
-                            <h3 className="project-settings-section-title">Test steps</h3>
-                            <ul>
+                        <section className="sandbox-detail-section">
+                            <h3>Test steps</h3>
+                            <ul className="sandbox-detail-list sandbox-detail-steps">
                                 {detail.plan.steps!.map((step, i) => (
-                                    <li key={i}>{step.name || step.serviceLabel}: {(step.cmd ?? []).join(' ')}</li>
+                                    <li key={i}><strong>{step.name || step.serviceLabel}</strong><code>{(step.cmd ?? []).join(' ')}</code></li>
                                 ))}
                             </ul>
-                        </>
+                        </section>
                     )}
                     {detail.latestRun && (
-                        <>
-                            <h3 className="project-settings-section-title">Latest run</h3>
+                        <section className="sandbox-detail-section sandbox-detail-latest-run">
+                            <h3>Latest run</h3>
                             <p>
                                 {detail.latestRun.status} · {detail.latestRun.mode} · {dateLabel(detail.latestRun.startedAt)}
                                 {detail.latestRun.error ? ` · ${detail.latestRun.error}` : ''}
                             </p>
                             <button className="btn btn-ghost" onClick={() => void openRun(detail.latestRun!)}>View run transcript</button>
-                        </>
+                        </section>
                     )}
-                    <h3 className="project-settings-section-title">Repositories</h3>
+                    <section className="sandbox-detail-section">
+                    <h3>Repositories</h3>
                     {(detail.repositories?.length ?? 0) === 0 ? (
                         <p className="settings-hint">No repository pins (image-only or keep-source create).</p>
                     ) : (
-                        <ul>
+                        <ul className="sandbox-detail-list">
                             {detail.repositories.map((repo) => (
                                 <li key={repo.repoRoot}>
                                     <strong>{repoLeaf(repo.repoRoot)}</strong>
@@ -1295,9 +1306,11 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                             ))}
                         </ul>
                     )}
-                    <h3 className="project-settings-section-title">Links</h3>
+                    </section>
+                    <section className="sandbox-detail-section">
+                    <h3>Links</h3>
                     {detail.links.length ? (
-                        <ul>{detail.links.map((link) => (
+                        <ul className="sandbox-detail-list">{detail.links.map((link) => (
                             <li key={link.id}>
                                 {link.kind}: {link.value}{link.label ? ` · ${link.label}` : ''}
                             </li>
@@ -1305,6 +1318,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     ) : (
                         <p className="settings-hint">No links attached.</p>
                     )}
+                    </section>
                 </div>
             </Dialog>
         )}
@@ -1328,30 +1342,39 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                     </>
                 }
             >
-                <div className="sandbox-detail">
-                    <p>
-                        Status: <strong>{runResult.run.status}</strong> · mode {runResult.run.mode}
-                        {runResult.run.error ? ` · ${runResult.run.error}` : ''}
-                    </p>
-                    <p>Started {dateLabel(runResult.run.startedAt)}{runResult.run.finishedAt ? ` · finished ${dateLabel(runResult.run.finishedAt)}` : ''}</p>
-                    <h3 className="project-settings-section-title">Steps</h3>
+                <div className="sandbox-test-result">
+                    <header className={`sandbox-test-result-head sandbox-test-result-head--${runResult.run.status}`}>
+                        {runResult.run.status === 'passed' ? <CheckCircle2 size={21}/> : <XCircle size={21}/>}
+                        <div>
+                            <strong>{runResult.run.status === 'passed' ? 'All checks passed' : 'Test run failed'}</strong>
+                            <span>{runResult.run.mode === 'fresh' ? 'Fresh sandbox' : 'Existing sandbox'} · {dateLabel(runResult.run.startedAt)}</span>
+                        </div>
+                    </header>
+                    {runResult.run.error && <p className="sandbox-test-result-error">{runResult.run.error}</p>}
+                    <div className="sandbox-test-result-section-head">
+                        <h3>Checks</h3>
+                        <span>{runResult.steps.filter((step) => step.exitCode === 0 && !step.error).length} / {runResult.steps.length} passed</span>
+                    </div>
                     {(runResult.steps ?? []).length === 0 ? (
                         <p className="settings-hint">No step results recorded.</p>
                     ) : (
                         <div className="sandbox-run-steps">
-                            {runResult.steps.map((step, i) => (
-                                <article key={i} className="sandbox-run-step">
-                                    <div className="sandbox-branch-row">
-                                        {step.exitCode === 0 && !step.error ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
-                                        <strong>{step.name || step.serviceLabel}</strong>
-                                        <span className="tag-pill">{step.serviceLabel}</span>
-                                        <span className="tag-pill">exit {step.exitCode}</span>
-                                        <span className="tag-pill">{step.durationMs}ms</span>
+                            {runResult.steps.map((step, i) => {
+                                const passed = step.exitCode === 0 && !step.error;
+                                const output = cleanTestOutput(step.output || '');
+                                return <article key={i} className={`sandbox-run-step sandbox-run-step--${passed ? 'passed' : 'failed'}`}>
+                                    <div className="sandbox-run-step-head">
+                                        {passed ? <CheckCircle2 size={17}/> : <XCircle size={17}/>}
+                                        <div>
+                                            <strong>{step.name || step.serviceLabel}</strong>
+                                            <span>{step.serviceLabel}</span>
+                                        </div>
+                                        <span className="sandbox-run-step-duration">{step.durationMs}ms</span>
                                     </div>
                                     {step.error && <p className="environment-error">{step.error}</p>}
-                                    {step.output && <pre className="sandbox-run-output">{step.output}</pre>}
-                                </article>
-                            ))}
+                                    {output && <pre className="sandbox-run-output">{output}</pre>}
+                                </article>;
+                            })}
                         </div>
                     )}
                 </div>

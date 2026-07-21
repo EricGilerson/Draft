@@ -12,7 +12,7 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {FileUp, Maximize2, Minus, MoreHorizontal, Package, Plus, PlusCircle, Settings} from 'lucide-react';
+import {CheckCircle2, Circle, FileUp, LoaderCircle, Maximize2, Minus, MoreHorizontal, Package, Plus, PlusCircle, Settings, XCircle} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
@@ -22,6 +22,7 @@ import {
     GetLinkedServiceInfo,
     GetNodeConfigStatus,
     GetNodeHealth,
+    GetSandboxTestRun,
     ListManagedVolumes,
     ListNodes,
     ListNodesWithReferenceIssues,
@@ -63,6 +64,9 @@ type ProjectCanvasProps = {
      * by the Routes tab's "open on canvas" action. Cleared via onNodeFocusApplied. */
     initialSelectedNodeId?: string | null;
     onNodeFocusApplied?: () => void;
+    /** A newly launched test run stays attached to its sandbox canvas until dismissed. */
+    sandboxTestRunId?: number | null;
+    onDismissSandboxTestRun?: () => void;
 };
 
 type ServiceNodeData = {
@@ -194,7 +198,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, onOpenLinkedRootService, initialSelectedNodeId, onNodeFocusApplied}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, onOpenLinkedRootService, initialSelectedNodeId, onNodeFocusApplied, sandboxTestRunId, onDismissSandboxTestRun}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -209,11 +213,35 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
     const [canvasLoading, setCanvasLoading] = useState(true);
+    const [sandboxTestRun, setSandboxTestRun] = useState<deploy.SandboxTestRunResult | null>(null);
     const nodeClickRef = useRef(false);
     const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
     const canvasLoadGen = useRef(0);
     const templatesRef = useRef(templates);
     templatesRef.current = templates;
+
+    useEffect(() => {
+        if (!sandboxTestRunId) {
+            setSandboxTestRun(null);
+            return;
+        }
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const load = async () => {
+            try {
+                const next = await GetSandboxTestRun(sandboxTestRunId);
+                if (cancelled) return;
+                setSandboxTestRun(next);
+                if (next.run.status === 'running') {
+                    timer = setTimeout(() => { void load(); }, 750);
+                }
+            } catch {
+                if (!cancelled) timer = setTimeout(() => { void load(); }, 1500);
+            }
+        };
+        void load();
+        return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    }, [sandboxTestRunId]);
 
     useEffect(() => {
         if (!toolbarMenuOpen) return;
@@ -881,6 +909,45 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     <CanvasControls environmentId={environmentId} serviceCount={serviceNodes.length}/>
                 </ReactFlow>
                 </CanvasSelectionContext.Provider>
+
+                {sandboxTestRun?.sandbox?.environmentId === environmentId && (
+                    <aside className="sandbox-test-run-panel" aria-live="polite">
+                        <div className="sandbox-test-run-panel-head">
+                            <div>
+                                <span className="sandbox-test-run-kicker">Testing sandbox</span>
+                                <strong>{sandboxTestRun.run.name}</strong>
+                            </div>
+                            <div className={`sandbox-test-run-state sandbox-test-run-state--${sandboxTestRun.run.status}`}>
+                                {sandboxTestRun.run.status === 'running'
+                                    ? <LoaderCircle size={14}/>
+                                    : sandboxTestRun.run.status === 'passed' ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
+                                {sandboxTestRun.run.status === 'running' ? 'Running' : sandboxTestRun.run.status}
+                            </div>
+                            {sandboxTestRun.run.status !== 'running' && (
+                                <button className="icon-button" onClick={onDismissSandboxTestRun} aria-label="Dismiss test run">×</button>
+                            )}
+                        </div>
+                        <p className="sandbox-test-run-summary">
+                            {sandboxTestRun.run.status === 'running'
+                                ? (sandboxTestRun.steps.some((step) => (step as deploy.SandboxTestStepResult & {status?: string}).status === 'running') ? 'Executing test step' : 'Building and starting services')
+                                : sandboxTestRun.run.error || 'Test run complete'}
+                        </p>
+                        <div className="sandbox-test-run-steps">
+                            {sandboxTestRun.steps.map((step, index) => {
+                                const state = (step as deploy.SandboxTestStepResult & {status?: string}).status || (step.error || step.exitCode !== 0 ? 'failed' : 'passed');
+                                const Icon = state === 'running' ? LoaderCircle : state === 'passed' ? CheckCircle2 : state === 'failed' ? XCircle : Circle;
+                                return <div className={`sandbox-test-run-step sandbox-test-run-step--${state}`} key={`${step.name}-${index}`}>
+                                    <Icon size={14}/>
+                                    <span>{step.name || step.serviceLabel}</span>
+                                    <small>{step.serviceLabel}</small>
+                                    {state === 'passed' || state === 'failed' ? <em>{state === 'passed' ? `${step.durationMs}ms` : `exit ${step.exitCode}`}</em> : <em>{state}</em>}
+                                    {step.output && <pre>{step.output}</pre>}
+                                    {step.error && <p>{step.error}</p>}
+                                </div>;
+                            })}
+                        </div>
+                    </aside>
+                )}
 
                 {canvasLoading && (
                     <SkeletonBlock className="canvas-loading" label="Loading services">

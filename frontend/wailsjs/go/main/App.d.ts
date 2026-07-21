@@ -327,6 +327,8 @@ export function StartEnvironment(arg1:number):Promise<deploy.EnvironmentStackRes
 
 export function StartLogStream(arg1:string):Promise<void>;
 
+export function StartTestingSandbox(arg1:deploy.SandboxTestRunRequest):Promise<deploy.SandboxTestRunResult>;
+
 export function StopAgentSession(arg1:string):Promise<void>;
 
 export function StopDockerContainer(arg1:string):Promise<void>;

@@ -469,6 +469,19 @@ func (a *App) RunTestingSandbox(req deploy.SandboxTestRunRequest) (*deploy.Sandb
 	return c.RunTestingSandbox(a.ctx, req)
 }
 
+// StartTestingSandbox creates the sandbox and returns its run immediately;
+// deployment and test steps continue in the daemon for live canvas monitoring.
+func (a *App) StartTestingSandbox(req deploy.SandboxTestRunRequest) (*deploy.SandboxTestRunResult, error) {
+	c, err := a.ensureDaemon()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, errNoStore
+	}
+	return c.StartTestingSandbox(a.ctx, req)
+}
+
 func (a *App) ListSandboxTestRuns(projectID uint, limit int) ([]store.SandboxTestRun, error) {
 	c, err := a.ensureDaemon()
 	if err != nil {

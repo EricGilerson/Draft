@@ -213,6 +213,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("/sandbox/resolve-ref", s.handleResolveSandboxRef)
 	mux.HandleFunc("/sandbox/refresh", s.handleRefreshSandbox)
 	mux.HandleFunc("/sandbox/test/run", s.handleRunTestingSandbox)
+	mux.HandleFunc("/sandbox/test/start", s.handleStartTestingSandbox)
 	mux.HandleFunc("/sandbox/test/runs", s.handleListSandboxTestRuns)
 	mux.HandleFunc("/sandbox/test/run/get", s.handleGetSandboxTestRun)
 	mux.HandleFunc("/sync/preview", s.handleSyncPreview)
@@ -682,6 +683,19 @@ func (s *Server) handleRunTestingSandbox(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out, err := s.engine.RunTestingSandbox(r.Context(), req)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) handleStartTestingSandbox(w http.ResponseWriter, r *http.Request) {
+	var req deploy.SandboxTestRunRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	out, err := s.engine.StartTestingSandbox(r.Context(), req)
 	if err != nil {
 		writeError(w, err)
 		return
