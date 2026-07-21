@@ -45,10 +45,29 @@ type RunCommandResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
+type commandOutputWriter struct {
+	buf *bytes.Buffer
+	on  func(string)
+}
+
+func (w commandOutputWriter) Write(p []byte) (int, error) {
+	n, err := w.buf.Write(p)
+	if n > 0 && w.on != nil {
+		w.on(string(p[:n]))
+	}
+	return n, err
+}
+
 // RunCommand executes a one-shot, non-interactive command in the active
 // container for nodeID and returns the captured stdout/stderr plus exit code.
 // Used by the per-service "Run" bar (e.g. `npm run migrate`, `rails db:seed`).
 func (e *Engine) RunCommand(ctx context.Context, nodeID string, cmd []string, workDir string) (RunCommandResult, error) {
+	return e.RunCommandStream(ctx, nodeID, cmd, workDir, nil)
+}
+
+// RunCommandStream is RunCommand with incremental decoded stdout/stderr.
+// The callback is invoked from Docker's attach reader and must return quickly.
+func (e *Engine) RunCommandStream(ctx context.Context, nodeID string, cmd []string, workDir string, onOutput func(string)) (RunCommandResult, error) {
 	dep, err := e.store.ActiveDeployment(nodeID)
 	if err != nil {
 		return RunCommandResult{}, err
@@ -89,12 +108,13 @@ func (e *Engine) RunCommand(ctx context.Context, nodeID string, cmd []string, wo
 
 	// With Tty=false Docker sends multiplexed stdout/stderr frames. Sending the
 	// raw stream to the UI leaks its binary frame headers as replacement glyphs.
-	var stdout, stderr bytes.Buffer
-	_, err = stdcopy.StdCopy(&stdout, &stderr, hijack.Reader)
+	var output bytes.Buffer
+	writer := commandOutputWriter{buf: &output, on: onOutput}
+	_, err = stdcopy.StdCopy(writer, writer, hijack.Reader)
 	if err != nil {
 		return RunCommandResult{}, fmt.Errorf("exec read: %w", err)
 	}
-	out := append(stdout.Bytes(), stderr.Bytes()...)
+	out := output.Bytes()
 
 	inspect, err := cli.ContainerExecInspect(ctx, createResp.ID)
 	if err != nil {

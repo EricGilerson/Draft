@@ -67,19 +67,21 @@ const (
 type SandboxOnComplete string
 
 const (
-	SandboxOnCompleteLeave    SandboxOnComplete = "leave"
-	SandboxOnCompleteDelete   SandboxOnComplete = "delete"
-	SandboxOnCompleteSuspend  SandboxOnComplete = "suspend"
+	SandboxOnCompleteLeave   SandboxOnComplete = "leave"
+	SandboxOnCompleteDelete  SandboxOnComplete = "delete"
+	SandboxOnCompleteSuspend SandboxOnComplete = "suspend"
 )
 
 // SandboxStep is one command executed inside a running sandbox service.
 // ServiceLabel is resolved against the sandbox environment (not source IDs)
 // so recipes stay readable after node IDs change across copies.
 type SandboxStep struct {
-	Name         string   `json:"name,omitempty"`
-	ServiceLabel string   `json:"serviceLabel"`
-	Cmd          []string `json:"cmd"`
-	WorkDir      string   `json:"workDir,omitempty"`
+	Name              string   `json:"name,omitempty"`
+	ServiceLabel      string   `json:"serviceLabel"`
+	Cmd               []string `json:"cmd"`
+	WorkDir           string   `json:"workDir,omitempty"`
+	ExpectedExitCodes []int    `json:"expectedExitCodes,omitempty"`
+	OutputContains    string   `json:"outputContains,omitempty"`
 }
 
 // SandboxPlan is both the profile payload and the immutable resolved snapshot
@@ -115,9 +117,9 @@ type SandboxCreateRequest struct {
 // SandboxCreateResult is returned by CreateSandbox so the UI can open the new
 // environment and surface stack start outcomes without a second round-trip.
 type SandboxCreateResult struct {
-	Sandbox *store.Sandbox           `json:"sandbox"`
-	Stack   *EnvironmentStackResult  `json:"stack,omitempty"`
-	Started bool                     `json:"started"`
+	Sandbox *store.Sandbox          `json:"sandbox"`
+	Stack   *EnvironmentStackResult `json:"stack,omitempty"`
+	Started bool                    `json:"started"`
 	// StartError is set when materialize succeeded but stack start failed.
 	StartError string `json:"startError,omitempty"`
 }
@@ -125,20 +127,20 @@ type SandboxCreateResult struct {
 // SandboxSourceRepo describes one git repository used by services in a source
 // environment, for the create-sandbox source picker.
 type SandboxSourceRepo struct {
-	RepoRoot              string                `json:"repoRoot"`
-	DefaultRef            string                `json:"defaultRef"`
-	ServiceLabels         []string              `json:"serviceLabels"`
-	NodeIDs               []string              `json:"nodeIds"`
-	Branches              []string              `json:"branches,omitempty"`
-	PullRequestsAvailable bool                  `json:"pullRequestsAvailable"`
-	PullRequestsError     string                `json:"pullRequestsError,omitempty"`
-	PullRequests          []gitsrc.PullRequest  `json:"pullRequests,omitempty"`
+	RepoRoot              string               `json:"repoRoot"`
+	DefaultRef            string               `json:"defaultRef"`
+	ServiceLabels         []string             `json:"serviceLabels"`
+	NodeIDs               []string             `json:"nodeIds"`
+	Branches              []string             `json:"branches,omitempty"`
+	PullRequestsAvailable bool                 `json:"pullRequestsAvailable"`
+	PullRequestsError     string               `json:"pullRequestsError,omitempty"`
+	PullRequests          []gitsrc.PullRequest `json:"pullRequests,omitempty"`
 }
 
 // SandboxSourceRepos is the create-dialog payload for branch/PR selection.
 type SandboxSourceRepos struct {
-	ProjectID           uint               `json:"projectId"`
-	SourceEnvironmentID uint               `json:"sourceEnvironmentId"`
+	ProjectID           uint                `json:"projectId"`
+	SourceEnvironmentID uint                `json:"sourceEnvironmentId"`
 	Repositories        []SandboxSourceRepo `json:"repositories"`
 }
 
@@ -1017,6 +1019,9 @@ func (e *Engine) resolveSandboxPlan(req SandboxCreateRequest, source *store.Envi
 		plan.SuspendIdleHours = settings.SuspendIdleHours
 	}
 	if plan.Purpose == SandboxPurposeTest {
+		if len(plan.Steps) == 0 {
+			return plan, 0, fmt.Errorf("testing sandbox requires at least one test step")
+		}
 		if plan.OnComplete == "" {
 			plan.OnComplete = SandboxOnCompleteLeave
 		}
@@ -1042,6 +1047,12 @@ func (e *Engine) resolveSandboxPlan(req SandboxCreateRequest, source *store.Envi
 			}
 			if step.Name == "" {
 				step.Name = strings.Join(step.Cmd, " ")
+			}
+			step.OutputContains = strings.TrimSpace(step.OutputContains)
+			for _, code := range step.ExpectedExitCodes {
+				if code < 0 {
+					return plan, 0, fmt.Errorf("test step %d has invalid expected exit code", i+1)
+				}
 			}
 			plan.Steps[i] = step
 		}

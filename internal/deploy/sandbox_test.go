@@ -420,6 +420,19 @@ func TestTestingSandboxRejectsEmptyStepsCmd(t *testing.T) {
 	}
 }
 
+func TestSandboxStepAssertionsAcceptExitCodesOrLooseOutput(t *testing.T) {
+	result := SandboxTestStepResult{ExitCode: 4, Output: "ready\n  with spaces"}
+	if !stepPassed(SandboxStep{ExpectedExitCodes: []int{4}}, result) {
+		t.Fatal("expected configured exit code to pass")
+	}
+	if !stepPassed(SandboxStep{OutputContains: "ready with spaces"}, result) {
+		t.Fatal("expected whitespace-tolerant output match to pass")
+	}
+	if stepPassed(SandboxStep{ExpectedExitCodes: []int{0}, OutputContains: "missing"}, result) {
+		t.Fatal("unexpected assertion pass")
+	}
+}
+
 func TestRunTestingSandboxStepsRecordsHistory(t *testing.T) {
 	// File-backed store: stack start fans out goroutines and the pure-Go
 	// sqlite pool can open multiple connections; shared file DSN keeps one schema.

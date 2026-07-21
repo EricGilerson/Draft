@@ -1517,6 +1517,8 @@ export namespace deploy {
 	    serviceLabel: string;
 	    cmd: string[];
 	    workDir?: string;
+	    expectedExitCodes?: number[];
+	    outputContains?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SandboxStep(source);
@@ -1528,6 +1530,8 @@ export namespace deploy {
 	        this.serviceLabel = source["serviceLabel"];
 	        this.cmd = source["cmd"];
 	        this.workDir = source["workDir"];
+	        this.expectedExitCodes = source["expectedExitCodes"];
+	        this.outputContains = source["outputContains"];
 	    }
 	}
 	export class SandboxPlan {

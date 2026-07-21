@@ -698,6 +698,32 @@
     min-width: 0;
 }
 
+.sandbox-step-row {
+    grid-template-columns: minmax(120px, .7fr) minmax(120px, .7fr) minmax(220px, 1.6fr) auto;
+    grid-template-areas:
+        "name service command remove"
+        "workdir exits output .";
+}
+
+.sandbox-step-row > :nth-child(1) { grid-area: name; }
+.sandbox-step-row > :nth-child(2) { grid-area: service; }
+.sandbox-step-row > :nth-child(3) { grid-area: command; }
+.sandbox-step-row > :nth-child(4) { grid-area: exits; }
+.sandbox-step-row > :nth-child(5) { grid-area: output; }
+.sandbox-step-row > :nth-child(6) { grid-area: workdir; }
+.sandbox-step-row > :nth-child(7) { grid-area: remove; }
+
+@media (max-width: 720px) {
+    .sandbox-step-row {
+        grid-template-columns: 1fr 1fr auto;
+        grid-template-areas:
+            "name service remove"
+            "command command command"
+            "workdir exits exits"
+            "output output output";
+    }
+}
+
 .sandbox-run-steps {
     display: flex;
     flex-direction: column;

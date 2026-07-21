@@ -44,6 +44,8 @@ type StepDraft = {
     serviceLabel: string;
     cmd: string;
     workDir: string;
+    expectedExitCodes: string;
+    outputContains: string;
 };
 
 /** Per-repo source picker state for the create dialog. */
@@ -86,6 +88,8 @@ function stepsFromPlan(plan: any): StepDraft[] {
         serviceLabel: step.serviceLabel ?? '',
         cmd: Array.isArray(step.cmd) ? step.cmd.join(' ') : '',
         workDir: step.workDir ?? '',
+        expectedExitCodes: Array.isArray(step.expectedExitCodes) ? step.expectedExitCodes.join(', ') : '',
+        outputContains: step.outputContains ?? '',
     }));
 }
 
@@ -103,11 +107,13 @@ function stepsToPlan(steps: StepDraft[]): deploy.SandboxStep[] {
             serviceLabel: step.serviceLabel.trim(),
             cmd: parseCmdLine(step.cmd),
             workDir: step.workDir.trim() || undefined,
+            expectedExitCodes: step.expectedExitCodes.split(',').map((code) => Number.parseInt(code.trim(), 10)).filter(Number.isFinite),
+            outputContains: step.outputContains.trim() || undefined,
         }));
 }
 
 function emptyStep(serviceLabel = ''): StepDraft {
-    return {name: '', serviceLabel, cmd: '', workDir: ''};
+    return {name: '', serviceLabel, cmd: '', workDir: '', expectedExitCodes: '0', outputContains: ''};
 }
 
 function purposeLabel(purpose?: string): string {
@@ -610,12 +616,14 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
     const rerunSandbox = async (sandbox: store.Sandbox, mode: 'fresh' | 'steps') => {
         setBusy(true);
         try {
+            let savedPlan: Record<string, unknown> = {purpose: 'test'};
+            try { savedPlan = {...JSON.parse(sandbox.planJson || '{}'), purpose: 'test'}; } catch { /* use the safe test default */ }
             const result = await RunTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
                 name: sandbox.name,
                 sourceEnvironmentId: sandbox.sourceEnvironmentId,
                 profileId: sandbox.profileId || undefined,
                 sandboxId: sandbox.id,
-                plan: deploy.SandboxPlan.createFrom({purpose: 'test'}),
+                plan: deploy.SandboxPlan.createFrom(savedPlan),
                 mode,
             }));
             setRunResult(result);
@@ -678,7 +686,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
         <section className="sandbox-plan-editor">
             <h3 className="project-settings-section-title">Test steps</h3>
             <p className="environment-source-hint">
-                Commands run in the sandbox service container after the stack is healthy. Use shell-style quoting for args with spaces.
+                Commands run after the stack is healthy. Pass when an exit code matches, or when output contains the text (whitespace is normalized).
             </p>
             {value.map((step, index) => (
                 <div className="sandbox-step-row" key={index}>
@@ -689,6 +697,26 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                         onChange={(e) => {
                             const next = [...value];
                             next[index] = {...step, name: e.target.value};
+                            onChange(next);
+                        }}
+                    />
+                    <input
+                        className="input"
+                        placeholder="Accepted exits (0)"
+                        value={step.expectedExitCodes}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, expectedExitCodes: e.target.value};
+                            onChange(next);
+                        }}
+                    />
+                    <input
+                        className="input"
+                        placeholder="Or output contains"
+                        value={step.outputContains}
+                        onChange={(e) => {
+                            const next = [...value];
+                            next[index] = {...step, outputContains: e.target.value};
                             onChange(next);
                         }}
                     />
@@ -1369,7 +1397,7 @@ export default function SandboxesView({projects, initialSource, onOpenSandbox, o
                                             <strong>{step.name || step.serviceLabel}</strong>
                                             <span>{step.serviceLabel}</span>
                                         </div>
-                                        <span className="sandbox-run-step-duration">{step.durationMs}ms</span>
+                                        <span className="sandbox-run-step-duration">{step.exitCode >= 0 ? `exit ${step.exitCode} · ` : 'exit unavailable · '}{step.durationMs}ms</span>
                                     </div>
                                     {step.error && <p className="environment-error">{step.error}</p>}
                                     {output && <pre className="sandbox-run-output">{output}</pre>}

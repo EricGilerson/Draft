@@ -1,4 +1,5 @@
 .project-canvas-layout {
+    position: relative;
     display: flex;
     height: 100%;
     min-height: 100%;
@@ -89,6 +90,13 @@
 }
 
 .canvas-settings-btn {
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.canvas-test-monitor-toggle {
     font-size: 0.74rem;
     display: inline-flex;
     align-items: center;
@@ -314,25 +322,25 @@
 }
 
 .sandbox-test-run-panel {
-    position: absolute;
-    z-index: 6;
-    top: 18px;
-    right: 18px;
-    width: min(390px, calc(100% - 36px));
-    max-height: calc(100% - 36px);
-    overflow: auto;
-    border: 1px solid var(--border-strong);
-    border-radius: 10px;
-    background: rgba(27, 27, 24, 0.94);
-    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
-    backdrop-filter: blur(14px);
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    background: var(--bg-elevated);
+    overflow: hidden;
+}
+
+.sandbox-test-run-resizable {
+    border-top: 1px solid var(--border);
 }
 
 .sandbox-test-run-panel-head {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 13px 14px 10px;
+    padding: 18px 18px 14px;
     border-bottom: 1px solid var(--border);
 }
 
@@ -343,14 +351,28 @@
 .sandbox-test-run-state--passed { color: var(--success); }
 .sandbox-test-run-state--failed { color: var(--danger); }
 .sandbox-test-run-state--running svg, .sandbox-test-run-step--running > svg { animation: sandbox-spin .9s linear infinite; }
-.sandbox-test-run-summary { margin: 10px 14px; color: var(--text-secondary); font-size: .8rem; }
-.sandbox-test-run-steps { display: grid; gap: 1px; padding: 0 8px 8px; }
-.sandbox-test-run-step { display: grid; grid-template-columns: 15px minmax(0, 1fr) auto auto; align-items: center; column-gap: 7px; padding: 9px 7px; border-radius: 6px; color: var(--text-muted); font-size: .78rem; }
-.sandbox-test-run-step--running { color: var(--text-primary); background: rgba(224, 218, 204, .06); }
+.sandbox-test-run-summary { margin: 14px 18px 12px; color: var(--text-secondary); font-size: .8rem; line-height: 1.45; }
+.sandbox-test-run-steps { display: grid; gap: 7px; padding: 0 12px; overflow: auto; }
+.sandbox-test-run-step { display: grid; grid-template-columns: 15px minmax(0, 1fr) auto; align-items: center; column-gap: 8px; padding: 11px 10px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-muted); font-size: .78rem; }
+.sandbox-test-run-step--running { color: var(--text-primary); border-color: var(--border); background: var(--surface); }
 .sandbox-test-run-step--passed > svg { color: var(--success); }
 .sandbox-test-run-step--failed > svg, .sandbox-test-run-step p { color: var(--danger); }
-.sandbox-test-run-step small, .sandbox-test-run-step em { color: var(--text-muted); font-size: .7rem; font-style: normal; }
+.sandbox-test-run-step small { grid-column: 2; margin-top: 2px; color: var(--text-faint); font-size: .69rem; }
+.sandbox-test-run-step em { color: var(--text-muted); font-size: .7rem; font-style: normal; }
 .sandbox-test-run-step pre, .sandbox-test-run-step p { grid-column: 2 / -1; margin: 7px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sandbox-test-run-step pre { max-height: 150px; overflow: auto; padding: 8px; border-radius: 4px; background: rgba(0, 0, 0, .22); color: var(--text-secondary); font-size: .7rem; }
+.sandbox-test-run-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: auto; padding: 12px; border-top: 1px solid var(--border); }
+.sandbox-test-run-panel-actions .btn { font-size: .73rem; }
+.sandbox-test-run-panel-actions .icon-button { margin-left: auto; }
+
+@media (max-width: 900px) {
+    .sandbox-test-run-resizable { min-width: 270px !important; }
+}
+
+@media (max-width: 720px) {
+    .sandbox-test-run-resizable { position: absolute; z-index: 8; right: 12px; bottom: 12px; width: min(360px, calc(100% - 24px)) !important; height: min(60%, 440px); }
+    .sandbox-test-run-panel { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 12px 30px rgba(0, 0, 0, .28); }
+    .sandbox-test-run-resizable .resizable-handle { display: none; }
+}
 
 @keyframes sandbox-spin { to { transform: rotate(360deg); } }

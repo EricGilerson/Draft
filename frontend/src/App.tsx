@@ -290,6 +290,11 @@ function App() {
                                             environmentId={selectedEnvironmentId}
                                             sandboxTestRunId={activeSandboxTestRunId}
                                             onDismissSandboxTestRun={() => setActiveSandboxTestRunId(null)}
+                                            onSandboxTestRunStarted={setActiveSandboxTestRunId}
+                                            onOpenSandbox={(projectId, environmentId) => {
+                                                requestedEnvironmentRef.current = {projectId, environmentId};
+                                                setSelectedEnvironmentId(environmentId);
+                                            }}
                                             onServicesChanged={() => refreshProjectSummaries(projectsRef.current)}
                                             initialVolumeFocus={pendingVolumeFocus}
                                             onVolumeFocusApplied={() => setPendingVolumeFocus(null)}

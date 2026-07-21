@@ -105,20 +105,31 @@ func (e *Engine) RunTestingSandbox(ctx context.Context, req SandboxTestRunReques
 // StartTestingSandbox creates the durable run and its sandbox, then continues
 // the expensive deploy/readiness/step work in the daemon. This lets callers
 // move to the sandbox canvas immediately and poll the same durable run.
-// Fresh mode is deliberately required: steps mode already has a live canvas
-// and remains synchronous until it gets its own run monitor entry point.
 func (e *Engine) StartTestingSandbox(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, error) {
-	if req.Mode != "" && req.Mode != SandboxTestRunFresh {
-		return nil, fmt.Errorf("start testing sandbox requires fresh mode")
+	mode := req.Mode
+	if mode == "" {
+		mode = SandboxTestRunFresh
 	}
-	prepared, plan, err := e.prepareTestingSandboxFresh(ctx, req)
+	var prepared *SandboxTestRunResult
+	var plan SandboxPlan
+	var err error
+	startStack := false
+	switch mode {
+	case SandboxTestRunFresh:
+		prepared, plan, err = e.prepareTestingSandboxFresh(ctx, req)
+		startStack = true
+	case SandboxTestRunSteps:
+		prepared, plan, err = e.prepareTestingSandboxSteps(ctx, req)
+	default:
+		return nil, fmt.Errorf("invalid test run mode %q", mode)
+	}
 	if err != nil {
 		return prepared, err
 	}
 	go func() {
 		// The HTTP/Wails request ends as soon as the canvas can be opened; do
 		// not let that cancellation terminate the daemon-owned test run.
-		_, _ = e.executeTestingSandbox(context.WithoutCancel(ctx), &prepared.Run, prepared.Sandbox, plan)
+		_, _ = e.executeTestingSandbox(context.WithoutCancel(ctx), &prepared.Run, prepared.Sandbox, plan, startStack)
 	}()
 	return prepared, nil
 }
@@ -128,7 +139,7 @@ func (e *Engine) runTestingSandboxFresh(ctx context.Context, req SandboxTestRunR
 	if err != nil {
 		return prepared, err
 	}
-	return e.executeTestingSandbox(ctx, &prepared.Run, prepared.Sandbox, plan)
+	return e.executeTestingSandbox(ctx, &prepared.Run, prepared.Sandbox, plan, true)
 }
 
 // prepareTestingSandboxFresh persists a run before doing asynchronous work and
@@ -197,22 +208,30 @@ func (e *Engine) prepareTestingSandboxFresh(ctx context.Context, req SandboxTest
 }
 
 func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, error) {
+	prepared, plan, err := e.prepareTestingSandboxSteps(ctx, req)
+	if err != nil {
+		return prepared, err
+	}
+	return e.executeTestingSandbox(ctx, &prepared.Run, prepared.Sandbox, plan, false)
+}
+
+func (e *Engine) prepareTestingSandboxSteps(ctx context.Context, req SandboxTestRunRequest) (*SandboxTestRunResult, SandboxPlan, error) {
 	if req.SandboxID == 0 {
-		return nil, fmt.Errorf("sandboxId is required for steps mode")
+		return nil, SandboxPlan{}, fmt.Errorf("sandboxId is required for steps mode")
 	}
 	sandbox, err := e.store.GetSandbox(req.SandboxID)
 	if err != nil {
-		return nil, err
+		return nil, SandboxPlan{}, err
 	}
 	if sandbox.Purpose != string(SandboxPurposeTest) && !planPurposeIsTest(sandbox.PlanJSON) {
-		return nil, fmt.Errorf("sandbox %q is not a testing sandbox", sandbox.Name)
+		return nil, SandboxPlan{}, fmt.Errorf("sandbox %q is not a testing sandbox", sandbox.Name)
 	}
 	if sandbox.Status == "expired" || sandbox.Status == "cleanup_failed" {
-		return nil, fmt.Errorf("sandbox %q is not live (status %s); use fresh mode", sandbox.Name, sandbox.Status)
+		return nil, SandboxPlan{}, fmt.Errorf("sandbox %q is not live (status %s); use fresh mode", sandbox.Name, sandbox.Status)
 	}
 	var plan SandboxPlan
 	if err := json.Unmarshal([]byte(sandbox.PlanJSON), &plan); err != nil {
-		return nil, fmt.Errorf("read sandbox plan: %w", err)
+		return nil, SandboxPlan{}, fmt.Errorf("read sandbox plan: %w", err)
 	}
 	// Allow request plan to override steps only (recipe tweaks without rebuild).
 	if req.Plan.Steps != nil {
@@ -224,7 +243,7 @@ func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunR
 	plan.Purpose = SandboxPurposeTest
 	// Re-validate steps through resolve defaults path pieces.
 	if err := validateTestingPlanSteps(&plan); err != nil {
-		return nil, err
+		return nil, SandboxPlan{}, err
 	}
 
 	name := strings.TrimSpace(req.Name)
@@ -245,37 +264,35 @@ func (e *Engine) runTestingSandboxSteps(ctx context.Context, req SandboxTestRunR
 		StartedAt:           time.Now().UTC(),
 	}
 	if _, err := e.store.CreateSandboxTestRun(run); err != nil {
-		return nil, err
+		return nil, SandboxPlan{}, err
 	}
 
 	// Resume if suspended so commands have containers.
 	if sandbox.Status == "suspended" {
 		if _, err := e.ResumeSandbox(ctx, sandbox.ID); err != nil {
 			e.finishTestRun(run, "failed", nil, err.Error())
-			return &SandboxTestRunResult{Run: *run, Sandbox: sandbox}, err
+			return &SandboxTestRunResult{Run: *run, Sandbox: sandbox}, SandboxPlan{}, err
 		}
 		sandbox, _ = e.store.GetSandbox(sandbox.ID)
 	}
-
-	return e.executeTestingSandbox(ctx, run, sandbox, plan)
+	return &SandboxTestRunResult{Run: *run, Sandbox: sandbox, Steps: queuedTestStepResults(plan.Steps)}, plan, nil
 }
 
-func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTestRun, sandbox *store.Sandbox, plan SandboxPlan) (*SandboxTestRunResult, error) {
+func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTestRun, sandbox *store.Sandbox, plan SandboxPlan, startStack bool) (*SandboxTestRunResult, error) {
 	out := &SandboxTestRunResult{Run: *run, Sandbox: sandbox, Steps: queuedTestStepResults(plan.Steps)}
 	e.saveTestRunProgress(run, out.Steps)
 
-	// Start every service in the sandbox environment. Deploy is async, so we
-	// poll for running containers before executing steps.
-	stack, err := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackStart)
-	out.Stack = stack
-	if err != nil {
-		e.finishTestRun(run, "failed", out.Steps, err.Error())
-		out.Run = *run
-		return out, err
-	}
-	if stack != nil && stack.Failed > 0 {
-		// Continue: some services may still become ready (e.g. already running).
-		// Hard-fail only when a step cannot find a running container.
+	if startStack {
+		// Fresh runs deploy the newly materialized environment. Step-only reruns
+		// deliberately skip this: calling StackStart here redeployed containers
+		// and could cancel the command sequence it was meant to repeat.
+		stack, err := e.RunEnvironmentStack(ctx, sandbox.EnvironmentID, StackStart)
+		out.Stack = stack
+		if err != nil {
+			e.finishTestRun(run, "failed", out.Steps, err.Error())
+			out.Run = *run
+			return out, err
+		}
 	}
 
 	nodes, err := e.store.ListNodesByEnvironment(sandbox.EnvironmentID)
@@ -326,11 +343,16 @@ func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTe
 			}
 		}
 		start := time.Now()
-		cmdRes, cmdErr := e.RunCommand(ctx, execNodeID, step.Cmd, step.WorkDir)
+		cmdRes, cmdErr := e.RunCommandStream(ctx, execNodeID, step.Cmd, step.WorkDir, func(chunk string) {
+			stepRes.Output += chunk
+			out.Steps[i] = stepRes
+			e.saveTestRunProgress(run, out.Steps)
+		})
 		stepRes.DurationMs = time.Since(start).Milliseconds()
 		stepRes.Output = cmdRes.Output
 		stepRes.ExitCode = cmdRes.ExitCode
 		if cmdErr != nil {
+			stepRes.ExitCode = -1
 			stepRes.Error = cmdErr.Error()
 			allPassed = false
 			stepRes.Status = "failed"
@@ -344,8 +366,11 @@ func (e *Engine) executeTestingSandbox(ctx context.Context, run *store.SandboxTe
 			out.Steps[i] = stepRes
 			break
 		}
-		if cmdRes.ExitCode != 0 {
+		if !stepPassed(step, stepRes) {
 			allPassed = false
+			if stepRes.Error == "" {
+				stepRes.Error = stepFailureReason(step, stepRes)
+			}
 			stepRes.Status = "failed"
 			out.Steps[i] = stepRes
 			break
@@ -437,6 +462,43 @@ func (e *Engine) saveTestRunProgress(run *store.SandboxTestRun, steps []SandboxT
 		run.StepsJSON = string(raw)
 	}
 	_ = e.store.UpdateSandboxTestRun(run)
+	if e.emit != nil {
+		e.emit("sandbox:test-progress", map[string]any{"runId": run.ID, "run": run, "steps": steps})
+	}
+}
+
+func stepPassed(step SandboxStep, result SandboxTestStepResult) bool {
+	exitCodes := step.ExpectedExitCodes
+	if len(exitCodes) == 0 && strings.TrimSpace(step.OutputContains) == "" {
+		exitCodes = []int{0}
+	}
+	for _, code := range exitCodes {
+		if result.ExitCode == code {
+			return true
+		}
+	}
+	return outputContainsLoose(result.Output, step.OutputContains)
+}
+
+func stepFailureReason(step SandboxStep, result SandboxTestStepResult) string {
+	parts := make([]string, 0, 2)
+	if len(step.ExpectedExitCodes) > 0 {
+		parts = append(parts, fmt.Sprintf("exit %d was not accepted", result.ExitCode))
+	} else if strings.TrimSpace(step.OutputContains) == "" {
+		parts = append(parts, fmt.Sprintf("step exited %d", result.ExitCode))
+	}
+	if strings.TrimSpace(step.OutputContains) != "" {
+		parts = append(parts, fmt.Sprintf("output did not contain %q", step.OutputContains))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func outputContainsLoose(output, expected string) bool {
+	expected = strings.Join(strings.Fields(expected), " ")
+	if expected == "" {
+		return false
+	}
+	return strings.Contains(strings.Join(strings.Fields(output), " "), expected)
 }
 
 func planPurposeIsTest(planJSON string) bool {
@@ -451,6 +513,9 @@ func validateTestingPlanSteps(plan *SandboxPlan) error {
 	if plan == nil {
 		return fmt.Errorf("plan is required")
 	}
+	if len(plan.Steps) == 0 {
+		return fmt.Errorf("testing sandbox requires at least one test step")
+	}
 	for i, step := range plan.Steps {
 		step.ServiceLabel = strings.TrimSpace(step.ServiceLabel)
 		step.Name = strings.TrimSpace(step.Name)
@@ -463,6 +528,12 @@ func validateTestingPlanSteps(plan *SandboxPlan) error {
 		}
 		if step.Name == "" {
 			step.Name = strings.Join(step.Cmd, " ")
+		}
+		step.OutputContains = strings.TrimSpace(step.OutputContains)
+		for _, code := range step.ExpectedExitCodes {
+			if code < 0 {
+				return fmt.Errorf("test step %d has invalid expected exit code", i+1)
+			}
 		}
 		plan.Steps[i] = step
 	}

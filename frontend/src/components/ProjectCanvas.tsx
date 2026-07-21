@@ -12,7 +12,7 @@ import {
     useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {CheckCircle2, Circle, FileUp, LoaderCircle, Maximize2, Minus, MoreHorizontal, Package, Plus, PlusCircle, Settings, XCircle} from 'lucide-react';
+import {CheckCircle2, ChevronRight, Circle, FileUp, LoaderCircle, Maximize2, Minus, MoreHorizontal, Package, PanelRightClose, PanelRightOpen, Play, Plus, PlusCircle, RotateCcw, Settings, XCircle} from 'lucide-react';
 import {useCallback, useEffect, useMemo, useRef, useState, type MouseEvent} from 'react';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
 import {
@@ -23,10 +23,13 @@ import {
     GetNodeConfigStatus,
     GetNodeHealth,
     GetSandboxTestRun,
+    ListSandboxes,
+    ListSandboxTestRuns,
     ListManagedVolumes,
     ListNodes,
     ListNodesWithReferenceIssues,
     ListServiceTemplates,
+    StartTestingSandbox,
     UpdateNode,
 } from '../../wailsjs/go/main/App';
 import {deploy, store} from '../../wailsjs/go/models';
@@ -67,6 +70,8 @@ type ProjectCanvasProps = {
     /** A newly launched test run stays attached to its sandbox canvas until dismissed. */
     sandboxTestRunId?: number | null;
     onDismissSandboxTestRun?: () => void;
+    onSandboxTestRunStarted?: (runId: number) => void;
+    onOpenSandbox?: (projectId: number, environmentId: number) => void;
 };
 
 type ServiceNodeData = {
@@ -198,7 +203,7 @@ function serviceStatusFromDeployment(status: string): string {
     }
 }
 
-export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, onOpenLinkedRootService, initialSelectedNodeId, onNodeFocusApplied, sandboxTestRunId, onDismissSandboxTestRun}: ProjectCanvasProps) {
+export default function ProjectCanvas({project, environmentId, onServicesChanged, initialVolumeFocus, onVolumeFocusApplied, onOpenProjectSettings, onOpenLinkedRootService, initialSelectedNodeId, onNodeFocusApplied, sandboxTestRunId, onDismissSandboxTestRun, onSandboxTestRunStarted, onOpenSandbox}: ProjectCanvasProps) {
     const [serviceNodes, setServiceNodes, onServiceNodesChange] = useNodesState<Node<ServiceNodeData>>([]);
     const [connectionEdges, setConnectionEdges] = useEdgesState<Edge>([]);
     const [volumeMountsByNode, setVolumeMountsByNode] = useState<Record<string, VolumeEntry[]>>({});
@@ -214,6 +219,10 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     const [selectedVolume, setSelectedVolume] = useState<SelectedVolume | null>(null);
     const [canvasLoading, setCanvasLoading] = useState(true);
     const [sandboxTestRun, setSandboxTestRun] = useState<deploy.SandboxTestRunResult | null>(null);
+    const [canvasSandboxTestRunId, setCanvasSandboxTestRunId] = useState<number | null>(null);
+    const [dismissedSandboxTestRunId, setDismissedSandboxTestRunId] = useState<number | null>(null);
+    const [sandboxTestPanelOpen, setSandboxTestPanelOpen] = useState(() => localStorage.getItem('draft:sandbox-test-panel') !== 'closed');
+    const [sandboxTestAction, setSandboxTestAction] = useState<'steps' | 'fresh' | null>(null);
     const nodeClickRef = useRef(false);
     const toolbarMenuRef = useRef<HTMLDivElement | null>(null);
     const canvasLoadGen = useRef(0);
@@ -221,7 +230,30 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
     templatesRef.current = templates;
 
     useEffect(() => {
-        if (!sandboxTestRunId) {
+        localStorage.setItem('draft:sandbox-test-panel', sandboxTestPanelOpen ? 'open' : 'closed');
+    }, [sandboxTestPanelOpen]);
+
+    useEffect(() => {
+        if (sandboxTestRunId) {
+            setCanvasSandboxTestRunId(null);
+            return;
+        }
+        let cancelled = false;
+        Promise.all([ListSandboxes(project.id), ListSandboxTestRuns(project.id, 50)])
+            .then(([sandboxes, runs]) => {
+                if (cancelled) return;
+                const sandbox = (sandboxes ?? []).find((item) => item.environmentId === environmentId && item.purpose === 'test');
+                const run = sandbox && (runs ?? []).find((item) => item.sandboxId === sandbox.id);
+                setCanvasSandboxTestRunId(run?.id === dismissedSandboxTestRunId ? null : (run?.id ?? null));
+            })
+            .catch(() => { if (!cancelled) setCanvasSandboxTestRunId(null); });
+        return () => { cancelled = true; };
+    }, [sandboxTestRunId, project.id, environmentId, dismissedSandboxTestRunId]);
+
+    const visibleSandboxTestRunId = sandboxTestRunId ?? canvasSandboxTestRunId;
+
+    useEffect(() => {
+        if (!visibleSandboxTestRunId) {
             setSandboxTestRun(null);
             return;
         }
@@ -229,7 +261,7 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
         let timer: ReturnType<typeof setTimeout> | undefined;
         const load = async () => {
             try {
-                const next = await GetSandboxTestRun(sandboxTestRunId);
+                const next = await GetSandboxTestRun(visibleSandboxTestRunId);
                 if (cancelled) return;
                 setSandboxTestRun(next);
                 if (next.run.status === 'running') {
@@ -241,7 +273,19 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
         };
         void load();
         return () => { cancelled = true; if (timer) clearTimeout(timer); };
-    }, [sandboxTestRunId]);
+    }, [visibleSandboxTestRunId]);
+
+    useEffect(() => {
+        if (!visibleSandboxTestRunId) return;
+        return EventsOn('sandbox:test-progress', (payload: any) => {
+            if (payload?.runId !== visibleSandboxTestRunId) return;
+            setSandboxTestRun((current) => current ? deploy.SandboxTestRunResult.createFrom({
+                ...current,
+                run: payload.run,
+                steps: payload.steps ?? current.steps,
+            }) : current);
+        });
+    }, [visibleSandboxTestRunId]);
 
     useEffect(() => {
         if (!toolbarMenuOpen) return;
@@ -811,6 +855,31 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
         () => ({selectVolume}),
         [selectVolume],
     );
+    const hasSandboxTestRun = sandboxTestRun?.sandbox?.environmentId === environmentId;
+    const rerunSandboxTest = async (mode: 'steps' | 'fresh') => {
+        if (!sandboxTestRun?.sandbox || sandboxTestAction) return;
+        setSandboxTestAction(mode);
+        try {
+            let savedPlan: Record<string, unknown> = {purpose: 'test'};
+            try { savedPlan = {...JSON.parse(sandboxTestRun.run.planJson || '{}'), purpose: 'test'}; } catch { /* use the safe test default */ }
+            const result = await StartTestingSandbox(deploy.SandboxTestRunRequest.createFrom({
+                name: sandboxTestRun.run.name,
+                sourceEnvironmentId: sandboxTestRun.sandbox.sourceEnvironmentId,
+                profileId: sandboxTestRun.sandbox.profileId || undefined,
+                sandboxId: sandboxTestRun.sandbox.id,
+                plan: deploy.SandboxPlan.createFrom(savedPlan),
+                mode,
+            }));
+            setSandboxTestRun(result);
+            setSandboxTestPanelOpen(true);
+            onSandboxTestRunStarted?.(result.run.id);
+            if (mode === 'fresh' && result.sandbox) {
+                onOpenSandbox?.(result.sandbox.projectId, result.sandbox.environmentId);
+            }
+        } finally {
+            setSandboxTestAction(null);
+        }
+    };
 
     return (
         <div className="project-canvas-layout">
@@ -822,6 +891,16 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 </div>
 
                 <div className="canvas-add-wrapper">
+                    {hasSandboxTestRun && (
+                        <button
+                            className="btn btn-ghost canvas-test-monitor-toggle"
+                            onClick={() => setSandboxTestPanelOpen((open) => !open)}
+                            title={sandboxTestPanelOpen ? 'Close test monitor' : 'Open test monitor'}
+                        >
+                            {sandboxTestPanelOpen ? <PanelRightClose size={15}/> : <PanelRightOpen size={15}/>}
+                            <span className="canvas-btn-label">Test run</span>
+                        </button>
+                    )}
                     {onOpenProjectSettings && (
                         <button
                             className="btn btn-ghost canvas-settings-btn"
@@ -910,45 +989,6 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                 </ReactFlow>
                 </CanvasSelectionContext.Provider>
 
-                {sandboxTestRun?.sandbox?.environmentId === environmentId && (
-                    <aside className="sandbox-test-run-panel" aria-live="polite">
-                        <div className="sandbox-test-run-panel-head">
-                            <div>
-                                <span className="sandbox-test-run-kicker">Testing sandbox</span>
-                                <strong>{sandboxTestRun.run.name}</strong>
-                            </div>
-                            <div className={`sandbox-test-run-state sandbox-test-run-state--${sandboxTestRun.run.status}`}>
-                                {sandboxTestRun.run.status === 'running'
-                                    ? <LoaderCircle size={14}/>
-                                    : sandboxTestRun.run.status === 'passed' ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
-                                {sandboxTestRun.run.status === 'running' ? 'Running' : sandboxTestRun.run.status}
-                            </div>
-                            {sandboxTestRun.run.status !== 'running' && (
-                                <button className="icon-button" onClick={onDismissSandboxTestRun} aria-label="Dismiss test run">×</button>
-                            )}
-                        </div>
-                        <p className="sandbox-test-run-summary">
-                            {sandboxTestRun.run.status === 'running'
-                                ? (sandboxTestRun.steps.some((step) => (step as deploy.SandboxTestStepResult & {status?: string}).status === 'running') ? 'Executing test step' : 'Building and starting services')
-                                : sandboxTestRun.run.error || 'Test run complete'}
-                        </p>
-                        <div className="sandbox-test-run-steps">
-                            {sandboxTestRun.steps.map((step, index) => {
-                                const state = (step as deploy.SandboxTestStepResult & {status?: string}).status || (step.error || step.exitCode !== 0 ? 'failed' : 'passed');
-                                const Icon = state === 'running' ? LoaderCircle : state === 'passed' ? CheckCircle2 : state === 'failed' ? XCircle : Circle;
-                                return <div className={`sandbox-test-run-step sandbox-test-run-step--${state}`} key={`${step.name}-${index}`}>
-                                    <Icon size={14}/>
-                                    <span>{step.name || step.serviceLabel}</span>
-                                    <small>{step.serviceLabel}</small>
-                                    {state === 'passed' || state === 'failed' ? <em>{state === 'passed' ? `${step.durationMs}ms` : `exit ${step.exitCode}`}</em> : <em>{state}</em>}
-                                    {step.output && <pre>{step.output}</pre>}
-                                    {step.error && <p>{step.error}</p>}
-                                </div>;
-                            })}
-                        </div>
-                    </aside>
-                )}
-
                 {canvasLoading && (
                     <SkeletonBlock className="canvas-loading" label="Loading services">
                         <div className="canvas-loading-cluster" aria-hidden="true">
@@ -980,6 +1020,48 @@ export default function ProjectCanvas({project, environmentId, onServicesChanged
                     </SkeletonBlock>
                 )}
             </div>
+
+            {hasSandboxTestRun && sandboxTestPanelOpen && (
+                <ResizablePanel side="right" defaultWidth={350} minWidth={300} maxWidth={560} storageKey="draft:sandbox-test-monitor-width" className="sandbox-test-run-resizable">
+                <aside className="sandbox-test-run-panel" aria-live="polite">
+                    <div className="sandbox-test-run-panel-head">
+                        <div>
+                            <span className="sandbox-test-run-kicker">Test run monitor</span>
+                            <strong>{sandboxTestRun.run.name}</strong>
+                        </div>
+                        <div className={`sandbox-test-run-state sandbox-test-run-state--${sandboxTestRun.run.status}`}>
+                            {sandboxTestRun.run.status === 'running' ? <LoaderCircle size={14}/> : sandboxTestRun.run.status === 'passed' ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
+                            {sandboxTestRun.run.status === 'running' ? 'Running' : sandboxTestRun.run.status}
+                        </div>
+                    </div>
+                    <p className="sandbox-test-run-summary">
+                        {sandboxTestRun.run.status === 'running'
+                            ? (sandboxTestRun.steps.some((step) => (step as deploy.SandboxTestStepResult & {status?: string}).status === 'running') ? 'Executing test step' : 'Building and starting services')
+                            : sandboxTestRun.run.error || 'Test run complete'}
+                    </p>
+                    <div className="sandbox-test-run-steps">
+                        {sandboxTestRun.steps.map((step, index) => {
+                            const state = (step as deploy.SandboxTestStepResult & {status?: string}).status || (step.error || step.exitCode !== 0 ? 'failed' : 'passed');
+                            const Icon = state === 'running' ? LoaderCircle : state === 'passed' ? CheckCircle2 : state === 'failed' ? XCircle : Circle;
+                            return <div className={`sandbox-test-run-step sandbox-test-run-step--${state}`} key={`${step.name}-${index}`}>
+                                <Icon size={14}/>
+                                <span>{step.name || step.serviceLabel}</span>
+                                <small>{step.serviceLabel}</small>
+                                {state === 'passed' || state === 'failed' ? <em>{step.exitCode >= 0 ? `exit ${step.exitCode} · ` : 'exit unavailable · '}{step.durationMs}ms</em> : <em>{state}</em>}
+                                {step.output && <pre>{step.output.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')}</pre>}
+                                {step.error && <p>{step.error}</p>}
+                            </div>;
+                        })}
+                    </div>
+                    <div className="sandbox-test-run-panel-actions">
+                        <button className="btn btn-ghost" disabled={sandboxTestAction !== null} onClick={() => void rerunSandboxTest('steps')}><Play size={14}/>{sandboxTestAction === 'steps' ? 'Starting…' : 'Re-run steps'}</button>
+                        <button className="btn btn-primary" disabled={sandboxTestAction !== null} onClick={() => void rerunSandboxTest('fresh')}><RotateCcw size={14}/>{sandboxTestAction === 'fresh' ? 'Starting…' : 'Rerun fresh'}</button>
+                        <button className="btn btn-ghost" onClick={() => setSandboxTestPanelOpen(false)}><ChevronRight size={14}/> Close monitor</button>
+                        {sandboxTestRun.run.status !== 'running' && <button className="icon-button" onClick={() => { setDismissedSandboxTestRunId(sandboxTestRun.run.id); setCanvasSandboxTestRunId(null); onDismissSandboxTestRun?.(); }} aria-label="Dismiss test run">×</button>}
+                    </div>
+                </aside>
+                </ResizablePanel>
+            )}
 
             {selectedVolume && (
                 <ResizablePanel side="right" defaultWidth={380} minWidth={300} maxWidth={640} storageKey="draft:volume-detail-width">
