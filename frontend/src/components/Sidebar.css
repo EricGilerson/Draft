@@ -45,42 +45,11 @@
 .brand-mark {
     display: block;
     flex-shrink: 0;
-    filter: none;
-}
-
-.brand-mark-tile {
-    fill: rgba(24, 26, 18, 0.94);
-    stroke: rgba(194, 202, 197, 0.36);
-    stroke-width: 1.15;
-}
-
-.brand-mark-route {
-    stroke: var(--accent-text);
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-
-.brand-mark-route-secondary {
-    stroke: rgba(104, 189, 120, 0.78);
-}
-
-.brand-mark-node {
-    fill: var(--bg-elevated);
-    stroke: var(--accent-text);
-    stroke-width: 1.45;
-}
-
-.brand-mark-node-primary {
-    fill: rgba(140, 150, 144, 0.2);
-    stroke: var(--accent);
-}
-
-.brand-mark-launch {
-    stroke: var(--accent);
-    stroke-width: 1.65;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
 }
 
 .brand-name {

@@ -1,6 +1,7 @@
 import type {ComponentType} from 'react';
 import {LayoutDashboard, FolderOpen, Box, LayoutTemplate, HardDrive, Route, Settings2, KeyRound, Container, SquareTerminal, RefreshCw, LoaderCircle} from 'lucide-react';
 import type {LucideProps} from 'lucide-react';
+import brandMark from '../assets/logo-mark-trans-cream.png';
 import './Sidebar.css';
 
 type IconType = ComponentType<LucideProps>;
@@ -39,15 +40,14 @@ type SidebarProps = {
 
 function BrandMark() {
     return (
-        <svg className="brand-mark" width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <rect className="brand-mark-tile" x="3.5" y="3.5" width="25" height="25" rx="7"/>
-            <path className="brand-mark-route" d="M10 21.5v-8h6.4l5.6-4.8"/>
-            <path className="brand-mark-route brand-mark-route-secondary" d="M16.4 13.5v7.7H23"/>
-            <circle className="brand-mark-node" cx="10" cy="21.5" r="2.35"/>
-            <circle className="brand-mark-node brand-mark-node-primary" cx="16.4" cy="13.5" r="2.35"/>
-            <circle className="brand-mark-node" cx="23" cy="21.2" r="2.35"/>
-            <path className="brand-mark-launch" d="M21.2 7.7 25.6 6.4 24.3 10.8"/>
-        </svg>
+        <img
+            className="brand-mark"
+            src={brandMark}
+            width={32}
+            height={32}
+            alt=""
+            draggable={false}
+        />
     );
 }
 
