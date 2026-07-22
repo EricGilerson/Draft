@@ -53,6 +53,50 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigrateDeploymentInputsPrimaryKeyIncludesScope(t *testing.T) {
+	s := openTemp(t)
+	if err := s.DB.Exec("DROP TABLE deployment_inputs").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec(`CREATE TABLE deployment_inputs (
+		deployment_id integer NOT NULL,
+		key text NOT NULL,
+		scope text NOT NULL DEFAULT "runtime",
+		digest text NOT NULL,
+		created_at datetime,
+		PRIMARY KEY (deployment_id, key)
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.Exec("INSERT INTO deployment_inputs (deployment_id, key, scope, digest) VALUES (1, 'SHARED', 'runtime', 'old-digest')").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	legacy, err := s.ListDeploymentInputs(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy) != 1 || legacy[0].Scope != "runtime" || legacy[0].Digest != "old-digest" {
+		t.Fatalf("legacy input was not preserved: %+v", legacy)
+	}
+	if err := s.ReplaceDeploymentInputs(1, []DeploymentInput{
+		{Key: "SHARED", Scope: "runtime", Digest: "runtime-digest"},
+		{Key: "SHARED", Scope: "build", Digest: "build-digest"},
+	}); err != nil {
+		t.Fatalf("ReplaceDeploymentInputs: %v", err)
+	}
+	inputs, err := s.ListDeploymentInputs(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 2 || inputs[0].Scope != "build" || inputs[1].Scope != "runtime" {
+		t.Fatalf("unexpected migrated inputs: %+v", inputs)
+	}
+}
+
 // migrationProbe is a throwaway model used only to exercise the AutoMigrate
 // path; it is not part of the real schema.
 type migrationProbe struct {

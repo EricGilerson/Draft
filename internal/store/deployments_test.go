@@ -55,14 +55,14 @@ func TestReplaceDeploymentInputsStoresDigestsOnly(t *testing.T) {
 	if err := s.ReplaceDeploymentInputs(dep.ID, []DeploymentInput{{Key: "TOKEN", Scope: "runtime", Digest: "digest-one"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReplaceDeploymentInputs(dep.ID, []DeploymentInput{{Key: "TOKEN", Scope: "runtime", Digest: "digest-two"}, {Key: "ARG", Scope: "build", Digest: "digest-three"}}); err != nil {
+	if err := s.ReplaceDeploymentInputs(dep.ID, []DeploymentInput{{Key: "TOKEN", Scope: "runtime", Digest: "digest-two"}, {Key: "TOKEN", Scope: "build", Digest: "digest-three"}}); err != nil {
 		t.Fatal(err)
 	}
 	inputs, err := s.ListDeploymentInputs(dep.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inputs) != 2 || inputs[0].Digest != "digest-three" || inputs[1].Digest != "digest-two" {
+	if len(inputs) != 2 || inputs[0].Key != "TOKEN" || inputs[0].Scope != "build" || inputs[0].Digest != "digest-three" || inputs[1].Key != "TOKEN" || inputs[1].Scope != "runtime" || inputs[1].Digest != "digest-two" {
 		t.Fatalf("unexpected inputs: %+v", inputs)
 	}
 }

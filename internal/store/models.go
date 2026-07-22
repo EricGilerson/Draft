@@ -257,7 +257,7 @@ type Deployment struct {
 type DeploymentInput struct {
 	DeploymentID uint      `gorm:"primaryKey;not null" json:"deploymentId"`
 	Key          string    `gorm:"primaryKey;not null" json:"key"`
-	Scope        string    `gorm:"not null;default:'runtime'" json:"scope"` // runtime|build
+	Scope        string    `gorm:"primaryKey;not null;default:'runtime'" json:"scope"` // runtime|build
 	Digest       string    `gorm:"not null" json:"digest"`
 	CreatedAt    time.Time `json:"createdAt"`
 }

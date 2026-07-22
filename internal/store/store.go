@@ -82,10 +82,58 @@ func Open(dsn string) (*Store, error) {
 
 // Migrate applies the registered schema. Safe to call repeatedly.
 func (s *Store) Migrate() error {
+	if err := s.migrateDeploymentInputsPrimaryKey(); err != nil {
+		return err
+	}
 	if len(registeredModels) == 0 {
 		return nil
 	}
 	return s.DB.AutoMigrate(registeredModels...)
+}
+
+// migrateDeploymentInputsPrimaryKey upgrades databases created before Scope
+// was part of DeploymentInput's identity. A variable with scope "both" has one
+// runtime and one build input, so the old (deployment_id, key) key rejected the
+// second row. SQLite cannot alter a primary key in place, hence the table copy.
+func (s *Store) migrateDeploymentInputsPrimaryKey() error {
+	if !s.DB.Migrator().HasTable("deployment_inputs") {
+		return nil
+	}
+
+	type tableColumn struct {
+		Name string
+		PK   int
+	}
+	var columns []tableColumn
+	if err := s.DB.Raw("PRAGMA table_info(deployment_inputs)").Scan(&columns).Error; err != nil {
+		return err
+	}
+	for _, column := range columns {
+		if column.Name == "scope" && column.PK > 0 {
+			return nil
+		}
+	}
+
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec(`CREATE TABLE deployment_inputs_new (
+			deployment_id integer NOT NULL,
+			key text NOT NULL,
+			scope text NOT NULL DEFAULT "runtime",
+			digest text NOT NULL,
+			created_at datetime,
+			PRIMARY KEY (deployment_id, key, scope)
+		)`).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`INSERT INTO deployment_inputs_new (deployment_id, key, scope, digest, created_at)
+			SELECT deployment_id, key, scope, digest, created_at FROM deployment_inputs`).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DROP TABLE deployment_inputs").Error; err != nil {
+			return err
+		}
+		return tx.Exec("ALTER TABLE deployment_inputs_new RENAME TO deployment_inputs").Error
+	})
 }
 
 // Close releases the underlying database connection.
