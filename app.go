@@ -119,8 +119,9 @@ type UpdateRestartResult struct {
 }
 
 // RestartToUpdate drains the Draft daemon, then delegates replacement to a
-// detached copy of this executable. The updater waits for both processes so
-// Windows never tries to overwrite a live executable.
+// detached helper. On Windows the helper is a copy of this executable so the
+// live .exe can be overwritten; on macOS the in-bundle binary is used (Unix
+// can rename the .app while the process keeps running from the old inode).
 func (a *App) RestartToUpdate(cancelActive bool) (*UpdateRestartResult, error) {
 	if a.updater == nil {
 		return nil, fmt.Errorf("updater is unavailable")
@@ -150,25 +151,39 @@ func (a *App) RestartToUpdate(cancelActive bool) (*UpdateRestartResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	helper := filepath.Join(a.updater.UpdateDir(), fmt.Sprintf("draft-update-helper-%d", os.Getpid()))
+	helper := exe
 	if runtime.GOOS == "windows" {
-		helper += ".exe"
-	}
-	if err := copyExecutable(exe, helper); err != nil {
-		return nil, err
+		helper = filepath.Join(a.updater.UpdateDir(), fmt.Sprintf("draft-update-helper-%d.exe", os.Getpid()))
+		if err := copyExecutable(exe, helper); err != nil {
+			return nil, err
+		}
 	}
 	appPath := exe
 	if runtime.GOOS == "darwin" {
 		appPath = filepath.Clean(filepath.Join(exe, "..", "..", ".."))
 	}
-	jobPath, err := appupdate.WriteJob(a.updater.UpdateDir(), appupdate.Job{AppPID: os.Getpid(), DaemonPID: daemonPID, Artifact: artifact, AppPath: appPath})
+	updateDir := a.updater.UpdateDir()
+	jobPath, err := appupdate.WriteJob(updateDir, appupdate.Job{AppPID: os.Getpid(), DaemonPID: daemonPID, Artifact: artifact, AppPath: appPath})
+	if err != nil {
+		return nil, err
+	}
+	logFile, err := os.OpenFile(filepath.Join(updateDir, "apply.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	cmd := executil.Command(helper, "--apply-update", jobPath)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	executil.Detach(cmd)
 	if err := cmd.Start(); err != nil {
+		_ = logFile.Close()
 		return nil, err
 	}
+	if err := cmd.Process.Release(); err != nil {
+		_ = logFile.Close()
+		return nil, err
+	}
+	_ = logFile.Close()
 	wruntime.Quit(a.ctx)
 	return &UpdateRestartResult{Ready: true, Message: "Restarting to install Draft " + status.Version}, nil
 }

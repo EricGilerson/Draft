@@ -76,7 +76,9 @@ type Manager struct {
 func New(currentVersion, publicKeyBase64 string) *Manager {
 	dir, _ := os.UserConfigDir()
 	dir = filepath.Join(dir, "Draft", "updates")
-	m := &Manager{currentVersion: currentVersion, dir: dir, http: &http.Client{Timeout: 30 * time.Second}}
+	// No blanket Timeout: artifact downloads are large. Per-request contexts
+	// bound GitHub API / manifest fetches instead.
+	m := &Manager{currentVersion: currentVersion, dir: dir, http: &http.Client{}}
 	if raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(publicKeyBase64)); err == nil && len(raw) == ed25519.PublicKeySize {
 		m.publicKey = ed25519.PublicKey(raw)
 	}
@@ -173,6 +175,8 @@ func (m *Manager) Check(ctx context.Context) Status {
 }
 
 func (m *Manager) latest(ctx context.Context) (githubRelease, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubLatestURL, nil)
 	if err != nil {
 		return githubRelease{}, err
@@ -192,6 +196,8 @@ func (m *Manager) latest(ctx context.Context) (githubRelease, error) {
 }
 
 func (m *Manager) fetchManifest(ctx context.Context, release githubRelease) ([]byte, []byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	manifestURL, sigURL := assetURL(release.Assets, manifestName), assetURL(release.Assets, signatureName)
 	if manifestURL == "" || sigURL == "" {
 		return nil, nil, errors.New("This release is not published as an auto-update.")

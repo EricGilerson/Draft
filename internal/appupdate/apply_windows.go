@@ -25,17 +25,31 @@ func waitForExit(pid int) error {
 	return nil
 }
 
-func apply(job Job) error {
+func relaunchApp(appPath string) error {
+	return exec.Command(appPath).Start()
+}
+
+func apply(job Job, logf func(string, ...any)) error {
 	if err := waitForExit(job.AppPID); err != nil {
 		return err
 	}
+	logf("app pid %d exited", job.AppPID)
 	if err := waitForExit(job.DaemonPID); err != nil {
 		return err
 	}
-	installDir := filepath.Dir(job.AppPath)
-	cmd := exec.Command(job.Artifact, "/S", "/D="+installDir)
-	if err := cmd.Run(); err != nil {
-		return err
+	if job.DaemonPID > 0 {
+		logf("daemon pid %d exited", job.DaemonPID)
 	}
-	return exec.Command(job.AppPath).Start()
+	installDir := filepath.Dir(job.AppPath)
+	logf("running installer %s /S /D=%s", job.Artifact, installDir)
+	cmd := exec.Command(job.Artifact, "/S", "/D="+installDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("installer failed: %w: %s", err, out)
+	}
+	if len(out) > 0 {
+		logf("installer output: %s", out)
+	}
+	logf("relaunching %s", job.AppPath)
+	return relaunch(job.AppPath)
 }

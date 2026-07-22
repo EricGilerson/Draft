@@ -22,12 +22,20 @@ func waitForExit(pid int) error {
 	return fmt.Errorf("timed out waiting for Draft to close")
 }
 
-func apply(job Job) error {
+func relaunchApp(appPath string) error {
+	return exec.Command("/usr/bin/open", appPath).Start()
+}
+
+func apply(job Job, logf func(string, ...any)) error {
 	if err := waitForExit(job.AppPID); err != nil {
 		return err
 	}
+	logf("app pid %d exited", job.AppPID)
 	if err := waitForExit(job.DaemonPID); err != nil {
 		return err
+	}
+	if job.DaemonPID > 0 {
+		logf("daemon pid %d exited", job.DaemonPID)
 	}
 	parent := filepath.Dir(job.AppPath)
 	if _, err := os.Stat(parent); err != nil {
@@ -38,15 +46,23 @@ func apply(job Job) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+	logf("unpacking %s into %s", job.Artifact, tmp)
 	if out, err := exec.Command("/usr/bin/ditto", "-x", "-k", job.Artifact, tmp).CombinedOutput(); err != nil {
 		return fmt.Errorf("unpack update: %w: %s", err, out)
 	}
 	candidate := filepath.Join(tmp, "Draft.app")
+	if _, err := os.Stat(candidate); err != nil {
+		return fmt.Errorf("update archive missing Draft.app: %w", err)
+	}
+	logf("verifying code signature")
 	if out, err := exec.Command("/usr/bin/codesign", "--verify", "--deep", "--strict", candidate).CombinedOutput(); err != nil {
 		return fmt.Errorf("verify update signature: %w: %s", err, out)
 	}
+	// Downloaded zips carry Gatekeeper quarantine; clear after we verified the signature ourselves.
+	_ = exec.Command("/usr/bin/xattr", "-dr", "com.apple.quarantine", candidate).Run()
 	backup := job.AppPath + ".previous"
 	_ = os.RemoveAll(backup)
+	logf("replacing %s", job.AppPath)
 	if err := os.Rename(job.AppPath, backup); err != nil {
 		return err
 	}
@@ -54,7 +70,8 @@ func apply(job Job) error {
 		_ = os.Rename(backup, job.AppPath)
 		return err
 	}
-	if err := exec.Command("/usr/bin/open", job.AppPath).Start(); err != nil {
+	logf("relaunching %s", job.AppPath)
+	if err := relaunch(job.AppPath); err != nil {
 		return err
 	}
 	return os.RemoveAll(backup)

@@ -112,6 +112,12 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Test updater
+        shell: bash
+        env:
+          CGO_ENABLED: ${{ matrix.os == 'macos-latest' && '1' || '0' }}
+        run: go test ./internal/appupdate/ ./internal/executil/ -count=1
+
       - name: Build
         env:
           CGO_ENABLED: ${{ matrix.os == 'macos-latest' && '1' || '0' }}
