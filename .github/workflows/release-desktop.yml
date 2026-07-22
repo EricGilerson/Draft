@@ -479,19 +479,51 @@ jobs:
           jq -n --arg version "$VERSION" --argjson platforms "$PLATFORMS" '{version: $version, channel: "stable", notes: ("Draft v" + $version), platforms: $platforms}' > artifacts/update/draft-update-manifest.json
           go run ./cmd/updatesign -in artifacts/update/draft-update-manifest.json -out artifacts/update/draft-update-manifest.sig
 
+      - name: Build release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.get-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ ! -f CHANGELOG.md ]; then
+            echo "CHANGELOG.md is missing; add a Keep a Changelog entry for v${VERSION}" >&2
+            exit 1
+          fi
+          # Extract the ## [VERSION] section (optional " - YYYY-MM-DD" suffix).
+          awk -v ver="$VERSION" '
+            BEGIN { capturing = 0 }
+            /^## \[/{
+              if ($0 ~ ("^## \\[" ver "\\]( |$)")) {
+                capturing = 1
+                next
+              }
+              if (capturing) exit
+            }
+            capturing { print }
+          ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > /tmp/changelog-section.md
+          if [ ! -s /tmp/changelog-section.md ]; then
+            echo "No CHANGELOG.md section for [${VERSION}]. Add ## [${VERSION}] - YYYY-MM-DD before releasing." >&2
+            exit 1
+          fi
+          {
+            echo "## Draft Desktop v${VERSION}"
+            echo
+            cat /tmp/changelog-section.md
+            echo
+            echo "### Downloads"
+            echo "- **macOS** (Universal — Intel + Apple Silicon): \`.dmg\`"
+            echo "- **Windows** (x64): NSIS \`.exe\` installer"
+            echo
+            echo "Built with Wails ${{ env.WAILS_VERSION }}."
+          } > RELEASE_NOTES.md
+          echo "---- RELEASE_NOTES.md ----"
+          cat RELEASE_NOTES.md
+
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.get-version.outputs.version }}
           name: Draft v${{ needs.get-version.outputs.version }}
-          body: |
-            ## Draft Desktop v${{ needs.get-version.outputs.version }}
-
-            ### Downloads
-            - **macOS** (Universal — Intel + Apple Silicon): `.dmg`
-            - **Windows** (x64): NSIS `.exe` installer
-
-            Built with Wails ${{ env.WAILS_VERSION }}.
+          body_path: RELEASE_NOTES.md
           draft: ${{ inputs.draft_release }}
           prerelease: false
           fail_on_unmatched_files: false
