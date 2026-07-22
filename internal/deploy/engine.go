@@ -1231,19 +1231,28 @@ func applyContainerExitResult(dep *store.Deployment, exitCode int, waitErr error
 	dep.Error = "container exited unexpectedly (code 0)"
 }
 
-func removeImageAndWait(ctx context.Context, cli *client.Client, imageTag string) error {
+// removeImageAndWait removes an image after its deployment has committed to
+// retiring it. That cleanup must outlive the caller's context: deploy contexts
+// are intentionally cancelled when a newer deploy supersedes them, and Docker
+// may still complete an untag request after returning context canceled. Using
+// the canceled context here used to strand those images as <none>:<none>.
+func removeImageAndWait(_ context.Context, cli *client.Client, imageTag string) error {
 	if imageTag == "" {
 		return nil
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	const cleanupTimeout = 30 * time.Second
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+
+	deadline := time.Now().Add(cleanupTimeout)
 	for time.Now().Before(deadline) {
-		if _, err := cli.ImageRemove(ctx, imageTag, image.RemoveOptions{Force: true}); err != nil &&
+		if _, err := cli.ImageRemove(cleanupCtx, imageTag, image.RemoveOptions{Force: true}); err != nil &&
 			!errdefs.IsNotFound(err) &&
 			!errdefs.IsConflict(err) &&
 			!strings.Contains(err.Error(), "being used by") {
 			return err
 		}
-		if _, _, err := cli.ImageInspectWithRaw(ctx, imageTag); err != nil {
+		if _, _, err := cli.ImageInspectWithRaw(cleanupCtx, imageTag); err != nil {
 			if errdefs.IsNotFound(err) {
 				return nil
 			}

@@ -1000,6 +1000,29 @@ func TestIntegrationRedeployRetainsPreviousImage(t *testing.T) {
 	})
 }
 
+// TestIntegrationRemoveImageSurvivesCallerCancellation verifies post-cutover
+// cleanup does not strand an image when the superseded deployment context has
+// already been cancelled by a newer deploy.
+func TestIntegrationRemoveImageSurvivesCallerCancellation(t *testing.T) {
+	cli := requireDocker(t)
+	defer cli.Close()
+
+	tag := fmt.Sprintf("draft-cancel-cleanup-%d:1", time.Now().UnixNano())
+	buildTestImage(t, cli, tag, "FROM scratch\n")
+	t.Cleanup(func() {
+		_, _ = cli.ImageRemove(context.Background(), tag, image.RemoveOptions{Force: true})
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := removeImageAndWait(ctx, cli, tag); err != nil {
+		t.Fatalf("remove image with cancelled caller context: %v", err)
+	}
+	if _, _, err := cli.ImageInspectWithRaw(context.Background(), tag); err == nil {
+		t.Fatalf("expected image %s to be removed", tag)
+	}
+}
+
 // TestIntegrationStopCleansImage verifies that stopping a deployment removes
 // its container and image.
 func TestIntegrationStopCleansImage(t *testing.T) {
