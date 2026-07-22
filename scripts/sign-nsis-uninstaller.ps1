@@ -3,6 +3,9 @@ param(
     [string]$Path
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
 $required = @(
     'AZURE_TENANT_ID',
     'AZURE_CLIENT_ID',
@@ -25,12 +28,12 @@ if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
 Import-Module TrustedSigning -RequiredVersion 0.5.0 -ErrorAction Stop
 
 $signingArgs = @{
-    Endpoint                = $env:AZURE_CODE_SIGNING_ENDPOINT
-    CodeSigningAccountName  = $env:AZURE_CODE_SIGNING_ACCOUNT
-    CertificateProfileName  = $env:AZURE_CERTIFICATE_PROFILE
-    Files                   = $Path
-    FileDigest              = 'SHA256'
-    TimestampRfc3161        = 'http://timestamp.acs.microsoft.com'
-    TimestampDigest         = 'SHA256'
+    Endpoint               = $env:AZURE_CODE_SIGNING_ENDPOINT
+    CodeSigningAccountName = $env:AZURE_CODE_SIGNING_ACCOUNT
+    CertificateProfileName = $env:AZURE_CERTIFICATE_PROFILE
+    Files                  = $Path
+    FileDigest             = 'SHA256'
+    TimestampRfc3161       = 'http://timestamp.acs.microsoft.com'
+    TimestampDigest        = 'SHA256'
 }
 Invoke-TrustedSigning @signingArgs

@@ -70,7 +70,9 @@ ManifestDPIAware true
 ## PowerShell module. The first Wails packaging pass intentionally leaves it
 ## disabled because it runs before release credentials are available.
 !ifdef DRAFT_SIGN_UNINSTALLER
-!uninstfinalize 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\..\scripts\sign-nsis-uninstaller.ps1" "%1"'
+# Use pwsh (not Windows PowerShell 5.1): azure/trusted-signing-action installs
+# the TrustedSigning module into the PowerShell 7 module path.
+!uninstfinalize 'pwsh.exe -NoProfile -ExecutionPolicy Bypass -File "..\..\..\scripts\sign-nsis-uninstaller.ps1" -Path "%1"'
 !endif
 
 Name "${INFO_PRODUCTNAME}"
