@@ -13,12 +13,8 @@ import (
 func detachAndStart(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	executil.Prepare(cmd)
-	executil.Detach(cmd)
-	if err := cmd.Start(); err != nil {
+	if err := executil.StartDetached(cmd); err != nil {
 		t.Fatalf("start helper: %v", err)
-	}
-	if err := cmd.Process.Release(); err != nil {
-		t.Fatalf("release helper: %v", err)
 	}
 }
 

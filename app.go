@@ -174,12 +174,7 @@ func (a *App) RestartToUpdate(cancelActive bool) (*UpdateRestartResult, error) {
 	cmd := executil.Command(helper, "--apply-update", jobPath)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	executil.Detach(cmd)
-	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
-		return nil, err
-	}
-	if err := cmd.Process.Release(); err != nil {
+	if err := executil.StartDetached(cmd); err != nil {
 		_ = logFile.Close()
 		return nil, err
 	}

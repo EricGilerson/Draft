@@ -3,6 +3,7 @@
 package executil
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 )
@@ -16,4 +17,16 @@ func Detach(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setpgid = true
+}
+
+// StartDetached applies Detach, starts cmd, and Releases the process handle.
+func StartDetached(cmd *exec.Cmd) error {
+	if cmd == nil {
+		return errors.New("executil: nil command")
+	}
+	Detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
