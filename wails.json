@@ -13,7 +13,7 @@
   "info": {
     "companyName": "Draft",
     "productName": "Draft",
-    "productVersion": "0.0.3",
+    "productVersion": "0.0.4",
     "copyright": "Copyright © Eric Gilerson",
     "comments": "Local Docker services as a visual workspace"
   }
