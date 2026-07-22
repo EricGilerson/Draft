@@ -24,11 +24,13 @@ if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
 
 Import-Module TrustedSigning -RequiredVersion 0.5.0 -ErrorAction Stop
 
-Invoke-TrustedSigning \
-    -Endpoint $env:AZURE_CODE_SIGNING_ENDPOINT \
-    -CodeSigningAccountName $env:AZURE_CODE_SIGNING_ACCOUNT \
-    -CertificateProfileName $env:AZURE_CERTIFICATE_PROFILE \
-    -Files $Path \
-    -FileDigest SHA256 \
-    -TimestampRfc3161 'http://timestamp.acs.microsoft.com' \
-    -TimestampDigest SHA256
+$signingArgs = @{
+    Endpoint                = $env:AZURE_CODE_SIGNING_ENDPOINT
+    CodeSigningAccountName  = $env:AZURE_CODE_SIGNING_ACCOUNT
+    CertificateProfileName  = $env:AZURE_CERTIFICATE_PROFILE
+    Files                   = $Path
+    FileDigest              = 'SHA256'
+    TimestampRfc3161        = 'http://timestamp.acs.microsoft.com'
+    TimestampDigest         = 'SHA256'
+}
+Invoke-TrustedSigning @signingArgs

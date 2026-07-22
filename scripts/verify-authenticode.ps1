@@ -9,13 +9,13 @@ if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
 
 $signature = Get-AuthenticodeSignature -FilePath $Path
 if ($signature.Status -ne 'Valid') {
-    throw "Authenticode is not valid for $Path: $($signature.Status) $($signature.StatusMessage)"
+    throw "Authenticode is not valid for ${Path}: $($signature.Status) $($signature.StatusMessage)"
 }
 
 $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
 if (-not $signtool) {
-    $signtool = Get-ChildItem "$env:LOCALAPPDATA\TrustedSigning\Microsoft.Windows.SDK.BuildTools" \
-        -Filter signtool.exe -File -Recurse -ErrorAction SilentlyContinue |
+    $searchRoot = Join-Path $env:LOCALAPPDATA 'TrustedSigning\Microsoft.Windows.SDK.BuildTools'
+    $signtool = Get-ChildItem -Path $searchRoot -Filter signtool.exe -File -Recurse -ErrorAction SilentlyContinue |
         Select-Object -First 1
 }
 if (-not $signtool) {
@@ -25,5 +25,5 @@ if (-not $signtool) {
 $signtoolPath = if ($signtool -is [System.IO.FileInfo]) { $signtool.FullName } else { $signtool.Path }
 & $signtoolPath verify /pa /tw $Path
 if ($LASTEXITCODE -ne 0) {
-    throw "signtool verification failed for $Path with exit code $LASTEXITCODE"
+    throw "signtool verification failed for ${Path} with exit code $LASTEXITCODE"
 }
