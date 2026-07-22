@@ -59,8 +59,26 @@ func ApplyJobFile(path string) error {
 	logf("apply start appPid=%d daemonPid=%d artifact=%s appPath=%s", job.AppPID, job.DaemonPID, job.Artifact, job.AppPath)
 	if err := apply(job, logf); err != nil {
 		logf("apply failed: %v", err)
+		// App already quit before apply; bring the previous build back so a
+		// failed/cancelled install does not leave the user with no Draft.
+		if rerr := relaunch(job.AppPath); rerr != nil {
+			logf("relaunch after failure: %v", rerr)
+		} else {
+			logf("relaunched previous app after failure")
+		}
 		return err
 	}
+	clearAppliedUpdate(filepath.Dir(path), job.Artifact)
 	logf("apply succeeded")
 	return nil
+}
+
+// clearAppliedUpdate drops status.json and the staged artifact so the next
+// launch does not briefly report state=ready for an already-installed version.
+func clearAppliedUpdate(updateDir, artifact string) {
+	if artifact != "" {
+		_ = os.RemoveAll(filepath.Dir(artifact))
+	}
+	_ = os.Remove(filepath.Join(updateDir, "status.json"))
+	_ = os.Remove(filepath.Join(updateDir, "apply-job.json"))
 }

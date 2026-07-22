@@ -304,10 +304,21 @@ func (m *Manager) load() {
 		return
 	}
 	var p persisted
-	if json.Unmarshal(data, &p) == nil && p.Status.State == "ready" {
-		if _, err := os.Stat(p.Artifact); err == nil {
-			m.state = p
+	if json.Unmarshal(data, &p) != nil || p.Status.State != "ready" {
+		return
+	}
+	// After a successful update the new binary still sees the previous
+	// status.json until Check finishes; never surface "ready" for a version
+	// that is already installed (or older than current).
+	if p.Status.Version != "" && compareVersion(p.Status.Version, m.currentVersion) <= 0 {
+		if p.Artifact != "" {
+			_ = os.RemoveAll(filepath.Dir(p.Artifact))
 		}
+		_ = os.Remove(filepath.Join(m.dir, "status.json"))
+		return
+	}
+	if _, err := os.Stat(p.Artifact); err == nil {
+		m.state = p
 	}
 }
 

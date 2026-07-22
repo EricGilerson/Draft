@@ -3,12 +3,28 @@
 package appupdate
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
+
+func TestIsElevationRequired(t *testing.T) {
+	if !isElevationRequired(syscall.Errno(windows.ERROR_ELEVATION_REQUIRED)) {
+		t.Fatal("expected elevation errno to match")
+	}
+	if !isElevationRequired(fmt.Errorf("wrap: %w", syscall.Errno(windows.ERROR_ELEVATION_REQUIRED))) {
+		t.Fatal("expected wrapped elevation errno to match")
+	}
+	if isElevationRequired(syscall.Errno(windows.ERROR_ACCESS_DENIED)) {
+		t.Fatal("access denied should not count as elevation required")
+	}
+}
 
 func TestApplyReplaceAndRelaunch(t *testing.T) {
 	root := t.TempDir()
