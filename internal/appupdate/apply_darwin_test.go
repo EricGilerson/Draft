@@ -45,7 +45,7 @@ func TestApplyReplaceAndRelaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := os.ReadFile(filepath.Join(installed, "Contents", "MacOS", "marker"))
+	got, err := os.ReadFile(filepath.Join(installed, "Contents", "Resources", "marker"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +69,10 @@ func writeFakeApp(appPath, marker string) error {
 	if err := os.MkdirAll(macOS, 0o755); err != nil {
 		return err
 	}
+	resources := filepath.Join(appPath, "Contents", "Resources")
+	if err := os.MkdirAll(resources, 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(macOS, "Draft"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		return err
 	}
@@ -81,7 +85,7 @@ func writeFakeApp(appPath, marker string) error {
 	if err := os.WriteFile(filepath.Join(appPath, "Contents", "Info.plist"), []byte(plist), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(macOS, "marker"), []byte(marker), 0o644)
+	return os.WriteFile(filepath.Join(resources, "marker"), []byte(marker), 0o644)
 }
 
 func adhocSign(appPath string) error {
