@@ -6,11 +6,17 @@ Draft is a native desktop app that turns your stack into a visual workspace: pro
 
 > **Status:** alpha — useful day-to-day, still evolving.
 
+<p align="center">
+  <img src="docs/project-canvas.png" alt="Draft project canvas showing a running Travel-agent stack (postgres, api, web) with stable hostnames and the service drawer open" width="920" />
+</p>
+
+<p align="center"><em>One project, one canvas: services linked by env references, stable public URLs, and an environment switcher for Main / feature / staging copies of the same stack.</em></p>
+
 ---
 
 ## Why Draft
 
-Local Docker is powerful and noisy. Ports collide. `localhost:3847` means nothing next week. Wiring `DATABASE_URL` means copy-paste across Compose files. Spinning up a “staging-like” copy or a PR preview means duplicating stacks by hand.
+Local Docker is powerful and noisy. Ports collide. `localhost:3847` means nothing next week. Wiring `DATABASE_URL` means copy-paste across Compose files. Keeping a feature branch stack alive means hand-editing Compose, juggling ports, and rebuilding by muscle memory.
 
 Draft keeps Docker, and removes the busywork:
 
@@ -18,7 +24,9 @@ Draft keeps Docker, and removes the busywork:
 |-------------|------------------|
 | Random host ports | Stable dual hostnames (`*.draft.local` + `*.draft.resolv.sh`) |
 | Hardcoded service URLs | `@{postgres.DRAFT_INTERNAL_URL}` references |
-| One fragile Compose file | Multi-environment projects (dev / staging / feature) |
+| One fragile Compose file | **Multiple environments** of the same configuration — branches stay clean |
+| Manual `docker compose up` after every commit | Pin a branch per service → **redeploy automatically on commit** |
+| Digging through `git log` + rebuild scripts | Redeploy any service from a **commit SHA** in one step |
 | Manual PR stack copies | Sandboxes with TTL, branch/PR pins, and test recipes |
 | Hunting containers in Docker Desktop | Canvas topology, logs, shell, metrics, and a Routes directory |
 
@@ -37,6 +45,8 @@ DATABASE_URL=@{postgres.DRAFT_INTERNAL_URL}
 ```
 
 That’s the loop: shape topology on the canvas, deploy, reference services by name, ship.
+
+When you need a second copy of the stack — a feature branch, a staging clone — create another **environment**, pin each service to a branch, and turn on **redeploy on commit**. Draft owns the rebuilds; your branches stay isolated.
 
 ---
 
@@ -97,9 +107,18 @@ Draft injects runtime identity into every container: `DRAFT_SERVICE_PORT`, `DRAF
 
 Import / export / refresh `.env` files. Most edits are **staged** until the next successful deploy; git branch, deploy trigger, service root, and env-file path apply immediately.
 
-### Multi-environment without reinventing Compose
+### Environments & git — stop babysitting Docker
 
-- Create blank envs or **duplicate based on** another (`Fresh` · `Share` · `Clone`), with an optional per-repo branch / ref / PR pin on copied services.
+This is the loop Draft is built around: **same stack, many environments, branches pinned, deploys on autopilot.**
+
+1. **Create environments** — blank, or **duplicate based on** another (`Fresh` · `Share` · `Clone`). Each env is a full copy of the project’s services with its own hostnames, network, and volumes. Your feature branch doesn’t pollute `main`; your staging clone doesn’t fight your laptop’s day-to-day stack.
+2. **Pin a branch (or ref) per service** — set `git_branch` in Settings. Draft builds from that committed tree, not whatever happens to be dirty in your working directory.
+3. **Redeploy on commit** — set the deploy trigger to `on_commit` (or `on_push`). Local git hooks wake Draft; the service rebuilds and restarts. No Compose file to keep in sync, no “did I remember to rebuild?” — containers track the branch.
+4. **Redeploy from any commit** — point the pin at a SHA (or use deployment history / rollback) and rebuild that exact tree. Bisect a regression, re-run last week’s tip, or freeze a preview without inventing a one-off script.
+
+Also:
+
+- Optional **redeploy on pull** (merge and rebase) — orthogonal to commit/push triggers.
 - **Share** attaches a root container onto another env’s network (one Postgres, many consumers).
 - **Linked services** put an alias node in one env that points at a root in another.
 - Sync config between environments; start / stop / redeploy the whole stack.
@@ -119,7 +138,7 @@ Import / export / refresh `.env` files. Most edits are **staged** until the next
 
 ### Operate without leaving the app
 
-Live build logs, container logs, interactive shell, metrics, deployment history + image rollback (when retained), git redeploy on commit/push (and optional redeploy-on-pull), Secrets / Volumes / Routes / Docker admin views.
+Live build logs, container logs, interactive shell, metrics, deployment history + image / SHA rollback, Secrets / Volumes / Routes / Docker admin views.
 
 ---
 
@@ -207,8 +226,11 @@ volume:    draft-{projectId}-{project}-{envSegment}-{uid}-{target}   (label draf
 
 ### Git triggers
 
+Pin a service to a branch/ref, then let Draft own the rebuild loop:
+
 - `deploy_trigger`: `manual` | `on_commit` | `on_push` (requires pinned `git_branch`).
 - `redeploy_on_pull`: independent; installs `post-merge` + `post-rewrite` (merge and rebase pulls).
+- Redeploy a historical SHA by pinning that commit (or rolling back to a retained image / rebuild-from-`source_sha`).
 - Cold-start: hook payloads spool under `pending-rechecks/` and drain when the daemon boots.
 - Hooks install per repo (reference-counted), honor `core.hooksPath` / worktrees, and chain foreign hooks via `.draft-orig`.
 
