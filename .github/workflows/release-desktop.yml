@@ -316,7 +316,9 @@ jobs:
         shell: bash
         run: echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
+      # bash: windows-latest defaults to pwsh, where $VERSION != $env:VERSION
       - name: Stamp product version
+        shell: bash
         env:
           VERSION: ${{ needs.get-version.outputs.version }}
         run: |
@@ -334,6 +336,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows app + NSIS installer
+        shell: bash
         env:
           CGO_ENABLED: "0"
           VERSION: ${{ needs.get-version.outputs.version }}
