@@ -11,6 +11,22 @@ Releases page body.
 
 ## [Unreleased]
 
+## [0.0.5] - 2026-09-18
+
+### Fixed
+
+- Blank services can start their first deploy after staging a Dockerfile or image
+  and port (draft bar Deploy, Overview, and Stage & deploy)
+- Stopped services with staged settings rebuild instead of resuming the old
+  container, so staged config actually applies
+- Environment stack and sandbox start wait on staged dockerfile/image+port
+  instead of treating those services as non-deployable
+
+### Changed
+
+- Picking a Dockerfile with `EXPOSE` fills the container port when none is set
+- Bump desktop product version to 0.0.5
+
 ## [0.0.4] - 2026-07-22
 
 ### Changed
