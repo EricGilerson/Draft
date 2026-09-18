@@ -597,7 +597,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Color:       "#C72E49",
 		Mode:        "image",
 		Image:       "coollabsio/minio:latest",
-		Port:        9001,
+		Port:        9000,
 		Schema:      imageTemplateSchema,
 		ImageTags:   minioImageTags,
 		Volumes:     minioVolumes,
@@ -605,19 +605,19 @@ CMD ["nginx", "-g", "daemon off;"]
 		// Override it with /bin/sh so we can start the server, wait for the S3
 		// API, then `mc mb` the client bucket (AWS_BUCKET, default app) — the
 		// same contract as POSTGRES_DB. coollabsio/minio already ships `mc`.
-		// service_port routes the console (9001, browser-facing); the S3 API
-		// stays at the image's fixed 9000 and is reached by sibling containers
-		// directly over the Docker network.
 		//
-		// S3_ENDPOINT / AWS_ENDPOINT_URL are http:// (Docker network, no TLS).
-		// boto3 accepts that; rust object_store / LanceDB reject it with
-		// BadScheme unless AWS_ALLOW_HTTP=true. Virtual-hosted-style would
-		// also break on Draft's dotted *.draft.local hostnames, so stamp
-		// path-style. These live on the MinIO node so siblings can
-		// @{Bucket.AWS_ALLOW_HTTP} the same way they copy the endpoint.
+		// service_port is the S3 API (9000) so Draft's HTTP reverse proxy
+		// fronts it the same way it fronts any web service. Sibling containers
+		// still use S3_ENDPOINT on the Docker network; browsers use
+		// S3_PUBLIC_ENDPOINT ({{draft.public_url}}). The console stays on
+		// 9001 inside the container and is not proxied.
+		//
+		// S3_ENDPOINT is http:// (Docker network, no TLS). boto3 accepts
+		// that; rust object_store / LanceDB need AWS_ALLOW_HTTP=true.
+		// Path-style is required for dotted *.draft.local hostnames.
 		Entrypoint:  "/bin/sh",
 		CmdOverride: minioStartCmd,
-		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ENDPOINT_URL","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"},{"key":"AWS_ALLOW_HTTP","value":"true","scope":"runtime"},{"key":"AWS_VIRTUAL_HOSTED_STYLE_REQUEST","value":"false","scope":"runtime"}]`,
+		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:{{draft.service_port}}","scope":"runtime"},{"key":"AWS_ENDPOINT_URL","value":"http://{{draft.internal_hostname}}:{{draft.service_port}}","scope":"runtime"},{"key":"S3_PUBLIC_ENDPOINT","value":"{{draft.public_url}}","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"},{"key":"AWS_ALLOW_HTTP","value":"true","scope":"runtime"},{"key":"AWS_VIRTUAL_HOSTED_STYLE_REQUEST","value":"false","scope":"runtime"}]`,
 	},
 	{
 		Name:        "RabbitMQ",

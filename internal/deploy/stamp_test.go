@@ -268,6 +268,12 @@ func TestStampMinIOSeedsBucketCreateCommand(t *testing.T) {
 	if byKey["AWS_ENDPOINT_URL"].Value == "" || !strings.Contains(byKey["AWS_ENDPOINT_URL"].Value, ":9000") {
 		t.Errorf("AWS_ENDPOINT_URL = %q, want http://…:9000", byKey["AWS_ENDPOINT_URL"].Value)
 	}
+	if _, ok := byKey["S3_PUBLIC_ENDPOINT"]; !ok {
+		t.Error("missing S3_PUBLIC_ENDPOINT ({{draft.public_url}}, filled at deploy)")
+	}
+	if settings["service_port"] != "9000" {
+		t.Errorf("service_port = %q, want 9000 (S3 API)", settings["service_port"])
+	}
 }
 
 func TestStampHTTPDatastoresStayHTTP(t *testing.T) {

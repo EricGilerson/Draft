@@ -364,8 +364,8 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 		},
 		{
 			name:     "MinIO",
-			mustHave: []string{"MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BUCKET", "AWS_ALLOW_HTTP", "AWS_VIRTUAL_HOSTED_STYLE_REQUEST"},
-			mustExpr: []string{"MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "AWS_SECRET_ACCESS_KEY"},
+			mustHave: []string{"MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "S3_PUBLIC_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BUCKET", "AWS_ALLOW_HTTP", "AWS_VIRTUAL_HOSTED_STYLE_REQUEST"},
+			mustExpr: []string{"MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "S3_PUBLIC_ENDPOINT", "AWS_SECRET_ACCESS_KEY"},
 			mustLiteral: map[string]string{
 				"MINIO_ROOT_USER":                  "minioadmin",
 				"AWS_ACCESS_KEY_ID":                "minioadmin",
@@ -474,6 +474,12 @@ func TestBuiltinMinIOTemplateCreatesDefaultBucket(t *testing.T) {
 	}
 	if !strings.Contains(keys["AWS_ENDPOINT_URL"], "{{draft.internal_hostname}}") {
 		t.Errorf("AWS_ENDPOINT_URL should match S3_ENDPOINT, got %q", keys["AWS_ENDPOINT_URL"])
+	}
+	if keys["S3_PUBLIC_ENDPOINT"] != "{{draft.public_url}}" {
+		t.Errorf("S3_PUBLIC_ENDPOINT = %q, want {{draft.public_url}}", keys["S3_PUBLIC_ENDPOINT"])
+	}
+	if minio.Port != 9000 {
+		t.Errorf("MinIO Port = %d, want 9000 (S3 API, reverse-proxied)", minio.Port)
 	}
 }
 

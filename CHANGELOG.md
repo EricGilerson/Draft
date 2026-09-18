@@ -24,6 +24,10 @@ Releases page body.
 ### Changed
 
 - Bump desktop product version to 0.0.6
+- MinIO reverse-proxies the S3 API (port 9000) and stamps `S3_PUBLIC_ENDPOINT`
+  from `{{draft.public_url}}` so browsers can use the same hostname path as
+  other HTTP services. Sibling containers still use `S3_ENDPOINT` on the
+  Docker network. The console remains on container port 9001 (not proxied).
 
 ## [0.0.5] - 2026-09-18
 

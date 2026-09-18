@@ -50,6 +50,42 @@ func TestProxyRouting(t *testing.T) {
 	}
 }
 
+func TestProxyForwardsIncomingHost(t *testing.T) {
+	var gotHost, gotXFH, gotProto string
+	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		gotXFH = r.Header.Get("X-Forwarded-Host")
+		gotProto = r.Header.Get("X-Forwarded-Proto")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	p := NewProxy("127.0.0.1:0")
+	if err := p.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer p.Stop()
+
+	const incoming = "bucket.myapp.main.a3f2.draft.local"
+	p.SetRoute(incoming, ProxyTarget{Host: "127.0.0.1", Port: urlPort(t, upstream.URL)})
+
+	req, _ := http.NewRequest("GET", "http://"+p.server.Addr+"/app", nil)
+	req.Host = incoming
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if gotHost != incoming {
+		t.Errorf("upstream Host = %q, want incoming %q (S3 signatures)", gotHost, incoming)
+	}
+	if gotXFH != incoming {
+		t.Errorf("X-Forwarded-Host = %q, want %q", gotXFH, incoming)
+	}
+	if gotProto != "http" {
+		t.Errorf("X-Forwarded-Proto = %q, want http", gotProto)
+	}
+}
+
 func TestProxyTLSRoutingUsesSNILeaf(t *testing.T) {
 	upstream := newIPv4Server(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("secure upstream")) }))
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

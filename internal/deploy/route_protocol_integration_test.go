@@ -547,8 +547,8 @@ func TestIntegrationMeilisearchHTTPHybrid(t *testing.T) {
 	}
 }
 
-// TestIntegrationMinIOHTTPConsoleHybrid keeps MinIO on HTTP for the console
-// port (9001) and injects HTTP DRAFT URLs; S3 stays on internal :9000.
+// TestIntegrationMinIOHTTPConsoleHybrid reverse-proxies the S3 API (9000)
+// like any HTTP service; sibling S3_ENDPOINT stays on the Docker network.
 func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 	e, s, col, p, r, cli := setupTemplateIntegration(t, "minio")
 
@@ -567,8 +567,8 @@ func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 	if settings["route_protocol"] == "tcp" {
 		t.Fatal("MinIO console should be HTTP-routed")
 	}
-	if settings["service_port"] != "9001" {
-		t.Fatalf("service_port = %q, want 9001 (console)", settings["service_port"])
+	if settings["service_port"] != "9000" {
+		t.Fatalf("service_port = %q, want 9000 (S3 API)", settings["service_port"])
 	}
 
 	ev := waitRunning(t, col, "minio1", 3*time.Minute)
@@ -603,6 +603,12 @@ func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 	if !strings.Contains(env["AWS_ENDPOINT_URL"], ":9000") {
 		t.Fatalf("AWS_ENDPOINT_URL should target internal :9000, got %q", env["AWS_ENDPOINT_URL"])
 	}
+	if env["S3_PUBLIC_ENDPOINT"] == "" {
+		t.Fatal("S3_PUBLIC_ENDPOINT should be the reverse-proxied public URL")
+	}
+	if !strings.HasPrefix(env["S3_PUBLIC_ENDPOINT"], "http://") && !strings.HasPrefix(env["S3_PUBLIC_ENDPOINT"], "https://") {
+		t.Fatalf("S3_PUBLIC_ENDPOINT = %q, want http(s) public URL", env["S3_PUBLIC_ENDPOINT"])
+	}
 
 	inspect, err := cli.ContainerInspect(context.Background(), dep.ContainerID)
 	if err != nil {
@@ -612,17 +618,17 @@ func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 		t.Fatalf("Entrypoint = %v, want [/bin/sh]", inspect.Config.Entrypoint)
 	}
 
-	// Console port should accept TCP (HTTP server).
+	// S3 API (proxied service_port) should accept TCP.
 	waitTCP(t, fmt.Sprintf("127.0.0.1:%d", ev.HostPort), 2*time.Minute)
 	waitMinIOBucket(t, cli, dep.ContainerID, env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["AWS_BUCKET"], 2*time.Minute)
-	// GET / may redirect; any HTTP response proves proxy/host path.
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", ev.HostPort))
+	// GET /minio/health/live on the S3 port proves the proxy fronts S3.
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/minio/health/live", ev.HostPort))
 	if err != nil {
-		t.Fatalf("console GET: %v", err)
+		t.Fatalf("S3 health GET: %v", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode >= 500 {
-		t.Fatalf("console status %d", resp.StatusCode)
+		t.Fatalf("S3 health status %d", resp.StatusCode)
 	}
 }
 

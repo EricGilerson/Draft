@@ -112,10 +112,19 @@ func (p *Proxy) director(req *http.Request) {
 		Host:   fmt.Sprintf("%s:%d", target.Host, target.Port),
 	}
 
+	incomingHost := req.Host
 	req.URL.Scheme = upstream.Scheme
 	req.URL.Host = upstream.Host
-	req.Header.Set("X-Forwarded-Host", req.Host)
+	// Keep the client Host. S3/MinIO SigV4 includes it; rewriting to
+	// 127.0.0.1:<ephemeral> would invalidate presigned URLs.
+	req.Host = incomingHost
+	req.Header.Set("X-Forwarded-Host", incomingHost)
 	req.Header.Set("X-Draft-Service", host)
+	if req.TLS != nil {
+		req.Header.Set("X-Forwarded-Proto", "https")
+	} else if req.Header.Get("X-Forwarded-Proto") == "" {
+		req.Header.Set("X-Forwarded-Proto", "http")
+	}
 }
 
 // SetRoute adds or updates a hostname→target mapping.
