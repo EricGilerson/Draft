@@ -3,7 +3,7 @@ import {useEffect, useRef, useState} from 'react';
 import {BrowserOpenURL, EventsOn} from '../../wailsjs/runtime/runtime';
 import {
     DeployService, StopService, RestartService,
-    GetActiveDeployment, GetBuildLog, GetDeployments, GetLocalDomainStatus, GetNodeConfigStatus, GetServiceStaleness,
+    GetActiveDeployment, GetBuildLog, GetDeployments, GetLocalDomainStatus, GetServiceStaleness,
     GetLinkedServiceInfo, GetNodeHealth, PromoteLinkedService, UnlinkService,
     RunCommand,
 } from '../../wailsjs/go/main/App';
@@ -13,6 +13,8 @@ import StatusBadge from './StatusBadge';
 import {useAppDialog} from './AppDialogProvider';
 import Dialog from './Dialog';
 import {bestPublicDeploymentURL, bestPublicEndpoint} from '../lib/localDomainUrls';
+import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {serviceDeployability} from '../lib/serviceDeploy';
 
 type CloneConsistency = 'consistent' | 'quick';
 
@@ -97,8 +99,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const [health, setHealth] = useState<deploy.NodeHealth | null>(null);
     const [runtimeReady, setRuntimeReady] = useState(false);
     const [error, setError] = useState('');
-    const [settings, setSettings] = useState<Record<string, string>>({});
-    const [hasStagedChanges, setHasStagedChanges] = useState(false);
+    const {committedSettings, hasStagedChanges, loading: configLoading} = useServiceConfigEditor();
     const [staleness, setStaleness] = useState<deploy.ServiceStaleness | null>(null);
     const [localDomain, setLocalDomain] = useState<networking.LocalDomainStatus | null>(null);
     const [linkInfo, setLinkInfo] = useState<deploy.LinkedServiceInfo | null>(null);
@@ -171,13 +172,6 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         setLinkInfo(null);
         setError('');
         void applyRuntime(nodeId, {cancelled: () => cancelled});
-        GetNodeConfigStatus(nodeId).then((status) => {
-            if (cancelled) return;
-            const applied = status?.appliedSettings || {};
-            const staged = status?.stagedSettings || {};
-            setSettings({...applied, ...staged});
-            setHasStagedChanges(!!status?.hasStagedChanges);
-        });
         GetServiceStaleness(nodeId).then(setStaleness).catch(() => setStaleness(null));
         GetLocalDomainStatus().then((s) => {
             if (!cancelled) setLocalDomain(s);
@@ -193,13 +187,6 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
         void applyRuntime(nodeId, {cancelled: () => cancelled}).then(() => {
             if (cancelled) return;
             GetLocalDomainStatus().then(setLocalDomain).catch(() => {});
-        });
-        GetNodeConfigStatus(nodeId).then((status) => {
-            if (cancelled) return;
-            const applied = status?.appliedSettings || {};
-            const staged = status?.stagedSettings || {};
-            setSettings({...applied, ...staged});
-            setHasStagedChanges(!!status?.hasStagedChanges);
         });
         GetServiceStaleness(nodeId).then(setStaleness).catch(() => setStaleness(null));
         return () => { cancelled = true; };
@@ -237,9 +224,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     };
 
     // Build-mode services need a Dockerfile + port; image-mode services need an
-    // image + port. Either path is deployable. Linked aliases use ensure-link deploy.
+    // image + port. Use applied+staged (committed) so a blank service that only
+    // staged those keys can still start its first deploy. Linked aliases use
+    // ensure-link deploy.
     const isLinked = !!linkInfo?.isLinked;
-    const canDeploy = isLinked || (!!settings.service_port && (!!settings.dockerfile || !!settings.image));
+    const deployability = serviceDeployability(committedSettings, {isLinked});
+    const canDeploy = deployability.canDeploy;
 
     const handleDeploy = async () => {
         setError('');
@@ -355,7 +345,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
     const isRunning = status === 'running';
     const isActive = status === 'building' || status === 'starting' || status === 'running';
     const previousStillRunning = lastDeployFailed && isRunning;
-    const routeProtocol = (health?.routeProtocol || settings.route_protocol || 'http').toLowerCase();
+    const routeProtocol = (health?.routeProtocol || committedSettings.route_protocol || 'http').toLowerCase();
     const isTCP = routeProtocol === 'tcp';
     const hostPort = health?.hostPort || deployment?.hostPort || 0;
     const displayHost = health?.hostname || deployment?.hostname || '';
@@ -454,7 +444,7 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
 
             {hasStagedChanges && (
                 <div className="overview-staged-banner">
-                    Staged settings will apply on the next deploy.
+                    Staged settings apply when you deploy.
                 </div>
             )}
 
@@ -559,12 +549,12 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                         </button>
                     </>
                 )}
-                {!isLinked && runtimeReady && !isActive && !deploying && (
+                {!isLinked && runtimeReady && !configLoading && !isActive && !deploying && (
                     <button
                         className="btn btn-primary"
                         onClick={handleDeploy}
                         disabled={!canDeploy || actionsBusy}
-                        title={!canDeploy ? 'Set an image or Dockerfile and a port in Settings first' : 'Deploy service'}
+                        title={!canDeploy ? deployability.reason : hasStagedChanges ? 'Deploy — staged settings apply on this run' : 'Deploy service'}
                     >
                         {pendingAction === 'deploying' ? <Loader2 size={13} className="spin" /> : <Play size={13} />}
                         {pendingAction === 'deploying' ? 'Deploying…' : 'Deploy'}
@@ -679,9 +669,9 @@ export default function OverviewTab({nodeId, onServicesChanged}: OverviewTabProp
                 </div>
             )}
 
-            {!canDeploy && (
+            {!canDeploy && runtimeReady && !configLoading && (
                 <span className="overview-hint">
-                    Set an image (or Dockerfile) and a port in the Settings tab before deploying.
+                    {deployability.reason || 'Set an image (or Dockerfile) and a port in the Settings tab before deploying.'}
                 </span>
             )}
 

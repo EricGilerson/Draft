@@ -209,7 +209,7 @@ func reverseWaves(waves [][]string) [][]string {
 // waitStackNodeReady blocks until the node's latest deploy reaches running, or
 // a terminal failure. Linked aliases and non-deployable nodes succeed immediately.
 func (e *Engine) waitStackNodeReady(ctx context.Context, nodeID string, timeout time.Duration) error {
-	settings, _ := e.store.GetNodeSettings(nodeID)
+	settings := e.effectiveSettingsOrEmpty(nodeID)
 	if ParseServiceLink(settings[SettingServiceLink]) != nil {
 		// Linked deploy is synchronous ensure-attach inside runDeploy; give it
 		// a brief window then accept whatever status we have.

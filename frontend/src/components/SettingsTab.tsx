@@ -509,11 +509,22 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         setDockerfileInput(trimmed);
         saveSetting('dockerfile', trimmed);
         if (trimmed) {
-            ParseDockerfileExpose(trimmed, projectId, settings.service_root || '').then(setExposePorts).catch(() => setExposePorts([]));
+            ParseDockerfileExpose(trimmed, projectId, settings.service_root || '').then((ports) => {
+                setExposePorts(ports);
+                // Blank services often stage a Dockerfile without a port, which
+                // leaves Deploy disabled. Seed the first EXPOSE when none is set.
+                const currentPort = (portInput || port || settings.service_port || '').trim();
+                if (!currentPort && ports.length > 0) {
+                    const val = String(ports[0].port);
+                    setPortInput(val);
+                    setPort(val);
+                    saveSetting('service_port', val);
+                }
+            }).catch(() => setExposePorts([]));
         } else {
             setExposePorts([]);
         }
-    }, [projectId, dockerfileInput, dockerfilePath, saveSetting, settings.service_root]);
+    }, [projectId, dockerfileInput, dockerfilePath, saveSetting, settings.service_root, settings.service_port, port, portInput]);
 
     const browseDockerfile = useCallback(async () => {
         const selected = await SelectFile('Select Dockerfile', projectPath);
@@ -680,7 +691,7 @@ export default function SettingsTab({nodeId, projectId, projectPath, serviceLabe
         <div className="settings-tab">
             {(readOnly ? linkedHasStagedChanges : hasStagedChanges) && (
                 <div className="settings-staged-banner">
-                    {readOnly ? 'The root service has staged settings. This view includes them.' : 'Staged settings will apply on the next deploy.'}
+                    {readOnly ? 'The root service has staged settings. This view includes them.' : 'Staged settings apply when you deploy.'}
                 </div>
             )}
             {readOnly && (

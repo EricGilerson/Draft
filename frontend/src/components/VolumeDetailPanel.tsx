@@ -251,7 +251,7 @@ function VolumeDetailPanelBody({
                     </div>
                 )}
             </div>
-            <ServiceDraftBar onStaged={onVolumesChanged} />
+            <ServiceDraftBar onStaged={onVolumesChanged} onDeploy={onVolumesChanged} />
         </div>
     );
 }

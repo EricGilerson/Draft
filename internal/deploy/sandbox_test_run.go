@@ -551,13 +551,14 @@ func (e *Engine) waitSandboxServicesReady(ctx context.Context, nodes []store.Can
 		pending := 0
 		var lastReason string
 		for _, node := range nodes {
-			settings, _ := e.store.GetNodeSettings(node.ID)
+			settings := e.effectiveSettingsOrEmpty(node.ID)
 			if ParseServiceLink(settings[SettingServiceLink]) != nil {
 				// Shared/linked: readiness is the root's problem; skip.
 				continue
 			}
 			// Skip nodes that cannot deploy (no image/dockerfile) — they will
-			// never become running and would hang the suite.
+			// never become running and would hang the suite. Use effective
+			// settings so a first deploy that only staged dockerfile/port is waited on.
 			if !nodeLooksDeployable(settings) {
 				continue
 			}
@@ -600,4 +601,12 @@ func nodeLooksDeployable(settings map[string]string) bool {
 		return false
 	}
 	return image != "" || dockerfile != ""
+}
+
+func (e *Engine) effectiveSettingsOrEmpty(nodeID string) map[string]string {
+	settings, err := e.store.EffectiveNodeSettings(nodeID)
+	if err != nil || settings == nil {
+		return map[string]string{}
+	}
+	return settings
 }

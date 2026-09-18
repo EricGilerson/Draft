@@ -70,6 +70,8 @@ type ServiceConfigEditorContextValue = {
     /** Discard only the named staged setting/env keys (backend). */
     discardStagedPartial: (settingKeys: string[], envKeys: string[]) => Promise<void>;
     stageAndDeploy: () => Promise<void>;
+    /** Deploy using applied+staged (effective) settings. No extra staging. */
+    deployNow: () => Promise<void>;
 };
 
 const ServiceConfigEditorContext = createContext<ServiceConfigEditorContextValue | null>(null);
@@ -349,6 +351,10 @@ export function ServiceConfigEditorProvider({
         await DeployService(nodeId);
     }, [stageChanges, nodeId]);
 
+    const deployNow = useCallback(async () => {
+        await DeployService(nodeId);
+    }, [nodeId]);
+
     const value = useMemo<ServiceConfigEditorContextValue>(() => ({
         nodeId,
         projectId,
@@ -380,6 +386,7 @@ export function ServiceConfigEditorProvider({
         discardStaged,
         discardStagedPartial,
         stageAndDeploy,
+        deployNow,
     }), [
         nodeId,
         projectId,
@@ -411,6 +418,7 @@ export function ServiceConfigEditorProvider({
         discardStaged,
         discardStagedPartial,
         stageAndDeploy,
+        deployNow,
     ]);
 
     return (

@@ -1,8 +1,10 @@
-import {AlertTriangle, Loader2} from 'lucide-react';
+import {AlertTriangle, Loader2, Play} from 'lucide-react';
 import {useCallback, useMemo, useState} from 'react';
 import {useServiceConfigEditor} from '../lib/serviceConfigEditor';
+import {serviceDeployability} from '../lib/serviceDeploy';
 import {isImmediateSetting, settingsValuesEqual} from '../lib/settingStaging';
 import {committedEnvByKey, normalizeEnvDraft} from '../lib/envStaging';
+import {useBuildLog} from './BuildLogProvider';
 import Dialog from './Dialog';
 import DiscardChangesDialog, {
     envChangeDetail,
@@ -57,7 +59,17 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         previewStage,
         stageChanges,
         stageAndDeploy,
+        deployNow,
+        effectiveSettings,
+        nodeId,
+        activeDeploymentStatus,
     } = useServiceConfigEditor();
+    const {deploying, pendingAction, setPendingAction} = useBuildLog(nodeId);
+    const deployability = useMemo(
+        () => serviceDeployability(effectiveSettings),
+        [effectiveSettings],
+    );
+    const applyNowPrimary = !activeDeploymentStatus;
 
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [confirmWarnings, setConfirmWarnings] = useState<string[]>([]);
@@ -149,6 +161,18 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         return items;
     }, [stagedSettings, stagedEnvChanges, appliedSettings, appliedEnvByKey]);
 
+    const runDeploy = useCallback(async () => {
+        setError('');
+        setPendingAction('deploying');
+        try {
+            await deployNow();
+            onDeploy?.();
+        } catch (e) {
+            setPendingAction(null);
+            setError(String(e));
+        }
+    }, [deployNow, onDeploy, setPendingAction]);
+
     const runStage = useCallback(async (deployAfter: boolean) => {
         setError('');
         try {
@@ -176,8 +200,14 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                 return;
             }
             if (deployAfter) {
-                await stageAndDeploy();
-                onDeploy?.();
+                setPendingAction('deploying');
+                try {
+                    await stageAndDeploy();
+                    onDeploy?.();
+                } catch (e) {
+                    setPendingAction(null);
+                    throw e;
+                }
             } else {
                 await stageChanges();
             }
@@ -185,7 +215,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         } catch (e) {
             setError(String(e));
         }
-    }, [draftSettings, previewStage, stageChanges, stageAndDeploy, onStaged, onDeploy]);
+    }, [draftSettings, previewStage, stageChanges, stageAndDeploy, onStaged, onDeploy, setPendingAction]);
 
     const confirmStage = useCallback(async () => {
         if (confirmErrors.length > 0) {
@@ -196,8 +226,14 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         setError('');
         try {
             if (pendingDeploy) {
-                await stageAndDeploy();
-                onDeploy?.();
+                setPendingAction('deploying');
+                try {
+                    await stageAndDeploy();
+                    onDeploy?.();
+                } catch (e) {
+                    setPendingAction(null);
+                    throw e;
+                }
             } else {
                 await stageChanges();
             }
@@ -205,7 +241,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
         } catch (e) {
             setError(String(e));
         }
-    }, [confirmErrors, pendingDeploy, stageAndDeploy, stageChanges, onDeploy, onStaged]);
+    }, [confirmErrors, pendingDeploy, stageAndDeploy, stageChanges, onDeploy, onStaged, setPendingAction]);
 
     const handleDiscardSelected = useCallback(async (ids: string[]) => {
         const {settingKeys, envKeys} = splitSelected(ids);
@@ -224,13 +260,21 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
     }
 
     const discardItems = discardMode === 'session' ? sessionItems : discardMode === 'staged' ? stagedItems : [];
+    const actionsBusy = staging || deploying || pendingAction === 'deploying';
+    const deployTitle = !deployability.canDeploy
+        ? deployability.reason
+        : isSessionDirty
+            ? 'Stage these edits and deploy'
+            : 'Deploy now — staged settings apply on this deploy';
 
     return (
         <>
             <div className="service-draft-bar">
                 {hasStagedChanges && (
                     <span className="service-draft-bar-staged">
-                        Staged — will apply on next deploy
+                        {isSessionDirty
+                            ? 'Staged — plus unsaved edits'
+                            : 'Staged — deploy to apply'}
                     </span>
                 )}
                 {isSessionDirty && (
@@ -242,7 +286,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                         <button
                             type="button"
                             className="btn btn-ghost btn-sm"
-                            disabled={staging}
+                            disabled={actionsBusy}
                             onClick={() => setDiscardMode('session')}
                         >
                             Discard edits…
@@ -252,7 +296,7 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                         <button
                             type="button"
                             className="btn btn-ghost btn-sm"
-                            disabled={staging}
+                            disabled={actionsBusy}
                             onClick={() => setDiscardMode('staged')}
                         >
                             Discard staged…
@@ -262,8 +306,8 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                         <>
                             <button
                                 type="button"
-                                className="btn btn-primary btn-sm"
-                                disabled={staging}
+                                className={`btn btn-sm ${applyNowPrimary ? 'btn-ghost' : 'btn-primary'}`}
+                                disabled={actionsBusy}
                                 onClick={() => void runStage(false)}
                             >
                                 {staging ? <Loader2 size={14} className="spin"/> : null}
@@ -271,13 +315,27 @@ export default function ServiceDraftBar({onStaged, onDeploy}: ServiceDraftBarPro
                             </button>
                             <button
                                 type="button"
-                                className="btn btn-secondary btn-sm"
-                                disabled={staging}
+                                className={`btn btn-sm ${applyNowPrimary ? 'btn-primary' : 'btn-secondary'}`}
+                                disabled={actionsBusy || !deployability.canDeploy}
+                                title={deployTitle}
                                 onClick={() => void runStage(true)}
                             >
+                                {pendingAction === 'deploying' ? <Loader2 size={14} className="spin"/> : <Play size={14}/>}
                                 Stage &amp; deploy
                             </button>
                         </>
+                    )}
+                    {hasStagedChanges && !isSessionDirty && (
+                        <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            disabled={actionsBusy || !deployability.canDeploy}
+                            title={deployTitle}
+                            onClick={() => void runDeploy()}
+                        >
+                            {pendingAction === 'deploying' ? <Loader2 size={14} className="spin"/> : <Play size={14}/>}
+                            {pendingAction === 'deploying' ? 'Deploying…' : 'Deploy'}
+                        </button>
                     )}
                 </div>
             </div>

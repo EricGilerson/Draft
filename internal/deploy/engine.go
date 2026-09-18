@@ -1735,6 +1735,12 @@ func (e *Engine) Stop(ctx context.Context, nodeID string) error {
 // a resume failure); a missing container deliberately falls through to the
 // normal build path, which also covers a user manually deleting the artifact.
 func (e *Engine) tryResumeStopped(ctx context.Context, nodeID string, settings map[string]string) bool {
+	// Staged settings/env only promote after a successful rebuild. Resuming
+	// the old container would leave those changes pending forever.
+	if has, err := e.store.HasStagedChanges(nodeID); err == nil && has {
+		e.emitBuildLog(nodeID, "    Staged configuration present — rebuilding instead of resuming")
+		return false
+	}
 	dep, err := e.store.LatestDeployment(nodeID)
 	if err != nil || dep == nil || dep.Status != "stopped" || dep.ContainerID == "" {
 		return false
