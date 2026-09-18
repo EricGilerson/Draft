@@ -17,6 +17,9 @@ Releases page body.
 
 - MinIO template now creates the `AWS_BUCKET` (`app`) on first start so S3
   clients are not left with NoSuchBucket
+- MinIO template stamps `AWS_ALLOW_HTTP=true` and path-style addressing so
+  LanceDB / rust object_store clients can use the `http://` S3 endpoint
+  (bucket create alone still left those clients with BadScheme)
 
 ### Changed
 

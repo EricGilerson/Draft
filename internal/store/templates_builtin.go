@@ -608,9 +608,16 @@ CMD ["nginx", "-g", "daemon off;"]
 		// service_port routes the console (9001, browser-facing); the S3 API
 		// stays at the image's fixed 9000 and is reached by sibling containers
 		// directly over the Docker network.
+		//
+		// S3_ENDPOINT / AWS_ENDPOINT_URL are http:// (Docker network, no TLS).
+		// boto3 accepts that; rust object_store / LanceDB reject it with
+		// BadScheme unless AWS_ALLOW_HTTP=true. Virtual-hosted-style would
+		// also break on Draft's dotted *.draft.local hostnames, so stamp
+		// path-style. These live on the MinIO node so siblings can
+		// @{Bucket.AWS_ALLOW_HTTP} the same way they copy the endpoint.
 		Entrypoint:  "/bin/sh",
 		CmdOverride: minioStartCmd,
-		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"}]`,
+		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ENDPOINT_URL","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"},{"key":"AWS_ALLOW_HTTP","value":"true","scope":"runtime"},{"key":"AWS_VIRTUAL_HOSTED_STYLE_REQUEST","value":"false","scope":"runtime"}]`,
 	},
 	{
 		Name:        "RabbitMQ",

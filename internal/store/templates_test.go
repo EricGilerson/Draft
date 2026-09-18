@@ -363,11 +363,18 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 			mustNotLit:  []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		},
 		{
-			name:        "MinIO",
-			mustHave:    []string{"MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BUCKET"},
-			mustExpr:    []string{"MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_SECRET_ACCESS_KEY"},
-			mustLiteral: map[string]string{"MINIO_ROOT_USER": "minioadmin", "AWS_ACCESS_KEY_ID": "minioadmin", "AWS_REGION": "us-east-1", "AWS_BUCKET": "app"},
-			mustNotLit:  []string{"MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"},
+			name:     "MinIO",
+			mustHave: []string{"MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BUCKET", "AWS_ALLOW_HTTP", "AWS_VIRTUAL_HOSTED_STYLE_REQUEST"},
+			mustExpr: []string{"MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ENDPOINT_URL", "AWS_SECRET_ACCESS_KEY"},
+			mustLiteral: map[string]string{
+				"MINIO_ROOT_USER":                  "minioadmin",
+				"AWS_ACCESS_KEY_ID":                "minioadmin",
+				"AWS_REGION":                       "us-east-1",
+				"AWS_BUCKET":                       "app",
+				"AWS_ALLOW_HTTP":                   "true",
+				"AWS_VIRTUAL_HOSTED_STYLE_REQUEST": "false",
+			},
+			mustNotLit: []string{"MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"},
 		},
 	}
 	for _, c := range cases {
@@ -458,6 +465,15 @@ func TestBuiltinMinIOTemplateCreatesDefaultBucket(t *testing.T) {
 	keys := templateEnvKeys(t, minio)
 	if keys["AWS_BUCKET"] != "app" {
 		t.Errorf("AWS_BUCKET = %q, want app", keys["AWS_BUCKET"])
+	}
+	if keys["AWS_ALLOW_HTTP"] != "true" {
+		t.Errorf("AWS_ALLOW_HTTP = %q, want true (LanceDB/object_store http://)", keys["AWS_ALLOW_HTTP"])
+	}
+	if keys["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"] != "false" {
+		t.Errorf("AWS_VIRTUAL_HOSTED_STYLE_REQUEST = %q, want false", keys["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"])
+	}
+	if !strings.Contains(keys["AWS_ENDPOINT_URL"], "{{draft.internal_hostname}}") {
+		t.Errorf("AWS_ENDPOINT_URL should match S3_ENDPOINT, got %q", keys["AWS_ENDPOINT_URL"])
 	}
 }
 

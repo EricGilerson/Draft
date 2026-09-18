@@ -259,6 +259,15 @@ func TestStampMinIOSeedsBucketCreateCommand(t *testing.T) {
 	if byKey["AWS_BUCKET"].Value != "app" {
 		t.Errorf("AWS_BUCKET = %q, want app", byKey["AWS_BUCKET"].Value)
 	}
+	if byKey["AWS_ALLOW_HTTP"].Value != "true" {
+		t.Errorf("AWS_ALLOW_HTTP = %q, want true", byKey["AWS_ALLOW_HTTP"].Value)
+	}
+	if byKey["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"].Value != "false" {
+		t.Errorf("AWS_VIRTUAL_HOSTED_STYLE_REQUEST = %q, want false", byKey["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"].Value)
+	}
+	if byKey["AWS_ENDPOINT_URL"].Value == "" || !strings.Contains(byKey["AWS_ENDPOINT_URL"].Value, ":9000") {
+		t.Errorf("AWS_ENDPOINT_URL = %q, want http://…:9000", byKey["AWS_ENDPOINT_URL"].Value)
+	}
 }
 
 func TestStampHTTPDatastoresStayHTTP(t *testing.T) {

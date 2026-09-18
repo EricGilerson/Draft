@@ -594,6 +594,15 @@ func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 	if env["AWS_BUCKET"] != "app" {
 		t.Fatalf("AWS_BUCKET = %q, want app", env["AWS_BUCKET"])
 	}
+	if env["AWS_ALLOW_HTTP"] != "true" {
+		t.Fatalf("AWS_ALLOW_HTTP = %q, want true", env["AWS_ALLOW_HTTP"])
+	}
+	if env["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"] != "false" {
+		t.Fatalf("AWS_VIRTUAL_HOSTED_STYLE_REQUEST = %q, want false", env["AWS_VIRTUAL_HOSTED_STYLE_REQUEST"])
+	}
+	if !strings.Contains(env["AWS_ENDPOINT_URL"], ":9000") {
+		t.Fatalf("AWS_ENDPOINT_URL should target internal :9000, got %q", env["AWS_ENDPOINT_URL"])
+	}
 
 	inspect, err := cli.ContainerInspect(context.Background(), dep.ContainerID)
 	if err != nil {
