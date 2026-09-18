@@ -322,6 +322,14 @@ func (e *Exporter) buildService(node store.CanvasNode, envKey string, project *s
 			}
 			continue
 		}
+		if k == "dockerfile" {
+			rel, r := exportDockerfile(v, project.Path)
+			rep.Merge(r)
+			if rel != "" {
+				outSettings[k] = rel
+			}
+			continue
+		}
 		if k == "env_file" {
 			if IsProjectRelative(v) {
 				outSettings[k] = NormalizeRelative(v)
@@ -422,6 +430,35 @@ func exportServiceRoot(value, projectPath string, include bool) (rel string, nee
 	rep.Add(KindManual, "service_root_absolute", "service_root",
 		"Service root was outside the project and omitted; choose a path on import.")
 	return "", true, "", rep
+}
+
+// exportDockerfile rewrites a Dockerfile setting into a portable
+// project-relative path. Relative values are kept. Absolute paths under the
+// project are rewritten (same policy as service_root). Absolute paths outside
+// the project are omitted so another machine is not left with a dead path.
+func exportDockerfile(value, projectPath string) (rel string, rep Report) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", rep
+	}
+	if IsProjectRelative(value) {
+		return NormalizeRelative(value), rep
+	}
+	if projectPath != "" {
+		absProj, err1 := filepath.Abs(projectPath)
+		absVal, err2 := filepath.Abs(value)
+		if err1 == nil && err2 == nil {
+			if r, err := filepath.Rel(absProj, absVal); err == nil && IsProjectRelative(r) {
+				rel = NormalizeRelative(r)
+				rep.Add(KindTransformed, "dockerfile_relativized", "dockerfile",
+					"Absolute Dockerfile path was rewritten as project-relative "+rel+".")
+				return rel, rep
+			}
+		}
+	}
+	rep.Add(KindManual, "dockerfile_absolute", "dockerfile",
+		"Dockerfile path was outside the project and omitted; set it in Settings after import.")
+	return "", rep
 }
 
 func portableServiceLink(raw string, index map[string]envIndex, st *store.Store) (*ServiceLinkPayload, Report) {

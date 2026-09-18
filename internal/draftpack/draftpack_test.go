@@ -170,6 +170,91 @@ func TestExportImportEnvironmentRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExportRelativizesDockerfile(t *testing.T) {
+	s := testStore(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(root, "backend")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	project, err := s.CreateProject("p", root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, _ := s.GetDefaultEnvironment(project.ID)
+
+	absNode, _ := s.CreateNode(&store.CanvasNode{
+		ID: "svc-df-abs", Label: "abs", ProjectID: project.ID, EnvironmentID: env.ID,
+	})
+	_ = s.SetNodeSetting(absNode.ID, "dockerfile", filepath.Join(root, "Dockerfile"))
+	_ = s.SetNodeSetting(absNode.ID, "service_port", "8000")
+
+	nestedNode, _ := s.CreateNode(&store.CanvasNode{
+		ID: "svc-df-nested", Label: "nested", ProjectID: project.ID, EnvironmentID: env.ID,
+	})
+	_ = s.SetNodeSetting(nestedNode.ID, "dockerfile", filepath.Join(nestedDir, "Dockerfile"))
+	_ = s.SetNodeSetting(nestedNode.ID, "service_port", "8000")
+
+	relNode, _ := s.CreateNode(&store.CanvasNode{
+		ID: "svc-df-rel", Label: "rel", ProjectID: project.ID, EnvironmentID: env.ID,
+	})
+	_ = s.SetNodeSetting(relNode.ID, "dockerfile", "Dockerfile")
+	_ = s.SetNodeSetting(relNode.ID, "service_port", "8000")
+
+	outside := t.TempDir()
+	outNode, _ := s.CreateNode(&store.CanvasNode{
+		ID: "svc-df-out", Label: "out", ProjectID: project.ID, EnvironmentID: env.ID,
+	})
+	_ = s.SetNodeSetting(outNode.ID, "dockerfile", filepath.Join(outside, "Dockerfile"))
+	_ = s.SetNodeSetting(outNode.ID, "service_port", "8000")
+
+	ex := &Exporter{Store: s}
+	pack, err := ex.ExportEnvironment(env.ID, DefaultExportOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byLabel := map[string]ServicePayload{}
+	for _, svc := range pack.Services {
+		byLabel[svc.Label] = svc
+	}
+
+	if got := byLabel["abs"].Settings["dockerfile"]; got != "Dockerfile" {
+		t.Fatalf("abs dockerfile = %q, want Dockerfile", got)
+	}
+	if got := byLabel["nested"].Settings["dockerfile"]; got != "backend/Dockerfile" {
+		t.Fatalf("nested dockerfile = %q, want backend/Dockerfile", got)
+	}
+	if got := byLabel["rel"].Settings["dockerfile"]; got != "Dockerfile" {
+		t.Fatalf("rel dockerfile = %q, want Dockerfile", got)
+	}
+	if _, ok := byLabel["out"].Settings["dockerfile"]; ok {
+		t.Fatal("outside dockerfile should be omitted")
+	}
+
+	var sawRelativized, sawOmitted bool
+	for _, n := range pack.Report.Notes {
+		if n.Code == "dockerfile_relativized" {
+			sawRelativized = true
+		}
+		if n.Code == "dockerfile_absolute" {
+			sawOmitted = true
+		}
+	}
+	if !sawRelativized {
+		t.Fatal("expected dockerfile_relativized note")
+	}
+	if !sawOmitted {
+		t.Fatal("expected dockerfile_absolute note")
+	}
+}
+
 func TestExportOmitsAbsoluteServiceRoot(t *testing.T) {
 	s := testStore(t)
 	root := t.TempDir()

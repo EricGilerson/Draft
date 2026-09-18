@@ -11,6 +11,18 @@ Releases page body.
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-09-18
+
+### Fixed
+
+- Draft pack export rewrites an absolute Dockerfile path under the project as
+  project-relative (same policy as `service_root`), so another machine is not
+  left with `/Users/.../Dockerfile`. Paths outside the project are omitted.
+
+### Changed
+
+- Bump desktop product version to 0.0.7
+
 ## [0.0.6] - 2026-09-18
 
 ### Fixed
