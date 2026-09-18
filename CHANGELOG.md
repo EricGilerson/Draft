@@ -25,6 +25,10 @@ Releases page body.
 ### Changed
 
 - Picking a Dockerfile with `EXPOSE` fills the container port when none is set
+- MinIO built-in image is now `coollabsio/minio:latest`, with `AWS_BUCKET=app`
+  stamped for S3 clients
+- MongoDB built-in image is now `mongo:8`, with a single `/data/db` volume
+  (no unused `/data/configdb` mount)
 - Bump desktop product version to 0.0.5
 
 ## [0.0.4] - 2026-07-22

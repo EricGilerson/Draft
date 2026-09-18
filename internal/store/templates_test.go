@@ -433,6 +433,21 @@ func TestBuiltinMongoTemplateAuthViaEnvWithAuthSource(t *testing.T) {
 	if mongo == nil {
 		t.Fatal("MongoDB built-in not seeded")
 	}
+	if mongo.Image != "mongo:8" {
+		t.Errorf("MongoDB image = %q, want mongo:8", mongo.Image)
+	}
+	vols, err := ParseTemplateVolumes(mongo.Volumes)
+	if err != nil {
+		t.Fatalf("MongoDB volumes: %v", err)
+	}
+	if len(vols) != 1 || vols[0].ContainerPath != "/data/db" {
+		t.Errorf("MongoDB should mount only /data/db, got %+v", vols)
+	}
+	for _, v := range vols {
+		if strings.Contains(v.ContainerPath, "configdb") {
+			t.Errorf("standalone MongoDB must not mount configdb, got %q", v.ContainerPath)
+		}
+	}
 	// The official mongo entrypoint auto-enables --auth when both ROOT_* vars
 	// are set, so — unlike Redis — no CmdOverride should be present.
 	if mongo.CmdOverride != "" {

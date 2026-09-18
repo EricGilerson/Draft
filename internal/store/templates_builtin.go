@@ -100,7 +100,7 @@ var (
 	postgresImageTags = `["16-alpine","16","15-alpine","15","14-alpine","14","latest"]`
 	redisImageTags    = `["7-alpine","7","6-alpine","6","latest"]`
 	mysqlImageTags    = `["8","8.0","8-debian","latest"]`
-	mongoImageTags    = `["7","7-jammy","6","6-jammy","latest"]`
+	mongoImageTags    = `["8","8.0","7","7-jammy","latest"]`
 )
 
 // Default volume mounts for the datastore built-ins. Each is a Draft-managed
@@ -110,9 +110,12 @@ var (
 // would lose all data. Targets match each official image's documented data
 // directory so the entrypoint writes into the mounted volume.
 var (
-	postgresVolumes    = `[{"type":"volume","containerPath":"/var/lib/postgresql/data"}]`
-	mysqlVolumes       = `[{"type":"volume","containerPath":"/var/lib/mysql"}]`
-	mongoVolumes       = `[{"type":"volume","containerPath":"/data/db"},{"type":"volume","containerPath":"/data/configdb"}]`
+	postgresVolumes = `[{"type":"volume","containerPath":"/var/lib/postgresql/data"}]`
+	mysqlVolumes    = `[{"type":"volume","containerPath":"/var/lib/mysql"}]`
+	// Standalone mongod only needs /data/db. /data/configdb is the config-server
+	// path (--configsvr); mounting it on a single-node template creates a second
+	// unused volume and does not hold auth/data.
+	mongoVolumes       = `[{"type":"volume","containerPath":"/data/db"}]`
 	redisVolumes       = `[{"type":"volume","containerPath":"/data"}]`
 	minioVolumes       = `[{"type":"volume","containerPath":"/data"}]`
 	rabbitmqVolumes    = `[{"type":"volume","containerPath":"/var/lib/rabbitmq"}]`
@@ -564,7 +567,7 @@ CMD ["nginx", "-g", "daemon off;"]
 		Icon:            "mongodb",
 		Color:           "#47A248",
 		Mode:            "image",
-		Image:           "mongo:7",
+		Image:           "mongo:8",
 		Port:            27017,
 		Schema:          imageTemplateSchema,
 		ImageTags:       mongoImageTags,
@@ -572,20 +575,22 @@ CMD ["nginx", "-g", "daemon off;"]
 		DefaultSettings: tcpWireDefaults("27017"),
 		// Setting both MONGO_INITDB_ROOT_* vars makes the official entrypoint
 		// create a root user in the `admin` database and auto-enable --auth, so
-		// no CmdOverride is needed (unlike Redis). The connection URL uses
-		// authSource=admin because that's where the root user lives. The root
-		// username is the conventional `root` (independent of the project), and
-		// MONGO_INITDB_DATABASE seeds an `appdb` for the app to use.
+		// no CmdOverride is needed (unlike Redis). Those vars only apply when
+		// /data/db is empty — leftover volumes from a previous node keep the
+		// old password. The connection URL uses authSource=admin because that's
+		// where the root user lives. The root username is the conventional
+		// `root` (independent of the project), and MONGO_INITDB_DATABASE seeds
+		// an `appdb` for the app to use.
 		EnvVars: `[{"key":"MONGO_INITDB_ROOT_USERNAME","value":"root","scope":"runtime"},{"key":"MONGO_INITDB_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"MONGO_INITDB_DATABASE","value":"appdb","scope":"runtime"},{"key":"DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.internal_hostname}}:{{draft.service_port}}/appdb?authSource=admin","scope":"runtime"},{"key":"PUBLIC_DATABASE_URL","value":"mongodb://root:{{draft.password}}@{{draft.public_url}}/appdb?authSource=admin","scope":"runtime"}]`,
 	},
 	{
 		Name:        "MinIO",
-		Description: "S3-compatible object storage with a web console. Runs from the official image.",
+		Description: "S3-compatible object storage with a web console. Runs from coollabsio/minio.",
 		Category:    "datastore",
 		Icon:        "minio",
 		Color:       "#C72E49",
 		Mode:        "image",
-		Image:       "minio/minio:latest",
+		Image:       "coollabsio/minio:latest",
 		Port:        9001,
 		Schema:      imageTemplateSchema,
 		ImageTags:   minioImageTags,
@@ -595,8 +600,11 @@ CMD ["nginx", "-g", "daemon off;"]
 		// the S3 API stays at the image's fixed 9000 and is reached by sibling
 		// containers directly over the Docker network, same as any other
 		// container-to-container port that Draft doesn't need to proxy to the host.
+		// AWS_BUCKET is the S3 client bucket name (Laravel/AWS SDK). coollabsio/minio
+		// does not auto-create buckets (MINIO_DEFAULT_BUCKETS is Bitnami-only); create
+		// `app` in the console or with mc on first run.
 		CmdOverride: `server /data --console-address ":9001"`,
-		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"}]`,
+		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"}]`,
 	},
 	{
 		Name:        "RabbitMQ",
