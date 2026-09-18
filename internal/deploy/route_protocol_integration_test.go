@@ -81,6 +81,15 @@ func waitRunning(t *testing.T, col *eventCollector, nodeID string, timeout time.
 
 func dockerExec(t *testing.T, cli *client.Client, containerID string, cmd []string) string {
 	t.Helper()
+	stdout, stderr, code := dockerExecResult(t, cli, containerID, cmd)
+	if code != 0 {
+		t.Fatalf("exec %v exit %d\nstdout=%s\nstderr=%s", cmd, code, stdout, stderr)
+	}
+	return stdout
+}
+
+func dockerExecResult(t *testing.T, cli *client.Client, containerID string, cmd []string) (stdout, stderr string, exitCode int) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	execID, err := cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
@@ -96,16 +105,35 @@ func dockerExec(t *testing.T, cli *client.Client, containerID string, cmd []stri
 		t.Fatalf("exec attach: %v", err)
 	}
 	defer attach.Close()
-	var stdout, stderr strings.Builder
-	_, _ = stdcopy.StdCopy(&stdout, &stderr, attach.Reader)
+	var outBuf, errBuf strings.Builder
+	_, _ = stdcopy.StdCopy(&outBuf, &errBuf, attach.Reader)
 	inspect, err := cli.ContainerExecInspect(ctx, execID.ID)
 	if err != nil {
 		t.Fatalf("exec inspect: %v", err)
 	}
-	if inspect.ExitCode != 0 {
-		t.Fatalf("exec %v exit %d\nstdout=%s\nstderr=%s", cmd, inspect.ExitCode, stdout.String(), stderr.String())
+	return outBuf.String(), errBuf.String(), inspect.ExitCode
+}
+
+func waitMinIOBucket(t *testing.T, cli *client.Client, containerID, user, pass, bucket string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var lastOut, lastErr string
+	var lastCode int
+	for time.Now().Before(deadline) {
+		_, _, aliasCode := dockerExecResult(t, cli, containerID, []string{
+			"mc", "alias", "set", "local", "http://127.0.0.1:9000", user, pass,
+		})
+		if aliasCode == 0 {
+			lastOut, lastErr, lastCode = dockerExecResult(t, cli, containerID, []string{
+				"mc", "ls", "local/" + bucket,
+			})
+			if lastCode == 0 {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	return stdout.String()
+	t.Fatalf("MinIO bucket %q not ready within %s (last exit %d)\nstdout=%s\nstderr=%s", bucket, timeout, lastCode, lastOut, lastErr)
 }
 
 func waitTCP(t *testing.T, addr string, timeout time.Duration) {
@@ -563,9 +591,21 @@ func TestIntegrationMinIOHTTPConsoleHybrid(t *testing.T) {
 	if !strings.Contains(env["S3_ENDPOINT"], ":9000") {
 		t.Fatalf("S3_ENDPOINT should target internal :9000, got %q", env["S3_ENDPOINT"])
 	}
+	if env["AWS_BUCKET"] != "app" {
+		t.Fatalf("AWS_BUCKET = %q, want app", env["AWS_BUCKET"])
+	}
+
+	inspect, err := cli.ContainerInspect(context.Background(), dep.ContainerID)
+	if err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	if len(inspect.Config.Entrypoint) != 1 || inspect.Config.Entrypoint[0] != "/bin/sh" {
+		t.Fatalf("Entrypoint = %v, want [/bin/sh]", inspect.Config.Entrypoint)
+	}
 
 	// Console port should accept TCP (HTTP server).
 	waitTCP(t, fmt.Sprintf("127.0.0.1:%d", ev.HostPort), 2*time.Minute)
+	waitMinIOBucket(t, cli, dep.ContainerID, env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["AWS_BUCKET"], 2*time.Minute)
 	// GET / may redirect; any HTTP response proves proxy/host path.
 	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", ev.HostPort))
 	if err != nil {

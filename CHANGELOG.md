@@ -11,6 +11,17 @@ Releases page body.
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-09-18
+
+### Fixed
+
+- MinIO template now creates the `AWS_BUCKET` (`app`) on first start so S3
+  clients are not left with NoSuchBucket
+
+### Changed
+
+- Bump desktop product version to 0.0.6
+
 ## [0.0.5] - 2026-09-18
 
 ### Fixed

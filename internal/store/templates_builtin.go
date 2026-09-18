@@ -123,6 +123,12 @@ var (
 	clickhouseVolumes  = `[{"type":"volume","containerPath":"/var/lib/clickhouse"}]`
 )
 
+// PID 1 is sh: start MinIO, trap stop signals, wait until the S3 API
+// answers, then create $AWS_BUCKET (default app) with the bundled mc.
+// Quoted as `sh -c '…'` so shellSplit yields ["-c", "<script>"] and the
+// script can use "$MINIO_ROOT_USER" / trap "…" without quote collisions.
+const minioStartCmd = `-c 'minio server /data --console-address :9001 & pid=$!; trap "kill $pid; wait $pid" TERM INT; i=0; while [ $i -lt 90 ]; do mc alias set local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 && mc ls local >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.5; done; mc mb --ignore-existing "local/${AWS_BUCKET:-app}"; wait $pid'`
+
 var (
 	minioImageTags       = `["latest"]`
 	rabbitmqImageTags    = `["3-management-alpine","3-management","3.13-management-alpine","latest"]`
@@ -595,15 +601,15 @@ CMD ["nginx", "-g", "daemon off;"]
 		Schema:      imageTemplateSchema,
 		ImageTags:   minioImageTags,
 		Volumes:     minioVolumes,
-		// MinIO's entrypoint needs explicit args: the data dir and the console
-		// bind address. service_port routes the console (9001, browser-facing);
-		// the S3 API stays at the image's fixed 9000 and is reached by sibling
-		// containers directly over the Docker network, same as any other
-		// container-to-container port that Draft doesn't need to proxy to the host.
-		// AWS_BUCKET is the S3 client bucket name (Laravel/AWS SDK). coollabsio/minio
-		// does not auto-create buckets (MINIO_DEFAULT_BUCKETS is Bitnami-only); create
-		// `app` in the console or with mc on first run.
-		CmdOverride: `server /data --console-address ":9001"`,
+		// MinIO's image entrypoint prepends `minio` and does not create buckets.
+		// Override it with /bin/sh so we can start the server, wait for the S3
+		// API, then `mc mb` the client bucket (AWS_BUCKET, default app) — the
+		// same contract as POSTGRES_DB. coollabsio/minio already ships `mc`.
+		// service_port routes the console (9001, browser-facing); the S3 API
+		// stays at the image's fixed 9000 and is reached by sibling containers
+		// directly over the Docker network.
+		Entrypoint:  "/bin/sh",
+		CmdOverride: minioStartCmd,
 		EnvVars:     `[{"key":"MINIO_ROOT_USER","value":"minioadmin","scope":"runtime"},{"key":"MINIO_ROOT_PASSWORD","value":"{{draft.password}}","scope":"runtime"},{"key":"S3_ENDPOINT","value":"http://{{draft.internal_hostname}}:9000","scope":"runtime"},{"key":"AWS_ACCESS_KEY_ID","value":"minioadmin","scope":"runtime"},{"key":"AWS_SECRET_ACCESS_KEY","value":"{{draft.password}}","scope":"runtime"},{"key":"AWS_REGION","value":"us-east-1","scope":"runtime"},{"key":"AWS_BUCKET","value":"app","scope":"runtime"}]`,
 	},
 	{

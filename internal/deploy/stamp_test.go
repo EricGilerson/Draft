@@ -209,6 +209,58 @@ func TestStampWireTemplatesDefaultToTCP(t *testing.T) {
 	}
 }
 
+func TestStampMinIOSeedsBucketCreateCommand(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	tpl := findBuiltin(t, s, "MinIO")
+
+	if _, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+		ID:            "obj1",
+		Label:         "obj",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		TemplateID:    tpl.ID,
+	}); err != nil {
+		t.Fatalf("CreateNodeFromTemplate: %v", err)
+	}
+
+	settings, _ := s.GetNodeSettings("obj1")
+	if settings["entrypoint_override"] != "/bin/sh" {
+		t.Errorf("entrypoint_override = %q, want /bin/sh", settings["entrypoint_override"])
+	}
+	o := parseContainerOverrides(settings)
+	if len(o.Entrypoint) != 1 || o.Entrypoint[0] != "/bin/sh" {
+		t.Errorf("Entrypoint = %v, want [/bin/sh]", o.Entrypoint)
+	}
+	if len(o.Cmd) != 2 || o.Cmd[0] != "-c" {
+		t.Fatalf("Cmd = %v, want [-c <script>]", o.Cmd)
+	}
+	script := o.Cmd[1]
+	if !strings.Contains(script, "mc mb --ignore-existing") {
+		t.Errorf("start script must create the bucket via mc mb, got %q", script)
+	}
+	if !strings.Contains(script, "${AWS_BUCKET:-app}") {
+		t.Errorf("start script must use AWS_BUCKET, got %q", script)
+	}
+	if strings.Contains(script, "{{draft.") {
+		t.Errorf("start script should not leave unresolved template exprs, got %q", script)
+	}
+
+	vars, err := s.ListEnvVars("obj1")
+	if err != nil {
+		t.Fatalf("ListEnvVars: %v", err)
+	}
+	byKey := map[string]store.EnvVar{}
+	for _, v := range vars {
+		byKey[v.Key] = v
+	}
+	if byKey["AWS_BUCKET"].Value != "app" {
+		t.Errorf("AWS_BUCKET = %q, want app", byKey["AWS_BUCKET"].Value)
+	}
+}
+
 func TestStampHTTPDatastoresStayHTTP(t *testing.T) {
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)

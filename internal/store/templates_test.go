@@ -362,6 +362,13 @@ func TestBuiltinDBTemplatesExposeFullVarSet(t *testing.T) {
 			mustLiteral: map[string]string{"MONGO_INITDB_ROOT_USERNAME": "root", "MONGO_INITDB_DATABASE": "appdb"},
 			mustNotLit:  []string{"MONGO_INITDB_ROOT_PASSWORD"},
 		},
+		{
+			name:        "MinIO",
+			mustHave:    []string{"MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BUCKET"},
+			mustExpr:    []string{"MINIO_ROOT_PASSWORD", "S3_ENDPOINT", "AWS_SECRET_ACCESS_KEY"},
+			mustLiteral: map[string]string{"MINIO_ROOT_USER": "minioadmin", "AWS_ACCESS_KEY_ID": "minioadmin", "AWS_REGION": "us-east-1", "AWS_BUCKET": "app"},
+			mustNotLit:  []string{"MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"},
+		},
 	}
 	for _, c := range cases {
 		tpl, ok := byName[c.name]
@@ -414,6 +421,43 @@ func TestBuiltinRedisTemplateEnforcesAuthViaCmdOverride(t *testing.T) {
 	}
 	if !strings.Contains(redis.CmdOverride, "{{draft.password}}") {
 		t.Errorf("Redis CmdOverride must use {{draft.password}}, got %q", redis.CmdOverride)
+	}
+}
+
+func TestBuiltinMinIOTemplateCreatesDefaultBucket(t *testing.T) {
+	s := openTemp(t)
+	list, err := s.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	var minio *ServiceTemplate
+	for i := range list {
+		if list[i].Name == "MinIO" {
+			minio = &list[i]
+			break
+		}
+	}
+	if minio == nil {
+		t.Fatal("MinIO built-in not seeded")
+	}
+	if minio.Image != "coollabsio/minio:latest" {
+		t.Errorf("MinIO image = %q, want coollabsio/minio:latest", minio.Image)
+	}
+	if minio.Entrypoint != "/bin/sh" {
+		t.Errorf("MinIO Entrypoint = %q, want /bin/sh (bucket-create wrapper)", minio.Entrypoint)
+	}
+	if !strings.Contains(minio.CmdOverride, "mc mb --ignore-existing") {
+		t.Errorf("MinIO CmdOverride must create the client bucket via mc mb, got %q", minio.CmdOverride)
+	}
+	if !strings.Contains(minio.CmdOverride, "${AWS_BUCKET:-app}") {
+		t.Errorf("MinIO CmdOverride must create $AWS_BUCKET (default app), got %q", minio.CmdOverride)
+	}
+	if !strings.Contains(minio.CmdOverride, "minio server /data") {
+		t.Errorf("MinIO CmdOverride must still start the server, got %q", minio.CmdOverride)
+	}
+	keys := templateEnvKeys(t, minio)
+	if keys["AWS_BUCKET"] != "app" {
+		t.Errorf("AWS_BUCKET = %q, want app", keys["AWS_BUCKET"])
 	}
 }
 
