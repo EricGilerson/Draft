@@ -3,6 +3,7 @@ package deploy
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"Draft/internal/githooks"
@@ -10,8 +11,53 @@ import (
 )
 
 // loadEffectiveSettings returns applied settings merged with staged overrides.
+// Template-owned cmd/entrypoint/working_dir that still use {{draft.*}} in the
+// template body are rehydrated against the current node identity so pack import
+// (new UID) cannot leave Redis --requirepass on an old password while
+// generated REDIS_URL is re-derived for the new identity.
 func (e *Engine) loadEffectiveSettings(nodeID string) (map[string]string, error) {
-	return e.store.EffectiveNodeSettings(nodeID)
+	settings, err := e.store.EffectiveNodeSettings(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return e.withRehydratedTemplateSettings(nodeID, settings), nil
+}
+
+// withRehydratedTemplateSettings returns a copy of settings with template-
+// authored {{draft.*}} command fields resolved for nodeID. Does not write the
+// store; restampTemplateOwnedIdentityValues persists the same values after import.
+func (e *Engine) withRehydratedTemplateSettings(nodeID string, settings map[string]string) map[string]string {
+	if settings == nil {
+		return nil
+	}
+	out := make(map[string]string, len(settings)+3)
+	for k, v := range settings {
+		out[k] = v
+	}
+	node, err := e.store.GetNode(nodeID)
+	if err != nil || node.TemplateID == 0 {
+		return out
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return out
+	}
+	for key, raw := range map[string]string{
+		"cmd_override":        tpl.CmdOverride,
+		"entrypoint_override": tpl.Entrypoint,
+		"working_dir":         tpl.WorkingDir,
+	} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !strings.Contains(raw, "{{draft.") {
+			continue
+		}
+		resolved, err := e.ResolveNodeTemplateExprs(nodeID, raw)
+		if err != nil {
+			continue
+		}
+		out[key] = resolved
+	}
+	return out
 }
 
 // loadEffectiveEnvVars returns applied env vars merged with staged changes.

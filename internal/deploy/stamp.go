@@ -432,6 +432,57 @@ func (e *Engine) refreshTemplateGeneratedEnvVars(nodeID string) error {
 	return nil
 }
 
+// restampTemplateOwnedIdentityValues rewrites generated env vars and any
+// template cmd/entrypoint/working_dir that contain {{draft.*}} against the
+// node's current identity (project/env/service/uid).
+//
+// Pack import assigns a new UID while copying already-expanded literals from
+// the source machine. Deploy rehydrates generated env from the template, so
+// without this restamp Redis can start with the pack's --requirepass while
+// REDIS_URL carries a newly derived password. Call after import (and any path
+// that changes identity without a full template reapply).
+func (e *Engine) restampTemplateOwnedIdentityValues(nodeID string) error {
+	if e.store == nil {
+		return fmt.Errorf("store is not available")
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return nil
+	}
+	if err := e.refreshTemplateGeneratedEnvVars(nodeID); err != nil {
+		return err
+	}
+	node, err := e.store.GetNode(nodeID)
+	if err != nil {
+		return err
+	}
+	if node.TemplateID == 0 {
+		return nil
+	}
+	tpl, err := e.store.GetTemplate(node.TemplateID)
+	if err != nil {
+		return fmt.Errorf("template not found: %w", err)
+	}
+	for key, raw := range map[string]string{
+		"cmd_override":        tpl.CmdOverride,
+		"entrypoint_override": tpl.Entrypoint,
+		"working_dir":         tpl.WorkingDir,
+	} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" || !strings.Contains(raw, "{{draft.") {
+			continue
+		}
+		resolved, err := e.ResolveNodeTemplateExprs(nodeID, raw)
+		if err != nil {
+			return fmt.Errorf("resolve setting %q: %w", key, err)
+		}
+		if err := e.store.SetNodeSetting(nodeID, key, resolved); err != nil {
+			return fmt.Errorf("stamp setting %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // restampTemplateOwnedGeneratedValues refreshes template-owned generated values
 // after a service stops being a shared alias or after a copied service becomes
 // its own independent node. Only generated env vars are rewritten outright;

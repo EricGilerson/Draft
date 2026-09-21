@@ -379,3 +379,105 @@ func hasWarning(warnings []string, needle string) bool {
 	}
 	return false
 }
+
+// TestRedisIdentityRestampKeepsRequirepassAlignedWithEnv covers the pack-import
+// failure mode: cmd_override still has the source machine's --requirepass while
+// generated REDIS_* env is re-derived for the new UID at deploy.
+func TestRedisIdentityRestampKeepsRequirepassAlignedWithEnv(t *testing.T) {
+	s := openTestStore(t)
+	e, _ := newTestEngine(t, s)
+	if err := s.SeedBuiltins(); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	p := createStampProject(t, s, dir)
+	tpl := findBuiltin(t, s, "Redis")
+
+	res, err := e.CreateNodeFromTemplate(CreateNodeFromTemplateRequest{
+		ID:            "redis1",
+		Label:         "Redis",
+		ProjectID:     p.ID,
+		EnvironmentID: defaultEnvID(t, s, p.ID),
+		TemplateID:    tpl.ID,
+	})
+	if err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	// Disable auto-start side effects are already kicked off for image mode;
+	// settings/env are what we care about.
+
+	settings, err := s.GetNodeSettings(res.Node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := settings["cmd_override"]
+	if !strings.Contains(cmd, "--requirepass ") {
+		t.Fatalf("cmd_override = %q", cmd)
+	}
+	pwEnv, err := s.GetEnvVar(res.Node.ID, "REDIS_PASSWORD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pwEnv.Source != store.EnvSourceGenerated {
+		t.Fatalf("REDIS_PASSWORD source = %q", pwEnv.Source)
+	}
+	if !strings.Contains(cmd, pwEnv.Value) {
+		t.Fatalf("stamped cmd %q does not embed REDIS_PASSWORD %q", cmd, pwEnv.Value)
+	}
+
+	// Simulate pack import: leave cmd on an old password, leave generated env
+	// pointing at a different old password (what export shipped).
+	const stalePass = "aaaaaaaaaaaaaaaaaaaaaaaa"
+	staleCmd := "redis-server --requirepass " + stalePass + " --appendonly yes"
+	if err := s.SetNodeSetting(res.Node.ID, "cmd_override", staleCmd); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"REDIS_PASSWORD", "REDIS_URL", "PUBLIC_REDIS_URL"} {
+		ev, err := s.GetEnvVar(res.Node.ID, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		val := strings.ReplaceAll(ev.Value, pwEnv.Value, stalePass)
+		if key == "REDIS_PASSWORD" {
+			val = stalePass
+		}
+		if err := s.UpsertEnvVar(store.EnvVar{
+			NodeID: res.Node.ID, Key: key, Value: val, Scope: store.EnvScopeRuntime,
+			Source: store.EnvSourceGenerated, Secret: ev.Secret,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := e.restampTemplateOwnedIdentityValues(res.Node.ID); err != nil {
+		t.Fatalf("restamp: %v", err)
+	}
+
+	settings, _ = s.GetNodeSettings(res.Node.ID)
+	cmd = settings["cmd_override"]
+	pwEnv, _ = s.GetEnvVar(res.Node.ID, "REDIS_PASSWORD")
+	if strings.Contains(cmd, stalePass) {
+		t.Fatalf("cmd still has stale password: %q", cmd)
+	}
+	if pwEnv.Value == stalePass {
+		t.Fatalf("REDIS_PASSWORD still stale: %q", pwEnv.Value)
+	}
+	if !strings.Contains(cmd, pwEnv.Value) {
+		t.Fatalf("after restamp cmd %q missing password %q", cmd, pwEnv.Value)
+	}
+
+	// Deploy-time settings load must also rehydrate without writing the store.
+	if err := s.SetNodeSetting(res.Node.ID, "cmd_override", staleCmd); err != nil {
+		t.Fatal(err)
+	}
+	eff, err := e.loadEffectiveSettings(res.Node.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(eff["cmd_override"], stalePass) {
+		t.Fatalf("effective cmd still stale: %q", eff["cmd_override"])
+	}
+	if !strings.Contains(eff["cmd_override"], pwEnv.Value) {
+		t.Fatalf("effective cmd %q missing live password %q", eff["cmd_override"], pwEnv.Value)
+	}
+}

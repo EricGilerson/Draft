@@ -26,6 +26,13 @@ Releases page body.
   Monorepos and sibling-repo layouts with local/relative submodule URLs no
   longer fail on Git 2.38+ with `transport 'file' not allowed` when module
   objects are not already cached. The user's git config is left unchanged.
+- Draft pack import and deploy keep template identity secrets aligned when a
+  service gets a new UID. Generated env (e.g. `REDIS_URL`) was already
+  re-derived from `{{draft.password}}` at deploy, but `cmd_override` (e.g.
+  Redis `--requirepass`) stayed on the pack’s old expanded password — Celery
+  then failed with `invalid username-password pair`. Import now restamps
+  template-owned env + command fields, and deploy rehydrates those command
+  settings from the template against the current node identity.
 
 ### Changed
 

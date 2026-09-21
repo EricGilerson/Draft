@@ -106,6 +106,7 @@ func (e *Engine) ImportDraftPack(path string, opts DraftPackImportOptions) (*Dra
 	if err != nil {
 		return nil, err
 	}
+	e.restampImportedPackNodes(res)
 	e.applyImportStartAfter(context.Background(), res, opts.StartAfter)
 	return res, nil
 }
@@ -133,8 +134,23 @@ func (e *Engine) ImportDraftPackJSON(data []byte, opts DraftPackImportOptions) (
 	if err != nil {
 		return nil, err
 	}
+	e.restampImportedPackNodes(res)
 	e.applyImportStartAfter(context.Background(), res, opts.StartAfter)
 	return res, nil
+}
+
+// restampImportedPackNodes realigns template-owned passwords/commands after
+// import assigns new UIDs. Failures are non-fatal notes on the import report
+// so a single bad service does not undo the pack.
+func (e *Engine) restampImportedPackNodes(res *DraftPackImportResult) {
+	if res == nil || e == nil {
+		return
+	}
+	for _, nodeID := range res.NodeIDs {
+		if err := e.restampTemplateOwnedIdentityValues(nodeID); err != nil {
+			res.Report.Add(draftpack.KindManual, "identity_restamp_failed", nodeID, err.Error())
+		}
+	}
 }
 
 // applyImportStartAfter runs StackStart for every imported environment when
