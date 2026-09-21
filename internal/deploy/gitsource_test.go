@@ -396,11 +396,6 @@ func TestGitDeploy_AbsoluteDockerfileResolves(t *testing.T) {
 // TestPrepareGitSource_IncludesSubmodules verifies the checkout path expands
 // gitlinks from the local modules cache into the ephemeral workspace.
 func TestPrepareGitSource_IncludesSubmodules(t *testing.T) {
-	// prepareGitSource may shell out to git submodule update without runGitIn.
-	t.Setenv("GIT_CONFIG_COUNT", "1")
-	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
-	t.Setenv("GIT_CONFIG_VALUE_0", "always")
-
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 

@@ -21,6 +21,11 @@ Releases page body.
   with exit 255 (`exec …: no such file or directory`) while the previous
   deployment was left running. Draft now forces `core.autocrlf=false` on every
   archive and build-context worktree path.
+- Git-branch deploys that fall back to a worktree + `submodule update --init`
+  now pass `-c protocol.file.allow=always` on that Draft-owned command only.
+  Monorepos and sibling-repo layouts with local/relative submodule URLs no
+  longer fail on Git 2.38+ with `transport 'file' not allowed` when module
+  objects are not already cached. The user's git config is left unchanged.
 
 ### Changed
 

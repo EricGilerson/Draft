@@ -33,16 +33,6 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return string(out)
 }
 
-// allowFileProtocolEnv sets process env so child git processes (including
-// production helpers like CheckoutWithSubmodules) can clone local-path
-// submodule URLs used by fixtures. t.Setenv cleans up after the test.
-func allowFileProtocolEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_CONFIG_COUNT", "1")
-	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
-	t.Setenv("GIT_CONFIG_VALUE_0", "always")
-}
-
 // newTestRepo creates a repo with an initial commit on main containing
 // README.md, then returns the repo dir.
 func newTestRepo(t *testing.T) string {

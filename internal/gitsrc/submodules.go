@@ -358,6 +358,11 @@ func writeArchiveWithSubmodulesAt(ctx context.Context, worktreeOrGitDir, gitDir,
 // `git submodule update --init --recursive` so submodule trees match the
 // recorded gitlinks. The parent working tree is not modified. The caller must
 // invoke cleanup when finished (removes the worktree registration and directory).
+//
+// The submodule update passes -c protocol.file.allow=always so monorepos that
+// record local/relative submodule URLs still initialize on Git 2.38+, where
+// the file protocol is blocked by default. The flag applies only to this
+// Draft-owned command; the user's git config is left unchanged.
 func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktreePath string, cleanup func(), err error) {
 	if !IsRepo(repoPath) {
 		return "", nil, ErrNotRepo
@@ -399,7 +404,7 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 		return "", nil, fmt.Errorf("git worktree add: %s", msg)
 	}
 
-	subCmd := executil.CommandContext(ctx, "git", "-C", wtDir, "submodule", "update", "--init", "--recursive")
+	subCmd := executil.CommandContext(ctx, "git", submoduleUpdateArgs(wtDir)...)
 	var subErr bytes.Buffer
 	subCmd.Stderr = &subErr
 	subCmd.Stdout = &subErr
@@ -413,6 +418,16 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 	}
 
 	return wtDir, cleanup, nil
+}
+
+// submoduleUpdateArgs is the full argv after "git" for Draft-owned submodule
+// init. Exported shape stays internal; tests assert the file-protocol allow.
+func submoduleUpdateArgs(worktreePath string) []string {
+	return []string{
+		"-c", submoduleFileProtocolAllow,
+		"-C", worktreePath,
+		"submodule", "update", "--init", "--recursive",
+	}
 }
 
 func resolveGitDir(ctx context.Context, path string) (string, error) {

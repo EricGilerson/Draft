@@ -236,6 +236,14 @@ func UpstreamRef(ctx context.Context, path, branch string) string {
 // non-existent interpreter.
 const archiveAutocrlfOff = "core.autocrlf=false"
 
+// submoduleFileProtocolAllow is passed only on Draft-owned
+// `git submodule update --init` invocations. Git 2.38+ blocks the file
+// protocol by default; monorepos and sibling-repo layouts often record
+// relative or absolute local submodule URLs, and Draft must still be able to
+// materialize them when .git/modules is cold. Scoped to Draft's command — not
+// written into the user's git config.
+const submoduleFileProtocolAllow = "protocol.file.allow=always"
+
 // ArchiveCommandArgs returns the full argv after "git" for a byte-stable
 // archive of treeish from a work tree at repoPath. Callers that shell out to
 // git archive (including the deploy stream path) must use this — or the same

@@ -17,9 +17,9 @@ import (
 // holds the recorded commit.
 func newRepoWithSubmodule(t *testing.T) (parent, child string) {
 	t.Helper()
-	// Also cover production helpers (CheckoutWithSubmodules) that shell out to
-	// git without our runGit -c wrapper.
-	allowFileProtocolEnv(t)
+	// Fixture setup uses runGit (-c protocol.file.allow=always). Production
+	// CheckoutWithSubmodules carries the same -c on submodule update, so tests
+	// that wipe .git/modules do not need process-wide GIT_CONFIG env.
 
 	child = t.TempDir()
 	runGit(t, child, "init", "-b", "main", "-q")
@@ -164,6 +164,11 @@ func TestSubmoduleObjectsAvailable_FalseWhenModulesMissing(t *testing.T) {
 }
 
 func TestCheckoutWithSubmodules_FetchesMissingModules(t *testing.T) {
+	// Ensure production path does not depend on ambient GIT_CONFIG_* env.
+	t.Setenv("GIT_CONFIG_COUNT", "")
+	t.Setenv("GIT_CONFIG_KEY_0", "")
+	t.Setenv("GIT_CONFIG_VALUE_0", "")
+
 	parent, _ := newRepoWithSubmodule(t)
 	gitDir, err := resolveGitDir(context.Background(), parent)
 	if err != nil {
@@ -192,6 +197,20 @@ func TestCheckoutWithSubmodules_FetchesMissingModules(t *testing.T) {
 	// into the caller's checkout for this assertion — cleanup should leave parent usable.
 	if _, err := os.Stat(filepath.Join(parent, "root.txt")); err != nil {
 		t.Fatalf("parent root missing: %v", err)
+	}
+}
+
+func TestSubmoduleUpdateArgs_AllowsFileProtocol(t *testing.T) {
+	args := submoduleUpdateArgs("/tmp/wt")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "protocol.file.allow=always") {
+		t.Fatalf("missing file protocol allow: %v", args)
+	}
+	if !strings.Contains(joined, "submodule") || !strings.Contains(joined, "update") {
+		t.Fatalf("missing submodule update: %v", args)
+	}
+	if !strings.Contains(joined, "--init") || !strings.Contains(joined, "--recursive") {
+		t.Fatalf("missing init/recursive: %v", args)
 	}
 }
 

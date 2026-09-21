@@ -33,11 +33,8 @@ func runGitRepo(t *testing.T, dir string, args ...string) {
 // a Dockerfile that fails the build unless vendor/lib/marker.txt is present.
 func submoduleFixture(t *testing.T) (parent, child string) {
 	t.Helper()
-	// Production resolvePinnedGitSource may call CheckoutWithSubmodules, which
-	// shells out to git without runGitRepo's -c wrapper.
-	t.Setenv("GIT_CONFIG_COUNT", "1")
-	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
-	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+	// runGitRepo supplies -c for fixture submodule add. Production
+	// CheckoutWithSubmodules supplies -c protocol.file.allow=always on update.
 
 	child = t.TempDir()
 	runGitRepo(t, child, "init", "-b", "main", "-q")
