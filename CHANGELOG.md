@@ -38,6 +38,11 @@ Releases page body.
   store after daemon teardown. A half-finished delete could leave the project
   name and folder path reserved so re-import reported both as already in use
   even when the project no longer appeared in the UI.
+- Draft pack import no longer flashes false “already taken” warnings on the
+  unique names and cleared host ports it just assigned. Auto-applied collision
+  fixes are filtered from the UI immediately, re-preview no longer loops off
+  its own `setPreview`, and Import & start ignores in-flight previews that
+  would race the rows being created.
 
 ### Changed
 

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {ClipboardPaste, FileUp, FolderOpen, Loader2, Package} from 'lucide-react';
 import Dialog from './Dialog';
 import ConfigReport from './ConfigReport';
@@ -25,6 +25,55 @@ type Props = {
 };
 
 type SourceMode = 'file' | 'paste';
+
+/** True when the form already carries a fix for this collision (auto-seed or user edit). */
+function collisionResolvedByForm(
+    c: draftpack.Collision,
+    projectName: string,
+    projectPath: string,
+    serviceLabels: Record<string, string>,
+    hostPorts: Record<string, string>,
+): boolean {
+    switch (c.kind) {
+        case 'project_name': {
+            const name = projectName.trim();
+            if (!name) return false;
+            // Resolved once the field no longer holds the conflicting value.
+            return name !== (c.current || '').trim();
+        }
+        case 'project_path': {
+            const path = projectPath.trim();
+            if (!path) return false;
+            return path !== (c.current || '').trim();
+        }
+        case 'service_label': {
+            const override = (serviceLabels[c.field] ?? '').trim();
+            if (!override) return false;
+            return override !== (c.current || '').trim();
+        }
+        case 'host_port': {
+            // Explicit override (including empty = clear fixed port) resolves the clash.
+            if (!Object.prototype.hasOwnProperty.call(hostPorts, c.field)) return false;
+            const port = (hostPorts[c.field] ?? '').trim();
+            if (port === '') return true;
+            return port !== (c.current || '').trim();
+        }
+        default:
+            return false;
+    }
+}
+
+function filterUnresolvedCollisions(
+    collisions: draftpack.Collision[] | undefined,
+    projectName: string,
+    projectPath: string,
+    serviceLabels: Record<string, string>,
+    hostPorts: Record<string, string>,
+): draftpack.Collision[] {
+    return (collisions ?? []).filter(
+        (c) => !collisionResolvedByForm(c, projectName, projectPath, serviceLabels, hostPorts),
+    );
+}
 
 export default function ImportDraftPackDialog({projectId, environmentId, onClose, onImported}: Props) {
     const [sourceMode, setSourceMode] = useState<SourceMode>('file');
@@ -58,6 +107,14 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     const [importedEnvId, setImportedEnvId] = useState<number | undefined>(undefined);
     const {alert} = useAppDialog();
 
+    // Keep latest selection/services out of the re-preview effect deps so setPreview
+    // cannot re-trigger the effect (that loop races import and invents false collisions).
+    const previewServicesRef = useRef<draftpack.ServiceSummary[]>([]);
+    const selectedKeysRef = useRef(selectedKeys);
+    selectedKeysRef.current = selectedKeys;
+    const busyRef = useRef(busy);
+    busyRef.current = busy;
+
     const hasSource = sourceMode === 'file' ? !!path : !!activeJSON;
 
     const selectedServiceKeys = useCallback((): string[] => {
@@ -76,8 +133,18 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         onClose();
     };
 
-    const buildPreviewOptions = useCallback((): draftpack.PreviewOptions => {
-        const keys = selectedServiceKeys();
+    const buildPreviewOptions = useCallback((serviceKeys?: string[]): draftpack.PreviewOptions => {
+        const all = previewServicesRef.current;
+        let keys = serviceKeys;
+        if (!keys) {
+            if (all.length === 0) {
+                keys = [];
+            } else if (Object.keys(selectedKeysRef.current).length === 0) {
+                keys = all.map((s) => s.key);
+            } else {
+                keys = all.map((s) => s.key).filter((k) => selectedKeysRef.current[k] !== false);
+            }
+        }
         return draftpack.PreviewOptions.createFrom({
             mode,
             projectId: projectId || 0,
@@ -90,7 +157,7 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
             envImportMode: mode === 'intoProject' ? envImportMode : undefined,
             layoutMode,
         });
-    }, [mode, projectId, targetEnvId, environmentId, projectName, projectPath, serviceLabels, hostPorts, envImportMode, layoutMode, selectedServiceKeys]);
+    }, [mode, projectId, targetEnvId, environmentId, projectName, projectPath, serviceLabels, hostPorts, envImportMode, layoutMode]);
 
     const runPreview = useCallback(async (opts: draftpack.PreviewOptions, filePath?: string, jsonText?: string) => {
         if (jsonText != null && jsonText.trim() !== '') {
@@ -103,10 +170,9 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     }, []);
 
     const applyPreviewSeed = async (pv: draftpack.ImportPreview, keepSelection = false) => {
-        setPreview(pv);
-        const name = pv.suggestedProjectName || pv.projectName || 'imported';
-        setProjectName(name);
+        previewServicesRef.current = pv.services ?? [];
 
+        let name = pv.suggestedProjectName || pv.projectName || 'imported';
         if (!keepSelection) {
             const sel: Record<string, boolean> = {};
             for (const s of pv.services ?? []) {
@@ -126,6 +192,8 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         }
         setServiceRoots(roots);
 
+        // Auto-apply unique-field suggestions into the form, then drop those collisions
+        // from the visible preview so we never flash "taken" on names we just assigned.
         const labels: Record<string, string> = {};
         const ports: Record<string, string> = {};
         for (const c of pv.collisions ?? []) {
@@ -136,11 +204,18 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                 ports[c.field] = '';
             }
             if (c.kind === 'project_name' && c.suggested) {
-                setProjectName(c.suggested);
+                name = c.suggested;
             }
         }
+        setProjectName(name);
         setServiceLabels(labels);
         setHostPorts(ports);
+
+        const unresolved = filterUnresolvedCollisions(pv.collisions, name, projectPath, labels, ports);
+        const seeded = draftpack.ImportPreview.createFrom(pv);
+        seeded.collisions = unresolved;
+        seeded.hasBlockingCollision = unresolved.some((c) => c.blocking);
+        setPreview(seeded);
 
         // Auto-link secret keys that already exist as app secrets.
         const links: Record<string, string> = {};
@@ -163,8 +238,10 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     // Re-check collisions when mode / target / identity fields change.
+    // Intentionally omits `preview` from deps: writing preview must not re-fire this
+    // effect (that loop races Import & start and reports the just-created rows as taken).
     useEffect(() => {
-        if (!hasSource || resultReport) return;
+        if (!hasSource || resultReport || busy) return;
         let cancelled = false;
         (async () => {
             try {
@@ -174,13 +251,28 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                     sourceMode === 'file' ? path : undefined,
                     sourceMode === 'paste' ? (activeJSON ?? undefined) : undefined,
                 );
-                if (!cancelled) setPreview(pv);
+                // Import may have started while the request was in flight — discard.
+                if (cancelled || busyRef.current) return;
+                previewServicesRef.current = pv.services ?? [];
+                const unresolved = filterUnresolvedCollisions(
+                    pv.collisions,
+                    projectName,
+                    projectPath,
+                    serviceLabels,
+                    hostPorts,
+                );
+                const next = draftpack.ImportPreview.createFrom(pv);
+                next.collisions = unresolved;
+                next.hasBlockingCollision = unresolved.some((c) => c.blocking);
+                setPreview(next);
             } catch {
                 /* keep last preview */
             }
         })();
         return () => { cancelled = true; };
-    }, [hasSource, path, activeJSON, sourceMode, mode, targetEnvId, projectName, projectPath, serviceLabels, hostPorts, buildPreviewOptions, resultReport, runPreview]);
+        // selectedKeys is read via ref inside buildPreviewOptions; a fingerprint keeps
+        // uncheck/check re-previews without depending on the preview object itself.
+    }, [hasSource, path, activeJSON, sourceMode, mode, targetEnvId, projectName, projectPath, serviceLabels, hostPorts, envImportMode, layoutMode, selectedKeys, buildPreviewOptions, resultReport, busy, runPreview]);
 
     const switchSourceMode = (next: SourceMode) => {
         if (next === sourceMode) return;
@@ -279,6 +371,15 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
         if (!preview || !hasSource) return;
         setBusy(true);
         setError(null);
+        // Hide collision UI for the duration of import. Concurrent previews would otherwise
+        // see the rows we just created and flash false "already taken" warnings.
+        setPreview((prev) => {
+            if (!prev) return prev;
+            const cleared = draftpack.ImportPreview.createFrom(prev);
+            cleared.collisions = [];
+            cleared.hasBlockingCollision = false;
+            return cleared;
+        });
         try {
             const labels = {...serviceLabels};
             const ports = {...hostPorts};
@@ -345,14 +446,35 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
                     sourceMode === 'file' ? path : undefined,
                     sourceMode === 'paste' ? (activeJSON ?? undefined) : undefined,
                 );
-                setPreview(pv);
+                const unresolved = filterUnresolvedCollisions(
+                    pv.collisions,
+                    projectName,
+                    projectPath,
+                    serviceLabels,
+                    hostPorts,
+                );
+                const next = draftpack.ImportPreview.createFrom(pv);
+                next.collisions = unresolved;
+                next.hasBlockingCollision = unresolved.some((c) => c.blocking);
+                setPreview(next);
             } catch { /* ignore */ }
         } finally {
             setBusy(false);
         }
     };
 
-    const hasBlocking = !!preview?.hasBlockingCollision;
+    // Belt-and-suspenders: never show clashes the form has already fixed (auto-seed or edit).
+    const collisions = useMemo(
+        () => filterUnresolvedCollisions(
+            preview?.collisions,
+            projectName,
+            projectPath,
+            serviceLabels,
+            hostPorts,
+        ),
+        [preview?.collisions, projectName, projectPath, serviceLabels, hostPorts],
+    );
+    const hasBlocking = collisions.some((c) => c.blocking);
     const anyServiceSelected = selectedServiceKeys().length > 0;
     const canImport = !!preview && !busy && !resultReport && !hasBlocking && hasSource && anyServiceSelected && (
         mode === 'newProject'
@@ -367,8 +489,6 @@ export default function ImportDraftPackDialog({projectId, environmentId, onClose
     };
 
     const existingSecretSet = new Set(preview?.existingAppSecrets ?? []);
-
-    const collisions = preview?.collisions ?? [];
 
     const footer = (
         <div className="dialog-footer-row">
