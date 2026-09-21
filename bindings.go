@@ -1609,15 +1609,35 @@ func (a *App) UpdateProject(id uint, name, description string) error {
 
 // DeleteProject removes a project and every service in it. Draft-managed
 // volumes are left in place and surface as orphans in the Volumes tab.
+//
+// Docker teardown goes through the daemon; the local app store is always
+// cleared afterward. ListProjects reads the app store, so a daemon-only
+// delete that left rows (or a UI that dropped the project from memory while
+// SQLite still had the name/path) blocked re-import with false collisions.
 func (a *App) DeleteProject(id uint) error {
+	var daemonErr error
 	c, err := a.ensureDaemon()
 	if err != nil {
-		return err
+		daemonErr = err
+	} else if c == nil {
+		daemonErr = errNoStore
+	} else {
+		daemonErr = c.DeleteProject(a.ctx, id)
 	}
-	if c == nil {
-		return errNoStore
+	// Always purge the app-side store so name/path uniqueness and ListProjects
+	// match reality even when the daemon path failed partway or the UI already
+	// dismissed the project.
+	if a.store != nil {
+		if storeErr := a.store.DeleteProject(id); storeErr != nil {
+			if daemonErr != nil {
+				return fmt.Errorf("delete project: daemon: %v; store: %w", daemonErr, storeErr)
+			}
+			return storeErr
+		}
+	} else if daemonErr != nil {
+		return daemonErr
 	}
-	return c.DeleteProject(a.ctx, id)
+	return nil
 }
 
 // ListProjectEnvVars returns project-level shared values referenced via

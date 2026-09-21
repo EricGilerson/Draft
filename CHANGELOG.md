@@ -33,6 +33,11 @@ Releases page body.
   then failed with `invalid username-password pair`. Import now restamps
   template-owned env + command fields, and deploy rehydrates those command
   settings from the template against the current node identity.
+- Project delete fully cascades staged settings/env, deployment inputs, and
+  related rows in one transaction, and the desktop app always clears its local
+  store after daemon teardown. A half-finished delete could leave the project
+  name and folder path reserved so re-import reported both as already in use
+  even when the project no longer appeared in the UI.
 
 ### Changed
 

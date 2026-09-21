@@ -126,64 +126,100 @@ func (s *Store) UpdateProject(id uint, name, description string) error {
 }
 
 // DeleteProject cascades a project out of the store: every node and its
-// settings/env/deployments, every route and port lease, project-level env
-// vars, and finally the project row. The caller (engine) is responsible for
-// stopping containers and removing Docker volumes/images first; this only
-// handles the DB side.
+// settings/env/deployments/staged rows, every route and port lease,
+// project-level env vars, sandboxes, environments, and finally the project
+// row. The caller (engine) is responsible for stopping containers and removing
+// Docker volumes/images first; this only handles the DB side.
+//
+// Runs in one transaction so a mid-cascade failure cannot leave the project
+// name/path reserved while child rows are half-gone (which blocks re-import).
 func (s *Store) DeleteProject(id uint) error {
-	nodes, err := s.ListNodes(id)
-	if err != nil {
-		return err
-	}
-	for _, n := range nodes {
-		if err := s.DeleteNode(n.ID); err != nil {
+	return s.DB.Transaction(func(tx *gorm.DB) error {
+		var nodeIDs []string
+		if err := tx.Model(&CanvasNode{}).Where("project_id = ?", id).Pluck("id", &nodeIDs).Error; err != nil {
 			return err
 		}
-		if err := s.DeleteNodeSettings(n.ID); err != nil {
+		for _, nodeID := range nodeIDs {
+			if err := deleteNodeCascadeTx(tx, nodeID); err != nil {
+				return err
+			}
+		}
+		// Project-scoped rows (also covers any deployment/route that used project_id
+		// without a surviving node id).
+		if err := tx.Where("project_id = ?", id).Delete(&Deployment{}).Error; err != nil {
 			return err
 		}
-		if err := s.DeleteEnvVarsByNode(n.ID); err != nil {
+		if err := tx.Where("project_id = ?", id).Delete(&Route{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&PortLease{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&ProjectEnvVar{}).Error; err != nil {
+			return err
+		}
+		var sandboxIDs []uint
+		if err := tx.Model(&Sandbox{}).Where("project_id = ?", id).Pluck("id", &sandboxIDs).Error; err != nil {
+			return err
+		}
+		if len(sandboxIDs) > 0 {
+			if err := tx.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxLink{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxRepositorySource{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&SandboxTestRun{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&Sandbox{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&SandboxProfile{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&SandboxProjectSettings{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&Environment{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&Project{}, "id = ?", id).Error
+	})
+}
+
+// deleteNodeCascadeTx removes one node and every store row keyed by node_id.
+func deleteNodeCascadeTx(tx *gorm.DB, nodeID string) error {
+	var depIDs []uint
+	if err := tx.Model(&Deployment{}).Where("node_id = ?", nodeID).Pluck("id", &depIDs).Error; err != nil {
+		return err
+	}
+	if len(depIDs) > 0 {
+		if err := tx.Where("deployment_id IN ?", depIDs).Delete(&DeploymentInput{}).Error; err != nil {
 			return err
 		}
 	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&Deployment{}).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&Deployment{}).Error; err != nil {
 		return err
 	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&Route{}).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&NodeSettingStaged{}).Error; err != nil {
 		return err
 	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&PortLease{}).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&EnvVarStaged{}).Error; err != nil {
 		return err
 	}
-	if err := s.DeleteProjectEnvVars(id); err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&NodeSetting{}).Error; err != nil {
 		return err
 	}
-	var sandboxIDs []uint
-	if err := s.DB.Model(&Sandbox{}).Where("project_id = ?", id).Pluck("id", &sandboxIDs).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&EnvVar{}).Error; err != nil {
 		return err
 	}
-	if len(sandboxIDs) > 0 {
-		if err := s.DB.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxLink{}).Error; err != nil {
-			return err
-		}
-		if err := s.DB.Where("sandbox_id IN ?", sandboxIDs).Delete(&SandboxRepositorySource{}).Error; err != nil {
-			return err
-		}
-	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&SandboxTestRun{}).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&Route{}).Error; err != nil {
 		return err
 	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&Sandbox{}).Error; err != nil {
+	if err := tx.Where("node_id = ?", nodeID).Delete(&PortLease{}).Error; err != nil {
 		return err
 	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&SandboxProfile{}).Error; err != nil {
-		return err
-	}
-	if err := s.DB.Delete(&SandboxProjectSettings{}, "project_id = ?", id).Error; err != nil {
-		return err
-	}
-	if err := s.DB.Where("project_id = ?", id).Delete(&Environment{}).Error; err != nil {
-		return err
-	}
-	return s.DB.Delete(&Project{}, "id = ?", id).Error
+	return tx.Delete(&CanvasNode{}, "id = ?", nodeID).Error
 }
