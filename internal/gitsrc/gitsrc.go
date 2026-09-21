@@ -223,6 +223,32 @@ func UpstreamRef(ctx context.Context, path, branch string) string {
 	return "origin/" + branch
 }
 
+// archiveAutocrlfOff is passed to every `git archive` (and detached worktree
+// checkout used as a build context) so exported bytes stay repository-
+// canonical (LF) even when the host has core.autocrlf=true.
+//
+// On Windows, a bare `git archive` rewrites text-attributed paths to CRLF.
+// Docker then fails shell entrypoints with exit 255:
+//
+//	exec /app/docker-entrypoint.sh: no such file or directory
+//
+// because the shebang becomes "#!/bin/sh\r" and the kernel looks for a
+// non-existent interpreter.
+const archiveAutocrlfOff = "core.autocrlf=false"
+
+// ArchiveCommandArgs returns the full argv after "git" for a byte-stable
+// archive of treeish from a work tree at repoPath. Callers that shell out to
+// git archive (including the deploy stream path) must use this — or the same
+// -c core.autocrlf=false prefix — so Windows hosts do not CRLF-smash scripts.
+func ArchiveCommandArgs(repoPath, treeish string) []string {
+	return []string{"-c", archiveAutocrlfOff, "-C", repoPath, "archive", "--format=tar", treeish}
+}
+
+// archiveCommandGitDir is the --git-dir form used for bare module object stores.
+func archiveCommandGitDir(gitDir, treeish string) []string {
+	return []string{"-c", archiveAutocrlfOff, "--git-dir", gitDir, "archive", "--format=tar", treeish}
+}
+
 // ArchiveToDir exports the tree of ref from the repository at repoPath into
 // destDir, which must already exist. It never reads or modifies repoPath's
 // working tree or index — only committed content reachable from ref is
@@ -257,7 +283,7 @@ func ArchiveToDir(ctx context.Context, repoPath, treeish, destDir string) error 
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := executil.CommandContext(ctx, "git", "-C", repoPath, "archive", "--format=tar", treeish)
+	cmd := executil.CommandContext(ctx, "git", ArchiveCommandArgs(repoPath, treeish)...)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -1,7 +1,10 @@
 package gitsrc
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,9 +13,15 @@ import (
 )
 
 // runGit runs git in dir, failing the test on error.
+//
+// Always passes -c protocol.file.allow=always. Git 2.38+ blocks file-protocol
+// clones by default; repo-local `git config protocol.file.allow always` is not
+// enough for `submodule add` of a sibling temp-dir path (the clone subprocess
+// still rejects transport 'file'). Command-line -c is required.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	full := append([]string{"-c", "protocol.file.allow=always", "-C", dir}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
@@ -22,6 +31,16 @@ func runGit(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return string(out)
+}
+
+// allowFileProtocolEnv sets process env so child git processes (including
+// production helpers like CheckoutWithSubmodules) can clone local-path
+// submodule URLs used by fixtures. t.Setenv cleans up after the test.
+func allowFileProtocolEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
 }
 
 // newTestRepo creates a repo with an initial commit on main containing
@@ -351,6 +370,137 @@ func TestArchiveToDir_Subtree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, "README.md")); !os.IsNotExist(err) {
 		t.Fatalf("subtree export must not include root README.md")
+	}
+}
+
+func TestArchiveCommandArgs_DisablesAutocrlf(t *testing.T) {
+	args := ArchiveCommandArgs("/repo", "main:backend")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "core.autocrlf=false") {
+		t.Fatalf("ArchiveCommandArgs missing autocrlf off: %v", args)
+	}
+	if !strings.Contains(joined, "archive") || !strings.Contains(joined, "--format=tar") {
+		t.Fatalf("ArchiveCommandArgs missing archive flags: %v", args)
+	}
+	if got := args[len(args)-1]; got != "main:backend" {
+		t.Fatalf("treeish = %q, want main:backend", got)
+	}
+}
+
+// TestArchiveToDir_PreservesLFDespiteHostAutocrlf guards the Windows failure
+// mode where `git archive` rewrites shell scripts to CRLF when the host has
+// core.autocrlf=true. Docker then fails ENTRYPOINT shebangs with exit 255:
+// "exec /app/docker-entrypoint.sh: no such file or directory".
+func TestArchiveToDir_PreservesLFDespiteHostAutocrlf(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main", "-q")
+	// Simulate a typical Windows developer machine: autocrlf on, with
+	// text attributes that mark shell scripts for conversion.
+	runGit(t, repo, "config", "core.autocrlf", "true")
+	writeFile(t, filepath.Join(repo, ".gitattributes"), "*.sh text eol=lf\n*.py text\n")
+	// Write LF bytes explicitly (os.WriteFile, not a text editor).
+	script := "#!/bin/sh\nset -eu\nexec python -m structora_service\n"
+	writeFile(t, filepath.Join(repo, "docker-entrypoint.sh"), script)
+	writeFile(t, filepath.Join(repo, "app.py"), "print('ok')\n")
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "entrypoint with LF")
+
+	// Sanity: a bare git archive on this host may rewrite to CRLF. If it does
+	// not (e.g. autocrlf already false globally and ignored), the regression
+	// still asserts our path keeps LF.
+	bare := exec.Command("git", "-C", repo, "archive", "--format=tar", "main")
+	bare.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	bareOut, bareErr := bare.Output()
+	if bareErr != nil {
+		t.Fatalf("bare git archive: %v", bareErr)
+	}
+	bareBytes := tarFileBytes(t, bareOut, "docker-entrypoint.sh")
+	if bytes.Contains(bareBytes, []byte("\r\n")) {
+		t.Logf("confirmed host bare git archive rewrites shell script to CRLF (%d bytes)", len(bareBytes))
+	}
+
+	dest := t.TempDir()
+	if err := ArchiveToDir(context.Background(), repo, "main", dest); err != nil {
+		t.Fatalf("ArchiveToDir: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(dest, "docker-entrypoint.sh"))
+	if err != nil {
+		t.Fatalf("read archived entrypoint: %v", err)
+	}
+	if bytes.Contains(got, []byte("\r\n")) {
+		t.Fatalf("ArchiveToDir emitted CRLF in docker-entrypoint.sh (shebang would break in Linux containers):\n%q", got)
+	}
+	if !bytes.Equal(got, []byte(script)) {
+		t.Fatalf("archived entrypoint = %q, want %q", got, script)
+	}
+
+	// Stream path used by deploy: ArchiveCommandArgs must match ArchiveToDir.
+	cmd := exec.Command("git", ArchiveCommandArgs(repo, "main")...)
+	cmd.Env = bare.Env
+	streamOut, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("ArchiveCommandArgs git archive: %v", err)
+	}
+	streamBytes := tarFileBytes(t, streamOut, "docker-entrypoint.sh")
+	if bytes.Contains(streamBytes, []byte("\r\n")) {
+		t.Fatalf("stream archive emitted CRLF in docker-entrypoint.sh: %q", streamBytes)
+	}
+	if !bytes.Equal(streamBytes, []byte(script)) {
+		t.Fatalf("stream entrypoint = %q, want %q", streamBytes, script)
+	}
+}
+
+// TestCheckoutWithSubmodules_PreservesLFDespiteHostAutocrlf covers the
+// non-stream build path that materializes a detached worktree.
+func TestCheckoutWithSubmodules_PreservesLFDespiteHostAutocrlf(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main", "-q")
+	runGit(t, repo, "config", "core.autocrlf", "true")
+	writeFile(t, filepath.Join(repo, ".gitattributes"), "*.sh text eol=lf\n")
+	script := "#!/bin/sh\nset -eu\necho ok\n"
+	writeFile(t, filepath.Join(repo, "docker-entrypoint.sh"), script)
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-q", "-m", "entrypoint")
+
+	wt, cleanup, err := CheckoutWithSubmodules(context.Background(), repo, "main")
+	if err != nil {
+		t.Fatalf("CheckoutWithSubmodules: %v", err)
+	}
+	defer cleanup()
+
+	got, err := os.ReadFile(filepath.Join(wt, "docker-entrypoint.sh"))
+	if err != nil {
+		t.Fatalf("read worktree entrypoint: %v", err)
+	}
+	if bytes.Contains(got, []byte("\r\n")) {
+		t.Fatalf("worktree checkout emitted CRLF in docker-entrypoint.sh: %q", got)
+	}
+	if !bytes.Equal(got, []byte(script)) {
+		t.Fatalf("worktree entrypoint = %q, want %q", got, script)
+	}
+}
+
+func tarFileBytes(t *testing.T, tarData []byte, name string) []byte {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(tarData))
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			t.Fatalf("tar missing %q", name)
+		}
+		if err != nil {
+			t.Fatalf("tar read: %v", err)
+		}
+		if hdr.Name == name || strings.TrimPrefix(hdr.Name, "./") == name {
+			data, err := io.ReadAll(tr)
+			if err != nil {
+				t.Fatalf("read %q: %v", name, err)
+			}
+			return data
+		}
 	}
 }
 

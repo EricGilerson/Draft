@@ -17,6 +17,10 @@ import (
 // holds the recorded commit.
 func newRepoWithSubmodule(t *testing.T) (parent, child string) {
 	t.Helper()
+	// Also cover production helpers (CheckoutWithSubmodules) that shell out to
+	// git without our runGit -c wrapper.
+	allowFileProtocolEnv(t)
+
 	child = t.TempDir()
 	runGit(t, child, "init", "-b", "main", "-q")
 	runGit(t, child, "config", "core.autocrlf", "false")
@@ -27,11 +31,11 @@ func newRepoWithSubmodule(t *testing.T) (parent, child string) {
 	parent = t.TempDir()
 	runGit(t, parent, "init", "-b", "main", "-q")
 	runGit(t, parent, "config", "core.autocrlf", "false")
-	runGit(t, parent, "config", "protocol.file.allow", "always")
 	writeFile(t, filepath.Join(parent, "root.txt"), "root\n")
 	runGit(t, parent, "add", ".")
 	runGit(t, parent, "commit", "-q", "-m", "root")
 
+	// runGit supplies -c protocol.file.allow=always (required on Git 2.38+).
 	runGit(t, parent, "submodule", "add", child, "vendor/child")
 	runGit(t, parent, "commit", "-q", "-m", "add sub")
 	return parent, child
@@ -203,7 +207,6 @@ func TestMaterializeSubmodules_Nested(t *testing.T) {
 	child := t.TempDir()
 	runGit(t, child, "init", "-b", "main", "-q")
 	runGit(t, child, "config", "core.autocrlf", "false")
-	runGit(t, child, "config", "protocol.file.allow", "always")
 	writeFile(t, filepath.Join(child, "mid.txt"), "mid\n")
 	runGit(t, child, "add", ".")
 	runGit(t, child, "commit", "-q", "-m", "mid")
@@ -213,7 +216,6 @@ func TestMaterializeSubmodules_Nested(t *testing.T) {
 	parent := t.TempDir()
 	runGit(t, parent, "init", "-b", "main", "-q")
 	runGit(t, parent, "config", "core.autocrlf", "false")
-	runGit(t, parent, "config", "protocol.file.allow", "always")
 	writeFile(t, filepath.Join(parent, "root.txt"), "root\n")
 	runGit(t, parent, "add", ".")
 	runGit(t, parent, "commit", "-q", "-m", "root")
@@ -248,7 +250,6 @@ func TestMaterializeSubmodules_ContextSubtreePrefix(t *testing.T) {
 	svcParent := t.TempDir()
 	runGit(t, svcParent, "init", "-b", "main", "-q")
 	runGit(t, svcParent, "config", "core.autocrlf", "false")
-	runGit(t, svcParent, "config", "protocol.file.allow", "always")
 	writeFile(t, filepath.Join(svcParent, "svc", "app.txt"), "app\n")
 	runGit(t, svcParent, "add", ".")
 	runGit(t, svcParent, "commit", "-q", "-m", "svc")

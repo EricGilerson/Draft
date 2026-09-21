@@ -888,7 +888,9 @@ func (e *Engine) buildImageGitStream(ctx context.Context, cli *client.Client, lo
 			_ = pw.Close()
 			return
 		}
-		cmd := e.execCommand(gitCtx, "git", "-C", repoRoot, "archive", "--format=tar", treeish)
+		// ArchiveCommandArgs forces core.autocrlf=false so Windows hosts do not
+		// rewrite shell scripts to CRLF (breaks Docker ENTRYPOINT shebangs).
+		cmd := e.execCommand(gitCtx, "git", gitsrc.ArchiveCommandArgs(repoRoot, treeish)...)
 		var stderr bytes.Buffer
 		cmd.Stdout = pw
 		cmd.Stderr = &stderr

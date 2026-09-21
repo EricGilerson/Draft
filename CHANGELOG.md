@@ -11,6 +11,21 @@ Releases page body.
 
 ## [Unreleased]
 
+## [0.0.8] - 2026-09-21
+
+### Fixed
+
+- Git-branch deploys on Windows no longer rewrite shell scripts to CRLF inside
+  `git archive` / detached worktree checkouts. Hosts with `core.autocrlf=true`
+  previously produced `#!/bin/sh\r` shebangs, so containers failed readiness
+  with exit 255 (`exec …: no such file or directory`) while the previous
+  deployment was left running. Draft now forces `core.autocrlf=false` on every
+  archive and build-context worktree path.
+
+### Changed
+
+- Bump desktop product version to 0.0.8
+
 ## [0.0.7] - 2026-09-18
 
 ### Fixed

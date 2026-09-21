@@ -16,7 +16,10 @@ import (
 
 func runGitRepo(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	// -c protocol.file.allow=always: required for submodule add of local paths
+	// on Git 2.38+ (repo-local config alone is not enough).
+	full := append([]string{"-c", "protocol.file.allow=always", "-C", dir}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
@@ -30,6 +33,12 @@ func runGitRepo(t *testing.T, dir string, args ...string) {
 // a Dockerfile that fails the build unless vendor/lib/marker.txt is present.
 func submoduleFixture(t *testing.T) (parent, child string) {
 	t.Helper()
+	// Production resolvePinnedGitSource may call CheckoutWithSubmodules, which
+	// shells out to git without runGitRepo's -c wrapper.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+
 	child = t.TempDir()
 	runGitRepo(t, child, "init", "-b", "main", "-q")
 	runGitRepo(t, child, "config", "core.autocrlf", "false")
@@ -42,7 +51,6 @@ func submoduleFixture(t *testing.T) (parent, child string) {
 	parent = t.TempDir()
 	runGitRepo(t, parent, "init", "-b", "main", "-q")
 	runGitRepo(t, parent, "config", "core.autocrlf", "false")
-	runGitRepo(t, parent, "config", "protocol.file.allow", "always")
 	dockerfile := `FROM alpine:3.20
 COPY vendor/lib/marker.txt /marker.txt
 RUN grep -q from-sub-committed /marker.txt

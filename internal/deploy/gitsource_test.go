@@ -15,9 +15,13 @@ import (
 )
 
 // runGitIn runs git in dir, failing the test on error.
+//
+// Always passes -c protocol.file.allow=always so local-path submodule fixtures
+// work on Git 2.38+ (repo-local config alone is not enough for submodule add).
 func runGitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	full := append([]string{"-c", "protocol.file.allow=always", "-C", dir}, args...)
+	cmd := exec.Command("git", full...)
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t",
 		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
@@ -337,7 +341,7 @@ func TestGitStreamTreeishMatchesArchive(t *testing.T) {
 	}
 
 	// Archive that treeish and confirm the subtree is rooted at svc.
-	cmd := exec.Command("git", "-C", repo, "archive", "--format=tar", treeish)
+	cmd := exec.Command("git", gitsrc.ArchiveCommandArgs(repo, treeish)...)
 	tarBytes, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("git archive %s: %v", treeish, err)
@@ -392,6 +396,11 @@ func TestGitDeploy_AbsoluteDockerfileResolves(t *testing.T) {
 // TestPrepareGitSource_IncludesSubmodules verifies the checkout path expands
 // gitlinks from the local modules cache into the ephemeral workspace.
 func TestPrepareGitSource_IncludesSubmodules(t *testing.T) {
+	// prepareGitSource may shell out to git submodule update without runGitIn.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+
 	s := openTestStore(t)
 	e, _ := newTestEngine(t, s)
 
@@ -407,7 +416,6 @@ func TestPrepareGitSource_IncludesSubmodules(t *testing.T) {
 	repo := t.TempDir()
 	runGitIn(t, repo, "init", "-b", "main", "-q")
 	runGitIn(t, repo, "config", "core.autocrlf", "false")
-	runGitIn(t, repo, "config", "protocol.file.allow", "always")
 	if err := os.WriteFile(filepath.Join(repo, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
 		t.Fatalf("write Dockerfile: %v", err)
 	}
@@ -446,7 +454,6 @@ func TestWriteArchiveWithSubmodules_StreamContents(t *testing.T) {
 	repo := t.TempDir()
 	runGitIn(t, repo, "init", "-b", "main", "-q")
 	runGitIn(t, repo, "config", "core.autocrlf", "false")
-	runGitIn(t, repo, "config", "protocol.file.allow", "always")
 	if err := os.WriteFile(filepath.Join(repo, "app.txt"), []byte("app\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}

@@ -180,7 +180,7 @@ func ArchiveSubmoduleToDir(ctx context.Context, gitDir, sha, destDir string) err
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", sha)
+	cmd := executil.CommandContext(ctx, "git", archiveCommandGitDir(gitDir, sha)...)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -284,7 +284,7 @@ func writeArchiveWithSubmodulesAt(ctx context.Context, worktreeOrGitDir, gitDir,
 	defer os.Remove(tarPath)
 	defer tarFile.Close()
 
-	cmd := executil.CommandContext(ctx, "git", "--git-dir", gitDir, "archive", "--format=tar", treeish)
+	cmd := executil.CommandContext(ctx, "git", archiveCommandGitDir(gitDir, treeish)...)
 	cmd.Stdout = tarFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -385,7 +385,9 @@ func CheckoutWithSubmodules(ctx context.Context, repoPath, ref string) (worktree
 		_ = os.RemoveAll(wtDir)
 	}
 
-	addCmd := executil.CommandContext(ctx, "git", "-C", repoPath, "worktree", "add", "--detach", wtDir, ref)
+	// Force LF checkout so shell scripts in the temp worktree stay executable
+	// inside Linux containers even when the host uses core.autocrlf=true.
+	addCmd := executil.CommandContext(ctx, "git", "-c", archiveAutocrlfOff, "-C", repoPath, "worktree", "add", "--detach", wtDir, ref)
 	var addErr bytes.Buffer
 	addCmd.Stderr = &addErr
 	if err := addCmd.Run(); err != nil {
